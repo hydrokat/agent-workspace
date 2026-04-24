@@ -15,6 +15,7 @@ This directory contains vendor-agnostic agent definitions for role-based delegat
 
 ## Available Agents
 
+- `api-pentester`
 - `codebase_investigator`
 - `generalist`
 - `business-analyst`
