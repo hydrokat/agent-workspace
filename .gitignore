@@ -1,0 +1,33 @@
+# Ignore all by default
+*
+
+# Keep gitignore itself
+!.gitignore
+
+# Keep root base docs
+!AGENTS.md
+!README.md
+!CHANGELOG.md
+!WORKFLOW.md
+
+# Keep base source directories
+!.agents/
+!.agents/agents/
+!.agents/agents/**
+!.agents/skills/
+!.agents/skills/**
+# Ignore knowledgebase and specs directory (we don't need it right now)
+# Add it back when we need it
+# !knowledgebase/
+# !knowledgebase/**
+# !specs/
+# !specs/**
+
+# Ignore generated compatibility outputs
+.claude/
+.gemini/
+
+# Ignore secrets and local junk
+.env
+.env.*
+.DS_Store
