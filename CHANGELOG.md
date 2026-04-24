@@ -27,6 +27,7 @@ Generated compatibility artifacts under `.gemini/` and `.claude/` should not be 
 - Renamed `knowledgebase-manager` to `knowledge`.
 - Updated `knowledge` so it can be triggered with `/knowledge` and so it reviews and updates `guidelines`, `best-practices`, `business-flows`, and `context-history` as needed.
 - Updated `knowledge` to require collaboration between `business-analyst` and `technical-writer` for meaningful knowledgebase maintenance.
+- Added `find-skills` skill to find skills using the skills MP website.
 
 ### Base Agents
 - Added a vendor-agnostic agent catalog under `.agents/agents/`.
