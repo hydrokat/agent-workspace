@@ -10,7 +10,7 @@ metadata:
 
 This skill governs the structure and maintenance of the shared project intelligence in `/knowledgebase/`.
 
-Use this skill when the user invokes `/knowledge` or when a task requires updates to the workspace knowledgebase.
+Use this skill when the user invokes `/knowledge` or when a task requires updates to the workspace knowledgebase. If you detect that the workspace is Obsidian, use the obsidian-cli skill and the obsidian-markdown skill to create or update markdown files in the appropriate directories under `/knowledgebase/`.
 
 ## Collaboration Model
 
