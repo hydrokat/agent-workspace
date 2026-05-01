@@ -16,12 +16,12 @@
 !.agents/agents/**
 !.agents/skills/
 !.agents/skills/**
-# Ignore knowledgebase and specs directory (we don't need it right now)
-# Add it back when we need it
-# !knowledgebase/
-# !knowledgebase/**
-# !specs/
-# !specs/**
+
+# Keep knowledgebase and specs directory
+!knowledgebase/
+!knowledgebase/**
+!specs/
+!specs/**
 
 # Ignore generated compatibility outputs
 .claude/

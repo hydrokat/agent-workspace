@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexus - Admin Task Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-tertiary": "#2f3131",
+                "primary": "#ffb4a8",
+                "on-surface-variant": "#e7bdb6",
+                "tertiary-fixed": "#e2e2e2",
+                "on-surface": "#e5e2e1",
+                "surface-container-low": "#1c1b1b",
+                "background": "#131313",
+                "on-primary-fixed-variant": "#930000",
+                "surface-dim": "#131313",
+                "secondary-fixed": "#e5e2e1",
+                "on-secondary-fixed-variant": "#474746",
+                "tertiary-fixed-dim": "#c6c6c7",
+                "primary-fixed-dim": "#ffb4a8",
+                "on-tertiary-container": "#dddede",
+                "surface-variant": "#353534",
+                "on-background": "#e5e2e1",
+                "on-secondary": "#313030",
+                "error-container": "#93000a",
+                "primary-container": "#c70000",
+                "on-secondary-fixed": "#1c1b1b",
+                "surface": "#131313",
+                "surface-container-highest": "#353534",
+                "inverse-on-surface": "#313030",
+                "on-primary": "#690000",
+                "on-error-container": "#ffdad6",
+                "on-tertiary-fixed": "#1a1c1c",
+                "on-tertiary-fixed-variant": "#454747",
+                "surface-container-lowest": "#0e0e0e",
+                "outline": "#ae8882",
+                "on-secondary-container": "#b7b5b4",
+                "primary-fixed": "#ffdad4",
+                "surface-container": "#201f1f",
+                "secondary-container": "#474746",
+                "surface-container-high": "#2a2a2a",
+                "on-primary-fixed": "#410000",
+                "error": "#ffb4ab",
+                "secondary": "#c8c6c5",
+                "tertiary": "#c6c6c7",
+                "secondary-fixed-dim": "#c8c6c5",
+                "on-error": "#690005",
+                "inverse-primary": "#c00000",
+                "surface-tint": "#ffb4a8",
+                "surface-bright": "#3a3939",
+                "tertiary-container": "#606262",
+                "outline-variant": "#5d3f3a",
+                "on-primary-container": "#ffd4ce",
+                "inverse-surface": "#e5e2e1"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "unit": "4px",
+                "margin": "32px",
+                "xl": "48px",
+                "sm": "8px",
+                "md": "16px",
+                "gutter": "16px",
+                "xs": "4px",
+                "lg": "24px"
+        },
+        "fontFamily": {
+                "headline-xl": ["Space Grotesk"],
+                "headline-lg": ["Space Grotesk"],
+                "label-md": ["Space Grotesk"],
+                "body-lg": ["Space Grotesk"],
+                "body-md": ["Space Grotesk"],
+                "headline-md": ["Space Grotesk"]
+        },
+        "fontSize": {
+                "headline-xl": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "700"}],
+                "headline-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                "label-md": ["12px", {"lineHeight": "1", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                "body-lg": ["18px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                "body-md": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                "headline-md": ["24px", {"lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+        }
+      }
+    }
+  }
+</script>
+<style>
+  body {
+    background-color: theme('colors.background');
+    color: theme('colors.on-background');
+  }
+  .nexus-border {
+    border: 1px solid theme('colors.surface-container-high');
+  }
+  .nexus-glow {
+    box-shadow: 0 0 15px rgba(199, 0, 0, 0.2);
+  }
+</style>
+</head>
+<body class="font-body-md text-body-md flex h-screen overflow-hidden selection:bg-primary-container selection:text-white">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 border-r border-[#222222] bg-[#0a0a0a] flex flex-col py-8 gap-2 z-50">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-4 mb-2">
+<div class="w-10 h-10 rounded-DEFAULT overflow-hidden border border-[#333333]">
+<img alt="Organization Logo" class="w-full h-full object-cover" data-alt="Abstract geometric red and black digital fractal art suitable for a modern tech logo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAW5_lKnf6S4gU4YN8Bu0PUXaRxj8AYYsfsvX_YhIClcOARU6Ix7Wmy38Y9XWRfoN5dJHoxrD27nMdjgWEInMZ9WvsND5cZJyjVkELL7bnUO_arNku-V4IUzMb3Bpn6fRxXp5B9-4OzoJQwMRpMBL3C7iPwJggccBZnfDcSRlDsoCFFGtcCqPbIbEpl0Ca5Glec5fP41Fi5X-3aKWNXcpvo-dP7R0VyJ6CATBvfWtGMup6WqsW0S2TzxgOBFIpBIWD1txUDTp8PkyI"/>
+</div>
+<div>
+<h1 class="font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest text-[#c70000] leading-none mb-1">NEXUS</h1>
+<p class="text-[10px] text-neutral-500 font-['Space_Grotesk'] uppercase tracking-wider">Event Ops v1.0</p>
+</div>
+</div>
+</div>
+<div class="px-4 mb-4">
+<button class="w-full bg-[#c70000] text-white font-label-md text-label-md py-3 px-4 rounded-DEFAULT flex items-center justify-center gap-2 hover:bg-[#a00000] transition-colors nexus-glow">
+<span class="material-symbols-outlined text-[18px]">add</span>
+        New Submission
+      </button>
+</div>
+<nav class="flex-1 flex flex-col gap-1 px-2">
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 rounded-DEFAULT font-['Space_Grotesk'] uppercase text-[11px] font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+        Dashboard
+      </a>
+<a class="flex items-center gap-4 bg-[#161616] text-[#c70000] border-l-4 border-[#c70000] px-4 py-3 shadow-[0_0_15px_rgba(199,0,0,0.15)] rounded-r-DEFAULT font-['Space_Grotesk'] uppercase text-[11px] font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">assignment</span>
+        Task Board
+      </a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 rounded-DEFAULT font-['Space_Grotesk'] uppercase text-[11px] font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined text-[20px]">upload_file</span>
+        Submissions
+      </a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 rounded-DEFAULT font-['Space_Grotesk'] uppercase text-[11px] font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined text-[20px]">military_tech</span>
+        Rewards
+      </a>
+</nav>
+<div class="mt-auto px-2 flex flex-col gap-1 border-t border-[#222222] pt-4">
+<a class="flex items-center gap-4 text-neutral-500 px-4 py-2 hover:text-white transition-all font-['Space_Grotesk'] uppercase text-[10px] tracking-widest" href="#">
+<span class="material-symbols-outlined text-[18px]">help</span>
+        Support
+      </a>
+<a class="flex items-center gap-4 text-neutral-500 px-4 py-2 hover:text-white transition-all font-['Space_Grotesk'] uppercase text-[10px] tracking-widest" href="#">
+<span class="material-symbols-outlined text-[18px]">logout</span>
+        Sign Out
+      </a>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<main class="ml-64 flex-1 flex flex-col min-w-0 bg-background h-full">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 py-4 h-16 bg-[#050505] border-b border-[#222222] flex-shrink-0 sticky top-0 z-40">
+<div class="flex items-center gap-4">
+<span class="text-xl font-black italic tracking-tighter text-white uppercase font-['Space_Grotesk']">CORE_REWARDS</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative hidden md:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-[18px]">search</span>
+<input class="bg-[#0a0a0a] border-b border-[#333333] text-white pl-10 pr-4 py-1.5 focus:outline-none focus:border-[#c70000] focus:shadow-[0_1px_10px_rgba(199,0,0,0.15)] transition-all font-body-md text-[14px] w-64 placeholder-neutral-600 rounded-t-DEFAULT" placeholder="Search operations..." type="text"/>
+</div>
+<div class="flex items-center gap-3 border-l border-[#222222] pl-6">
+<button class="text-neutral-500 hover:text-[#c70000] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-neutral-500 hover:text-[#c70000] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-DEFAULT overflow-hidden border border-[#333333] ml-2">
+<img alt="Member Profile Avatar" class="w-full h-full object-cover" data-alt="Portrait of a professional man with neutral expression in stark dramatic lighting against dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDFpIYZ8OYzeGegwROzgSshgdKAYbkcS0mJxSapowMjwefx35AXX3yFPaoBEm-oHHqsuPmF6FEjuCCljtz08s3y3roT2_ZqM_C90Y3OYUSsBK989JmeQdl1av8PCq3R_DhVHyFNB4cSKXvfAygvy7zt8T1_HZz1w46TC8kM_bdTII_yMzULuAETQwyYLD00EKNMS84mZF--ZrbNI5bUaQZB_hW02WaAzmoLt93SV15I2tjEyWas-EE3C6III12neNe9vHE25MwtJko"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Canvas -->
+<div class="flex-1 overflow-y-auto p-margin">
+<!-- Page Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-lg gap-6">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-white mb-2">Task Command</h2>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">Monitor operational queues, allocate personnel resources, and track base point yields across active committees.</p>
+</div>
+<div class="flex gap-4">
+<div class="bg-surface-container-lowest border border-surface-container-high rounded-DEFAULT px-4 py-3 min-w-[120px]">
+<span class="font-label-md text-label-md text-on-surface-variant block mb-1">ACTIVE TASKS</span>
+<span class="font-headline-md text-headline-md text-white font-mono">142</span>
+</div>
+<div class="bg-surface-container-lowest border border-primary-container rounded-DEFAULT px-4 py-3 min-w-[120px] shadow-[0_0_10px_rgba(199,0,0,0.1)] relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-br from-primary-container/10 to-transparent"></div>
+<span class="font-label-md text-label-md text-primary-container block mb-1 relative z-10">POINTS PENDING</span>
+<span class="font-headline-md text-headline-md text-white font-mono relative z-10">45,850</span>
+</div>
+</div>
+</div>
+<!-- Filters -->
+<div class="bg-surface-container-lowest border border-surface-container-high rounded-DEFAULT p-4 mb-gutter flex flex-wrap gap-4 items-end">
+<div class="flex-1 min-w-[200px]">
+<label class="font-label-md text-label-md text-on-surface-variant block mb-2">COMMITTEE</label>
+<div class="relative">
+<select class="w-full bg-surface-container border-b border-surface-variant text-white px-3 py-2 appearance-none focus:outline-none focus:border-primary-container transition-colors rounded-t-DEFAULT">
+<option>All Committees</option>
+<option>Production &amp; Stage</option>
+<option>Guest Services</option>
+<option>Network Infrastructure</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">arrow_drop_down</span>
+</div>
+</div>
+<div class="flex-1 min-w-[200px]">
+<label class="font-label-md text-label-md text-on-surface-variant block mb-2">STATUS</label>
+<div class="relative">
+<select class="w-full bg-surface-container border-b border-surface-variant text-white px-3 py-2 appearance-none focus:outline-none focus:border-primary-container transition-colors rounded-t-DEFAULT">
+<option>Active Needs</option>
+<option>Fully Staffed</option>
+<option>Critical Shortage</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">arrow_drop_down</span>
+</div>
+</div>
+<button class="border border-surface-variant text-white px-6 py-2 hover:bg-surface-container transition-colors h-[41px] flex items-center gap-2 rounded-DEFAULT font-label-md text-label-md uppercase tracking-wider">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+          Apply Filter
+        </button>
+</div>
+<!-- Task Grid -->
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-gutter">
+<!-- Task Card 1 -->
+<div class="bg-surface-container-lowest border border-surface-container-high rounded-DEFAULT p-6 flex flex-col gap-6 hover:border-surface-variant transition-colors group">
+<div class="flex justify-between items-start gap-4">
+<div>
+<div class="flex items-center gap-3 mb-3">
+<span class="bg-surface-container px-2 py-1 text-[10px] font-bold tracking-widest text-on-surface-variant border border-surface-variant uppercase font-['Space_Grotesk']">Production</span>
+<span class="flex items-center gap-1.5 text-primary-container text-xs font-bold uppercase tracking-wider">
+<span class="w-2 h-2 rounded-full bg-primary-container animate-pulse shadow-[0_0_8px_rgba(199,0,0,0.6)]"></span>
+                  Critical
+                </span>
+</div>
+<h3 class="font-headline-md text-headline-md text-white">Rigging Deployment Alpha</h3>
+</div>
+<div class="text-right">
+<span class="font-label-md text-label-md text-on-surface-variant block mb-1">BASE YIELD</span>
+<span class="font-headline-lg text-headline-lg text-primary-container font-mono">750</span>
+</div>
+</div>
+<div class="bg-[#0a0a0a] border border-[#222222] rounded-DEFAULT p-4 flex items-center justify-between mt-auto">
+<div class="flex gap-4">
+<!-- Lead Slot -->
+<div class="flex flex-col gap-2 items-center">
+<span class="text-[9px] uppercase text-neutral-500 font-bold tracking-widest">Lead</span>
+<div class="w-10 h-10 border border-[#333333] rounded-DEFAULT bg-[#161616] flex items-center justify-center relative overflow-hidden">
+<img alt="Lead Assignee" class="w-full h-full object-cover" data-alt="Headshot of focused professional in dark lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD5GVIX9rNOtRQTHucjpbfmHTUQg5o22emDSBlxOSM0He2TjM7aKmP8Sl9V9-iqPeliVStiF4KPdylDQZ14DVorqqnrH_c99F5BPw1emeTTgOaulaCeNIbqtOWdXnI1vjb9YIrv27qFljk-yuaa8WsufjvfPJrJC8x3zEktKfnAUBG3HgsPIh4_bGU7iJWMFth2A4FrVcKah7XWh1xJAQNtfFZ1-DSsE8pd3g3_2sNhxs6kQOkPevWwlEMJGQEy7aL2kKoRvPezmYw"/>
+</div>
+</div>
+<!-- Contributor Slot -->
+<div class="flex flex-col gap-2 items-center">
+<span class="text-[9px] uppercase text-neutral-500 font-bold tracking-widest">Contrib</span>
+<div class="w-10 h-10 border border-[#333333] rounded-DEFAULT bg-[#161616] flex items-center justify-center relative overflow-hidden">
+<img alt="Contributor Assignee" class="w-full h-full object-cover" data-alt="Professional woman looking confident in dramatic studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9WS3wIBZeMil2qpajKc3i60itf6a-qb50m3e7scuzFg7ozS3vYmkvmTs9kr35Au6PFnkLehcNgVGONqM8udI8dVkJsn8FuCI7TdbUVL8WV4A8I7Ozcpb1jkcXHVOkK7UICNl9k5HTKOakaxyDnfQvlmdpJUYKtXhx421Pdw7jM_ce2N9s4a6KQA3Ec-8OrPTMJ8mO3FotIiKzXdcHRJZ4eIwSZzhIeSAdrnRoHe9xNrxqsj23HoBTzyQwCJhDdC2cklidiQQFRhk"/>
+</div>
+</div>
+<!-- Assistant Slot (Empty) -->
+<div class="flex flex-col gap-2 items-center">
+<span class="text-[9px] uppercase text-[#c70000] font-bold tracking-widest">Assist</span>
+<button class="w-10 h-10 border border-dashed border-[#c70000] bg-[#c70000]/5 rounded-DEFAULT flex items-center justify-center text-[#c70000] hover:bg-[#c70000]/20 transition-colors">
+<span class="material-symbols-outlined text-[16px]">person_add</span>
+</button>
+</div>
+</div>
+<button class="bg-surface-container border border-surface-variant hover:border-primary-container text-white p-2 rounded-DEFAULT transition-all group-hover:bg-[#161616]">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+<!-- Task Card 2 -->
+<div class="bg-surface-container-lowest border border-surface-container-high rounded-DEFAULT p-6 flex flex-col gap-6 hover:border-surface-variant transition-colors group">
+<div class="flex justify-between items-start gap-4">
+<div>
+<div class="flex items-center gap-3 mb-3">
+<span class="bg-surface-container px-2 py-1 text-[10px] font-bold tracking-widest text-on-surface-variant border border-surface-variant uppercase font-['Space_Grotesk']">Network Ops</span>
+<span class="flex items-center gap-1.5 text-neutral-400 text-xs font-bold uppercase tracking-wider">
+<span class="w-2 h-2 rounded-full bg-neutral-500"></span>
+                  Active
+                </span>
+</div>
+<h3 class="font-headline-md text-headline-md text-white">Mainline Fiber Splicing</h3>
+</div>
+<div class="text-right">
+<span class="font-label-md text-label-md text-on-surface-variant block mb-1">BASE YIELD</span>
+<span class="font-headline-lg text-headline-lg text-white font-mono">500</span>
+</div>
+</div>
+<div class="bg-[#0a0a0a] border border-[#222222] rounded-DEFAULT p-4 flex items-center justify-between mt-auto">
+<div class="flex gap-4">
+<!-- Lead Slot -->
+<div class="flex flex-col gap-2 items-center">
+<span class="text-[9px] uppercase text-neutral-500 font-bold tracking-widest">Lead</span>
+<div class="w-10 h-10 border border-[#333333] rounded-DEFAULT bg-[#161616] flex items-center justify-center relative overflow-hidden">
+<img alt="Lead Assignee" class="w-full h-full object-cover" data-alt="Man in technical gear with determined expression, dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsl5FpOOlNK-gKs1i89dcUzRhiwoA-6v0nQhx4TQhL1U-MVKLcVpUFrYCrFIZ6CZy0Eog0EwDX6vBn1YJv-9xHKyYbUkjjEXvlnzesY_E4Mht6EoLb8Ksm-JLonKfVsSlQ7zyP8lkoJpXMdgvNmVB7qBNrNvFtzQf58wOg-BHqVeAFaxCHVDd1rqEJeomklgSctc5RzYg3iwL4PCdLze0EYp7JjAKucMUg8RuV9rn2gpuvS43oFOrW7zqDxfRpiFoipahzoO17Xn8"/>
+</div>
+</div>
+<!-- Contributor Slot (Empty) -->
+<div class="flex flex-col gap-2 items-center">
+<span class="text-[9px] uppercase text-[#c70000] font-bold tracking-widest">Contrib</span>
+<button class="w-10 h-10 border border-dashed border-[#c70000] bg-[#c70000]/5 rounded-DEFAULT flex items-center justify-center text-[#c70000] hover:bg-[#c70000]/20 transition-colors">
+<span class="material-symbols-outlined text-[16px]">person_add</span>
+</button>
+</div>
+</div>
+<button class="bg-surface-container border border-surface-variant hover:border-primary-container text-white p-2 rounded-DEFAULT transition-all group-hover:bg-[#161616]">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

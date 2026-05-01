@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Rewards &amp; Ticket Tiers</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#2f3131",
+                        "primary": "#ffb4a8",
+                        "on-surface-variant": "#e7bdb6",
+                        "tertiary-fixed": "#e2e2e2",
+                        "on-surface": "#e5e2e1",
+                        "surface-container-low": "#1c1b1b",
+                        "background": "#131313",
+                        "on-primary-fixed-variant": "#930000",
+                        "surface-dim": "#131313",
+                        "secondary-fixed": "#e5e2e1",
+                        "on-secondary-fixed-variant": "#474746",
+                        "tertiary-fixed-dim": "#c6c6c7",
+                        "primary-fixed-dim": "#ffb4a8",
+                        "on-tertiary-container": "#dddede",
+                        "surface-variant": "#353534",
+                        "on-background": "#e5e2e1",
+                        "on-secondary": "#313030",
+                        "error-container": "#93000a",
+                        "primary-container": "#c70000",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "surface": "#131313",
+                        "surface-container-highest": "#353534",
+                        "inverse-on-surface": "#313030",
+                        "on-primary": "#690000",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#1a1c1c",
+                        "on-tertiary-fixed-variant": "#454747",
+                        "surface-container-lowest": "#0e0e0e",
+                        "outline": "#ae8882",
+                        "on-secondary-container": "#b7b5b4",
+                        "primary-fixed": "#ffdad4",
+                        "surface-container": "#201f1f",
+                        "secondary-container": "#474746",
+                        "surface-container-high": "#2a2a2a",
+                        "on-primary-fixed": "#410000",
+                        "error": "#ffb4ab",
+                        "secondary": "#c8c6c5",
+                        "tertiary": "#c6c6c7",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "on-error": "#690005",
+                        "inverse-primary": "#c00000",
+                        "surface-tint": "#ffb4a8",
+                        "surface-bright": "#3a3939",
+                        "tertiary-container": "#606262",
+                        "outline-variant": "#5d3f3a",
+                        "on-primary-container": "#ffd4ce",
+                        "inverse-surface": "#e5e2e1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "margin": "32px",
+                        "xl": "48px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "gutter": "16px",
+                        "xs": "4px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Space Grotesk"],
+                        "headline-lg": ["Space Grotesk"],
+                        "label-md": ["Space Grotesk"],
+                        "body-lg": ["Space Grotesk"],
+                        "body-md": ["Space Grotesk"],
+                        "headline-md": ["Space Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-md": ["12px", { "lineHeight": "1", "letterSpacing": "0.1em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #131313;
+            color: #e5e2e1;
+        }
+        .glow-active {
+            box-shadow: 0 0 15px rgba(199, 0, 0, 0.2);
+            border: 1px solid #c70000;
+        }
+        .nexus-bg {
+            background: radial-gradient(circle at 50% -20%, rgba(199, 0, 0, 0.15) 0%, rgba(19, 19, 19, 0) 50%);
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md h-screen flex overflow-hidden">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full w-64 border-r border-[#222222] bg-[#0a0a0a] flex flex-col py-8 gap-2 z-20">
+<div class="px-6 mb-8">
+<h1 class="font-headline-lg text-headline-lg text-white font-black">NEXUS</h1>
+<p class="font-label-md text-label-md text-neutral-500 uppercase tracking-widest mt-2">Event Ops v1.0</p>
+</div>
+<div class="px-4 mb-6">
+<button class="w-full bg-[#c70000] text-white font-label-md text-label-md uppercase tracking-widest py-3 px-4 rounded hover:shadow-[0_0_15px_rgba(199,0,0,0.4)] transition-all">
+                New Submission
+            </button>
+</div>
+<div class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="assignment">assignment</span>
+<span class="font-label-md text-label-md">Task Board</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="upload_file">upload_file</span>
+<span class="font-label-md text-label-md">Submissions</span>
+</a>
+<a class="flex items-center gap-4 bg-[#161616] text-[#c70000] border-l-4 border-[#c70000] px-4 py-3 shadow-[0_0_15px_rgba(199,0,0,0.15)]" href="#">
+<span class="material-symbols-outlined" data-icon="military_tech">military_tech</span>
+<span class="font-label-md text-label-md">Rewards</span>
+</a>
+</div>
+<div class="mt-auto flex flex-col gap-1">
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-label-md text-label-md">Support</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+<span class="font-label-md text-label-md">Sign Out</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="ml-64 flex-1 flex flex-col h-full overflow-y-auto nexus-bg">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 py-4 h-16 bg-[#050505] border-b border-[#222222] sticky top-0 z-10">
+<div class="text-xl font-black italic tracking-tighter text-white uppercase font-['Space_Grotesk']">
+                CORE_REWARDS
+            </div>
+<div class="flex items-center gap-4">
+<button class="text-neutral-500 hover:text-[#c70000] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-neutral-500 hover:text-[#c70000] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<img alt="Member Profile Avatar" class="w-8 h-8 rounded-full border border-[#333333] cursor-pointer" data-alt="close-up portrait of a professional avatar, sharp lighting, dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjCugbTS51SrYEqKvjh-K0kufdcpE4scNyNDMIA7xkltLj6OC0NLODTUp2KEPXK8pfafbljiQoBuPWjqiyoHI027Icwom9WcJdYmScaRV2FAJCPDlQ_Hmd0KQ2ajk8x5Cn3gZOOhCfFJs2GMJuhP0ltEyV7l6-ai3NBYIC6lKcwrCKfFLHNyUdNyT_x3nMs0HUb5qLBJR8dD_pQuS9cuRF1E_TImlPpfhkbvZxihc99aGPo_2mVeSzY590-7xdrDrxDXouOaMG0J4"/>
+</div>
+</header>
+<div class="p-margin max-w-7xl mx-auto w-full">
+<!-- Header Section -->
+<div class="mb-12 text-center md:text-left flex flex-col md:flex-row justify-between items-end border-b border-[#222222] pb-6">
+<div>
+<h2 class="font-headline-xl text-headline-xl text-white mb-2">Rewards &amp; Tiers</h2>
+<p class="font-body-lg text-body-lg text-neutral-400">Your current status: <span class="text-[#c70000] font-bold">Pro</span>. Earn points to unlock the next tier.</p>
+</div>
+<div class="mt-4 md:mt-0 text-right">
+<div class="font-headline-lg text-headline-lg text-white">12,450 <span class="font-label-md text-label-md text-neutral-500 uppercase tracking-widest ml-1">PTS</span></div>
+<div class="font-label-md text-label-md text-neutral-500 uppercase tracking-widest mt-1">2,550 to Elite</div>
+</div>
+</div>
+<!-- Tiers Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-gutter mb-xl">
+<!-- Apprentice Tier -->
+<div class="bg-[#0a0a0a] border border-[#222222] rounded p-lg flex flex-col relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl" data-icon="star_half">star_half</span>
+</div>
+<div class="mb-4">
+<span class="bg-[#161616] text-[#888888] font-label-md text-label-md uppercase tracking-widest px-2 py-1 rounded">Unlocked</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-white mb-2">Apprentice</h3>
+<div class="font-headline-xl text-headline-xl text-white mb-6">30% <span class="font-label-md text-label-md text-neutral-500 tracking-widest">OFF</span></div>
+<ul class="font-body-md text-body-md text-neutral-400 space-y-2 mt-auto">
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> Standard Access</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> Community Forum</li>
+</ul>
+</div>
+<!-- Contributor Tier -->
+<div class="bg-[#0a0a0a] border border-[#222222] rounded p-lg flex flex-col relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl" data-icon="star">star</span>
+</div>
+<div class="mb-4">
+<span class="bg-[#161616] text-[#888888] font-label-md text-label-md uppercase tracking-widest px-2 py-1 rounded">Unlocked</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-white mb-2">Contributor</h3>
+<div class="font-headline-xl text-headline-xl text-white mb-6">50% <span class="font-label-md text-label-md text-neutral-500 tracking-widest">OFF</span></div>
+<ul class="font-body-md text-body-md text-neutral-400 space-y-2 mt-auto">
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> Priority Access</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> Beta Features</li>
+</ul>
+</div>
+<!-- Pro Tier (Active) -->
+<div class="bg-[#0a0a0a] rounded p-lg flex flex-col relative overflow-hidden glow-active transform scale-105 z-10">
+<div class="absolute top-0 right-0 w-32 h-32 bg-[#c70000] rounded-full blur-[60px] opacity-20 -mr-10 -mt-10 pointer-events-none"></div>
+<div class="absolute top-0 right-0 p-4 opacity-30 text-[#c70000]">
+<span class="material-symbols-outlined text-6xl" data-icon="workspace_premium" data-weight="fill">workspace_premium</span>
+</div>
+<div class="mb-4 flex justify-between items-center">
+<span class="bg-[#c70000]/10 text-[#c70000] border border-[#c70000] font-label-md text-label-md uppercase tracking-widest px-2 py-1 rounded">Current Tier</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-white mb-2">Pro</h3>
+<div class="font-headline-xl text-headline-xl text-white mb-6">80% <span class="font-label-md text-label-md text-[#c70000] tracking-widest">OFF</span></div>
+<div class="w-full bg-[#161616] h-1 mb-6 rounded overflow-hidden">
+<div class="bg-[#c70000] h-full" style="width: 80%"></div>
+</div>
+<ul class="font-body-md text-body-md text-neutral-200 space-y-2 mt-auto">
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> VIP Support</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> Exclusive Events</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#c70000] text-sm" data-icon="check">check</span> Merch Drops</li>
+</ul>
+</div>
+<!-- Elite Tier -->
+<div class="bg-[#050505] border border-[#222222] rounded p-lg flex flex-col relative overflow-hidden group opacity-70 hover:opacity-100 transition-opacity">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl" data-icon="diamond">diamond</span>
+</div>
+<div class="mb-4">
+<span class="bg-[#161616] text-[#555555] font-label-md text-label-md uppercase tracking-widest px-2 py-1 rounded border border-[#333333]">Locked</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-neutral-500 mb-2">Elite</h3>
+<div class="font-headline-xl text-headline-xl text-white mb-6">FREE <span class="font-label-md text-label-md text-neutral-600 tracking-widest">ACCESS</span></div>
+<ul class="font-body-md text-body-md text-neutral-500 space-y-2 mt-auto">
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#555555] text-sm" data-icon="lock">lock</span> Backstage Passes</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-[#555555] text-sm" data-icon="lock">lock</span> Direct Access</li>
+</ul>
+</div>
+</div>
+<!-- Points History Table -->
+<div class="bg-[#0a0a0a] border border-[#222222] rounded overflow-hidden">
+<div class="p-6 border-b border-[#222222] flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-white">Points Ledger</h3>
+<button class="text-[#c70000] font-label-md text-label-md uppercase tracking-widest hover:text-white transition-colors flex items-center gap-1">
+                        View All <span class="material-symbols-outlined text-sm" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<div class="w-full overflow-x-auto">
+<table class="w-full text-left font-body-md text-body-md border-collapse">
+<thead>
+<tr class="bg-[#050505] border-b border-[#222222]">
+<th class="p-4 font-label-md text-label-md text-neutral-500 uppercase tracking-widest">Date</th>
+<th class="p-4 font-label-md text-label-md text-neutral-500 uppercase tracking-widest">Activity</th>
+<th class="p-4 font-label-md text-label-md text-neutral-500 uppercase tracking-widest">Status</th>
+<th class="p-4 font-label-md text-label-md text-neutral-500 uppercase tracking-widest text-right">Points</th>
+</tr>
+</thead>
+<tbody>
+<tr class="border-b border-[#222222] bg-[#0a0a0a] hover:bg-[#111111] transition-colors">
+<td class="p-4 text-neutral-400">Oct 24, 2023</td>
+<td class="p-4 text-white font-medium">Task Submission: UI Module</td>
+<td class="p-4">
+<span class="text-[#c70000] font-label-md text-label-md uppercase tracking-widest flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-[#c70000]"></span> Verified
+                                    </span>
+</td>
+<td class="p-4 text-right text-white font-bold">+450</td>
+</tr>
+<tr class="border-b border-[#222222] bg-[#080808] hover:bg-[#111111] transition-colors">
+<td class="p-4 text-neutral-400">Oct 18, 2023</td>
+<td class="p-4 text-white font-medium">Event Attendance: Sync 42</td>
+<td class="p-4">
+<span class="text-[#c70000] font-label-md text-label-md uppercase tracking-widest flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-[#c70000]"></span> Verified
+                                    </span>
+</td>
+<td class="p-4 text-right text-white font-bold">+200</td>
+</tr>
+<tr class="border-b border-[#222222] bg-[#0a0a0a] hover:bg-[#111111] transition-colors">
+<td class="p-4 text-neutral-400">Oct 12, 2023</td>
+<td class="p-4 text-white font-medium">Ticket Purchase: VIP Access</td>
+<td class="p-4">
+<span class="text-neutral-500 font-label-md text-label-md uppercase tracking-widest flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-neutral-600"></span> Processed
+                                    </span>
+</td>
+<td class="p-4 text-right text-neutral-500 font-bold">-1500</td>
+</tr>
+<tr class="bg-[#080808] hover:bg-[#111111] transition-colors">
+<td class="p-4 text-neutral-400">Oct 05, 2023</td>
+<td class="p-4 text-white font-medium">Bug Bounty Reward</td>
+<td class="p-4">
+<span class="text-[#c70000] font-label-md text-label-md uppercase tracking-widest flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-[#c70000]"></span> Verified
+                                    </span>
+</td>
+<td class="p-4 text-right text-white font-bold">+1200</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</main>
+</body></html>

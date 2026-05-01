@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>HTN Points Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#2f3131",
+                        "primary": "#ffb4a8",
+                        "on-surface-variant": "#e7bdb6",
+                        "tertiary-fixed": "#e2e2e2",
+                        "on-surface": "#e5e2e1",
+                        "surface-container-low": "#1c1b1b",
+                        "background": "#131313",
+                        "on-primary-fixed-variant": "#930000",
+                        "surface-dim": "#131313",
+                        "secondary-fixed": "#e5e2e1",
+                        "on-secondary-fixed-variant": "#474746",
+                        "tertiary-fixed-dim": "#c6c6c7",
+                        "primary-fixed-dim": "#ffb4a8",
+                        "on-tertiary-container": "#dddede",
+                        "surface-variant": "#353534",
+                        "on-background": "#e5e2e1",
+                        "on-secondary": "#313030",
+                        "error-container": "#93000a",
+                        "primary-container": "#c70000",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "surface": "#131313",
+                        "surface-container-highest": "#353534",
+                        "inverse-on-surface": "#313030",
+                        "on-primary": "#690000",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#1a1c1c",
+                        "on-tertiary-fixed-variant": "#454747",
+                        "surface-container-lowest": "#0e0e0e",
+                        "outline": "#ae8882",
+                        "on-secondary-container": "#b7b5b4",
+                        "primary-fixed": "#ffdad4",
+                        "surface-container": "#201f1f",
+                        "secondary-container": "#474746",
+                        "surface-container-high": "#2a2a2a",
+                        "on-primary-fixed": "#410000",
+                        "error": "#ffb4ab",
+                        "secondary": "#c8c6c5",
+                        "tertiary": "#c6c6c7",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "on-error": "#690005",
+                        "inverse-primary": "#c00000",
+                        "surface-tint": "#ffb4a8",
+                        "surface-bright": "#3a3939",
+                        "tertiary-container": "#606262",
+                        "outline-variant": "#5d3f3a",
+                        "on-primary-container": "#ffd4ce",
+                        "inverse-surface": "#e5e2e1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "margin": "32px",
+                        "xl": "48px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "gutter": "16px",
+                        "xs": "4px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Space Grotesk"],
+                        "headline-lg": ["Space Grotesk"],
+                        "label-md": ["Space Grotesk"],
+                        "body-lg": ["Space Grotesk"],
+                        "body-md": ["Space Grotesk"],
+                        "headline-md": ["Space Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-md": ["12px", { "lineHeight": "1", "letterSpacing": "0.1em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface font-body-md text-body-md antialiased overflow-x-hidden min-h-screen flex selection:bg-primary-container selection:text-white">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 border-r border-[#222222] bg-[#0a0a0a] z-50 flex flex-col py-8 gap-2 hidden md:flex">
+<!-- Header -->
+<div class="px-6 mb-8">
+<h1 class="text-lg font-black text-white font-['Space_Grotesk'] uppercase tracking-widest">NEXUS</h1>
+<p class="text-xs text-neutral-500 uppercase tracking-widest mt-1 font-['Space_Grotesk'] font-bold">Event Ops v1.0</p>
+</div>
+<!-- Nav Items -->
+<nav class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-4 bg-[#161616] text-[#c70000] border-l-4 border-[#c70000] px-4 py-3 shadow-[0_0_15px_rgba(199,0,0,0.15)] font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined">assignment</span>
+<span>Task Board</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined">upload_file</span>
+<span>Submissions</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined">military_tech</span>
+<span>Rewards</span>
+</a>
+</nav>
+<!-- CTA -->
+<div class="px-4 mt-auto mb-4">
+<button class="w-full bg-[#c70000] text-white py-3 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest hover:shadow-[0_0_15px_rgba(199,0,0,0.4)] transition-all">New Submission</button>
+</div>
+<!-- Footer Nav -->
+<div class="flex flex-col gap-1 border-t border-[#222222] pt-4">
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined">help</span>
+<span>Support</span>
+</a>
+<a class="flex items-center gap-4 text-neutral-400 px-4 py-3 hover:bg-[#111111] hover:text-white transition-all hover:translate-x-1 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span>Sign Out</span>
+</a>
+</div>
+</aside>
+<!-- Main Viewport -->
+<main class="flex-1 flex flex-col min-h-screen md:ml-64 bg-background">
+<!-- TopAppBar -->
+<header class="w-full sticky top-0 z-40 bg-[#050505] border-b border-[#222222] flex justify-between items-center px-6 py-4 h-16">
+<div class="text-xl font-black italic tracking-tighter text-white uppercase font-['Space_Grotesk'] flex items-center gap-4">
+<span class="material-symbols-outlined md:hidden text-neutral-400">menu</span>
+                CORE_REWARDS
+            </div>
+<!-- Search Bar -->
+<div class="relative w-64 hidden md:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">search</span>
+<input class="w-full bg-[#0a0a0a] border-0 border-b border-[#333333] text-white pl-9 pr-4 py-1 text-sm focus:ring-0 focus:border-[#c70000] transition-colors font-['Space_Grotesk'] placeholder-neutral-600" placeholder="Search..." type="text"/>
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-4 text-neutral-500 font-medium">
+<button class="hover:text-[#c70000] transition-colors duration-200 active:scale-95 flex items-center justify-center w-8 h-8 rounded-none bg-[#0a0a0a] border border-[#222222]">
+<span class="material-symbols-outlined text-[18px]">notifications</span>
+</button>
+<button class="hover:text-[#c70000] transition-colors duration-200 active:scale-95 flex items-center justify-center w-8 h-8 rounded-none bg-[#0a0a0a] border border-[#222222]">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+</button>
+<div class="w-8 h-8 bg-[#161616] border border-[#333333] overflow-hidden ml-2 rounded-none">
+<img alt="Member Profile Avatar" class="w-full h-full object-cover grayscale opacity-80 hover:grayscale-0 hover:opacity-100 transition-all" data-alt="Close up portrait of a male avatar with short hair against a neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCzdswyohDYPuYisYCZABBzGLJidoXJdr3P9TpgfMhWu4Iaku3WnLDnaJInVKXhK31nbDEQBgOMeULlWp2IibhXXI7u-FhNW1bFcFJXJR1zx8amuaDiTVFBdMPpvmfTahc-X75txMQmeWIxUuAm7f-wwj2UtIrfk0F2sqYCa5czKLPqc1KxcwfoTGyIZT9Q1_QH9-jNEIOVPGPZCypRUN7DldvbDjGI4IIJG3mQBDGoPFtqob57IbScrMO4rCRjsSmaiH-7w_89pcQ"/>
+</div>
+</div>
+</header>
+<!-- Dashboard Canvas -->
+<div class="flex-1 p-4 md:p-8 overflow-y-auto">
+<div class="max-w-7xl mx-auto">
+<header class="mb-8 flex justify-between items-end">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-white font-['Space_Grotesk'] tracking-tight">System Overview</h2>
+<p class="text-neutral-500 font-['Space_Grotesk'] text-sm mt-1">Live telemetry for operative points mapping.</p>
+</div>
+</header>
+<!-- Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6">
+<!-- Primary Stats Hero (Span 8) -->
+<div class="col-span-1 md:col-span-8 bg-[#0a0a0a] border border-[#222222] p-8 flex flex-col justify-between relative overflow-hidden group">
+<!-- Nexus Glow -->
+<div class="absolute top-0 right-0 w-96 h-96 bg-[#c70000] opacity-[0.03] blur-3xl rounded-full translate-x-1/3 -translate-y-1/3 group-hover:opacity-[0.08] transition-opacity duration-700 pointer-events-none"></div>
+<div class="flex justify-between items-start mb-16 relative z-10">
+<div>
+<div class="text-[#c70000] font-label-md text-label-md uppercase tracking-widest mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] animate-pulse">bolt</span> Accumulated Points
+                                </div>
+<div class="font-headline-xl text-headline-xl text-white tracking-tighter" style="font-size: 88px; line-height: 0.9;">72 <span class="text-3xl text-neutral-600 font-bold ml-1">PTS</span></div>
+</div>
+<div class="bg-[#111111] px-4 py-2 border border-[#222222] flex items-center gap-2">
+<div class="w-2 h-2 bg-[#c70000] rounded-none shadow-[0_0_8px_#c70000]"></div>
+<span class="text-[10px] text-white font-bold font-['Space_Grotesk'] tracking-widest uppercase">Live Sync</span>
+</div>
+</div>
+<div class="flex flex-wrap gap-4 relative z-10">
+<button class="bg-[#c70000] text-white px-8 py-3 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest hover:shadow-[0_0_15px_rgba(199,0,0,0.4)] hover:-translate-y-0.5 transition-all">Redeem Assets</button>
+<button class="bg-transparent border border-white text-white px-8 py-3 font-['Space_Grotesk'] uppercase text-xs font-bold tracking-widest hover:bg-white hover:text-black transition-all">View Ledger</button>
+</div>
+</div>
+<!-- Tier Status (Span 4) -->
+<div class="col-span-1 md:col-span-4 bg-[#0a0a0a] border border-[#222222] p-8 flex flex-col relative overflow-hidden">
+<!-- Scanline Effect Overlay -->
+<div class="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-20"></div>
+<div class="text-neutral-500 font-label-md text-label-md uppercase tracking-widest mb-6 relative z-10">Reward Tier</div>
+<div class="flex-1 flex flex-col justify-center items-center text-center mb-8 relative z-10">
+<div class="relative mb-4">
+<div class="absolute inset-0 bg-[#c70000] blur-xl opacity-20 rounded-full"></div>
+<span class="material-symbols-outlined text-[72px] text-white relative z-10 drop-shadow-[0_0_10px_rgba(199,0,0,0.5)]" style="font-variation-settings: 'FILL' 1;">shield</span>
+</div>
+<div class="font-headline-md text-headline-md text-white font-['Space_Grotesk'] tracking-tight">80% Discount</div>
+<div class="text-[11px] text-[#c70000] mt-2 font-['Space_Grotesk'] font-bold tracking-widest uppercase border border-[#c70000] px-2 py-1 bg-[rgba(199,0,0,0.05)]">Elite Operative</div>
+</div>
+<div class="relative z-10">
+<div class="flex justify-between text-[10px] font-['Space_Grotesk'] font-bold text-neutral-400 mb-2 uppercase tracking-widest">
+<span>Threshold Progress</span>
+<span class="text-white">100 PTS</span>
+</div>
+<div class="w-full h-1 bg-[#161616] rounded-none overflow-hidden border-t border-b border-[#222222]">
+<div class="h-full bg-[#c70000] w-[72%] shadow-[0_0_10px_#c70000] relative">
+<div class="absolute right-0 top-0 bottom-0 w-2 bg-white opacity-50 blur-[1px]"></div>
+</div>
+</div>
+<div class="text-[11px] text-neutral-500 mt-3 text-right font-['Space_Grotesk'] uppercase tracking-wide">28 PTS to Next Tier</div>
+</div>
+</div>
+<!-- Active Directives (Span 7) -->
+<div class="col-span-1 md:col-span-7 bg-[#0a0a0a] border border-[#222222] p-6 flex flex-col">
+<div class="flex justify-between items-center mb-6 border-b border-[#222222] pb-4">
+<h3 class="font-headline-md text-[18px] text-white font-['Space_Grotesk'] font-bold uppercase tracking-wide">Active Directives</h3>
+<button class="text-[10px] text-[#c70000] font-bold font-['Space_Grotesk'] uppercase tracking-widest hover:text-white transition-colors border border-transparent hover:border-[#333333] px-2 py-1">View All</button>
+</div>
+<div class="flex flex-col gap-3 flex-1">
+<!-- Directive Item -->
+<div class="flex items-center justify-between p-4 bg-[#111111] border border-[#222222] hover:border-[#c70000] transition-colors cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 flex items-center justify-center border border-[#333333] bg-[#050505] text-neutral-500 group-hover:text-[#c70000] group-hover:border-[#c70000] transition-colors">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</div>
+<div>
+<div class="text-sm text-white font-bold font-['Space_Grotesk'] tracking-wide">Initialize Node Alpha</div>
+<div class="text-[11px] text-neutral-500 font-['Space_Grotesk'] uppercase tracking-widest mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">schedule</span> T-Minus 12H
+                                        </div>
+</div>
+</div>
+<div class="text-[#c70000] font-bold font-['Space_Grotesk'] text-lg drop-shadow-[0_0_8px_rgba(199,0,0,0.3)]">+15</div>
+</div>
+<!-- Directive Item -->
+<div class="flex items-center justify-between p-4 bg-[#111111] border border-[#222222] hover:border-[#c70000] transition-colors cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 flex items-center justify-center border border-[#333333] bg-[#050505] text-neutral-500 group-hover:text-[#c70000] group-hover:border-[#c70000] transition-colors">
+<span class="material-symbols-outlined text-[20px]">bug_report</span>
+</div>
+<div>
+<div class="text-sm text-white font-bold font-['Space_Grotesk'] tracking-wide">Resolve System Exceptions</div>
+<div class="text-[11px] text-neutral-500 font-['Space_Grotesk'] uppercase tracking-widest mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">schedule</span> T-Minus 48H
+                                        </div>
+</div>
+</div>
+<div class="text-[#c70000] font-bold font-['Space_Grotesk'] text-lg drop-shadow-[0_0_8px_rgba(199,0,0,0.3)]">+25</div>
+</div>
+</div>
+</div>
+<!-- Recommended Actions (Span 5) -->
+<div class="col-span-1 md:col-span-5 bg-[#0a0a0a] border border-[#222222] p-6 flex flex-col">
+<div class="flex justify-between items-center mb-6 border-b border-[#222222] pb-4">
+<h3 class="font-headline-md text-[18px] text-white font-['Space_Grotesk'] font-bold uppercase tracking-wide">Recommended Actions</h3>
+<span class="material-symbols-outlined text-neutral-600 text-[18px]">radar</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+<!-- Action Card 1 -->
+<div class="bg-[#111111] border border-[#222222] p-5 flex flex-col items-start hover:border-[#c70000] hover:bg-[#161616] transition-all cursor-pointer relative overflow-hidden group">
+<div class="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(199,0,0,0.1)_0%,transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<span class="material-symbols-outlined text-[#c70000] mb-4 text-[24px] relative z-10">group_add</span>
+<div class="text-sm text-white font-bold font-['Space_Grotesk'] mb-1 relative z-10">Recruit Operator</div>
+<p class="text-[11px] text-neutral-500 font-['Space_Grotesk'] mb-4 leading-relaxed relative z-10">Expand the grid network with a verified peer.</p>
+<div class="mt-auto bg-transparent text-[#c70000] border border-[#c70000] px-2 py-1 text-[10px] uppercase font-bold tracking-widest relative z-10">+50 PTS</div>
+</div>
+<!-- Action Card 2 -->
+<div class="bg-[#111111] border border-[#222222] p-5 flex flex-col items-start hover:border-[#c70000] hover:bg-[#161616] transition-all cursor-pointer relative overflow-hidden group">
+<div class="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.05)_0%,transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<span class="material-symbols-outlined text-neutral-400 mb-4 text-[24px] relative z-10">verified_user</span>
+<div class="text-sm text-white font-bold font-['Space_Grotesk'] mb-1 relative z-10">Security Audit</div>
+<p class="text-[11px] text-neutral-500 font-['Space_Grotesk'] mb-4 leading-relaxed relative z-10">Fortify account with multi-factor authentication.</p>
+<div class="mt-auto bg-transparent text-white border border-[#333333] px-2 py-1 text-[10px] uppercase font-bold tracking-widest relative z-10 group-hover:border-white transition-colors">+10 PTS</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

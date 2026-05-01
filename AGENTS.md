@@ -55,6 +55,7 @@ Compatibility sync rules:
 ### 5. Engineering Standards
 - **Surgical Updates:** Minimize noise; change only what is necessary to fulfill the objective.
 - **Type Safety:** All implementation must prioritize strict typing and clear interfaces.
+- **Server-Side Data Only**: **ALL** database interactions (Supabase queries/mutations) MUST be performed server-side via Server Components or Server Actions. Direct client-side database interaction is strictly prohibited.
 - **Validation:** No task is complete without verified automated tests or documented manual validation when tests are unavailable.
 
 ---
