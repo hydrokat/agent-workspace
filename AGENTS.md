@@ -57,5 +57,25 @@ Compatibility sync rules:
 - **Type Safety:** All implementation must prioritize strict typing and clear interfaces.
 - **Validation:** No task is complete without verified automated tests or documented manual validation when tests are unavailable.
 
+## Agent Model Recommendations
+
+Suggested models per agent across supported providers. Pick based on available access and task complexity.
+For Codex/OpenAI, prefer `gpt-5.5` for orchestration and reasoning-heavy work, `gpt-5.3-codex` for hands-on agentic coding, `gpt-5.4` for balanced professional tasks, and `gpt-5.4-mini` for fast, high-volume subagents.
+
+| Agent | Claude | Gemini | Codex (OpenAI) | Notes |
+|---|---|---|---|---|
+| `tech-lead-orchestrator` | Opus 4.7 | 3.1 Pro | `gpt-5.5` | Orchestration + architecture; top reasoning tier |
+| `codebase_investigator` | Opus 4.7 | 3.1 Pro | `gpt-5.5` | System-wide investigation; deep reasoning + long context |
+| `security-auditor` | Opus 4.7 | 3.1 Pro | `gpt-5.5` | Threat analysis; strongest reasoning required |
+| `api-pentester` | Sonnet 4.6 | 3 Flash | `gpt-5.4` | Targeted security tests; balanced speed + tool-heavy analysis |
+| `code-reviewer` | Sonnet 4.6 | 3.1 Pro | `gpt-5.5` | Broad diffs; high-context reasoning and review quality |
+| `senior-backend-dev` | Sonnet 4.6 | 3 Flash | `gpt-5.3-codex` | Implementation; agentic coding and tool use |
+| `frontend-dev` | Sonnet 4.6 | 3 Flash | `gpt-5.3-codex` | Component + UI work; hands-on coding in Codex |
+| `qa-engineer` | Sonnet 4.6 | 3 Flash | `gpt-5.3-codex` | Test generation, debugging, and validation workflows |
+| `business-analyst` | Sonnet 4.6 | 3 Flash | `gpt-5.4` | Requirements, specs, and structured documentation |
+| `generalist` | Sonnet 4.6 | 3 Flash | `gpt-5.4-mini` | Batch/broad tasks; speed matters |
+| `technical-writer` | Sonnet 4.6 | 3 Flash | `gpt-5.4` | Writing quality; balanced polish and cost |
+| `terminal-agent` | Haiku 4.5 | 3.1 Flash Lite | `gpt-5.4-mini` | Fast shell execution; lightweight subagent fit |
+
 ---
 *Refer to this document as the single source of truth for workspace expectations.*

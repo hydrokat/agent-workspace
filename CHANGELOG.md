@@ -10,6 +10,13 @@ This changelog is for source-of-truth assets only:
 
 Generated compatibility artifacts under `.gemini/` and `.claude/` should not be tracked here unless the source-of-truth behavior changes.
 
+## [2026-05-05]
+
+### Base Files
+
+- Added an Agent Model Recommendations section to `AGENTS.md` for cross-provider role selection guidance.
+- Refreshed the Codex/OpenAI recommendations in `AGENTS.md` to use current, role-appropriate model IDs: `gpt-5.5`, `gpt-5.3-codex`, `gpt-5.4`, and `gpt-5.4-mini` instead of stale `o3`, `GPT-4.1`, and `codex-mini` references.
+
 ## [2026-04-24]
 
 ### Base Files
