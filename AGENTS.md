@@ -57,6 +57,11 @@ Compatibility sync rules:
 - **Type Safety:** All implementation must prioritize strict typing and clear interfaces.
 - **Validation:** No task is complete without verified automated tests or documented manual validation when tests are unavailable.
 
+### 6. Script-First Execution
+For repetitive or complex technical tasks:
+- **Prefer Scripts:** If a script exists for the task, use it.
+- **Create Skills:** If no script or skill is present for a repetitive task, create a specialized skill in `./.agents/skills/` to encapsulate the procedure.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.
