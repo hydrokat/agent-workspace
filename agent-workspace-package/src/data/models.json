@@ -1,0 +1,62 @@
+{
+  "tech-lead-orchestrator": {
+    "claude": "claude-opus-4-7",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.5"
+  },
+  "codebase_investigator": {
+    "claude": "claude-opus-4-7",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.5"
+  },
+  "security-auditor": {
+    "claude": "claude-opus-4-7",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.5"
+  },
+  "api-pentester": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.4"
+  },
+  "code-reviewer": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.5"
+  },
+  "senior-backend-dev": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.3-codex"
+  },
+  "frontend-dev": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.3-codex"
+  },
+  "qa-engineer": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.3-codex"
+  },
+  "business-analyst": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.4"
+  },
+  "generalist": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.4-mini"
+  },
+  "technical-writer": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.4"
+  },
+  "terminal-agent": {
+    "claude": "claude-haiku-4-5",
+    "antigravity": "gemini-2.0-flash-lite",
+    "codex": "gpt-5.4-mini"
+  }
+}

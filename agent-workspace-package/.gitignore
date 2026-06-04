@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Generated provider compatibility outputs (produced by `init`/`update` in each project)
+.claude/
+.gemini/
+
+# Workspace state (per-user, written by `init`/`update`)
+.agent-workspace/
+
+# Backups created by `update`
+*.bak
+
+# Logs
+*.log

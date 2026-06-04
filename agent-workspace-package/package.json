@@ -1,0 +1,29 @@
+{
+  "name": "agent-workspace",
+  "version": "1.0.0",
+  "description": "Initialize and maintain an AI agent workspace with multi-provider support.",
+  "type": "module",
+  "bin": {
+    "agent-workspace": "bin/agent-workspace.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "templates"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/cli.test.js test/init.test.js test/update.test.js test/doctor.test.js"
+  },
+  "keywords": [
+    "agent",
+    "workspace",
+    "claude",
+    "gemini",
+    "codex",
+    "ai"
+  ],
+  "license": "MIT"
+}
