@@ -106,6 +106,7 @@ Tasks represent real event work.
 - `title`
 - `description`
 - `team_id`
+- `category_id` — **required**; every task belongs to exactly one category
 - `base_points` (admin-defined)
 - `deadline` (optional)
 - role limits:
@@ -117,6 +118,23 @@ Tasks represent real event work.
 
 - Tasks belong to a team
 - Tasks can have multiple participants
+- Tasks must have a category; use the seeded "General" category when no specific category applies
+
+## 2b. Task Categories
+
+Admin-managed categories that group tasks and optionally cap point accumulation per user.
+
+### `task_categories` Fields
+
+- `id BIGSERIAL`
+- `name VARCHAR(100) UNIQUE`
+- `description TEXT` (optional)
+- `point_cap INT DEFAULT 0` — 0 = unlimited; positive = max awarded points per user per reset window
+- `cap_reset_period VARCHAR` — `'day' | 'week' | 'month'`
+
+### Per-Category Point Capping
+
+When `point_cap > 0`, a user who has accumulated `>= point_cap` awarded points in the current window cannot claim further tasks in that category until the window resets or an admin manually resets the cap. See [Category Point Capping](../best-practices/category-point-capping.md) for the full design.
 
 ---
 
@@ -161,9 +179,11 @@ Constraints:
 ## 4️⃣ Task Completion Workflow
 
 1. Member submits proof
-2. Admin reviews
-3. Admin approves/rejects
+2. **Admin or team lead** reviews the submission
+3. Reviewer approves/rejects (team leads cannot approve their own submissions)
 4. Points awarded **only after approval**
+
+See [Submission Vouching Pattern](../best-practices/submission-vouching-pattern.md) for the full authorization model.
 
 ---
 
@@ -174,7 +194,9 @@ Fields:
 - `task_participation_id`
 - `proof`
 - `status`
-- `approved_at`
+- `admin_feedback` (populated on rejection)
+- `reviewed_by UUID` — who approved/rejected
+- `reviewed_at TIMESTAMPTZ`
 
 ---
 
@@ -289,6 +311,24 @@ Users can see:
 - tasks completed
 - reward eligibility
 - claimed rewards
+
+---
+
+# 🏆 Leaderboards
+
+A non-realtime leaderboard system allows users to view point rankings.
+
+### Team Leaderboard
+Shows the highest total points accumulated by a team.
+
+### Individual Leaderboard
+Shows the highest points gained by an individual user.
+
+### Leaderboard Rules
+- Top 1-10 are highlighted in descending order.
+- Paginated with a customizable "per page" setting.
+- The user's current rank is always shown as the 11th item (unless they appear in the current page).
+- Refreshed on load (non-realtime).
 
 ---
 
