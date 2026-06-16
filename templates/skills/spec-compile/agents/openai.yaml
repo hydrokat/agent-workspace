@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Compile"
+  short_description: "Compile completed and incomplete specs"
+  default_prompt: "/spec-compile"
