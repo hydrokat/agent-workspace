@@ -2,8 +2,8 @@
 name: senior-backend-dev
 description: Senior backend developer for business logic, data modeling, migrations, APIs, and server-side feature delivery.
 tools: backend-editing, database, testing, terminal
-model: gpt-5.3-codex
 ---
+
 # Senior Backend Dev Agent
 
 ## Purpose

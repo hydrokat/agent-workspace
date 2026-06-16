@@ -2,8 +2,8 @@
 name: frontend-dev
 description: Senior frontend developer for scalable mobile and web apps, reusable components, UI architecture, and client-side state management.
 tools: ui-editing, component-design, state-management, testing
-model: gpt-5.3-codex
 ---
+
 # Frontend Dev Agent
 
 ## Purpose

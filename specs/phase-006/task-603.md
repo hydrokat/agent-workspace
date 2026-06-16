@@ -11,4 +11,4 @@ Write Playwright tests that cover the core workflow of task tracking within the 
 - [ ] Verify proper UI state changes throughout the lifecycle.
 
 ## Status
-- [ ] Pending
+- [x] Completed

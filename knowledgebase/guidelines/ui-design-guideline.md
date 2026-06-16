@@ -95,3 +95,19 @@ Before shipping:
 If you have to squint, zoom, or guess → it's wrong.
 
 Fix it.
+
+---
+
+## 8. Responsive Design & Layout Standards
+
+All applications must render beautifully and work correctly across these primary viewport widths:
+- **Mobile (375px)**
+- **Tablet (768px)**
+- **Desktop (1280px)**
+
+### Standard Practices
+1. **No Body Scroll**: The main viewport (`<body>` element) must never scroll horizontally. All screen horizontal offsets must be avoided.
+2. **Scroll Containers for Data Views**: Tables, timelines, and other wide structural elements must always be enclosed in responsive `overflow-x-auto` wrapper containers (e.g. `<div className="overflow-x-auto">`) to avoid pushing components outside the container boundary.
+3. **Sidebar Fit & Truncation**: Sidebars (such as the `w-80` slide-out menu) must be flexible and fit on small mobile screens. Any user-specific dynamic text (usernames, email addresses, hashes, or numeric IDs) inside the sidebar must use text truncation classes (`overflow-hidden truncate` or `text-ellipsis`) to avoid layouts pushing beyond boundaries.
+4. **Touch targets**: On mobile screens, all interactive items (buttons, links, triggers) must have adequate tap space (minimum 44x44px) to ensure accurate, high-contrast user interaction.
+

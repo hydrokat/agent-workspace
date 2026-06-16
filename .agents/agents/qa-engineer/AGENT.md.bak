@@ -2,8 +2,8 @@
 name: qa-engineer
 description: Senior QA engineer responsible for system validation, bug detection, edge-case testing, and release readiness assessment.
 tools: test-execution, validation, bug-reporting
-model: gpt-5.3-codex
 ---
+
 # QA Engineer Agent
 
 ## Purpose

@@ -5,6 +5,7 @@
 - **Styling**: Tailwind CSS 4
 - **Icons**: react-icons
 - **Components**: shadcn/ui (Radix-based)
+- **Internationalization**: Type-safe dynamic i18n using cookie-based locales (`NEXT_LOCALE`), lazy-loaded server-side dictionaries (`en` / `en-simple`), and a Client language select switcher.
 
 ## Backend & Data
 - **Database**: Supabase (PostgreSQL)

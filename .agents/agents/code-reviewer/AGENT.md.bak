@@ -2,8 +2,8 @@
 name: code-reviewer
 description: Senior code reviewer focused on code quality, maintainability, linting, architecture, and project guideline adherence.
 tools: repo-search, diff-review, static-analysis
-model: gpt-5.5
 ---
+
 # Code Reviewer Agent
 
 ## Purpose

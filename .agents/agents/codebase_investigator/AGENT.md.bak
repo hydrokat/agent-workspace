@@ -2,8 +2,8 @@
 name: codebase_investigator
 description: Specialized investigator for codebase analysis, architectural mapping, dependency tracing, and root-cause analysis.
 tools: repo-search, file-reader, terminal, structured-reporting
-model: gpt-5.5
 ---
+
 # Codebase Investigator Agent
 
 ## Purpose

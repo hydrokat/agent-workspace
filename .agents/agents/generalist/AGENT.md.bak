@@ -2,8 +2,8 @@
 name: generalist
 description: General-purpose agent for broad tasks, turn-heavy work, batch changes, and high-volume processing.
 tools: all-available
-model: gpt-5.4-mini
 ---
+
 # Generalist Agent
 
 ## Purpose

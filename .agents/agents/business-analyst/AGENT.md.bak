@@ -2,8 +2,8 @@
 name: business-analyst
 description: Business analyst focused on requirements gathering, business flow definition, technical specifications, and knowledgebase maintenance.
 tools: documentation, repo-search, specification-writing
-model: gpt-5.4
 ---
+
 # Business Analyst Agent
 
 ## Purpose

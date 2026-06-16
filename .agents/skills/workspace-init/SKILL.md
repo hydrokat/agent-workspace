@@ -1,6 +1,6 @@
 ---
 name: workspace-initializer
-description: Initializes a new agent-optimized workspace with knowledgebase/ (and subdirectories), and specs/ directories.
+description: Initializes a new agent-optimized workspace with knowledgebase/ (and subdirectories), specs/ directories, and optional sibling codebase symlinks.
 metadata:
   category: setup
   triggers: workspace-init, workspace-initializer, init workspace, bootstrap workspace, initialize workspace
@@ -22,6 +22,10 @@ This skill initializes the base workspace structure and creates starter files on
 - `specs/`
 - `.agents/agents/`
 - `.agents/skills/`
+
+When the user opts in to sibling codebase linking, it also creates:
+- `codebase-symlinks/`
+- `knowledgebase/context-history/codebase-map.md`
 
 ## Starter Files
 
@@ -53,20 +57,33 @@ To initialize another directory:
 bash .agents/skills/workspace-init/scripts/workspace-init.sh /path/to/workspace
 ```
 
-### 3. Preserve Existing Work
+### 3. Optional Sibling Codebases
+- Ask the user whether they want to generate codebase symlinks.
+- If they say no, stop after the base initializer.
+- If they say yes, run:
+
+```bash
+python3 .agents/skills/workspace-init/scripts/link_codebases.py
+```
+
+The script scans one directory up from the workspace, lists sibling directories except the workspace itself, lets the user select one or more targets or `all`, creates symlinks in `codebase-symlinks/`, and refreshes `knowledgebase/context-history/codebase-map.md`.
+
+### 4. Preserve Existing Work
 - Never overwrite existing files.
 - Create only missing directories and starter files.
 - Treat existing `AGENTS.md`, `WORKFLOW.md`, `knowledgebase/`, and `specs/` content as authoritative.
 
-### 4. Follow-Up
+### 5. Follow-Up
 After initialization:
 - use `/knowledge` to refine the knowledgebase content
 - use the specs planner skill to create the first phase plan
 - use `/workspace-sync` if Gemini or Claude compatibility outputs are needed
+- review `knowledgebase/context-history/codebase-map.md` and tighten the purpose line for any linked repo whose role is still unclear
 
 ## Mandates
 
 - **Trigger**: This skill should be easy to invoke with `/workspace-init`.
 - **Non-Destructive**: Initialize missing structure only; do not overwrite existing files.
 - **Base First**: Create the base workspace files and directories before any compatibility sync.
+- **Ask First**: Ask before linking sibling codebases.
 - **Keep It Minimal**: Create only the starter structure needed to begin using the workspace.

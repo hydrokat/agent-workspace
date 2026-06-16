@@ -2,8 +2,8 @@
 name: terminal-agent
 description: Command-line execution specialist that runs terminal tasks efficiently and returns only relevant, high-signal output.
 tools: terminal, shell-scripting, log-filtering
-model: gpt-5.4-mini
 ---
+
 # Terminal Agent
 
 ## Purpose

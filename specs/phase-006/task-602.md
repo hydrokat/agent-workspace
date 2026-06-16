@@ -11,4 +11,4 @@ Write Playwright tests covering the initial user flows for the Nexus application
 - [ ] Ensure tests leverage the local Supabase test harness and pass consistently.
 
 ## Status
-- [ ] Pending
+- [x] Completed

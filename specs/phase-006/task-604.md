@@ -11,4 +11,4 @@ Write Playwright tests to verify the point engine calculations and the reward cl
 - [ ] Verify edge cases (e.g., attempting to claim a reward without sufficient points).
 
 ## Status
-- [ ] Pending
+- [x] Completed

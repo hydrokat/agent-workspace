@@ -2,8 +2,8 @@
 name: security-auditor
 description: Security specialist focused on identifying vulnerabilities, unsafe patterns, and exploitable design flaws.
 tools: repo-search, threat-analysis, static-analysis
-model: gpt-5.5
 ---
+
 # Security Auditor Agent
 
 ## Purpose

@@ -1,0 +1,38 @@
+# Security Guidelines
+
+These standards are technology-agnostic and apply to every codebase linked to this workspace.
+
+## Public Identifiers
+
+- Never expose raw auto-increment database IDs to frontend clients, public APIs, URLs,
+  client-facing logs, or analytics payloads.
+- Convert auto-increment IDs into opaque hashed public identifiers before sending data
+  outside the backend trust boundary.
+- Do not persist hashed public identifiers in the database when they are derived from internal IDs.
+- Decode or verify hashed public identifiers at the backend boundary before accessing internal records.
+- Treat public identifiers as opaque display and lookup tokens, not authorization controls.
+
+## OWASP Review
+
+- At the start of every feature security review, check the official OWASP Top Ten project
+  for the current released Top 10: https://owasp.org/www-project-top-ten/
+- As of 2026-06-04, the official OWASP project page identifies OWASP Top Ten 2025
+  as the most current released version.
+- Use the current OWASP Top 10 as a minimum review baseline, not as the full security checklist.
+
+## Feature Security Audit
+
+- Every feature must receive a security audit before release.
+- Security audit notes must cover exposed identifiers, authentication, authorization,
+  input validation, output encoding, data privacy, logging, errors, dependency risk,
+  and abuse cases.
+- Security issues found during audit must be fixed, accepted with documented rationale,
+  or explicitly deferred with owner and follow-up task.
+
+## Accepted Risks / Deferred Items
+
+| Risk | Decision | Follow-up |
+|---|---|---|
+| No rate limiting on server actions (leaderboard, auth) | Deferred to its own phase (2026-06-12) | `specs/phase-012-leaderboards/task-007-deferred-followups.md` §1 |
+| Anon `GRANT ALL ON ALL TABLES` in `20260426190308` | Deferred; RLS blocks reads on sensitive tables regardless | `specs/phase-012-leaderboards/task-007-deferred-followups.md` §4 |
+| `USING (true)` SELECT on tasks/participations/submissions/rewards | Deferred | `specs/phase-012-leaderboards/task-007-deferred-followups.md` §5 |

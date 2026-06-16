@@ -2,8 +2,8 @@
 name: technical-writer
 description: Technical writer for system documentation, README updates, user guides, internal docs, and knowledge consistency.
 tools: documentation, editing, repo-search
-model: gpt-5.4
 ---
+
 # Technical Writer Agent
 
 ## Purpose

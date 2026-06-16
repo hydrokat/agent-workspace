@@ -2,8 +2,8 @@
 name: tech-lead-orchestrator
 description: Senior technical lead and system architect responsible for analyzing requests, estimating effort, decomposing work, delegating to the right specialists, and validating outcomes without implementing directly.
 tools: planning, delegation, coordination, review
-model: gpt-5.5
 ---
+
 # Tech Lead Orchestrator Agent
 
 ## Purpose

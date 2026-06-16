@@ -14,13 +14,13 @@ Initialize a comprehensive Playwright End-to-End (E2E) test suite for the Nexus 
   - Points Engine & Rewards Lifecycle.
 
 ## Timeline
-- **Task 601**: Setup Playwright & Local Supabase Test Harness (Pending)
-- **Task 602**: Implement E2E Tests for Login, Team Management, & Personnel Assignment (Pending)
-- **Task 603**: Implement E2E Tests for Task Lifecycle & Admin Approval (Pending)
-- **Task 604**: Implement E2E Tests for Points Engine & Rewards Lifecycle (Pending)
+- **Task 601**: Setup Playwright & Local Supabase Test Harness (Completed)
+- **Task 602**: Implement E2E Tests for Login, Team Management, & Personnel Assignment (Completed)
+- **Task 603**: Implement E2E Tests for Task Lifecycle & Admin Approval (Completed)
+- **Task 604**: Implement E2E Tests for Points Engine & Rewards Lifecycle (Completed)
 
 ## Tasks
-- [ ] Task 601: Setup Playwright & Local Supabase Test Harness
-- [ ] Task 602: Implement E2E Tests for Login, Team Management, & Personnel Assignment
-- [ ] Task 603: Implement E2E Tests for Task Lifecycle & Admin Approval
-- [ ] Task 604: Implement E2E Tests for Points Engine & Rewards Lifecycle
+- [x] Task 601: Setup Playwright & Local Supabase Test Harness
+- [x] Task 602: Implement E2E Tests for Login, Team Management, & Personnel Assignment
+- [x] Task 603: Implement E2E Tests for Task Lifecycle & Admin Approval
+- [x] Task 604: Implement E2E Tests for Points Engine & Rewards Lifecycle
