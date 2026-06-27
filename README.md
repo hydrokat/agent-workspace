@@ -20,7 +20,7 @@ Run one command. Get a workspace that works with Claude, Antigravity, or Codex o
 No installation. Run directly with `npx`:
 
 ```bash
-cd your-project
+cd your-project-agent-workspace
 npx hydrokat/agent-workspace init
 ```
 
@@ -127,7 +127,7 @@ npx hydrokat/agent-workspace doctor --json
 After running `init`, your project directory will contain:
 
 ```
-your-project/
+your-project-agent-workspace/
 ├── AGENTS.md                          # Workspace rules (edit the overview; the rest is managed)
 ├── WORKFLOW.md                        # Shared execution style for all agents
 ├── .agent-workspace/
