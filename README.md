@@ -9,7 +9,7 @@ When you work with AI coding assistants (Claude Code, Antigravity CLI, Codex), e
 `agent-workspace` solves that by giving you a structured directory that your AI provider reads automatically:
 
 - **Agent definitions** — named roles (`tech-lead-orchestrator`, `senior-backend-dev`, `qa-engineer`, etc.) with clear responsibilities, delegation rules, and the right model pre-assigned per provider
-- **Reusable skills** — step-by-step instructions the AI follows for recurring tasks (workspace init, knowledge management, spec planning)
+- **Reusable skills** — step-by-step instructions the AI follows for recurring tasks (workspace init, knowledge management, spec planning, pull requests, code review, and `/workspace-cleanup` to find and remove files that don't belong in the workspace)
 - **Shared guidelines** — architecture standards, security rules, and best practices the AI respects across every conversation, including branch protection (agents never commit directly to `main`, `master`, or `trunk` unless explicitly told to, and use a worktree or a new branch before implementing) and concurrent agent awareness (agents check for other agents' in-progress work before starting instead of assuming exclusive access)
 - **Live progress tracking** — `specs/in-progress.md` lists every task or spec an agent is actively working on, its next step, and the owning spec (or `adhoc` if it has none), so you always know what's in flight; entries are removed as soon as the task completes
 - **Provider outputs** — each provider gets its own compatibility format (`.claude/`, `.gemini/`) auto-generated from a single source of truth

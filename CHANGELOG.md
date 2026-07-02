@@ -11,6 +11,7 @@
 ### Base Skills
 
 - Updated `spec-implement` to create or switch to a feature branch before implementing (never directly on `main`, `master`, or `trunk`), reusing an existing non-protected branch when already checked out on one.
+- Added `workspace-cleanup` skill: scans the workspace for files and directories that may not belong (OS/editor cruft, stale `.bak` backups, orphaned generated provider output, empty directories, stale `.tmp/` scratch files, and other unrecognized files), lists every candidate with a reason, and asks the user which ones to delete before removing anything. Trigger with `/workspace-cleanup`.
 
 ## [2026-07-02]
 
