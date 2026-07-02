@@ -17,6 +17,7 @@ n/a
 - **[`/codebase-symlinks`](./codebase-symlinks/)**: **Linked Codebases.** Symlinked sibling repositories for adjacent project context.
 - **[`/knowledgebase`](./knowledgebase/)**: **Reference Material.** Contains guidelines, best practices, and historical context.
 - **[`/specs`](./specs/)**: **Active Task Tracking.** Implementation plans (`impl.md`) and task-specific breakdowns.
+- **[`/.tmp`](./.tmp/)**: **Agent Working Files.** Scratch space for in-progress agent output. Safe to delete at any time.
 - **`src/`**: (Optional) Application or library source code.
 
 <!-- managed:start -->

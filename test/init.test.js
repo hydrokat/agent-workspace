@@ -16,6 +16,7 @@ describe('init', () => {
     assert.ok(fileExists(dir, '.agents/skills'), '.agents/skills exists');
     assert.ok(fileExists(dir, 'knowledgebase'), 'knowledgebase exists');
     assert.ok(fileExists(dir, 'specs'), 'specs exists');
+    assert.ok(fileExists(dir, '.tmp'), '.tmp exists');
 
     // Starter files
     assert.ok(fileExists(dir, 'AGENTS.md'), 'AGENTS.md created');

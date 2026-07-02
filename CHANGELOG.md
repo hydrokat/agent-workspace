@@ -8,6 +8,10 @@
 - Added `code-review-remediation` skill: takes a pull request from reviewer feedback to a validated remediation commit — gathers unresolved review threads, validates reviewer intent before changing code, implements scoped fixes, reconciles with the base branch, and reports outcomes.
 - Added `pull-request` skill: turns completed implementation work into a PR — branch protection checks, atomic commits, validation, a structured PR description template, and a final review checklist.
 
+### Base Files
+
+- Added `.tmp/` as a scaffolded workspace directory for agent working files. It is created by `init`, safe to delete at any time, and documented in `AGENTS.md`'s Core Directory Map.
+
 ## [2026-06-04]
 
 ### CLI Package

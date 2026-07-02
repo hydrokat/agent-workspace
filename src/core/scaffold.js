@@ -19,6 +19,7 @@ export function ensureDirs(target) {
     'knowledgebase/context-history',
     'specs',
     '.agent-workspace',
+    '.tmp',
   ];
   for (const dir of dirs) ensureDir(target, dir);
 }

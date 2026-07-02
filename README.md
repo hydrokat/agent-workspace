@@ -156,7 +156,8 @@ your-project-agent-workspace/
 │   ├── best-practices/                # Operating principles
 │   ├── business-flows/                # Your project-specific flows (never touched by update)
 │   └── context-history/
-└── specs/                             # Your implementation plans (never touched by update)
+├── specs/                             # Your implementation plans (never touched by update)
+└── .tmp/                              # Agent working files — safe to delete anytime
 ```
 
 ---
