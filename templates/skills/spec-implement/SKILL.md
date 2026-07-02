@@ -22,7 +22,18 @@ Determine the requested implementation scope before editing files.
 
 If scope is ambiguous, inspect `specs/` and choose the latest phase with incomplete tasks. Tell the user which scope was selected.
 
-## Step 1: Read Spec Context
+## Step 1: Prepare The Branch
+
+Never implement directly on `main`, `master`, or `trunk`.
+
+1. Run `git status --short` and `git branch --show-current`.
+2. If the current branch is `main`, `master`, or `trunk`:
+   - If the working tree is clean, create and switch to a new branch before making any changes.
+   - If the working tree is dirty with unrelated changes, do not discard them. Ask whether to leave them alone, commit them separately, or stash them before branching.
+3. If the current branch is already a non-protected feature branch, continue on it rather than creating another one.
+4. Name the branch `<type>/<short-description>`, where type is `feature`, `bugfix`, `hotfix`, `refactor`, `chore`, `docs`, or `test`, derived from the selected scope (e.g. `feature/phase-002-task-003`).
+
+## Step 2: Read Spec Context
 
 Before implementation:
 1. Read the selected `specs/phase-XXX/impl.md`.
@@ -33,7 +44,7 @@ Before implementation:
 
 Do not begin implementation until the current spec intent, task objectives, existing knowledgebase guidance, and available specialist roles are understood.
 
-## Step 2: Normalize Task Metadata
+## Step 3: Normalize Task Metadata
 
 Every selected task file must include or be updated to include these sections before or during execution:
 
@@ -59,7 +70,7 @@ Every selected task file must include or be updated to include these sections be
 
 If no relevant knowledgebase reference exists, create one in the appropriate `knowledgebase/` directory before or during implementation and reference it from the task.
 
-## Step 3: Assign Agents And Skills
+## Step 4: Assign Agents And Skills
 
 Assign each task to the most appropriate role. Prefer workspace agent definitions when present.
 
@@ -75,7 +86,7 @@ Common routing:
 
 If subagent tooling is available, delegate bounded work to the assigned agent. If it is not available, explicitly act in that role and state the role in progress notes. Load all task-relevant skills before delegating or executing work.
 
-## Step 4: Execute One Task At A Time
+## Step 5: Execute One Task At A Time
 
 For each task:
 1. Mark the task as in progress in both `task-YYY.md` and `impl.md`.
@@ -91,7 +102,7 @@ For each task:
 
 Do not batch multiple task completions without updating progress between them.
 
-## Step 5: Update Knowledgebase
+## Step 6: Update Knowledgebase
 
 Every task must either update the knowledgebase or explicitly document why no knowledgebase update was needed.
 
@@ -103,7 +114,7 @@ Use the `knowledge` skill workflow when making substantive updates:
 
 Write high-signal entries only. Prefer updating existing files over creating duplicates.
 
-## Step 6: Maintain Progress
+## Step 7: Maintain Progress
 
 Always synchronize progress in both places:
 - `specs/phase-XXX/task-YYY.md`: detailed progress, assignment, references, implementation notes, validation, and knowledgebase updates.
@@ -118,6 +129,7 @@ Use these status terms consistently:
 
 ## Mandates
 
+- Never implement directly on `main`, `master`, or `trunk`; always create or switch to a feature branch first.
 - Always read the relevant spec and task files before implementation.
 - Always assign each task to an appropriate agent role and relevant skills.
 - Always include knowledgebase references in each task.

@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026-07-03]
+
+### Base Files
+
+- Added a Branch Protection operating principle to `AGENTS.md`: contributors must never commit or make changes directly on `main`, `master`, or `trunk` unless the user explicitly instructs it, and must use a worktree or a new branch before implementing.
+
+### Base Skills
+
+- Updated `spec-implement` to create or switch to a feature branch before implementing (never directly on `main`, `master`, or `trunk`), reusing an existing non-protected branch when already checked out on one.
+
 ## [2026-07-02]
 
 ### Base Skills

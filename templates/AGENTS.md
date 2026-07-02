@@ -68,6 +68,16 @@ For repetitive or complex technical tasks:
 - **Prefer Scripts:** If a script exists for the task, use it.
 - **Create Skills:** If no script or skill is present for a repetitive task, create a specialized skill in `./.agents/skills/` to encapsulate the procedure.
 
+### 7. Branch Protection
+Never commit or make changes directly on `main`, `master`, or `trunk` unless the user explicitly instructs it.
+
+Branch protection rules:
+- Before implementing, check the current branch. If it is `main`, `master`, or `trunk`, create a worktree or switch to a new branch first.
+- Prefer a worktree when the task should run in isolation from the current working tree (e.g. parallel work, experimentation, or when uncommitted changes must be preserved untouched).
+- Otherwise, create a descriptive branch (e.g. `<type>/<short-description>`) and switch to it before making any changes.
+- If already on a non-protected branch, continue on it rather than creating another one.
+- Only push to or commit on `main`, `master`, or `trunk` when the user explicitly asks for it in that exact request.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.
