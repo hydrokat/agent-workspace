@@ -78,6 +78,17 @@ Branch protection rules:
 - If already on a non-protected branch, continue on it rather than creating another one.
 - Only push to or commit on `main`, `master`, or `trunk` when the user explicitly asks for it in that exact request.
 
+### 8. Concurrent Agent Awareness
+Other agents or contributors may be working on this codebase at the same time. Do not assume exclusive access.
+
+Concurrent work rules:
+- Before starting, run `git status --short` and check for in-progress work (uncommitted changes, unfamiliar branches, active worktrees) that is not yours.
+- Check `specs/phase-XXX/task-YYY.md` and `impl.md` for tasks already marked `In Progress` or `Blocked` by another agent before claiming the same task.
+- Never discard, overwrite, or force-push over changes you did not make without confirming with the user first.
+- Prefer a dedicated branch or worktree per task so parallel agents do not collide on the same working tree.
+- Pull or fetch the latest base branch before branching and before merging, and re-check for new conflicts introduced since you started.
+- If a file, task, or branch appears to be actively owned by another agent, coordinate through the task file or ask the user rather than silently taking it over.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.
