@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review Remediation"
+  short_description: "Resolve PR review feedback safely"
+  default_prompt: "Use $code-review-remediation to resolve review comments on the current pull request."

@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-07-02]
+
+### Base Skills
+
+- Added `code-review` skill: production-grade PR/diff review covering correctness, business flow, architecture, security, performance, database safety, API contracts, tests, deployment risk, and blast radius, with a structured findings-first output and an approval/changes-requested verdict.
+- Added `code-review-remediation` skill: takes a pull request from reviewer feedback to a validated remediation commit — gathers unresolved review threads, validates reviewer intent before changing code, implements scoped fixes, reconciles with the base branch, and reports outcomes.
+- Added `pull-request` skill: turns completed implementation work into a PR — branch protection checks, atomic commits, validation, a structured PR description template, and a final review checklist.
+
 ## [2026-06-04]
 
 ### CLI Package

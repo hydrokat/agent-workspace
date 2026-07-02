@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pull Request"
+  short_description: "Create review-ready pull requests"
+  default_prompt: "Use $pull-request to prepare commits and open a review-ready pull request."

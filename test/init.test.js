@@ -23,6 +23,7 @@ describe('init', () => {
 
     // Canonical agents installed
     assert.ok(fileExists(dir, '.agents/agents/tech-lead-orchestrator/AGENT.md'), 'canonical agent installed');
+    assert.ok(fileExists(dir, '.agents/skills/code-review-remediation/SKILL.md'), 'code review remediation skill installed');
 
     // Claude provider output
     assert.ok(fileExists(dir, '.claude/agents/tech-lead-orchestrator.md'), 'claude agent generated');
