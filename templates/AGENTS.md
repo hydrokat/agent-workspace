@@ -16,7 +16,7 @@ n/a
 - **[`/.agents/skills`](./.agents/skills/)**: **Reusable Skills.** Task-focused instructions that can be shared across agents and contributors.
 - **[`/codebase-symlinks`](./codebase-symlinks/)**: **Linked Codebases.** Symlinked sibling repositories for adjacent project context.
 - **[`/knowledgebase`](./knowledgebase/)**: **Reference Material.** Contains guidelines, best practices, and historical context.
-- **[`/specs`](./specs/)**: **Active Task Tracking.** Implementation plans (`impl.md`) and task-specific breakdowns.
+- **[`/specs`](./specs/)**: **Active Task Tracking.** Implementation plans (`impl.md`), task-specific breakdowns, and `in-progress.md` tracking all work currently underway.
 - **[`/.tmp`](./.tmp/)**: **Agent Working Files.** Scratch space for in-progress agent output. Safe to delete at any time.
 - **`src/`**: (Optional) Application or library source code.
 
@@ -56,6 +56,11 @@ Compatibility sync rules:
 ### 4. Documentation Sync
 - **Implementation Plans:** Always update `specs/phase-XXX/impl.md` when a task status changes.
 - **Task Tracking:** Create a new `task-XXX.md` for every non-trivial unit of work.
+- **Progress Tracking:** Keep `specs/in-progress.md` current so the user can see what agents are actively working on.
+  - List every task or spec currently in progress, including the ongoing task and its next step.
+  - If a task belongs to a spec, indicate the spec name (e.g. `phase-002`).
+  - If a task does not belong to a spec, label it `adhoc`.
+  - Remove an entry as soon as its task is completed — this file reflects only active work, not history.
 - **Knowledgebase:** If a new pattern or "lesson learned" emerges, document it in `knowledgebase/best-practices/`.
 
 ### 5. Engineering Standards

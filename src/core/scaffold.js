@@ -48,6 +48,7 @@ export function initStarterFiles(target, dryRun = false) {
     ['knowledgebase/business-flows/README.md', readTemplate('knowledgebase', 'business-flows', 'README.md')],
     ['knowledgebase/context-history/README.md', readTemplate('knowledgebase', 'context-history', 'README.md')],
     ['specs/README.md', readTemplate('specs', 'README.md')],
+    ['specs/in-progress.md', readTemplate('specs', 'in-progress.md')],
   ];
   for (const [rel, content] of starters) {
     createIfMissing(target, rel, content, dryRun);

@@ -6,6 +6,7 @@
 
 - Added a Branch Protection operating principle to `AGENTS.md`: contributors must never commit or make changes directly on `main`, `master`, or `trunk` unless the user explicitly instructs it, and must use a worktree or a new branch before implementing.
 - Added a Concurrent Agent Awareness operating principle to `AGENTS.md`: contributors must not assume exclusive access to the codebase — check for other agents' in-progress work via `git status`, task files, and branches/worktrees before starting, and coordinate instead of overwriting.
+- Added a Progress Tracking rule to `AGENTS.md`'s Documentation Sync section and a new `specs/in-progress.md` starter file, scaffolded by `init`: agents must list every active task or spec (labeled `adhoc` if it has no spec) with its ongoing status and next step, and remove entries as soon as the task is complete.
 
 ### Base Skills
 

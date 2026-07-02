@@ -21,6 +21,7 @@ describe('init', () => {
     // Starter files
     assert.ok(fileExists(dir, 'AGENTS.md'), 'AGENTS.md created');
     assert.ok(fileExists(dir, 'WORKFLOW.md'), 'WORKFLOW.md created');
+    assert.ok(fileExists(dir, 'specs/in-progress.md'), 'specs/in-progress.md created');
 
     // Canonical agents installed
     assert.ok(fileExists(dir, '.agents/agents/tech-lead-orchestrator/AGENT.md'), 'canonical agent installed');
