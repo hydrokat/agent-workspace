@@ -142,7 +142,7 @@ your-project-agent-workspace/
 │   │   ├── security-auditor/
 │   │   └── ...                        # 12 agents total
 │   └── skills/
-│       ├── specs-planner/
+│       ├── spec-planner/
 │       ├── workspace-init/
 │       ├── workspace-sync/
 │       └── ...
