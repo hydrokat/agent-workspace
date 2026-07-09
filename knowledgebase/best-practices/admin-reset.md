@@ -35,16 +35,18 @@ The system distinguishes between **dynamic transactional state** (wiped) and **s
 
 | Table | Reset Behavior | Rationale / Relationship |
 | :--- | :--- | :--- |
-| `tasks` | **Wiped** | Cascade-deletes all participations and submissions. |
+| `tasks` | **Wiped** | Cascade-deletes all participations and submissions. References `task_categories` (preserved) with `ON DELETE RESTRICT`. |
 | `task_participations` | **Wiped** | Cascade-deleted. |
-| `task_submissions` | **Wiped** | Cascade-deleted. |
+| `task_submissions` | **Wiped** | Cascade-deleted. Audit details (`reviewed_by`, `reviewed_at`) are wiped automatically with submission rows. |
 | `point_transactions` | **Wiped** | Purged explicitly (FK `ON DELETE SET NULL` on participations doesn't wipe them). |
 | `profiles.points` | **Zeroed** | The cached points column on profiles must be updated to `0`. |
 | `teams` | **Wiped** | Cascade-deletes all team memberships. |
 | `team_members` | **Wiped** | Cascade-deleted. |
 | `reward_claims` | **Wiped** | Merit redemption logs are cleared. |
+| `category_cap_resets` | **Wiped** | Category manual point cap reset logs are cleared. |
 | `profiles` / `auth.users` | **Preserved** | User credentials, profiles, status, and role assignments survive. |
 | `rewards` | **Preserved** | The rewards catalog remains intact. |
+| `task_categories` | **Preserved** | The categories catalog remains intact (similar to rewards catalog). |
 | `app_configurations` | **Preserved** | Operational parameters (multipliers, limits) survive. |
 | `role_point_configs` | **Preserved** | Points configurations survive. |
 | `system_reset_requests` | **Preserved** | Audit trail of reset requests survives resets. |
@@ -66,7 +68,8 @@ TRUNCATE TABLE
   public.task_participations,
   public.tasks,
   public.team_members,
-  public.teams
+  public.teams,
+  public.category_cap_resets
   RESTART IDENTITY CASCADE;
 ```
 
@@ -94,3 +97,28 @@ Authorization is verified at three independent layers:
 
 ### Confirmation Gate
 The UI implements a destructive action confirmation gate requiring the admin to explicitly type the confirmation phrase `RESET` in a confirmation dialog. The execution request is transmitted via a standard POST-based Server Action (protected by built-in CSRF defenses in Next.js).
+
+---
+
+## 5. Schema Change Checklist & Gotchas (Post-Phase 016/018)
+
+When modifying the database schema, future database developers must consult this checklist to prevent breaking the system state reset:
+
+### 1. Identify Target Tables
+*   Any new table that holds **dynamic operational state** (e.g. user records, logs, transactions, transactional configurations) **MUST** be added to the `TRUNCATE` list in the `reset_system_state()` RPC function.
+*   Any table that holds **structural configuration/catalog data** (e.g., rewards, task categories) should **NOT** be truncated.
+
+### 2. Foreign Key Topology Warnings
+*   **ON DELETE RESTRICT Warning**: If a truncated table (like `tasks`) contains a foreign key pointing to a preserved catalog table (like `task_categories`) with `ON DELETE RESTRICT`, it will **not** block `TRUNCATE` of the referencing table. PostgreSQL allows truncating child tables (referencing side) directly.
+*   **ON DELETE RESTRICT Parent Block**: However, if a preserved table (like `task_categories`) has an `ON DELETE RESTRICT` constraint pointing to it, and you run a migration that depends on cascade actions, ensure the order of table truncation is correct.
+*   **Wiped Table FKs**: Any new table that references a truncated table must either be truncated alongside it (e.g., `category_cap_resets` referencing `task_categories` and `profiles` should be explicitly truncated) or must use `ON DELETE CASCADE` / `ON DELETE SET NULL` as appropriate.
+
+### 3. Verification Protocol
+*   After any schema migration touching active tables, verify the reset protocol locally or on a staging database by running the `reset_system_state()` RPC.
+*   Ensure that the server-side action (`approveSystemReset`) allowlist is kept in sync or has robust structured logging so unexpected database errors are surfaced cleanly for developer triage.
+
+### Case Study: Phase 018 Migration
+During Phase 016 (Submission Vouching), two new schemas broke the reset:
+1.  `category_cap_resets` was introduced as transactional state, but was not in the `TRUNCATE` list.
+2.  `tasks.category_id` was added pointing to `task_categories` with `ON DELETE RESTRICT`. While this is safe for child table truncation, the mismatch between UI scope contracts and database behavior led to errors.
+In Phase 018, `category_cap_resets` was explicitly added to the truncate list, and the server action fallback error logging was hardened using `actionError` to log the full Postgres error fields (`code`, `message`, `details`, `hint`) to prevent future diagnostics blindspots.
