@@ -199,30 +199,25 @@ export function installCanonicalAssets(target, manifest, dryRun = false) {
   }
 
   log.step('Installing knowledgebase assets');
-  for (const f of readdirSync(templatePath('knowledgebase', 'guidelines')).filter(n => n.endsWith('.md'))) {
-    const src = templatePath('knowledgebase', 'guidelines', f);
-    const dest = join(target, 'knowledgebase', 'guidelines', f);
-    if (!dryRun) mkdirSync(join(dest, '..'), { recursive: true });
-    const content = readFileSync(src, 'utf8');
-    const action = writeManaged(dest, content, dryRun);
-    const rel = relative(target, dest);
-    if (manifest) { if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel); }
-    if (action === 'created') log.created(rel);
-    else if (action === 'updated') { log.backedUp(rel + '.bak'); log.updated(rel); }
-    else log.unchanged(rel);
-  }
+  for (const subdir of readdirSync(templatePath('knowledgebase'))) {
+    const subdirPath = templatePath('knowledgebase', subdir);
+    if (!statSync(subdirPath).isDirectory()) continue;
 
-  for (const f of readdirSync(templatePath('knowledgebase', 'best-practices')).filter(n => n.endsWith('.md') && n !== 'README.md')) {
-    const src = templatePath('knowledgebase', 'best-practices', f);
-    const dest = join(target, 'knowledgebase', 'best-practices', f);
-    if (!dryRun) mkdirSync(join(dest, '..'), { recursive: true });
-    const content = readFileSync(src, 'utf8');
-    const action = writeManaged(dest, content, dryRun);
-    const rel = relative(target, dest);
-    if (manifest) { if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel); }
-    if (action === 'created') log.created(rel);
-    else if (action === 'updated') { log.backedUp(rel + '.bak'); log.updated(rel); }
-    else log.unchanged(rel);
+    const isGuidelines = subdir === 'guidelines';
+    for (const f of readdirSync(subdirPath)) {
+      if (!f.endsWith('.md')) continue;
+      if (f === 'README.md' && !isGuidelines) continue;
+      const src = join(subdirPath, f);
+      const dest = join(target, 'knowledgebase', subdir, f);
+      if (!dryRun) mkdirSync(join(dest, '..'), { recursive: true });
+      const content = readFileSync(src, 'utf8');
+      const action = writeManaged(dest, content, dryRun);
+      const rel = relative(target, dest);
+      if (manifest) { if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel); }
+      if (action === 'created') log.created(rel);
+      else if (action === 'updated') { log.backedUp(rel + '.bak'); log.updated(rel); }
+      else log.unchanged(rel);
+    }
   }
 }
 
