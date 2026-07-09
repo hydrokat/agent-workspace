@@ -32,9 +32,10 @@ Before modifying code, contributors should:
 - Review existing tests to prevent regressions.
 
 ### 2. Skill-First Execution
-Before executing a task, contributors must look for a skill that is necessary or materially helpful for completing the task.
+Before executing a task, contributors must look for a skill that is necessary or materially helpful for completing the task. You should use the `caveman` skill as much as possible.
 
 Skill lookup order:
+- Prioritize using the `caveman` skill as much as possible for all applicable tasks.
 - Search workspace scope first in `./.agents/skills/`.
 - If no relevant workspace skill is found, search global scope for an applicable skill.
 - If no relevant skill is found in workspace scope or global scope, use the `find-skills` skill to identify suggested skills and present those suggestions to the user for review before proceeding with any install.
