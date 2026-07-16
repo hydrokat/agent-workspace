@@ -57,10 +57,10 @@ Compatibility sync rules:
 ### 4. Documentation Sync
 - **Implementation Plans:** Always update `specs/phase-XXX/impl.md` when a task status changes.
 - **Task Tracking:** Create a new `task-XXX.md` for every non-trivial unit of work.
-- **Progress Tracking:** Keep `specs/in-progress.md` current so the user can see what agents are actively working on.
+- **Progress Tracking:** Keep `specs/in-progress.md` current so the user can see what agents are actively working on and prevent collisions.
   - List every task or spec currently in progress, including the ongoing task and its next step.
-  - If a task belongs to a spec, indicate the spec name (e.g. `phase-002`).
-  - If a task does not belong to a spec, label it `adhoc`.
+  - Indicate the spec name (e.g. `phase-002`) or label it `adhoc`.
+  - **Explicit Ownership:** Record the active agent's role, conversation ID, and working branch/worktree.
   - Remove an entry as soon as its task is completed — this file reflects only active work, not history.
 - **Knowledgebase:** If a new pattern or "lesson learned" emerges, document it in `knowledgebase/best-practices/`.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026-07-16]
+
+### Base Files
+
+- Enhanced `specs/in-progress.md` tracking to be multi-agent aware: agents must explicitly record their role, ID, and working branch/worktree to prevent collisions when running concurrently.
+- Updated `AGENTS.md` Progress Tracking rules and `specs/in-progress.md` template to enforce explicitly declaring the agent context.
+
 ## [2026-07-03]
 
 ### Base Files
