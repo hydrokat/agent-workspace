@@ -55,9 +55,24 @@ When a user asks to "add a task" or "break down" part of a phase:
 ## Description
 [Detailed description of the work]
 
+## Knowledge References
+- [ ] Relevant `knowledgebase/` docs/patterns identified and reviewed
+  - [Path or note on what was consulted]
+
 ## Objectives
 - [ ] [Objective 1]
 - [ ] [Objective 2]
+
+## Testing (TDD)
+- [ ] Unit tests written before implementation
+- [ ] Unit tests passing
+
+## Security
+- [ ] Security audited
+- [ ] Security audit passed
+
+## Knowledge Updates
+- [ ] New patterns/lessons learned documented in `knowledgebase/best-practices/` (or N/A if none)
 
 ## Status
 - [ ] Pending
@@ -67,3 +82,6 @@ When a user asks to "add a task" or "break down" part of a phase:
 - **Zero-Padding**: Always use 3 digits for phases and tasks (e.g., `phase-001`, `task-005`).
 - **Sync**: Every new task MUST be reflected in the corresponding `impl.md`.
 - **Validation**: Ensure directories exist before writing files.
+- **Test-First**: A task is not "Pending → In Progress → Done" without its unit tests written *before* implementation code and passing before the task is marked complete.
+- **Security Gate**: A task involving code changes MUST be security audited, with the audit passing, before it can be marked complete. Use the `security-auditor` agent or `security-review` skill for the audit.
+- **Knowledge Loop**: Every task MUST record which `knowledgebase/` references were consulted going in, and what (if anything) should be added back to `knowledgebase/best-practices/` coming out.
