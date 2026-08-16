@@ -1,6 +1,6 @@
 ---
 name: specs-planner
-description: Automates the creation of implementation plans and task files within the /specs/ directory. Use when the user asks to "create a plan", "start a new phase", or "break down a task", or "/spec-plan" to ensure consistent folder structure and Markdown formatting.
+description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan or /specs-planner. Captures branch strategy, merge target, task files, delivery gates, PR review loops, pipeline loops, and merge readiness.
 ---
 
 # Specs Planner
@@ -15,25 +15,46 @@ All plans must follow this hierarchy:
 
 ## Workflows
 
+### 0. Choose Branches Before Planning
+Before creating or updating a phase, determine the branch strategy with the user.
+
+1. Inspect existing branch names, recent spec files, and knowledgebase notes for the repository's branch naming pattern.
+2. Suggest a working branch name that follows the observed pattern. If no pattern is clear, suggest `<type>/<short-description>` using a type such as `feature`, `bugfix`, `hotfix`, `refactor`, `chore`, `docs`, or `test`.
+3. Ask the user to choose what branch to work on. Present the suggested branch name and allow the user to enter a different branch name.
+4. Ask the user to choose which branch the work should merge into. Suggest the repository's primary branch, preferring `main`, then `trunk`, then `master`, then the configured default branch. Allow the user to enter a different target branch.
+5. Learn the selected branch naming pattern for future planning by recording it in the generated `impl.md`. If the repository has `knowledgebase/context-history/` or `knowledgebase/guidelines/`, add or update a concise branch naming note there as well.
+
 ### 1. Creating a New Phase
 When a user asks to "create a plan" for a new milestone:
 1. Identify the next phase number (e.g., if `phase-001` exists, use `phase-002`).
-2. Create `specs/phase-XXX/impl.md` using the **Implementation Plan Template**.
-3. Create the first task `specs/phase-XXX/task-001.md` using the **Task Template**.
-4. Update `GEMINI.md` to point to the new active phase.
+2. Complete **Choose Branches Before Planning**.
+3. Break the milestone into implementation tasks.
+4. Always add a final delivery task after all implementation tasks using the **Delivery Task Template**.
+5. Create `specs/phase-XXX/impl.md` using the **Implementation Plan Template**.
+6. Create task files `specs/phase-XXX/task-YYY.md` using the **Task Template** or **Delivery Task Template**.
+7. Update `GEMINI.md` to point to the new active phase when that file exists.
 
 ### 2. Adding a Task to an Existing Phase
 When a user asks to "add a task" or "break down" part of a phase:
 1. Identify the active phase directory.
 2. Determine the next task number (e.g., `task-002.md`).
-3. Create the file using the **Task Template**.
-4. Update the `impl.md` task list to include the new task.
+3. If the phase does not already record working branch, merge target, and branch naming pattern, complete **Choose Branches Before Planning** and update `impl.md`.
+4. Insert implementation tasks before the final delivery task. The final delivery task must remain last.
+5. Create each implementation task file using the **Task Template**.
+6. Renumber the final delivery task if needed so it is the last task.
+7. Update the `impl.md` task list to include the new tasks and the final delivery task.
 
 ## Templates
 
 ### Implementation Plan Template (`impl.md`)
 ```markdown
 # Implementation Plan: [Phase Name]
+
+## Branch Strategy
+- **Working Branch**: [selected branch name]
+- **Merge Target**: [selected target branch]
+- **Observed Branch Pattern**: [pattern to reuse moving forward, e.g. feature/short-description]
+- **Branch Pattern Source**: [existing branches, user choice, repo docs, or N/A]
 
 ## Phase Objectives
 [High-level goals for this phase]
@@ -43,9 +64,11 @@ When a user asks to "add a task" or "break down" part of a phase:
 
 ## Timeline
 - **Task 001**: [Task Title] (Status)
+- **Task NNN**: Delivery: Commit, PR, Review, CI, Merge (Pending)
 
 ## Tasks
 - [ ] Task 001: [Task Title]
+- [ ] Task NNN: Delivery: Commit, PR, Review, CI, Merge
 ```
 
 ### Task Template (`task-XXX.md`)
@@ -63,6 +86,10 @@ When a user asks to "add a task" or "break down" part of a phase:
 - [ ] [Objective 1]
 - [ ] [Objective 2]
 
+## Branches
+- **Working Branch**: [branch from impl.md]
+- **Merge Target**: [target branch from impl.md]
+
 ## Testing (TDD)
 - [ ] Unit tests written before implementation
 - [ ] Unit tests passing
@@ -78,10 +105,39 @@ When a user asks to "add a task" or "break down" part of a phase:
 - [ ] Pending
 ```
 
+### Delivery Task Template (`task-NNN.md`)
+```markdown
+# Task [NNN]: Delivery: Commit, PR, Review, CI, Merge
+
+## Description
+Finalize the phase by committing the completed work, creating a pull request, resolving review feedback, waiting for pipelines, fixing failures, and merging only after review and pipeline gates pass.
+
+## Branches
+- **Working Branch**: [branch from impl.md]
+- **Merge Target**: [target branch from impl.md]
+
+## Objectives
+- [ ] Confirm all implementation tasks in this phase are complete.
+- [ ] Review final diff and exclude unrelated changes.
+- [ ] Commit changes using the `commit` skill.
+- [ ] Create a pull request targeting the merge branch using the `pull-request` skill.
+- [ ] Run `code-review`.
+- [ ] If code review requests changes, run `code-review-remediation`, update the PR, and repeat code review until it passes.
+- [ ] Wait for required pipelines/checks to finish.
+- [ ] If any required pipeline/check fails, fix the failure, update the PR, and repeat until required pipelines/checks pass.
+- [ ] Merge the pull request into the selected merge target.
+
+## Status
+- [ ] Pending
+```
+
 ## Mandates
 - **Zero-Padding**: Always use 3 digits for phases and tasks (e.g., `phase-001`, `task-005`).
 - **Sync**: Every new task MUST be reflected in the corresponding `impl.md`.
 - **Validation**: Ensure directories exist before writing files.
+- **Branch Choice**: Always ask the user to choose the working branch and merge target before creating or updating implementation tasks. Suggest values, but allow user-entered branch names.
+- **Branch Pattern Learning**: Always capture the chosen branch naming pattern in `impl.md`, and update a concise knowledgebase note when a knowledgebase exists.
+- **Delivery Task Last**: The final task in every phase MUST be the delivery task: commit > create PR > code review and remediation loop until review passes > pipeline wait and fix loop until pipelines pass > merge PR.
 - **Test-First**: A task is not "Pending → In Progress → Done" without its unit tests written *before* implementation code and passing before the task is marked complete.
 - **Security Gate**: A task involving code changes MUST be security audited, with the audit passing, before it can be marked complete. Use the `security-auditor` agent or `security-review` skill for the audit.
 - **Knowledge Loop**: Every task MUST record which `knowledgebase/` references were consulted going in, and what (if anything) should be added back to `knowledgebase/best-practices/` coming out.

@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-08-16]
+
+### Base Skills
+
+- Enhanced `specs-planner` to prompt for a working branch and merge target before planning, record the selected branch naming pattern for future phases, and always include a final delivery task covering commit, PR creation, code review/remediation loops, pipeline fix loops, and merge.
+
 ## [2026-07-16]
 
 ### Base Files
