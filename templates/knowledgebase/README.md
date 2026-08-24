@@ -7,7 +7,7 @@ consults this directory before modifying code to ensure consistency.
 
 | Directory | Purpose |
 |---|---|
-| `guidelines/` | Enforced rules — env access, ID hashing, migrations, code limits, testing |
+| `guidelines/` | Enforced rules — env access, ID hashing, migrations, code limits, testing, release versioning |
 | `best-practices/` | Reusable patterns, lessons learned, coding conventions |
 | `api-design/` | Endpoint conventions, request/response shapes, error formats, versioning |
 | `db-schema/` | Entity relationships, migration policy, indexing strategy |
@@ -26,6 +26,9 @@ consults this directory before modifying code to ensure consistency.
   changes must include a backfill or backwards-compatibility step.
 - **Code limits:** 500 lines per file, 110 columns per line.
 - **Coverage:** Minimum 85% unit test coverage.
+- **Release versioning:** Every release-bound PR must declare its SemVer
+  impact. After merge, tag the merge commit with the released version. Include
+  SemVer build metadata when a build number is needed.
 - **Principles:** Clean architecture, KISS, DRY, no god services/controllers.
 - **Environment:** During development, only local env is accessible. No agent
   accesses non-local env unless explicitly allowed.

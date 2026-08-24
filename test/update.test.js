@@ -1,5 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { makeTmp, cleanup, runCli, fileExists, readFile, writeFile } from './helpers.js';
 
 describe('update', () => {
@@ -41,6 +43,17 @@ describe('update', () => {
 
     const after = readFile(dir, 'knowledgebase/business-flows/my-flow.md');
     assert.equal(after, kbContent, 'user kb entry untouched');
+  });
+
+  it('installs release versioning guideline on update', async () => {
+    unlinkSync(join(dir, 'knowledgebase/guidelines/release-versioning.md'));
+
+    const { code } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0, 'update exits 0');
+    assert.ok(
+      fileExists(dir, 'knowledgebase/guidelines/release-versioning.md'),
+      'release versioning guideline installed'
+    );
   });
 
   it('preserves AGENTS.md content outside managed markers', async () => {

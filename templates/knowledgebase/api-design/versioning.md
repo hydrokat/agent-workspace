@@ -172,6 +172,11 @@ and rolled out gradually if impactful.
 Do not use sub-version URL segments (`/v1.1`, `/v1.2`). Track implementation
 releases internally with Git tags or semver (e.g., `v1.8.4`, `v1.9.0`).
 
+API URL versions and package release versions are related but separate. API URL
+versions describe client contract compatibility; package releases must still
+follow the PR and tagging rules in
+`knowledgebase/guidelines/release-versioning.md`.
+
 ## Decision Tree
 
 | Change | New version? |
