@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026-09-02]
+
+### Base Skills
+
+- Enhanced `specs-planner` to require low-fidelity UI mockups for frontend/UI phases and tasks, including responsive variants, important states, interaction notes, and accessibility notes.
+
+### Base Files
+
+- Updated specs documentation to remind agents to include UI mockups before frontend/UI implementation starts.
+
 ## [2026-08-16]
 
 ### Base Skills

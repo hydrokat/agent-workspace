@@ -1,6 +1,6 @@
 ---
 name: specs-planner
-description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan or /specs-planner. Captures branch strategy, requirement type, codebase structure, existing implementation patterns, regression gates, task files, delivery gates, PR review loops, pipeline loops, cleanup, and merge readiness.
+description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan, /spec-planner, or /specs-planner. Captures branch strategy, requirement type, codebase structure, UI mockups for frontend/UI work, existing implementation patterns, regression gates, task files, delivery gates, PR review loops, pipeline loops, cleanup, and merge readiness.
 ---
 
 # Specs Planner
@@ -42,29 +42,42 @@ Classify every implementation requirement before tasking it:
 
 Use the classification to choose branch type, testing strategy, regression coverage, rollout notes, and review focus. When a task contains mixed work, split it or clearly label the primary classification and any secondary impacts.
 
-### 3. Creating a New Phase
+### 3. Add UI Mockups For Frontend/UI Work
+When a phase or task creates or changes user-facing frontend/UI behavior, include UI mockups before implementation tasking is finalized.
+
+1. Identify whether the requested work touches screens, flows, components, content hierarchy, navigation, forms, tables, dashboards, visual states, responsive layout, accessibility affordances, or interaction behavior.
+2. If frontend/UI work is involved, add a **UI Mockups** section to `impl.md` and every affected task file. Backend-only, infrastructure-only, docs-only, and internal tooling tasks may mark this section `N/A`.
+3. Keep mockups low-fidelity but implementation-useful. Use fenced `text`, Mermaid, or another readable diagram format to show layout, major regions, hierarchy, flows, states, and responsive differences.
+4. Include the expected states relevant to the task, such as loading, empty, error, success, disabled, validation, permissions, and destructive-confirmation states.
+5. Include mobile and desktop variations when the feature must be responsive.
+6. Add notes for accessibility and interaction requirements when they affect implementation, such as focus order, keyboard behavior, labels, contrast, reduced motion, or screen-reader text.
+7. If visual requirements are uncertain, document assumptions in the mockup section instead of leaving the UI undefined.
+
+### 4. Creating a New Phase
 When a user asks to "create a plan" for a new milestone:
 1. Identify the next phase number (e.g., if `phase-001` exists, use `phase-002`).
 2. Complete **Choose Branches Before Planning**.
 3. Complete **Inspect The Existing Codebase**.
 4. Complete **Classify Requirements**.
-5. Break the milestone into implementation tasks.
-6. Always add a final delivery task after all implementation tasks using the **Delivery Task Template**.
-7. Create `specs/phase-XXX/impl.md` using the **Implementation Plan Template**.
-8. Create task files `specs/phase-XXX/task-YYY.md` using the **Task Template** or **Delivery Task Template**.
-9. Update `GEMINI.md` to point to the new active phase when that file exists.
+5. Complete **Add UI Mockups For Frontend/UI Work**.
+6. Break the milestone into implementation tasks.
+7. Always add a final delivery task after all implementation tasks using the **Delivery Task Template**.
+8. Create `specs/phase-XXX/impl.md` using the **Implementation Plan Template**.
+9. Create task files `specs/phase-XXX/task-YYY.md` using the **Task Template** or **Delivery Task Template**.
+10. Update `GEMINI.md` to point to the new active phase when that file exists.
 
-### 4. Adding a Task to an Existing Phase
+### 5. Adding a Task to an Existing Phase
 When a user asks to "add a task" or "break down" part of a phase:
 1. Identify the active phase directory.
 2. Determine the next task number (e.g., `task-002.md`).
 3. If the phase does not already record working branch, merge target, and branch naming pattern, complete **Choose Branches Before Planning** and update `impl.md`.
 4. Inspect the existing codebase area affected by the new task and update the phase's code structure diagram or existing pattern notes when needed.
 5. Classify the new requirement as `New Feature`, `Enhancement`, or `Bug Fix`.
-6. Insert implementation tasks before the final delivery task. The final delivery task must remain last.
-7. Create each implementation task file using the **Task Template**.
-8. Renumber the final delivery task if needed so it is the last task.
-9. Update the `impl.md` task list to include the new tasks and the final delivery task.
+6. Complete **Add UI Mockups For Frontend/UI Work** for any frontend/UI tasks.
+7. Insert implementation tasks before the final delivery task. The final delivery task must remain last.
+8. Create each implementation task file using the **Task Template**.
+9. Renumber the final delivery task if needed so it is the last task.
+10. Update the `impl.md` task list to include the new tasks and the final delivery task.
 
 ## Templates
 
@@ -96,6 +109,17 @@ When a user asks to "add a task" or "break down" part of a phase:
 ```text
 [Use a directory tree, Mermaid diagram, PlantUML diagram, or other concise diagram showing the affected code structure.]
 ```
+
+## UI Mockups
+[For frontend/UI work, include low-fidelity mockups for the primary screens, flows, responsive variants, and important states. Use `N/A` for backend-only, infrastructure-only, docs-only, or internal-only work.]
+
+```text
+[Desktop/mobile layout, flow, state, or component mockup.]
+```
+
+- **States Covered**: [loading, empty, error, success, validation, disabled, permissions, destructive confirmation, or N/A]
+- **Interaction Notes**: [focus order, keyboard behavior, labels, navigation, animation/reduced-motion, or N/A]
+- **Accessibility Notes**: [contrast, semantic structure, screen-reader text, touch target sizing, or N/A]
 
 ## Timeline
 - **Task 001**: [Task Title] (Status)
@@ -131,6 +155,18 @@ When a user asks to "add a task" or "break down" part of a phase:
 ```text
 [Show the directory tree or relationship diagram for files/modules this task will touch.]
 ```
+
+## UI Mockups
+[Required for frontend/UI tasks and enhancements. Use `N/A` only when this task has no user-facing UI impact.]
+
+```text
+[Low-fidelity mockup showing the screen/component/flow this task will implement or change.]
+```
+
+- **Responsive Variants**: [desktop/tablet/mobile differences, or N/A]
+- **States Covered**: [loading, empty, error, success, validation, disabled, permissions, destructive confirmation, or N/A]
+- **Interaction Notes**: [focus order, keyboard behavior, labels, navigation, animation/reduced-motion, or N/A]
+- **Accessibility Notes**: [contrast, semantic structure, screen-reader text, touch target sizing, or N/A]
 
 ## Objectives
 - [ ] [Objective 1]
@@ -200,6 +236,7 @@ Finalize the phase by committing the completed work, creating a pull request, re
 - **Branch Pattern Learning**: Always capture the chosen branch naming pattern in `impl.md`, and update a concise knowledgebase note when a knowledgebase exists.
 - **Codebase First**: Always inspect the existing codebase and use its structure, patterns, tests, and conventions as the guide for implementation tasks.
 - **Structure Diagram**: Every phase plan and code-changing task MUST include a code structure or directory structure diagram in fenced `text`, Mermaid, PlantUML, or similar diagram form.
+- **UI Mockups**: Frontend/UI phases and tasks MUST include low-fidelity UI mockups covering primary screens or components, responsive variants, important states, interaction notes, and accessibility notes. Non-UI work may mark UI mockups as `N/A`.
 - **Requirement Classification**: Every code-changing task MUST classify its requirement as `New Feature`, `Enhancement`, or `Bug Fix`, with a short rationale and regression risk.
 - **No Regressions**: Development tasks MUST identify affected existing behavior and require tests or validation that prove the change does not introduce regressions.
 - **Delivery Task Last**: The final task in every phase MUST be the delivery task: commit > create PR > code review and remediation loop until review passes > pipeline wait and fix loop until pipelines pass > merge PR.
