@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026-09-22]
+
+### Base Skills
+
+- Enhanced `spec-implement` to use the `caveman` skill whenever possible during spec execution and to document exceptions when terse mode is unavailable or inappropriate.
+- Added strict `spec-implement` code-comment discipline: source comments are for durable documentation only, with implementation reasoning kept in task files, plans, commits, or knowledgebase entries.
+
+### Base Files
+
+- Updated package documentation to describe spec implementation's caveman-mode execution and code-comment cleanup expectations.
+
 ## [2026-09-02]
 
 ### Base Skills

@@ -1,6 +1,6 @@
 ---
 name: spec-implement
-description: "Implements planned work from /specs by reading phase plans and task files, assigning each task to the right agent role and skills, executing the work, updating task progress continuously, and keeping knowledgebase references and updates in sync. Trigger with /spec-implement, optionally scoped to a phase or task such as /spec-implement phase-002 or /spec-implement phase-002 task-003."
+description: "Implements planned work from /specs by reading phase plans and task files, assigning each task to the right agent role and skills, using caveman mode whenever possible, enforcing strict code-comment discipline, executing the work, updating task progress continuously, and keeping knowledgebase references and updates in sync. Trigger with /spec-implement, optionally scoped to a phase or task such as /spec-implement phase-002 or /spec-implement phase-002 task-003."
 ---
 
 # Spec Implement
@@ -52,7 +52,7 @@ Every selected task file must include or be updated to include these sections be
 ## Agent Assignment
 - **Primary Agent**: [agent-name]
 - **Supporting Agents**: [agent-name, if needed]
-- **Skills**: [skill-name, if needed]
+- **Skills**: [caveman, task-specific skill-name, if needed]
 
 ## Knowledgebase References
 - [relative/path.md] — [why it matters]
@@ -86,7 +86,35 @@ Common routing:
 
 If subagent tooling is available, delegate bounded work to the assigned agent. If it is not available, explicitly act in that role and state the role in progress notes. Load all task-relevant skills before delegating or executing work.
 
-## Step 5: Execute One Task At A Time
+### Caveman Skill Requirement
+
+Use the `caveman` skill whenever possible during spec implementation.
+
+- Add `caveman` to the task's `Skills` metadata unless the skill is unavailable or the current step falls under the caveman skill's own clarity/safety exceptions.
+- Use caveman style for progress updates, implementation notes, and routine technical summaries when it does not reduce correctness or safety.
+- Do not use caveman style inside code, generated documentation comments, API contracts, user-facing copy, or any file where terse wording would damage clarity.
+- If caveman cannot be used for a task or step, record why in the task's implementation notes.
+
+## Step 5: Code Comment Discipline
+
+Treat source code comments as documentation only. Do not use comments for thinking, planning, narration, or explaining your own process.
+
+Allowed comments:
+- Documentation-generator comments such as PHPDoc, JSDoc, Swagger/OpenAPI annotations, or equivalent API/reference documentation.
+- Short code documentation comments only when they clarify non-obvious domain constraints, invariants, compatibility requirements, or security-sensitive behavior.
+
+Forbidden comments:
+- Scratch thoughts, step-by-step reasoning, or "thinking out loud" inside code.
+- Comments that narrate obvious code behavior.
+- TODO comments used as a substitute for implementing or documenting the real next step in the task file.
+- Comments that explain why the agent chose an approach when that explanation belongs in `task-YYY.md`, `impl.md`, a commit message, or knowledgebase entry.
+
+When editing code:
+1. Prefer clear names, small functions, and direct structure over explanatory comments.
+2. Put implementation notes, tradeoffs, and follow-up work in the task file or knowledgebase, not in source comments.
+3. Before marking a task complete, remove unnecessary comments and keep only documentation comments that add durable value.
+
+## Step 6: Execute One Task At A Time
 
 For each task:
 1. Mark the task as in progress in both `task-YYY.md` and `impl.md`.
@@ -98,11 +126,12 @@ For each task:
 7. Run the narrowest useful validation first, then broader validation when appropriate.
 8. Record validation results in the task file.
 9. Request or run a security review when the task touches risky surfaces.
-10. Mark the task complete only when objectives, knowledgebase updates, validation, and security review are done or explicitly documented as not applicable.
+10. Run the code comment discipline cleanup before review or completion.
+11. Mark the task complete only when objectives, knowledgebase updates, validation, security review, and comment cleanup are done or explicitly documented as not applicable.
 
 Do not batch multiple task completions without updating progress between them.
 
-## Step 6: Update Knowledgebase
+## Step 7: Update Knowledgebase
 
 Every task must either update the knowledgebase or explicitly document why no knowledgebase update was needed.
 
@@ -114,7 +143,7 @@ Use the `knowledge` skill workflow when making substantive updates:
 
 Write high-signal entries only. Prefer updating existing files over creating duplicates.
 
-## Step 7: Maintain Progress
+## Step 8: Maintain Progress
 
 Always synchronize progress in both places:
 - `specs/phase-XXX/task-YYY.md`: detailed progress, assignment, references, implementation notes, validation, and knowledgebase updates.
@@ -132,9 +161,12 @@ Use these status terms consistently:
 - Never implement directly on `main`, `master`, or `trunk`; always create or switch to a feature branch first.
 - Always read the relevant spec and task files before implementation.
 - Always assign each task to an appropriate agent role and relevant skills.
+- Always use the `caveman` skill whenever possible, and document the reason when it is unavailable or inappropriate.
 - Always include knowledgebase references in each task.
 - Always update the knowledgebase or document why no update was needed.
 - Always update task progress after each meaningful milestone.
 - Never mark a task `Done` without validation evidence in the task file.
 - Never mark a task `Done` if `impl.md` and `task-YYY.md` disagree.
+- Never think inside code comments. Source comments are for durable code documentation only.
+- Never leave unnecessary code comments. Keep documentation-generator comments only when they add value, such as PHPDoc, JSDoc, Swagger/OpenAPI, or equivalent.
 - Keep changes surgical and scoped to the selected task.
