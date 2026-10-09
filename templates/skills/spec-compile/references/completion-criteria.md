@@ -2,7 +2,7 @@
 
 ## Detection Patterns
 
-Tasks are markdown files (`task-YYY.md`) under `specs/phase-XXX/`. Each criterion is detected by searching the file for the patterns below.
+Tasks are markdown files (`t-###.md`) under `specs/p-###-[repo-or-multi]/`. Legacy `task-YYY.md` files under `specs/phase-XXX/` may still be read when they already exist. Each criterion is detected by searching the file for the patterns below.
 
 ---
 

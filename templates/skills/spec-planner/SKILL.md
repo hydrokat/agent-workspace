@@ -1,6 +1,6 @@
 ---
 name: specs-planner
-description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan, /spec-planner, or /specs-planner. Captures branch strategy, requirement type, codebase structure, UI mockups for frontend/UI work, existing implementation patterns, regression gates, task files, delivery gates, PR review loops, pipeline loops, cleanup, and merge readiness.
+description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan, /spec-planner, or /specs-planner. Captures branch strategy, repo-scoped p-### phase directories, t-### task files, involved repositories, requirement type, codebase structure, UI mockups for frontend/UI work, existing implementation patterns, regression gates, task files, delivery gates, PR review loops, pipeline loops, cleanup, and merge readiness.
 ---
 
 # Specs Planner
@@ -10,8 +10,9 @@ This skill ensures that all implementation plans and tasks are documented unifor
 ## Directory Structure
 
 All plans must follow this hierarchy:
-- `specs/phase-XXX/impl.md`: The master plan for a phase.
-- `specs/phase-XXX/task-YYY.md`: Individual task breakdowns.
+- `specs/p-###-[repo-slug]/impl.md`: The master plan for a single-repository phase.
+- `specs/p-###-multi/impl.md`: The master plan for a multi-repository phase.
+- `specs/p-###-[repo-slug]/t-###.md`: Individual task breakdowns.
 
 ## Workflows
 
@@ -33,7 +34,16 @@ Before creating or changing implementation tasks, inspect the current codebase s
 4. Include a code structure or directory structure diagram in the plan. Use a fenced `text`, Mermaid, PlantUML, or similar diagram format that makes the relevant files and relationships easy to scan.
 5. Record the existing code paths and patterns each task should follow. If the affected area cannot be determined from the request, note the assumption or ask the user before planning risky work.
 
-### 2. Classify Requirements
+### 2. Identify Repository Scope And Phase Name
+Before creating or changing a phase, determine which repositories are involved and use them in the phase naming and `impl.md` metadata.
+
+1. Inspect the current repository name, linked codebases, relevant paths, and user request to identify every repository involved.
+2. For single-repository work, name the phase directory `p-###-[name-of-repo]`, where `[name-of-repo]` is a lowercase repo slug derived from the repository name.
+3. For multi-repository work, name the phase directory `p-###-multi`.
+4. Record all involved repositories in `impl.md` under **Repository Scope**, including each repo's role in the phase.
+5. Do not use legacy `phase-XXX` directory names for new phases. Existing legacy directories may be read for context only.
+
+### 3. Classify Requirements
 Classify every implementation requirement before tasking it:
 
 - `New Feature`: adds a capability or behavior that does not currently exist.
@@ -42,7 +52,7 @@ Classify every implementation requirement before tasking it:
 
 Use the classification to choose branch type, testing strategy, regression coverage, rollout notes, and review focus. When a task contains mixed work, split it or clearly label the primary classification and any secondary impacts.
 
-### 3. Add UI Mockups For Frontend/UI Work
+### 4. Add UI Mockups For Frontend/UI Work
 When a phase or task creates or changes user-facing frontend/UI behavior, include UI mockups before implementation tasking is finalized.
 
 1. Identify whether the requested work touches screens, flows, components, content hierarchy, navigation, forms, tables, dashboards, visual states, responsive layout, accessibility affordances, or interaction behavior.
@@ -53,31 +63,33 @@ When a phase or task creates or changes user-facing frontend/UI behavior, includ
 6. Add notes for accessibility and interaction requirements when they affect implementation, such as focus order, keyboard behavior, labels, contrast, reduced motion, or screen-reader text.
 7. If visual requirements are uncertain, document assumptions in the mockup section instead of leaving the UI undefined.
 
-### 4. Creating a New Phase
+### 5. Creating a New Phase
 When a user asks to "create a plan" for a new milestone:
-1. Identify the next phase number (e.g., if `phase-001` exists, use `phase-002`).
+1. Identify the next phase number by scanning existing `specs/p-###-*` directories. If only legacy `specs/phase-XXX` directories exist, continue from the highest legacy number using the new `p-###-[repo-or-multi]` format.
 2. Complete **Choose Branches Before Planning**.
 3. Complete **Inspect The Existing Codebase**.
-4. Complete **Classify Requirements**.
-5. Complete **Add UI Mockups For Frontend/UI Work**.
-6. Break the milestone into implementation tasks.
-7. Always add a final delivery task after all implementation tasks using the **Delivery Task Template**.
-8. Create `specs/phase-XXX/impl.md` using the **Implementation Plan Template**.
-9. Create task files `specs/phase-XXX/task-YYY.md` using the **Task Template** or **Delivery Task Template**.
-10. Update `GEMINI.md` to point to the new active phase when that file exists.
+4. Complete **Identify Repository Scope And Phase Name**.
+5. Complete **Classify Requirements**.
+6. Complete **Add UI Mockups For Frontend/UI Work**.
+7. Break the milestone into implementation tasks.
+8. Always add a final delivery task after all implementation tasks using the **Delivery Task Template**.
+9. Create `specs/p-###-[repo-or-multi]/impl.md` using the **Implementation Plan Template**.
+10. Create task files `specs/p-###-[repo-or-multi]/t-###.md` using the **Task Template** or **Delivery Task Template**.
+11. Update `GEMINI.md` to point to the new active phase when that file exists.
 
-### 5. Adding a Task to an Existing Phase
+### 6. Adding a Task to an Existing Phase
 When a user asks to "add a task" or "break down" part of a phase:
 1. Identify the active phase directory.
-2. Determine the next task number (e.g., `task-002.md`).
+2. Determine the next task number (e.g., `t-002.md`).
 3. If the phase does not already record working branch, merge target, and branch naming pattern, complete **Choose Branches Before Planning** and update `impl.md`.
-4. Inspect the existing codebase area affected by the new task and update the phase's code structure diagram or existing pattern notes when needed.
-5. Classify the new requirement as `New Feature`, `Enhancement`, or `Bug Fix`.
-6. Complete **Add UI Mockups For Frontend/UI Work** for any frontend/UI tasks.
-7. Insert implementation tasks before the final delivery task. The final delivery task must remain last.
-8. Create each implementation task file using the **Task Template**.
-9. Renumber the final delivery task if needed so it is the last task.
-10. Update the `impl.md` task list to include the new tasks and the final delivery task.
+4. If the phase does not already record repository scope, complete **Identify Repository Scope And Phase Name** and update `impl.md`.
+5. Inspect the existing codebase area affected by the new task and update the phase's code structure diagram or existing pattern notes when needed.
+6. Classify the new requirement as `New Feature`, `Enhancement`, or `Bug Fix`.
+7. Complete **Add UI Mockups For Frontend/UI Work** for any frontend/UI tasks.
+8. Insert implementation tasks before the final delivery task. The final delivery task must remain last.
+9. Create each implementation task file using the **Task Template**.
+10. Renumber the final delivery task if needed so it is the last task.
+11. Update the `impl.md` task list to include the new tasks and the final delivery task.
 
 ## Templates
 
@@ -90,6 +102,13 @@ When a user asks to "add a task" or "break down" part of a phase:
 - **Merge Target**: [selected target branch]
 - **Observed Branch Pattern**: [pattern to reuse moving forward, e.g. feature/short-description]
 - **Branch Pattern Source**: [existing branches, user choice, repo docs, or N/A]
+
+## Repository Scope
+- **Phase Directory**: `specs/p-###-[repo-slug-or-multi]`
+- **Scope Type**: [Single Repo | Multi Repo]
+- **Primary Repository**: [repo name or `multi`]
+- **Involved Repositories**:
+  - `[repo-name]`: [role in this phase and relevant path/link]
 
 ## Phase Objectives
 [High-level goals for this phase]
@@ -122,17 +141,17 @@ When a user asks to "add a task" or "break down" part of a phase:
 - **Accessibility Notes**: [contrast, semantic structure, screen-reader text, touch target sizing, or N/A]
 
 ## Timeline
-- **Task 001**: [Task Title] (Status)
-- **Task NNN**: Delivery: Commit, PR, Review, CI, Merge (Pending)
+- **t-001**: [Task Title] (Status)
+- **t-NNN**: Delivery: Commit, PR, Review, CI, Merge (Pending)
 
 ## Tasks
-- [ ] Task 001: [Requirement Type] [Task Title]
-- [ ] Task NNN: Delivery: Commit, PR, Review, CI, Merge
+- [ ] t-001: [Requirement Type] [Task Title]
+- [ ] t-NNN: Delivery: Commit, PR, Review, CI, Merge
 ````
 
-### Task Template (`task-XXX.md`)
+### Task Template (`t-###.md`)
 ````markdown
-# Task [XXX]: [Task Title]
+# t-[###]: [Task Title]
 
 ## Description
 [Detailed description of the work]
@@ -198,9 +217,9 @@ When a user asks to "add a task" or "break down" part of a phase:
 - [ ] Pending
 ````
 
-### Delivery Task Template (`task-NNN.md`)
+### Delivery Task Template (`t-NNN.md`)
 ```markdown
-# Task [NNN]: Delivery: Commit, PR, Review, CI, Merge
+# t-[NNN]: Delivery: Commit, PR, Review, CI, Merge
 
 ## Description
 Finalize the phase by committing the completed work, creating a pull request, resolving review feedback, waiting for pipelines, fixing failures, and merging only after review and pipeline gates pass.
@@ -229,7 +248,10 @@ Finalize the phase by committing the completed work, creating a pull request, re
 ```
 
 ## Mandates
-- **Zero-Padding**: Always use 3 digits for phases and tasks (e.g., `phase-001`, `task-005`).
+- **Zero-Padding**: Always use 3 digits for phases and tasks (e.g., `p-001-my-repo`, `p-002-multi`, `t-005.md`).
+- **Phase Directory Naming**: New phase directories MUST use `p-###-[name-of-repo]` for single-repo work and `p-###-multi` for multi-repo work. Do not create new `phase-XXX` directories.
+- **Task File Naming**: New task files MUST use `t-###.md`. Do not create new `task-YYY.md` files.
+- **Repository Scope**: Every `impl.md` MUST include the repositories involved and each repository's role in the phase.
 - **Sync**: Every new task MUST be reflected in the corresponding `impl.md`.
 - **Validation**: Ensure directories exist before writing files.
 - **Branch Choice**: Always ask the user to choose the working branch and merge target before creating or updating implementation tasks. Suggest values, but allow user-entered branch names.

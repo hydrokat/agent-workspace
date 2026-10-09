@@ -1,6 +1,6 @@
 ---
 name: spec-implement
-description: "Implements planned work from /specs by reading phase plans and task files, assigning each task to the right agent role and skills, using caveman mode whenever possible, enforcing strict code-comment discipline, executing the work, updating task progress continuously, and keeping knowledgebase references and updates in sync. Trigger with /spec-implement, optionally scoped to a phase or task such as /spec-implement phase-002 or /spec-implement phase-002 task-003."
+description: "Implements planned work from /specs by reading p-### phase plans and t-### task files, assigning each task to the right agent role and skills, using caveman mode whenever possible, enforcing strict code-comment discipline, executing the work, updating task progress continuously, and keeping knowledgebase references and updates in sync. Trigger with /spec-implement, optionally scoped to a phase or task such as /spec-implement p-002-agent-workspace or /spec-implement p-002-agent-workspace t-003."
 ---
 
 # Spec Implement
@@ -16,11 +16,11 @@ Determine the requested implementation scope before editing files.
 | Invocation | Scope |
 |---|---|
 | `/spec-implement` | Active or latest incomplete phase |
-| `/spec-implement phase-002` | All incomplete tasks in `specs/phase-002/` |
-| `/spec-implement phase-002 task-003` | Only `specs/phase-002/task-003.md` |
-| `/spec-implement task-003` | `task-003.md` in the active or latest incomplete phase |
+| `/spec-implement p-002-agent-workspace` | All incomplete tasks in `specs/p-002-agent-workspace/` |
+| `/spec-implement p-002-agent-workspace t-003` | Only `specs/p-002-agent-workspace/t-003.md` |
+| `/spec-implement t-003` | `t-003.md` in the active or latest incomplete phase |
 
-If scope is ambiguous, inspect `specs/` and choose the latest phase with incomplete tasks. Tell the user which scope was selected.
+If scope is ambiguous, inspect `specs/` and choose the latest `p-###-*` phase with incomplete tasks. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create new legacy spec paths. Tell the user which scope was selected.
 
 ## Step 1: Prepare The Branch
 
@@ -31,13 +31,13 @@ Never implement directly on `main`, `master`, or `trunk`.
    - If the working tree is clean, create and switch to a new branch before making any changes.
    - If the working tree is dirty with unrelated changes, do not discard them. Ask whether to leave them alone, commit them separately, or stash them before branching.
 3. If the current branch is already a non-protected feature branch, continue on it rather than creating another one.
-4. Name the branch `<type>/<short-description>`, where type is `feature`, `bugfix`, `hotfix`, `refactor`, `chore`, `docs`, or `test`, derived from the selected scope (e.g. `feature/phase-002-task-003`).
+4. Name the branch `<type>/<short-description>`, where type is `feature`, `bugfix`, `hotfix`, `refactor`, `chore`, `docs`, or `test`, derived from the selected scope (e.g. `feature/p-002-agent-workspace-t-003`).
 
 ## Step 2: Read Spec Context
 
 Before implementation:
-1. Read the selected `specs/phase-XXX/impl.md`.
-2. Read every selected `specs/phase-XXX/task-YYY.md`.
+1. Read the selected `specs/p-###-[repo-or-multi]/impl.md`.
+2. Read every selected `specs/p-###-[repo-or-multi]/t-###.md`.
 3. Search `knowledgebase/` for references relevant to the task domain, architecture, business flow, and previous lessons.
 4. Read `AGENTS.md`, `WORKFLOW.md` if present, and relevant agent definitions under `.agents/agents/`.
 5. Inspect available workspace skills under `.agents/skills/` before falling back to global skills.
@@ -107,7 +107,7 @@ Forbidden comments:
 - Scratch thoughts, step-by-step reasoning, or "thinking out loud" inside code.
 - Comments that narrate obvious code behavior.
 - TODO comments used as a substitute for implementing or documenting the real next step in the task file.
-- Comments that explain why the agent chose an approach when that explanation belongs in `task-YYY.md`, `impl.md`, a commit message, or knowledgebase entry.
+- Comments that explain why the agent chose an approach when that explanation belongs in `t-###.md`, `impl.md`, a commit message, or knowledgebase entry.
 
 When editing code:
 1. Prefer clear names, small functions, and direct structure over explanatory comments.
@@ -117,7 +117,7 @@ When editing code:
 ## Step 6: Execute One Task At A Time
 
 For each task:
-1. Mark the task as in progress in both `task-YYY.md` and `impl.md`.
+1. Mark the task as in progress in both `t-###.md` and `impl.md`.
 2. Implement only the scoped objective.
 3. Update task progress immediately after each meaningful milestone.
 4. Keep the `Knowledgebase References` section accurate as new references are discovered.
@@ -146,8 +146,8 @@ Write high-signal entries only. Prefer updating existing files over creating dup
 ## Step 8: Maintain Progress
 
 Always synchronize progress in both places:
-- `specs/phase-XXX/task-YYY.md`: detailed progress, assignment, references, implementation notes, validation, and knowledgebase updates.
-- `specs/phase-XXX/impl.md`: task list status and phase-level timeline/status.
+- `specs/p-###-[repo-or-multi]/t-###.md`: detailed progress, assignment, references, implementation notes, validation, and knowledgebase updates.
+- `specs/p-###-[repo-or-multi]/impl.md`: task list status and phase-level timeline/status.
 
 Use these status terms consistently:
 - `Pending`: not started.
@@ -166,7 +166,7 @@ Use these status terms consistently:
 - Always update the knowledgebase or document why no update was needed.
 - Always update task progress after each meaningful milestone.
 - Never mark a task `Done` without validation evidence in the task file.
-- Never mark a task `Done` if `impl.md` and `task-YYY.md` disagree.
+- Never mark a task `Done` if `impl.md` and `t-###.md` disagree.
 - Never think inside code comments. Source comments are for durable code documentation only.
 - Never leave unnecessary code comments. Keep documentation-generator comments only when they add value, such as PHPDoc, JSDoc, Swagger/OpenAPI, or equivalent.
 - Keep changes surgical and scoped to the selected task.

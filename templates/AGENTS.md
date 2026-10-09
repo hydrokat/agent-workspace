@@ -27,7 +27,7 @@ n/a
 Before modifying code, contributors should:
 - Consult the `knowledgebase/` for relevant patterns.
 - If `codebase-symlinks/` exists, read `knowledgebase/context-history/codebase-map.md` before traversing sibling repos.
-- Review the current `specs/phase-XXX/impl.md` to understand the broader context.
+- Review the current `specs/p-###-[repo-or-multi]/impl.md` to understand the broader context.
 - Load `WORKFLOW.md` for debugging and development tasks.
 - Review existing tests to prevent regressions.
 
@@ -55,11 +55,11 @@ Compatibility sync rules:
 - Preserve base files over generated files if there is ever a conflict.
 
 ### 4. Documentation Sync
-- **Implementation Plans:** Always update `specs/phase-XXX/impl.md` when a task status changes.
-- **Task Tracking:** Create a new `task-XXX.md` for every non-trivial unit of work.
+- **Implementation Plans:** Always update `specs/p-###-[repo-or-multi]/impl.md` when a task status changes.
+- **Task Tracking:** Create a new `t-###.md` for every non-trivial unit of work.
 - **Progress Tracking:** Keep `specs/in-progress.md` current so the user can see what agents are actively working on and prevent collisions.
   - List every task or spec currently in progress, including the ongoing task and its next step.
-  - Indicate the spec name (e.g. `phase-002`) or label it `adhoc`.
+  - Indicate the spec name (e.g. `p-002-agent-workspace` or `p-003-multi`) or label it `adhoc`.
   - **Explicit Ownership:** Record the active agent's role, conversation ID, and working branch/worktree.
   - Remove an entry as soon as its task is completed — this file reflects only active work, not history.
 - **Knowledgebase:** If a new pattern or "lesson learned" emerges, document it in `knowledgebase/best-practices/`.
@@ -89,7 +89,7 @@ Other agents or contributors may be working on this codebase at the same time. D
 
 Concurrent work rules:
 - Before starting, run `git status --short` and check for in-progress work (uncommitted changes, unfamiliar branches, active worktrees) that is not yours.
-- Check `specs/phase-XXX/task-YYY.md` and `impl.md` for tasks already marked `In Progress` or `Blocked` by another agent before claiming the same task.
+- Check `specs/p-###-[repo-or-multi]/t-###.md` and `impl.md` for tasks already marked `In Progress` or `Blocked` by another agent before claiming the same task.
 - Never discard, overwrite, or force-push over changes you did not make without confirming with the user first.
 - Prefer a dedicated branch or worktree per task so parallel agents do not collide on the same working tree.
 - Pull or fetch the latest base branch before branching and before merging, and re-check for new conflicts introduced since you started.

@@ -1,6 +1,6 @@
 ---
 name: spec-compile
-description: "Compiles specs into completed and incomplete archives. A spec is complete when all its tasks are done, tested, and security audited. Triggers on /spec-compile with optional filter args — all (default), completed, incomplete, or a phase range like 001-010. Always updates the knowledgebase first, then clears old compiled output before writing fresh results."
+description: "Compiles specs into completed and incomplete archives. A spec is complete when all its t-### tasks are done, tested, and security audited. Triggers on /spec-compile with optional filter args — all (default), completed, incomplete, or a phase range like 001-010. Always updates the knowledgebase first, then clears old compiled output before writing fresh results."
 ---
 
 # Spec Compile
@@ -36,12 +36,12 @@ Before touching compiled output, update the knowledgebase to reflect current pro
 ## Step 2: Scan Specs
 
 Read files under `specs/` for all phases in scope:
-- `specs/phase-XXX/impl.md` — phase plan and task index
-- `specs/phase-XXX/task-YYY.md` — individual task files
+- `specs/p-###-[repo-or-multi]/impl.md` — phase plan, repository scope, and task index
+- `specs/p-###-[repo-or-multi]/t-###.md` — individual task files
 
 Skip `specs/compiled/` entirely (output directory, not input).
 
-For range/single filters, only read the matching `phase-XXX/` directories. Log a warning if a requested phase directory does not exist.
+For range/single filters, only read the matching `p-###-*` directories. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create or rewrite them. Log a warning if a requested phase directory does not exist.
 
 ## Step 3: Classify Each Task
 

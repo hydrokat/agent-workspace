@@ -8,7 +8,7 @@ edit or remove past entries.
 ```markdown
 ### YYYY-MM-DD: Short Description
 
-**Task:** task-XXX or spec reference
+**Task:** t-### or spec reference
 **Files changed:** list of files
 **What was done:** brief summary
 **KB updated:** which files in knowledgebase/ were updated

@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026-10-09]
+
+### Base Skills
+
+- Enhanced `specs-planner` to create new phases as `p-###-[name-of-repo]`, use `p-###-multi` for multi-repo phases, create task files as `t-###.md`, and record involved repositories in `impl.md`.
+- Updated `spec-implement` and `spec-compile` to read the new `p-###-*` phase directories and `t-###.md` task files while preserving read-only support for existing legacy specs.
+
+### Base Files
+
+- Updated workspace, specs, progress tracking, compiled-output, and package documentation to describe the new repo-scoped phase and task naming conventions.
+
 ## [2026-09-22]
 
 ### Base Skills

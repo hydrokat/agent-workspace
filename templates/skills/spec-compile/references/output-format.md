@@ -20,7 +20,7 @@ X of Y phases fully complete.
 
 ---
 
-## Phase XXX: [Phase Name]
+## p-###-[repo-or-multi]: [Phase Name]
 
 **Tasks:** N tasks, all complete
 
@@ -28,8 +28,8 @@ X of Y phases fully complete.
 
 | Task | Title | Done | Tested | Security Audited |
 |------|-------|------|--------|-----------------|
-| task-001 | [Title] | ✅ | ✅ | ✅ |
-| task-002 | [Title] | ✅ | ✅ | ✅ |
+| t-001 | [Title] | ✅ | ✅ | ✅ |
+| t-002 | [Title] | ✅ | ✅ | ✅ |
 
 ### Objectives Achieved
 
@@ -67,7 +67,7 @@ X of Y phases have incomplete tasks.
 
 ---
 
-## Phase XXX: [Phase Name]
+## p-###-[repo-or-multi]: [Phase Name]
 
 **Progress:** N/M tasks complete
 
@@ -75,19 +75,19 @@ X of Y phases have incomplete tasks.
 
 | Task | Title | Done | Tested | Security Audited |
 |------|-------|------|--------|-----------------|
-| task-001 | [Title] | ✅ | ✅ | ✅ |
-| task-002 | [Title] | ❌ | ✅ | ❌ |
-| task-003 | [Title] | ❌ | ❌ | ❌ |
+| t-001 | [Title] | ✅ | ✅ | ✅ |
+| t-002 | [Title] | ❌ | ✅ | ❌ |
+| t-003 | [Title] | ❌ | ❌ | ❌ |
 
 ### Incomplete Tasks
 
-#### task-002: [Title]
+#### t-002: [Title]
 
 Missing:
 - [ ] Done — objectives not fully checked
 - [ ] Security Audited — no security audit section found
 
-#### task-003: [Title]
+#### t-003: [Title]
 
 Missing:
 - [ ] Done — objectives not fully checked
@@ -126,6 +126,6 @@ Always include the `> Scope:` line beneath the generated date. Use these values:
 
 ## Ordering
 
-- Sort phases numerically (phase-001 before phase-002).
+- Sort phases numerically (`p-001-*` before `p-002-*`).
 - Sort tasks within a phase numerically.
 - In `incomplete.md` task status tables, list incomplete tasks before complete tasks.
