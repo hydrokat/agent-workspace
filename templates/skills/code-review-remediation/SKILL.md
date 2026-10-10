@@ -1,133 +1,109 @@
 ---
 name: code-review-remediation
-description: Use when the user asks to resolve pull request review feedback, address reviewer comments, remediate requested changes, fix review-driven test failures, resolve PR merge conflicts, or push a ready-for-re-review remediation branch. Supports explicit invocations such as /code-review-remediation, /code-review-remediation with a PR number, or /code-review-remediation with a PR URL.
+description: Use when the user asks to review and remediate pull requests end to end, resolve PR/MR review feedback, address reviewer comments, fix review-driven or CI failures, resolve merge conflicts, or get PRs merge-ready. Pulls open PRs/MRs, reviews them, comments, remediates, and loops until clear, then reports and asks before merging. Supports /code-review-remediation, with a PR number, or with a PR URL.
 ---
 
 # Code Review Remediation
 
 ## Overview
 
-Use this skill to take a pull request from reviewer feedback to a validated remediation commit. Validate reviewer intent before changing code, keep the changes tightly scoped, run the right regression checks, resolve merge conflicts when needed, and leave a clear final report.
+One loop that takes pull requests (GitHub) or merge requests (GitLab) from open to merged: **pull -> review -> comment -> remediate -> repeat until all clear -> report -> ask -> merge**. This skill includes the review rubric; see [references/review-criteria.md](references/review-criteria.md). The standalone `code-review` skill remains available for review-only requests.
+
+Use `gh` for GitHub and `glab` for GitLab, detected from the remote URL.
 
 ## Workflow
 
-### 1. Identify the Pull Request
+### 1. Identify Targets
 
-If the user supplies a PR number or URL, use it. Otherwise:
+- If the user gives a PR number or URL, target only that PR.
+- Otherwise target **every open PR in every relevant repository**: the current repo plus each repo linked in `codebase-symlinks/` (resolve symlinks; read `knowledgebase/context-history/codebase-map.md` first when present). Skip drafts and PRs authored by bots unless the user says otherwise.
+- Stop and report clearly if no PRs are found or the CLI is unauthenticated.
 
-1. Detect the current branch.
-2. Find the associated pull request with the available GitHub tooling.
-3. Stop and report clearly if no pull request can be found.
-
-Collect the PR metadata, base branch, head branch, repository, and current CI or review status.
+For each target collect: repo, number, title, author, base and head branches, linked issues, CI status, review state, and mergeability. Process PRs independently; for multiple targets use parallel subagents only when they touch separate repos or worktrees.
 
 ### 2. Prepare the Branch
 
-Before editing:
+1. Run `git status --short`; preserve unrelated user changes and ask before anything that could disturb them.
+2. Fetch the remote. Prefer a dedicated worktree per PR so parallel work never collides.
+3. Check out the PR head branch, pull latest, and fetch the base branch.
+4. Never work on `main`, `master`, or `trunk` directly.
 
-1. Inspect `git status --short`.
-2. Preserve unrelated user changes; do not overwrite them.
-3. Fetch the latest remote state.
-4. Check out the PR branch and pull its latest changes.
-5. Fetch the base branch so conflicts and CI failures are evaluated against current code.
+### 3. Review
 
-If the working tree is dirty with unrelated changes, work around them when safe. Ask before taking any action that could disturb user work.
+Review the diff against the base using [references/review-criteria.md](references/review-criteria.md). Also read existing review threads and unresolved conversations; ignore resolved or outdated threads unless the issue persists. Produce findings ordered by severity.
 
-### 3. Gather Review Feedback
+### 4. Comment
 
-Retrieve unresolved review feedback, including:
+Post the review on the PR/MR (`gh pr review` / `gh pr comment`, or `glab mr note`):
 
-- General review comments
-- Inline review comments
-- Requested changes
-- Blocking conversations
-- CI failures or failing checks tied to review feedback
+- Inline comments for line-specific findings, one summary comment for the rest.
+- Include severity, category, file/line, impact, and recommendation.
+- Mark the round (`Review round N`) so later rounds are traceable.
+- Do not approve on the platform unless the user has asked; the verdict goes in the comment text.
 
-Ignore resolved conversations and outdated comments unless the underlying issue is still present.
+### 5. Remediate
 
-Organize the feedback by file, line or thread, reviewer intent, severity, and whether it requires code, tests, docs, or explanation only.
+For every finding and every reviewer thread:
 
-### 4. Analyze Before Implementing
+1. Classify it and validate whether it is correct, partially correct, or incorrect. Do not blindly apply suggestions; reply with justification when rejecting one.
+2. Plan briefly: root cause, files, regression surface, tests needed.
+3. Apply the smallest correct fix. Follow local architecture and style; no unrelated refactors, debug code, or leftover TODOs. Add or update tests for any behavior change or coverage gap.
+4. Commit with the `commit` skill, reconcile with the base branch (resolve conflicts preserving both sides, re-run affected tests), and push. Use `--force-with-lease` only when rewritten history requires it; never plain `--force`.
+5. Reply on each addressed thread and resolve it when the platform allows.
 
-For every review thread:
+### 6. Validate (Local CI First)
 
-1. Classify the issue: bug, logic, business rule, security, performance, maintainability, naming, readability, architecture, refactor, test coverage, documentation, API contract, validation, error handling, concurrency, database, or UX.
-2. Validate whether the reviewer suggestion is correct, partially correct, or incorrect.
-3. Cross-check project conventions, architecture, tests, docs, and business rules.
-4. Decide the smallest correct remediation.
+Run CI locally whenever possible, before relying on the remote:
 
-Do not blindly apply suggestions. If a suggestion is invalid, do not implement it; document why in the final report or PR reply.
+- Discover the pipeline: `.github/workflows/`, `.gitlab-ci.yml`, `Makefile`, package scripts, `composer.json`, `pyproject.toml`, and project docs.
+- Prefer running the workflow itself (`act`, `gitlab-ci-local`) when installed; otherwise run the equivalent commands directly: install, lint, format, type check, static analysis, unit/feature/integration tests, build, and security checks.
+- Never disable, skip, or weaken a check to get green.
 
-### 5. Plan the Remediation
+**Remote CI failure with local CI passing**: do not assume either is right. Re-run the remote job once to rule out flakiness, diff environments (versions, env vars, services, OS, cache), and fix the cause if it is real. If it stays failing while local passes and the cause is environmental or flaky, post a PR comment with the evidence: commands run, versions, full pass output (or a log excerpt), commit SHA, and the failing remote job link with the suspected cause.
 
-Before writing code, prepare a concise implementation plan covering:
+If CI cannot be run locally, state which checks were not run and why.
 
-- Root cause per comment
-- Files likely affected
-- Risk and regression surface
-- Required refactoring, if any
-- Required tests or fixture updates
-- Work order that minimizes conflicts
+### 7. Loop
 
-For simple review comments, keep the plan brief and proceed.
+Repeat steps 3-6 until **all clear**:
 
-### 6. Implement Incrementally
+- Latest review verdict is `APPROVED` (or `COMMENT ONLY` with only Low items addressed or deferred with justification).
+- No unresolved threads or open Critical/High/Medium findings.
+- Local CI is green and remote CI is green, or remote failure is documented with evidence per step 6.
+- No merge conflicts with the base.
 
-Apply focused edits only:
+Cap at 5 rounds per PR. If still not clear, stop, post a status comment, and report what is blocking instead of looping further. Also stop and ask the user if a finding needs a product or business decision.
 
-- Preserve existing behavior unless the review requires a behavior change.
-- Follow the existing architecture and local style.
-- Avoid unrelated refactors, broad formatting churn, debug code, commented-out code, and leftover TODOs.
-- Add or update tests whenever a review comment changes behavior, fixes a bug, or closes a coverage gap.
-- Keep staging or commits logically grouped if the user asks you to commit.
+### 8. Merge Report
 
-### 7. Validate and Fix Regressions
+For each PR that is clear, write a report of what is to be merged:
 
-Run the most relevant checks for the touched surface, then broaden if risk warrants it:
+- PR title/link, repo, head -> base, author, and linked issues.
+- Summary of the change and the change inventory (areas, files, risk) with blast radius.
+- Review rounds, findings found/fixed/rejected, and open deferred items.
+- Validation: local commands run with results, remote CI status, and any evidence comments posted.
+- Commits to be merged and the merge method (use the repo's convention; default squash only if the repo does).
 
-- Unit, feature, integration, and end-to-end tests as applicable
-- Linting, formatting, type checks, static analysis, and security checks as available
-- Targeted manual verification for user-facing behavior
+Show the report in the terminal, and publish it per workspace conventions if the user wants to share it.
 
-If a check fails, determine whether the failure is from an existing flaky test, a missing fixture, an incorrect expectation, or a real regression. Fix the root cause and rerun the affected checks. Do not disable or bypass tests to pass validation.
+### 9. Ask, Then Merge
 
-### 8. Reconcile With the Base Branch
+On green, ask the user whether to merge (one question covering all clear PRs; allow per-PR answers).
 
-Fetch the latest base branch and merge or rebase according to the repository's normal workflow. If conflicts occur:
+- **Yes**: merge using the repo's normal method (`gh pr merge` / `glab mr merge`), never bypassing branch protection or required checks. Delete the head branch only if the repo convention does.
+- **No**: hold. Leave the PR open and unmerged, and do not ask again unless the user raises it.
+- Never merge without an explicit yes in the current run; approval to review or remediate is not approval to merge.
 
-1. Resolve them carefully.
-2. Preserve both the base branch changes and the reviewer-requested fixes.
-3. Re-run affected tests after conflict resolution.
+### 10. After the Merge
 
-Use `git push --force-with-lease` only when a rewritten branch history truly requires it. Never use plain `git push --force`.
+Report nothing beyond the result. On success, reply exactly `Merged` (for multiple PRs, one line each: `Merged <repo>#<number>`). No summary, no recap.
 
-### 9. Final Verification
-
-Before pushing or reporting completion, verify:
-
-- All actionable review comments are addressed or intentionally rejected with justification.
-- No merge markers remain.
-- No unrelated user changes were included.
-- Tests and checks are run or explicitly reported as not run.
-- `git status --short` reflects only the intended final state.
-- The branch is pushed if the user asked for push/remediation completion and approval requirements allow it.
-
-## Final Report
-
-Report the outcome with:
-
-- Review summary: total comments, addressed comments, rejected suggestions with justification, and unresolved discussions.
-- Code changes: modified files, tests added or updated, and refactoring performed.
-- Validation results: commands run and pass/fail status.
-- Regression report: regressions found, fixed, or still known.
-- Merge status: conflicts encountered and how they were resolved.
-- Push status: whether the branch was pushed and whether it is ready for re-review.
+If a merge fails, tell the user why in one or two lines (branch protection, required check, conflict, permissions, etc.) and the next step needed.
 
 ## Operating Rules
 
-- Validate reviewer feedback against the codebase before implementing.
-- Prefer the smallest correct fix.
+- Validate reviewer feedback against the codebase before implementing; prefer the smallest correct fix.
 - Preserve business logic unless the review intentionally changes it.
-- Keep changes scoped to the PR feedback and any regressions found during validation.
-- Respect user-owned working tree changes.
-- Do not suppress failing tests, skip meaningful validation, or hide residual risk.
+- Respect user-owned working tree changes and other agents' branches; coordinate through `specs/in-progress.md` when present.
+- Never include secrets or sensitive data in PR comments or evidence.
+- Do not hide residual risk; report skipped checks, known regressions, and unresolved discussions before asking to merge.
