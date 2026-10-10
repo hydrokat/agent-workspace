@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-10-10]
+
+### Base Skills
+
+- Enhanced `code-review-remediation` into a full PR loop: pull open PRs/MRs (all relevant repositories unless one is named), review, comment, remediate, and repeat until all clear. It now bundles the code review rubric (`references/review-criteria.md`), runs CI locally first and posts evidence when remote CI fails but local passes, produces a merge report, asks before merging, and replies only `Merged` after a successful merge.
+
 ## [2026-10-09]
 
 ### Base Skills
