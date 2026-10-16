@@ -1,4 +1,3 @@
-import hashlib
 import shutil
 import subprocess
 import sys
@@ -53,11 +52,11 @@ def running_from_workspace(workspace: Path) -> bool:
     return installed_dir(workspace).resolve() in here.parents
 
 
-def _digest(path: Path) -> str:
+def _content(path: Path) -> bytes | None:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return path.read_bytes()
     except OSError:
-        return ""
+        return None
 
 
 def plan(workspace: Path, spec: str) -> list[str]:
@@ -81,7 +80,7 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
         return result
     from_workspace = running_from_workspace(workspace)
     min_file = installed_dir(workspace) / "min-versions.env"
-    before = _digest(min_file)
+    before = _content(min_file)
     code, note = runner(["npx", "--yes", spec, "update", "--yes", "--no-link"], workspace, UPDATE_TIMEOUT)
     if code != 0:
         result.message = f"agent-workspace update failed (exit {code}{': ' + note if note else ''}). Nothing was restarted."
@@ -103,7 +102,7 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
     result.new_version = version.removeprefix("tandem ").strip()
     result.reloaded = reload()
     result.steps.append("tandem windows restarted" if result.reloaded else "no running session to restart")
-    changed = _digest(min_file) != before
+    changed = _content(min_file) != before
     result.ok = True
     result.message = ("Updated " + (f"tandem {result.old_version} → {result.new_version}" if result.new_version else "tandem") + ".")
     if changed:
