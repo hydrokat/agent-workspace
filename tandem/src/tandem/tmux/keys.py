@@ -35,11 +35,26 @@ KEYMAP: tuple[Binding, ...] = (
             "run-shell -b '{tandem} quit'"),
     Binding("F11", "Agents", "restart an exited agent", "Restart",
             "run-shell -b '{tandem} restart'"),
+    Binding("F12", "Layout", "resize mode: arrows resize the focused pane, = resets, Enter exits", "Resize",
+            "switch-client -T tandem-resize"),
 )
+
+RESIZE_TABLE = "tandem-resize"
+RESIZE_STEP_COLS = 5
+RESIZE_STEP_ROWS = 2
 
 
 def hint_bar() -> str:
     return "  ".join(f"{b.key} {b.hint}" for b in KEYMAP if b.hint)
+
+
+def resize_hint() -> str:
+    return "RESIZE  ←→ width  ↑↓ height  = reset  Enter/Esc done"
+
+
+def status_left() -> str:
+    """Hint bar, swapped for the resize help while the resize key table is active."""
+    return f" #{{?#{{==:#{{client_key_table}},{RESIZE_TABLE}}},{resize_hint()},{hint_bar()}}} "
 
 
 def help_lines() -> list[str]:
@@ -50,6 +65,7 @@ def help_lines() -> list[str]:
         group = b.group
         lines.append(f"  {label:<9} {b.key:<4} {b.description}")
     lines += ["", "  Mouse     click a pane to focus it; drag a border to resize; scroll wheel scrolls",
+              f"  Resize    F12 then arrows (←→ {RESIZE_STEP_COLS} columns, ↑↓ {RESIZE_STEP_ROWS} rows) on the focused pane; = resets; Enter exits",
               "  Detach    your agents keep running; run `tandem` again to re-attach"]
     return lines
 
@@ -67,6 +83,18 @@ def bind_commands(python: str, workspace: str | None = None) -> list[list[str]]:
     for b in KEYMAP:
         result.append(["bind-key", "-n", b.key, *_split(b.command.replace("{tandem}", launcher))])
     return result
+
+
+def resize_commands(python: str, workspace: str | None = None) -> list[list[str]]:
+    """``bind-key`` argv lists for the resize key table; every arrow stays in the table until Enter/Esc."""
+    stay = f"switch-client -T {RESIZE_TABLE}"
+    bindings = {
+        "Left": f"resize-pane -L {RESIZE_STEP_COLS} ; {stay}", "Right": f"resize-pane -R {RESIZE_STEP_COLS} ; {stay}",
+        "Up": f"resize-pane -U {RESIZE_STEP_ROWS} ; {stay}", "Down": f"resize-pane -D {RESIZE_STEP_ROWS} ; {stay}",
+        "=": f"run-shell -b '{launcher_for(python, workspace)} reset-layout' ; {stay}",
+        "Enter": "switch-client -T root", "Escape": "switch-client -T root", "q": "switch-client -T root",
+    }
+    return [["bind-key", "-T", RESIZE_TABLE, key, command] for key, command in bindings.items()]
 
 
 def _split(command: str) -> list[str]:

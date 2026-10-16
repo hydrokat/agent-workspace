@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-10-17]
+
+### tandem
+
+- Status window: new **Repositories** section (expanded by default) lists the workspace and every codebase in `codebase-symlinks/`, one header per repo with each branch below it: `* branch` for the main checkout, `branch → ../worktree` for a branch active in a linked worktree, then idle branches (capped at five). Rows shorten to the window width and re-render on resize. Replaces the collapsed Codebases/Worktrees/Branches sections, which only described the workspace repo.
+- Fixed: branch names containing `/` were truncated in worktree listings; `codebase-map.md` inside `codebase-symlinks/` was shown as a missing codebase.
+- Keyboard resize: `F12` enters resize mode (arrows resize the focused pane, `=` resets, `Enter`/`Esc` leaves); mouse border-drag still works.
+- Responsive: the status window is clamped to 40% of a short terminal on resize; new `tandem reset-layout`.
+
 ## [2026-10-16]
 
 ### CLI Package

@@ -14,7 +14,7 @@ ALLOWED = frozenset({
     "move-pane", "join-pane", "break-pane", "respawn-pane", "select-layout", "select-window",
     "set-option", "set-window-option", "set-hook", "bind-key", "unbind-key", "display-message",
     "display-popup", "display-menu", "confirm-before", "list-panes", "list-windows", "has-session",
-    "kill-session", "attach-session", "detach-client", "source-file", "show-options",
+    "kill-session", "attach-session", "detach-client", "switch-client", "source-file", "show-options",
 })
 _OWN_ONLY = {"send-keys", "capture-pane"}
 

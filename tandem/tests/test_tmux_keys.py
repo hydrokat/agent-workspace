@@ -3,7 +3,7 @@ import shlex
 from tandem.tmux import keys
 from tandem.tmux.client import ALLOWED
 
-EXPECTED = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11"}
+EXPECTED = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
 
 
 def test_keymap_covers_documented_keys() -> None:
@@ -60,4 +60,22 @@ def test_hint_bar_is_plain_text() -> None:
 
 def test_workspace_is_pinned_in_every_bound_command() -> None:
     cmds = keys.bind_commands(python="/py", workspace="/my ws")
-    assert all("TANDEM_WORKSPACE='/my ws'" in c[3] for c in cmds)
+    assert all("TANDEM_WORKSPACE='/my ws'" in c[3] for c in cmds if "run-shell" in c[3])
+
+
+def test_resize_mode_keys_stay_in_table_and_can_exit() -> None:
+    cmds = {c[3]: c[4] for c in keys.resize_commands("/py", "/ws")}
+    for arrow in ("Left", "Right", "Up", "Down"):
+        assert cmds[arrow].startswith("resize-pane") and "switch-client -T tandem-resize" in cmds[arrow]
+    assert {cmds[k] for k in ("Enter", "Escape", "q")} == {"switch-client -T root"}
+    assert "reset-layout" in cmds["="] and "TANDEM_WORKSPACE=/ws" in cmds["="]
+    assert all(c[:3] == ["bind-key", "-T", "tandem-resize"] for c in keys.resize_commands("/py"))
+
+
+def test_status_left_swaps_hint_while_resizing() -> None:
+    text = keys.status_left()
+    assert "client_key_table" in text and "RESIZE" in text and keys.hint_bar() in text
+
+
+def test_resize_is_documented_in_help() -> None:
+    assert "F12" in "\n".join(keys.help_lines())

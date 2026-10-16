@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     focus.add_argument("target", choices=["planner", "implementer", "status", "queries"])
     for name, text in (("close-agent", "close the focused agent"), ("restart", "restart an exited agent"),
                        ("refresh", "redraw tab titles"), ("reflow", "re-stack columns for the terminal size"),
+                       ("reset-layout", "reset pane sizes to the defaults"),
                        ("quit", "detach or quit"), ("help", "show the key help"),
                        ("first-run", "open help once on first attach"), ("status", "run the status window")):
         sub.add_parser(name, help=text)
@@ -83,8 +84,11 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
     elif command == "refresh":
         layout.refresh()
     elif command == "reflow":
-        width = layout.client.run_checked("display-message", "-p", "#{client_width}").strip()
-        layout.reflow(int(width) if width.isdigit() else 200)
+        size = layout.client.run_checked("display-message", "-p", "#{client_width} #{client_height}").split()
+        ok = len(size) == 2 and all(x.isdigit() for x in size)
+        layout.reflow(int(size[0]) if ok else 200, int(size[1]) if ok else 0)
+    elif command == "reset-layout":
+        layout.reset()
     elif command == "quit":
         commands.quit_menu(layout)
     elif command == "first-run":
