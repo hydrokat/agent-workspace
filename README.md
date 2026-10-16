@@ -199,6 +199,32 @@ If you want to add a custom agent or skill that won't be overwritten, the right 
 
 ---
 
+## tandem: run several AI CLIs side by side
+
+`./run.sh` (from this package, run inside your workspace) launches **tandem**: your `claude` and `agy` sessions in one tmux window, planners on the left, implementers on the right, with a status window that shows in-progress work, phase progress, branches/worktrees, and the questions your agents have asked.
+
+```bash
+./run.sh            # check dependencies, ask before installing/updating, then launch
+./run.sh --check    # report only; change nothing
+./run.sh --yes      # answer yes to every prompt (--no answers no)
+```
+
+`run.sh` needs `git`, `tmux`, `uv`, and at least one of `claude` / `agy`. Rules:
+
+- Missing dependency: asks to install it. Declining stops (exit 2), except that declining one AI CLI is fine while the other is installed.
+- Installed but outdated (where a check exists): asks to update; declining continues with what you have.
+- Installed but below tandem's minimum version (it may crash): asks again; declining stops (exit 3).
+- Prompts default to **No**, show the exact command first, and never pipe an installer to a shell without showing its URL. `claude` and `agy` update themselves and have no check-only mode, so only the minimum-version gate applies to them.
+- Exit codes: 0 ok, 2 declined install, 3 declined required update, 4 install/update/config failure, 5 unsupported platform, 6 needs a prompt but stdin is not a terminal.
+
+macOS (Homebrew) is tested; Linux (apt, dnf) is covered by stubbed tests only.
+
+**Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning.
+
+**Coordination.** The `agent-coordination` skill (`scripts/coord.py`) lets sessions register, claim spec tasks atomically, send heartbeats, and ask questions without blocking: an agent keeps working outside the blocked scope while the question waits in the **Queries** tab. Planners check running and planned work before planning; implementers claim before coding and use a worktree when another implementer is active. Without tandem, the same skill works from any CLI.
+
+**Not included, on purpose:** a unified chat or prompt routing across CLIs. providers such as Google (Antigravity) restrict or do not support wrapping their CLI inside third-party applications on consumer plans, so tandem only spawns each CLI as you would yourself and never types into or reads its pane. See `tandem/README.md` for the keymap and layout.
+
 ## Sibling codebase linking
 
 If you work across multiple repositories, `init` can create symlinks to sibling directories (projects at the same level in your filesystem) under `codebase-symlinks/`. It also generates a `codebase-map.md` that agents read before navigating between repos.

@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026-10-16]
+
+### CLI Package
+
+- Added `run.sh`: checks `git`, `tmux`, `uv`, `claude`, and `agy`, asks before every install or update, enforces the minimum versions in `tandem/min-versions.env`, then launches tandem. Supports `--check`, `--yes`, `--no`.
+- Added **tandem** (`tandem/`, Python + uv): launches `claude` / `agy` side by side in tmux as planners (left) and implementers (right), with a Textual status window (Status and Queries tabs), per-column agent tabs, a launch wizard, and an F-key keymap. It only spawns the official CLIs; it never sends keys to or reads from their panes.
+- `package.json` `files` now ships `run.sh` and the tandem sources. `init`, `update`, and `doctor` are unchanged and do not depend on Python.
+
+### Base Skills
+
+- Added `agent-coordination` (with stdlib `scripts/coord.py`): session registry, atomic task claims, heartbeats, and non-blocking agent questions stored under `.agent-workspace/coordination/`.
+- Enhanced `spec-planner`: new "Check Active & Planned Work" step; task template gains `## Affected Paths` and `## Depends On`.
+- Enhanced `spec-implement`: claims a task before working, uses a worktree when another implementer is active, heartbeats and checks answers at milestones, blocks only the affected objective, and releases the claim afterwards. Both skills fall back to `in-progress.md` when coordination is unavailable.
+
+### Base Files
+
+- `AGENTS.md` §8 gains the multi-agent coordination principle and the session-start `whoami` rule.
+- `specs/in-progress.md` entries gain optional Session and Claim fields.
+- Added best-practice notes: ToS-safe orchestration, non-blocking agent questions, and testing bash with a stubbed PATH.
+
 ## [2026-10-10]
 
 ### Base Skills
