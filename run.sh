@@ -15,6 +15,7 @@ UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_ENV_HINTS=1
+export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-${XDG_STATE_HOME:-$HOME/.local/state}/tandem/venv}"
 
 MODE=""
 ANSWERS=""

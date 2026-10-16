@@ -59,10 +59,10 @@ def resolve_root() -> Path:
     base = Path.cwd()
     try:
         common = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            ["git", "rev-parse", "--git-common-dir"],
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout.strip()
-        base = Path(common).parent
+        base = (Path.cwd() / common).resolve().parent
     except (OSError, subprocess.SubprocessError):
         pass
     for candidate in (base, *base.parents):

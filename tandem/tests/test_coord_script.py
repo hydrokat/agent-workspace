@@ -185,3 +185,29 @@ def test_root_resolution_from_worktree(tmp_path: Path) -> None:
     assert p.returncode == 0, p.stderr
     assert (main / ".agent-workspace/coordination/sessions/s1.json").exists()
     assert (main / ".agent-workspace/coordination/.gitignore").read_text().strip() == "*"
+
+
+def test_root_resolution_without_path_format_flag(tmp_path: Path) -> None:
+    """git < 2.31 has no --path-format; a shim that rejects it must still resolve the shared root."""
+    main = tmp_path / "main"
+    main.mkdir()
+    git = ["git", "-c", "user.email=a@b.c", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q", "-b", "trunk"], cwd=main, check=True)
+    (main / ".agent-workspace").mkdir()
+    (main / ".agent-workspace/manifest.json").write_text("{}")
+    (main / "f").write_text("x")
+    subprocess.run([*git, "add", "-A"], cwd=main, check=True)
+    subprocess.run([*git, "commit", "-qm", "i"], cwd=main, check=True)
+    wt = tmp_path / "wt"
+    subprocess.run([*git, "worktree", "add", "-q", "-b", "feat", str(wt)], cwd=main, check=True)
+    real = subprocess.run(["which", "git"], capture_output=True, text=True).stdout.strip()
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    (shim / "git").write_text(f'#!/bin/sh\ncase "$*" in *--path-format*) echo "unknown option" >&2; exit 129;; esac\nexec {real} "$@"\n')
+    (shim / "git").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != "TANDEM_COORD_DIR"}
+    env.update({"PATH": f"{shim}:{env['PATH']}", "TANDEM_SESSION_ID": "s1", "TANDEM_ROLE": "implementer",
+                "TANDEM_CLI": "claude"})
+    p = subprocess.run([sys.executable, str(SCRIPT), "register"], cwd=wt, env=env, capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    assert (main / ".agent-workspace/coordination/sessions/s1.json").exists()

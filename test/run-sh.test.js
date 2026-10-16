@@ -40,7 +40,7 @@ case "$name" in
       "self update --dry-run") [ -f "$STATE/uv.dryrun.fail" ] && { echo "network down" >&2; exit 1; }; [ -f "$STATE/uv.dryrun" ] && cat "$STATE/uv.dryrun"; exit 0;;
       "self update") [ -f "$STATE/uv.noupdate" ] || bump uv; exit 0;;
       sync*) exit 0;;
-      run*) echo "TANDEM-RAN cwd=$PWD args=$*"; exit 0;;
+      run*) echo "TANDEM-RAN cwd=$PWD args=$* venv=$UV_PROJECT_ENVIRONMENT"; exit 0;;
     esac;;
   claude|agy)
     if [ "$1" = update ]; then [ -f "$STATE/$name.noupdate" ] || bump "$name"; exit 0; fi;;
@@ -96,6 +96,13 @@ function run(env, args = [], { stdin = null } = {}) {
 const calls = (env) => (existsSync(join(env.state, 'calls.log')) ? readFileSync(join(env.state, 'calls.log'), 'utf8') : '');
 
 describe('run.sh happy path', () => {
+  it('keeps the tandem virtualenv outside the (possibly read-only) package directory', async () => {
+    const env = setup();
+    const r = await run(env);
+    assert.match(r.stdout, new RegExp(`venv=${env.base}/\\.local/state/tandem/venv`));
+    assert.ok(!r.stdout.includes(env.pkg + '/tandem/.venv'));
+  });
+
   it('runs tandem with no prompts when everything is present and current', async () => {
     const env = setup();
     const r = await run(env, ['--nope-flag']);
