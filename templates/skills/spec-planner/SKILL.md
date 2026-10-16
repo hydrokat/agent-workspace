@@ -63,6 +63,13 @@ When a phase or task creates or changes user-facing frontend/UI behavior, includ
 6. Add notes for accessibility and interaction requirements when they affect implementation, such as focus order, keyboard behavior, labels, contrast, reduced motion, or screen-reader text.
 7. If visual requirements are uncertain, document assumptions in the mockup section instead of leaving the UI undefined.
 
+### 4b. Check Active & Planned Work
+Before breaking work into tasks, make sure the plan does not conflict with work already running or planned.
+1. Run `python3 .agents/skills/agent-coordination/scripts/coord.py overview` and read running sessions, open claims, and open queries.
+2. Read `specs/in-progress.md` and the `Pending`, `In Progress`, and `Blocked` tasks across all of `specs/`.
+3. Compare each new task's **Affected Paths** with the paths of claimed and planned tasks. On overlap, either sequence the tasks with **Depends On** or ask the user.
+4. If `coord.py` is unavailable or fails, say so and rely on `in-progress.md` and the specs only.
+
 ### 5. Creating a New Phase
 When a user asks to "create a plan" for a new milestone:
 1. Identify the next phase number by scanning existing `specs/p-###-*` directories. If only legacy `specs/phase-XXX` directories exist, continue from the highest legacy number using the new `p-###-[repo-or-multi]` format.
@@ -71,6 +78,7 @@ When a user asks to "create a plan" for a new milestone:
 4. Complete **Identify Repository Scope And Phase Name**.
 5. Complete **Classify Requirements**.
 6. Complete **Add UI Mockups For Frontend/UI Work**.
+6b. Complete **Check Active & Planned Work**.
 7. Break the milestone into implementation tasks.
 8. Always add a final delivery task after all implementation tasks using the **Delivery Task Template**.
 9. Create `specs/p-###-[repo-or-multi]/impl.md` using the **Implementation Plan Template**.
@@ -191,6 +199,12 @@ When a user asks to "add a task" or "break down" part of a phase:
 - [ ] [Objective 1]
 - [ ] [Objective 2]
 
+## Affected Paths
+- [Files or directories this task will change; used to detect conflicts between tasks]
+
+## Depends On
+- [t-### tasks that must finish first, or `None`]
+
 ## Branches
 - **Working Branch**: [branch from impl.md]
 - **Merge Target**: [target branch from impl.md]
@@ -261,6 +275,7 @@ Finalize the phase by committing the completed work, creating a pull request, re
 - **UI Mockups**: Frontend/UI phases and tasks MUST include low-fidelity UI mockups covering primary screens or components, responsive variants, important states, interaction notes, and accessibility notes. Non-UI work may mark UI mockups as `N/A`.
 - **Requirement Classification**: Every code-changing task MUST classify its requirement as `New Feature`, `Enhancement`, or `Bug Fix`, with a short rationale and regression risk.
 - **No Regressions**: Development tasks MUST identify affected existing behavior and require tests or validation that prove the change does not introduce regressions.
+- **Active Work Check**: Always complete **Check Active & Planned Work** before tasking, and give every code-changing task `## Affected Paths` and `## Depends On`.
 - **Delivery Task Last**: The final task in every phase MUST be the delivery task: commit > create PR > code review and remediation loop until review passes > pipeline wait and fix loop until pipelines pass > merge PR.
 - **Test-First**: A task is not "Pending → In Progress → Done" without its unit tests written *before* implementation code and passing before the task is marked complete.
 - **Security Gate**: A task involving code changes MUST be security audited, with the audit passing, before it can be marked complete. Use the `security-auditor` agent or `security-review` skill for the audit.

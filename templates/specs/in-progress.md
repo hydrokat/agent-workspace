@@ -7,6 +7,7 @@ Rules:
 - If the task belongs to a spec, indicate the spec name (e.g. `p-002-agent-workspace` or `p-003-multi`).
 - If the task does not belong to a spec, label it `adhoc`.
 - **Multi-Agent Tracking:** Every entry MUST explicitly declare the agent role, conversation ID, and the working branch/worktree.
+- When coordination is available, also record the **Session** id and **Claim** (`coord.py claim`) so humans and other agents can match entries to sessions.
 - Remove an entry as soon as its task is completed. This file reflects only active work, not history.
 
 ## Example
@@ -14,6 +15,8 @@ Rules:
 ### p-002-payments-api — t-003: Add refresh token rotation
 - **Agent:** `@senior-backend-dev` (ID: `abc-1234`)
 - **Location:** Branch `feat/refresh-rotation`
+- **Session:** `impl-1` (from `coord.py whoami`; omit if coordination is unavailable)
+- **Claim:** `p-002-payments-api t-003` (from `coord.py claim`)
 - **Ongoing:** Implementing rotation logic in `auth/service.js`.
 - **Next step:** Add regression tests for expired refresh tokens.
 

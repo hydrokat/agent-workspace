@@ -95,6 +95,13 @@ Concurrent work rules:
 - Pull or fetch the latest base branch before branching and before merging, and re-check for new conflicts introduced since you started.
 - If a file, task, or branch appears to be actively owned by another agent, coordinate through the task file or ask the user rather than silently taking it over.
 
+Multi-agent coordination (skill: `agent-coordination`):
+- At session start, run `python3 .agents/skills/agent-coordination/scripts/coord.py whoami` and register the session.
+- Planners run `coord.py overview` before planning so plans do not conflict with running or planned work.
+- Implementers `claim` a task before working, use a worktree or branch when another implementer is active, `heartbeat` at milestones, and `release` when done.
+- Ask questions with `coord.py ask` and keep working on everything outside the question's blocking scope. Check `coord.py answers --mine` at every checkpoint. An unanswered question never blocks the whole implementation.
+- If `coord.py` is unavailable, fall back to `specs/in-progress.md` and say so.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.

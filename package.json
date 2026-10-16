@@ -9,13 +9,20 @@
   "files": [
     "bin",
     "src",
-    "templates"
+    "templates",
+    "run.sh",
+    "tandem/pyproject.toml",
+    "tandem/uv.lock",
+    "tandem/min-versions.env",
+    "tandem/README.md",
+    "tandem/src",
+    "!tandem/**/__pycache__"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/cli.test.js test/init.test.js test/update.test.js test/doctor.test.js"
+    "test": "node --test test/cli.test.js test/init.test.js test/update.test.js test/doctor.test.js test/coordination.test.js test/run-sh.test.js test/pack.test.js"
   },
   "keywords": [
     "agent",
