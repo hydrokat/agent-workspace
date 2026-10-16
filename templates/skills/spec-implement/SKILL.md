@@ -130,7 +130,8 @@ For each task:
 8. Record validation results in the task file.
 9. Request or run a security review when the task touches risky surfaces.
 10. Run the code comment discipline cleanup before review or completion.
-11. Mark the task complete only when objectives, knowledgebase updates, validation, security review, and comment cleanup are done or explicitly documented as not applicable.
+11. For a delivery task, deliver every repository involved. If the agent workspace is itself a git repository, include it (specs, knowledgebase, `AGENTS.md`) on a non-protected branch; open and merge a PR only when it has a remote, otherwise commit on the branch and ask the user how to integrate.
+12. Mark the task complete only when objectives, knowledgebase updates, validation, security review, and comment cleanup are done or explicitly documented as not applicable.
 
 Questions and blocking:
 - Ask with `coord.py ask --task ... --blocking-scope "<what is blocked>" "<question>"` and keep working on everything outside that scope.

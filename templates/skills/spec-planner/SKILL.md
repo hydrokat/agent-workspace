@@ -256,6 +256,8 @@ Finalize the phase by committing the completed work, creating a pull request, re
 - [ ] Wait for required pipelines/checks to finish.
 - [ ] If any required pipeline/check fails, fix the failure, update the PR, and repeat until required pipelines/checks pass.
 - [ ] Merge the pull request into the selected merge target.
+- [ ] If the agent workspace itself is a git repository (`git rev-parse --show-toplevel` equals the workspace root), deliver it too: commit the workspace changes (specs, knowledgebase, `AGENTS.md`, skills) on a branch with the `commit` skill, never on `main`/`master`/`trunk`. If it has a remote, open a PR and merge it after review. If it has no remote, stop after the branch commit and ask the user how to integrate it.
+- [ ] Record each repository delivered (codebases and, when applicable, the agent workspace) with its branch and PR/commit in this task's notes.
 
 ## Status
 - [ ] Pending
@@ -277,6 +279,7 @@ Finalize the phase by committing the completed work, creating a pull request, re
 - **No Regressions**: Development tasks MUST identify affected existing behavior and require tests or validation that prove the change does not introduce regressions.
 - **Active Work Check**: Always complete **Check Active & Planned Work** before tasking, and give every code-changing task `## Affected Paths` and `## Depends On`.
 - **Delivery Task Last**: The final task in every phase MUST be the delivery task: commit > create PR > code review and remediation loop until review passes > pipeline wait and fix loop until pipelines pass > merge PR.
+- **Workspace Is Delivered Too**: When the agent workspace is itself a git repository, the delivery task MUST also commit (and, when it has a remote, PR and merge) the workspace's own changes so specs and knowledgebase stay git-managed. Without a remote, commit on a branch and ask the user how to integrate.
 - **Test-First**: A task is not "Pending → In Progress → Done" without its unit tests written *before* implementation code and passing before the task is marked complete.
 - **Security Gate**: A task involving code changes MUST be security audited, with the audit passing, before it can be marked complete. Use the `security-auditor` agent or `security-review` skill for the audit.
 - **Knowledge Loop**: Every task MUST record which `knowledgebase/` references were consulted going in, and what (if anything) should be added back to `knowledgebase/best-practices/` coming out.

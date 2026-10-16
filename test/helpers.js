@@ -26,6 +26,18 @@ export function runCli(args, cwd) {
   });
 }
 
+export function runCliWithInput(args, cwd, input) {
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, [BIN, ...args], { cwd, env: process.env });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d; });
+    proc.stderr.on('data', d => { stderr += d; });
+    proc.on('close', code => resolve({ code, stdout, stderr }));
+    proc.stdin.end(input);
+  });
+}
+
 export function fileExists(dir, rel) {
   return existsSync(join(dir, rel));
 }
