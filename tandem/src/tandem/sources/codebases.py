@@ -19,6 +19,8 @@ def list_codebases(workspace: Path) -> list[Codebase]:
         return []
     found: list[Codebase] = []
     for entry in sorted(root.iterdir()):
+        if not entry.is_symlink() and not entry.is_dir():
+            continue
         target = entry.resolve()
         exists = target.is_dir()
         found.append(Codebase(clean(entry.name), target, exists, exists and (target / ".git").exists()))

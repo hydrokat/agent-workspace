@@ -21,8 +21,9 @@ Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this tab
 | `F9` | close the focused agent (asks first) |
 | `F10` | detach or quit (asks first) |
 | `F11` | restart an exited agent |
+| `F12` | resize mode: arrows resize the focused pane, = resets, Enter exits |
 
-On a laptop keyboard, macOS may treat F1-F12 as media keys: hold `fn`, or enable "Use F1, F2, etc. keys as standard function keys". Mouse works too: click a pane to focus it, drag a border to resize, scroll to scroll.
+On a laptop keyboard, macOS may treat F1-F12 as media keys: hold `fn`, or enable "Use F1, F2, etc. keys as standard function keys". Mouse works too: click a pane to focus it, drag a border to resize, scroll to scroll. Keyboard resize: `F12`, then arrows (5 columns / 2 rows per press) on the focused pane, `=` resets to the default sizes, `Enter`/`Esc` leaves resize mode.
 
 ## Layout
 
@@ -33,7 +34,9 @@ tmux -L tandem  (own socket and config; your ~/.tmux.conf is not loaded)
 └── hidden windows "stash-<role>-<n>": background agents, swapped into a column when you switch tabs
 ```
 
-Terminals narrower than 100 columns stack the columns vertically. Exited agents stay on screen with their exit code; `F11` restarts them.
+Terminals narrower than 100 columns stack the columns vertically, and the status window is kept to at most 40% of a short terminal (you can still drag it larger).
+
+The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `F11` restarts them.
 
 ## Coordination
 

@@ -73,7 +73,7 @@ def test_empty_workspace_shows_helpful_states(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         assert "No specs yet" in text(app, "#phases")
         assert "Coordination folder not found" in text(app, "#inprogress")
-        assert "Not a git repository" in text(app, "#worktrees")
+        assert "workspace · not a git repository" in text(app, "#repos")
 
     run_app(app, script)
 
@@ -175,5 +175,27 @@ def test_markup_in_untrusted_titles_is_shown_literally(tmp_path: Path) -> None:
 
     async def script(p: Pilot[None]) -> None:
         assert "[bold]loud[/bold]" in text(app, "#phases")
+
+    run_app(app, script)
+
+
+def test_repositories_section_lists_codebase_branches_and_worktrees(tmp_path: Path) -> None:
+    import subprocess
+
+    git = ["git", "-c", "user.email=a@b.c", "-c", "user.name=t"]
+    (tmp_path / "pkg").mkdir()
+    for args in (["init", "-q", "-b", "trunk"], ["commit", "-q", "--allow-empty", "-m", "i"], ["branch", "feat"],
+                 ["worktree", "add", "-q", str(tmp_path / "pkg-wt"), "feat"]):
+        subprocess.run([*git, *args], cwd=tmp_path / "pkg", check=True)
+    ws = tmp_path / "ws"
+    (ws / "codebase-symlinks").mkdir(parents=True)
+    (ws / "codebase-symlinks" / "pkg").symlink_to(tmp_path / "pkg")
+    app = StatusApp(ws, CoordStore(tmp_path / "none"))
+
+    async def script(p: Pilot[None]) -> None:
+        await p.pause(0.5)
+        body = text(app, "#repos")
+        assert "pkg · 2 branches · 1 worktrees" in body
+        assert "* trunk" in body and "feat" in body and "→ ../pkg-wt" in body
 
     run_app(app, script)

@@ -57,14 +57,10 @@ class StatusApp(App[None]):
                     yield Static("In progress", classes="label")
                     yield OptionList(id="sessions")
                     yield Static("", id="inprogress", markup=False)
+                    with Collapsible(title="Repositories · * main checkout · → linked worktree", collapsed=False):
+                        yield Static("", id="repos", markup=False)
                     with Collapsible(title="Phases", collapsed=False):
                         yield Static("", id="phases", markup=False)
-                    with Collapsible(title="Codebases"):
-                        yield Static("", id="codebases", markup=False)
-                    with Collapsible(title="Worktrees"):
-                        yield Static("", id="worktrees", markup=False)
-                    with Collapsible(title="Branches"):
-                        yield Static("", id="branches", markup=False)
                     with Collapsible(title="Conflicts"):
                         yield Static("", id="conflicts", markup=False)
             with TabPane("Queries", id="queries-pane"):
@@ -87,9 +83,7 @@ class StatusApp(App[None]):
         self._set("#summary", render.summary_line(snapshot))
         self._set("#inprogress", render.in_progress_text(snapshot))
         self._set("#phases", render.phases_text(snapshot))
-        self._set("#codebases", render.codebases_text(snapshot))
-        self._set("#worktrees", render.worktrees_text(snapshot))
-        self._set("#branches", render.branches_text(snapshot))
+        self._render_repos()
         self._set("#conflicts", render.conflicts_text(snapshot))
         sessions = self.query_one("#sessions", OptionList)
         highlighted = sessions.highlighted
@@ -99,6 +93,9 @@ class StatusApp(App[None]):
         if highlighted is not None and highlighted < sessions.option_count:
             sessions.highlighted = highlighted
         self._on_snapshot(snapshot)
+
+    def _render_repos(self) -> None:
+        self._set("#repos", render.repos_text(self.snapshot, max(self.size.width - 6, render.MIN_WIDTH)))
 
     def _set(self, selector: str, content: str) -> None:
         self.query_one(selector, Static).update(content)
@@ -113,6 +110,7 @@ class StatusApp(App[None]):
     def _resized(self, event: Resize) -> None:
         self.set_class(event.size.height < COMPACT_BELOW_ROWS, "compact")
         self.query_one("#body").display = event.size.height >= COMPACT_BELOW_ROWS
+        self._render_repos()
 
     def action_show_queries(self) -> None:
         self.query_one(TabbedContent).active = "queries-pane"

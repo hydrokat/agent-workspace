@@ -11,6 +11,8 @@ from tandem.tmux.tabs import FORMAT, PaneInfo, agents_in, neighbor, parse_panes,
 SESSION = "tandem"
 STATUS_ROWS = 10
 STACK_BELOW_COLS = 100
+MAX_STATUS_SHARE = 0.4
+MIN_STATUS_ROWS = 6
 ROLES = ("planner", "implementer")
 
 
@@ -92,11 +94,12 @@ class Layout:
     def _apply_chrome(self) -> None:
         c = self.client
         c.run_checked("set-option", "-g", "status-left-length", "400")
-        c.run_checked("set-option", "-g", "status-left", f" {keys.hint_bar()} ")
+        c.run_checked("set-option", "-g", "status-left", keys.status_left())
         c.run_checked("set-option", "-g", "status-right", "")
         c.run_checked("set-option", "-g", "window-status-format", "")
         c.run_checked("set-option", "-g", "window-status-current-format", "")
-        for argv in keys.bind_commands(self.python, self.workspace):
+        for argv in [*keys.bind_commands(self.python, self.workspace),
+                     *keys.resize_commands(self.python, self.workspace)]:
             c.run_checked(*argv)
         launcher = keys.launcher_for(self.python, self.workspace)
         c.run_checked("set-hook", "-g", "client-resized", f"run-shell -b '{launcher} reflow'")
@@ -186,7 +189,43 @@ class Layout:
         if target is not None:
             self.client.run_checked("select-pane", "-t", target.id)
 
-    def reflow(self, width: int) -> None:
+    def reflow(self, width: int, height: int = 0) -> None:
+        """Stack the columns on narrow terminals; never let the status window take over a short one."""
+        self._restack(width)
+        if height:
+            self._clamp_status(height)
+
+    def _clamp_status(self, height: int) -> None:
+        status = next((p for p in self.panes() if p.role == "status"), None)
+        if status is None:
+            return
+        rows = self.client.run_checked("display-message", "-p", "-t", status.id, "#{pane_height}").strip()
+        limit = max(MIN_STATUS_ROWS, int(height * MAX_STATUS_SHARE))
+        if rows.isdigit() and int(rows) > limit:
+            self.client.run_checked("resize-pane", "-t", status.id, "-y", str(limit))
+
+    def reset(self) -> None:
+        """Back to the default proportions: equal columns (or rows when stacked), default status height."""
+        panes = self.panes()
+        left, right = visible_pane(panes, "planner"), visible_pane(panes, "implementer")
+        status = next((p for p in panes if p.role == "status"), None)
+        size = self.client.run_checked("display-message", "-p", "-t", f"{SESSION}:main",
+                                       "#{window_width} #{window_height}").split()
+        if len(size) != 2 or not all(x.isdigit() for x in size) or left is None or right is None:
+            return
+        width, height = int(size[0]), int(size[1])
+        if status is not None:
+            self.client.run_checked("resize-pane", "-t", status.id, "-y",
+                                    str(min(STATUS_ROWS, max(MIN_STATUS_ROWS, int(height * MAX_STATUS_SHARE)))))
+        out = self.client.run_checked("list-panes", "-t", f"{SESSION}:main", "-F", "#{pane_id} #{pane_left}")
+        lefts = dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+        if lefts.get(left.id) == lefts.get(right.id):
+            avail = height - (STATUS_ROWS if status is not None else 0)
+            self.client.run_checked("resize-pane", "-t", left.id, "-y", str(max(avail // 2, 3)))
+        else:
+            self.client.run_checked("resize-pane", "-t", left.id, "-x", str(width // 2))
+
+    def _restack(self, width: int) -> None:
         panes = self.panes()
         left, right = visible_pane(panes, "planner"), visible_pane(panes, "implementer")
         if left is None or right is None:

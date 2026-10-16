@@ -151,6 +151,26 @@ def test_reflow_stacks_and_unstacks(layout: Layout) -> None:
     assert lefts()[ids["left"]] != lefts()[ids["right"]]
 
 
+def test_reset_restores_equal_columns_after_manual_resize(layout: Layout) -> None:
+    ids = built(layout)
+
+    def width(pane: str) -> int:
+        return int(layout.client.run_checked("display-message", "-p", "-t", pane, "#{pane_width}"))
+
+    layout.client.run_checked("resize-pane", "-t", ids["left"], "-x", "20")
+    assert width(ids["left"]) < width(ids["right"]) - 20
+    layout.reset()
+    assert abs(width(ids["left"]) - width(ids["right"])) <= 2
+
+
+def test_reflow_clamps_a_status_pane_that_is_too_tall(layout: Layout) -> None:
+    ids = built(layout)
+    layout.client.run_checked("resize-pane", "-t", ids["status"], "-y", "20")
+    layout.reflow(200, 30)
+
+    assert int(layout.client.run_checked("display-message", "-p", "-t", ids["status"], "#{pane_height}")) <= 12
+
+
 def test_focus_selects_column_pane(layout: Layout) -> None:
     ids = built(layout)
     layout.focus("implementer")

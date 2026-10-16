@@ -1,6 +1,10 @@
 from tandem.coordination.schema import Claim, Query, Session
 from tandem.snapshot import StatusSnapshot
+from pathlib import Path
+
+from tandem.sources.codebases import Codebase
 from tandem.sources.conflicts import Conflict
+from tandem.sources.gitinfo import GitInfo, Worktree
 from tandem.sources.specs import Phase, Task
 from tandem.status import render
 
@@ -57,8 +61,8 @@ def test_stale_claim_names_gone_session() -> None:
 def test_empty_states() -> None:
     assert "Nothing in progress" in render.in_progress_text(snap())
     assert "No specs yet" in render.phases_text(snap())
-    assert "No linked codebases" in render.codebases_text(snap())
-    assert "Not a git repository" in render.worktrees_text(snap())
+    assert "No linked codebases" in render.repos_text(snap())
+    assert "workspace · not a git repository" in render.repos_text(snap())
     assert "No overlapping" in render.conflicts_text(snap())
 
 
@@ -80,3 +84,52 @@ def test_bar_and_age() -> None:
 def test_conflict_text() -> None:
     assert "t-1 and t-2 both touch src" in render.conflicts_text(snap(conflicts=[Conflict("t-1", "t-2", "src")]))
 
+
+
+def pkg_info() -> GitInfo:
+    return GitInfo("trunk", ["trunk", "feat/x", "old-1", "old-2"],
+                   [Worktree("/code/pkg", "trunk", main=True), Worktree("/code/pkg-wt", "feat/x"),
+                    Worktree("/code/pkg-det", "")])
+
+
+def test_repo_lines_show_branch_and_the_worktree_it_is_active_on() -> None:
+    text = "\n".join(render.repo_lines("pkg", pkg_info(), 80))
+    assert "pkg · 4 branches · 2 worktrees" in text
+    assert "* trunk" in text
+    assert any("feat/x" in l and "→ ../pkg-wt" in l for l in text.splitlines())
+    assert any("(detached)" in l and "→ ../pkg-det" in l for l in text.splitlines())
+    assert any(l.strip() == "old-1" for l in text.splitlines())
+
+
+def test_repo_lines_main_checkout_branch_has_no_worktree_suffix() -> None:
+    line = next(l for l in render.repo_lines("pkg", pkg_info()) if "trunk" in l and "*" in l)
+    assert "→" not in line
+
+
+def test_repo_lines_cap_idle_branches() -> None:
+    info = GitInfo("m", ["m"] + [f"b{i}" for i in range(9)], [Worktree("/r", "m", main=True)])
+    text = "\n".join(render.repo_lines("r", info))
+    assert "+4 more branches" in text and "b4" in text and "b5" not in text
+
+
+def test_repo_lines_fit_narrow_widths() -> None:
+    info = GitInfo("a-very-long-branch-name-here", ["a-very-long-branch-name-here", "feat/other-long-one"],
+                   [Worktree("/r", "a-very-long-branch-name-here", main=True),
+                    Worktree("/somewhere/else/very/deep/wt", "feat/other-long-one")])
+    for width in (30, 40, 120):
+        assert all(len(l) <= max(width, render.MIN_WIDTH) for l in render.repo_lines("r", info, width)), width
+
+
+def test_repos_text_lists_workspace_then_each_codebase(tmp_path: Path) -> None:
+    cbs = [Codebase("pkg", tmp_path, True, True), Codebase("plain", tmp_path, True, False),
+           Codebase("gone", tmp_path / "x", False, False)]
+    s = snap(codebases=cbs, workspace_git=GitInfo("main", ["main"], [Worktree("/w", "main", main=True)]),
+             codebase_git={"pkg": pkg_info()})
+    text = render.repos_text(s)
+    assert text.index("workspace") < text.index("pkg ·") < text.index("plain · not a git")
+    assert "gone · WARNING missing target" in text
+
+
+def test_repo_text_is_sanitized() -> None:
+    info = GitInfo("m", ["m", "\x1b[31mevil"], [Worktree("/r", "m", main=True)])
+    assert "\x1b" not in "\n".join(render.repo_lines("r", info))
