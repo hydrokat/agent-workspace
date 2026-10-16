@@ -25,3 +25,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# tandem (Python)
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/

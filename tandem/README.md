@@ -1,0 +1,62 @@
+# tandem
+
+Run several AI CLIs (`claude`, `agy`) side by side in one tmux session: **planners** on the left, **implementers** on the right, and a live status window underneath. Start it with `./run.sh` from your workspace (see the package README).
+
+tandem only **launches** the official CLIs exactly as you would from a shell, with their documented flags. It never types into them, reads their output, proxies their traffic, or touches their credentials. Coordination happens only because agents choose to read and write shared files through the `agent-coordination` skill.
+
+## Keys
+
+Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this table are generated from it). tmux's prefix is disabled, so tandem consumes no other keys.
+
+| Key | Action |
+|---|---|
+| `F1` | open this help |
+| `F2` | add an agent |
+| `F3` | previous agent in this column |
+| `F4` | next agent in this column |
+| `F5` | focus the status window |
+| `F6` | open the Queries tab |
+| `F7` | focus planners |
+| `F8` | focus implementers |
+| `F9` | close the focused agent (asks first) |
+| `F10` | detach or quit (asks first) |
+| `F11` | restart an exited agent |
+
+On a laptop keyboard, macOS may treat F1-F12 as media keys: hold `fn`, or enable "Use F1, F2, etc. keys as standard function keys". Mouse works too: click a pane to focus it, drag a border to resize, scroll to scroll.
+
+## Layout
+
+```text
+tmux -L tandem  (own socket and config; your ~/.tmux.conf is not loaded)
+├── window "main":  planner column | implementer column
+│                   status window (Textual): Status tab, Queries tab
+└── hidden windows "stash-<role>-<n>": background agents, swapped into a column when you switch tabs
+```
+
+Terminals narrower than 100 columns stack the columns vertically. Exited agents stay on screen with their exit code; `F11` restarts them.
+
+## Coordination
+
+Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_COORD_DIR`): `sessions/`, `claims/`, `queries/`. The schema and state machines are in `templates/skills/agent-coordination/references/protocol.md`. Questions an agent asks appear in the **Queries** tab; your answer is written to the query file and the agent picks it up at its next checkpoint. Nothing is typed into a pane.
+
+## Development
+
+```bash
+cd tandem
+uv sync
+uv run pytest        # needs tmux for the integration tests (skipped when absent)
+uv run mypy          # strict
+uv run tandem --help
+```
+
+Minimum tool versions live in `min-versions.env` (read by `../run.sh` as data, never sourced, and by `tandem.versions`). Python modules:
+
+| Module | Role |
+|---|---|
+| `adapters/` | Build exact argv for `claude` / `agy`; list models |
+| `wizard/` | Launch and add-agent screens |
+| `tmux/` | Allow-listed tmux client, layout, tabs, keymap |
+| `coordination/` | Typed reader/answer-writer for the protocol files |
+| `sources/`, `snapshot.py`, `status/` | Status data sources and the Textual UI |
+
+`tests/test_tos_guard.py` fails the build if code could send keys to or capture output from an AI pane.
