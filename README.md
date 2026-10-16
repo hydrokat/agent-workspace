@@ -229,6 +229,16 @@ If you want to add a custom agent or skill that won't be overwritten, the right 
 
 macOS (Homebrew) is tested; Linux (apt, dnf) is covered by stubbed tests only.
 
+<p align="center"><img src="docs/images/overview.svg" alt="tandem: planner and implementer columns with a status window and quota line below" width="100%"></p>
+
+The window shows planners on the left, implementers on the right, and the status window below. The status window lists work in progress, every codebase's branches and the worktree each one is active on, and phase progress; the **Queries** tab collects questions your agents asked without blocking.
+
+<p align="center"><img src="docs/images/status.svg" alt="Status tab with repositories, branches and worktrees" width="49%"> <img src="docs/images/queries.svg" alt="Queries tab with an open question" width="49%"></p>
+
+<p align="center"><img src="docs/images/help.svg" alt="F1 help popup listing tandem's keys" width="70%"></p>
+
+<sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `docs/screenshots/make_screenshots.py`; a test fails if a screenshot contains a home-directory path.</sub>
+
 **Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning.
 
 **Coordination.** The `agent-coordination` skill (`scripts/coord.py`) lets sessions register, claim spec tasks atomically, send heartbeats, and ask questions without blocking: an agent keeps working outside the blocked scope while the question waits in the **Queries** tab. Planners check running and planned work before planning; implementers claim before coding and use a worktree when another implementer is active. Without tandem, the same skill works from any CLI.

@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-10-23]
+
+### Docs
+
+- README: screenshots of tandem (overview, Status and Queries tabs, help) rendered from a fictional demo project; `docs/screenshots/` holds the generator.
+
+### tandem
+
+- Fixed: the status window's border title was tmux's default pane title (the machine's hostname). It now reads `STATUS`.
+- Fixed: agent rows in the status window repeated the CLI (`agy·agy·gemini…`).
+- Singular counts ("1 agent", "1 worktree", "1 open query").
+
 ## [2026-10-22]
 
 ### tandem
