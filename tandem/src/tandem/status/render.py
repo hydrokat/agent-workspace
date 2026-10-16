@@ -22,12 +22,12 @@ def bar(done: int, total: int, width: int = 12) -> str:
 def summary_line(s: StatusSnapshot) -> str:
     done = sum(p.done for p in s.phases)
     total = sum(p.total for p in s.phases)
-    parts = [f"{done}/{total} tasks", f"{len(s.sessions)} agents", f"{len(s.claims)} claims"]
+    parts = [f"{done}/{total} tasks", _count(len(s.sessions), "agent", "agents"), _count(len(s.claims), "claim", "claims")]
     if s.stale_claims:
         parts.append(f"WARNING {len(s.stale_claims)} stale")
     if s.conflicts:
         parts.append(f"WARNING {len(s.conflicts)} conflicts")
-    parts.append(f"{s.open_queries} open queries")
+    parts.append(f"{s.open_queries} open " + ("query" if s.open_queries == 1 else "queries"))
     return " · ".join(parts)
 
 
@@ -79,6 +79,10 @@ MAX_IDLE_BRANCHES = 5
 MIN_WIDTH = 24
 
 
+def _count(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
 def fit(text: str, width: int) -> str:
     """Shorten ``text`` to ``width`` columns, keeping the end for paths and the start for names."""
     if width <= 1 or len(text) <= width:
@@ -101,7 +105,8 @@ def repo_lines(name: str, info: GitInfo | None, width: int = 80) -> list[str]:
     linked = [w for w in info.worktrees if not w.main]
     checked_out = {w.branch for w in info.worktrees if w.branch}
     idle = [b for b in info.branches if b not in checked_out]
-    lines = [fit(f"{clean(name)} · {len(info.branches)} branches · {len(linked)} worktrees", width)]
+    lines = [fit(f"{clean(name)} · {_count(len(info.branches), 'branch', 'branches')} · "
+                f"{_count(len(linked), 'worktree', 'worktrees')}", width)]
     rows: list[tuple[str, str, str]] = []
     if main is not None:
         rows.append(("*", clean(main.branch) or "(detached)", ""))

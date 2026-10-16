@@ -1,5 +1,23 @@
 # Changelog
 
+## [2026-10-23]
+
+### Docs
+
+- README: screenshots of tandem (overview, Status and Queries tabs, help) rendered from a fictional demo project; `docs/screenshots/` holds the generator.
+
+### tandem
+
+- Fixed: the status window's border title was tmux's default pane title (the machine's hostname). It now reads `STATUS`.
+- Fixed: agent rows in the status window repeated the CLI (`agy·agy·gemini…`).
+- Singular counts ("1 agent", "1 worktree", "1 open query").
+
+## [2026-10-22]
+
+### tandem
+
+- Fixed: the help popup (and every other tandem window) began with `ERROR:root:code for hash blake2b was not found` and a traceback on Pythons built against a limited OpenSSL. tandem no longer imports `hashlib` (a test enforces it). The per-workspace tmux socket name is now derived differently, so a session started with the previous build is not reused; end it with `tmux -L <socket> kill-server` or just detach.
+
 ## [2026-10-21]
 
 ### tandem

@@ -58,7 +58,7 @@ def test_shows_summary_phases_and_sessions(tmp_path: Path) -> None:
     app = StatusApp(ws, CoordStore(coord))
 
     async def script(p: Pilot[None]) -> None:
-        assert "1/2 tasks" in text(app, "#summary") and "1 agents" in text(app, "#summary")
+        assert "1/2 tasks" in text(app, "#summary") and "1 agent" in text(app, "#summary")
         assert "p-001-thing" in text(app, "#phases") and "t-002" in text(app, "#phases")
         assert app.query_one("#sessions", OptionList).option_count == 1
 
@@ -195,7 +195,7 @@ def test_repositories_section_lists_codebase_branches_and_worktrees(tmp_path: Pa
     async def script(p: Pilot[None]) -> None:
         await p.pause(0.5)
         body = text(app, "#repos")
-        assert "pkg · 2 branches · 1 worktrees" in body
+        assert "pkg · 2 branches · 1 worktree" in body
         assert "* trunk" in body and "feat" in body and "→ ../pkg-wt" in body
 
     run_app(app, script)
