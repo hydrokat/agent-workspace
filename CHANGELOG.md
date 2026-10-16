@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-10-20]
+
+### CLI Package
+
+- `init` asks whether to create a blank local git repo when the folder isn't one (`--git` / `--no-git` skip the question). It never nests a repo inside another.
+- `update` offers to commit only the files the update changed (`--commit` / `--no-commit`); other uncommitted work and `.bak` files are left alone. `--yes` alone never commits.
+- New `.agent-workspace/.gitignore` keeps `tandem-session.json`, `coordination/` and backups out of git.
+- spec-planner / spec-implement: when the agent workspace is itself a git repo, the delivery task also commits (and, with a remote, PRs and merges) the workspace's own changes.
+
 ## [2026-10-18]
 
 ### tandem

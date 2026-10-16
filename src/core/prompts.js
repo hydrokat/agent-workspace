@@ -91,3 +91,13 @@ function validateProviders(list) {
   const valid = list.filter(p => VALID_PROVIDERS.includes(p));
   return valid.length > 0 ? valid : ['claude'];
 }
+
+/** One-off yes/no question with its own readline interface. */
+export async function confirm(question, defaultYes = false) {
+  const iface = rl();
+  try {
+    return await askYesNo(iface, question, defaultYes);
+  } finally {
+    iface.close();
+  }
+}

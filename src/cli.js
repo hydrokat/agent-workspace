@@ -25,6 +25,8 @@ Options:
   --verbose              Show all actions including unchanged files
   --json                 Emit machine-readable JSON output
   --dry-run              Show what would change without writing anything
+  --git / --no-git       init: create (or skip creating) a local git repo without asking
+  --commit / --no-commit update: commit (or skip committing) the files the update changed without asking
   --version              Print version
   --help                 Print this help
 
@@ -46,6 +48,8 @@ function parseArgs(argv) {
     verbose: false,
     json: false,
     dryRun: false,
+    git: null,
+    commit: null,
     version: false,
     help: false,
   };
@@ -60,6 +64,10 @@ function parseArgs(argv) {
     else if (arg === '--verbose' || arg === '-v') { flags.verbose = true; }
     else if (arg === '--json') { flags.json = true; }
     else if (arg === '--dry-run') { flags.dryRun = true; }
+    else if (arg === '--git') { flags.git = true; }
+    else if (arg === '--no-git') { flags.git = false; }
+    else if (arg === '--commit') { flags.commit = true; }
+    else if (arg === '--no-commit') { flags.commit = false; }
     else if (arg === '--version') { flags.version = true; }
     else if (arg === '--help' || arg === '-h') { flags.help = true; }
     else if (arg === '--providers' && argv[i + 1]) { flags.providers = argv[++i].split(',').map(p => p.trim()); }
