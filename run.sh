@@ -6,7 +6,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MIN_FILE="$ROOT_DIR/tandem/min-versions.env"
+TANDEM_DIR="$ROOT_DIR/.agent-workspace/tandem"
+[ -d "$TANDEM_DIR" ] || TANDEM_DIR="$ROOT_DIR/tandem"
+MIN_FILE="$TANDEM_DIR/min-versions.env"
 TOOLS="git tmux uv claude agy"
 AI_TOOLS="claude agy"
 CLAUDE_INSTALL_URL="https://claude.ai/install.sh"
@@ -73,7 +75,7 @@ parse_args() {
 }
 
 load_min_versions() {
-  [ -f "$MIN_FILE" ] || die 4 "Missing tandem/min-versions.env"
+  [ -f "$MIN_FILE" ] || die 4 "Missing min-versions.env (run \`npx hydrokat/agent-workspace update\`)"
   local re='^[A-Z_]+=[0-9A-Za-z.-]+$' line n=0
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
@@ -419,8 +421,8 @@ main() {
     exit "$code"
   fi
   act
-  uv sync --project "$ROOT_DIR/tandem" --frozen || die 4 "uv sync failed. See the output above."
-  exec uv run --project "$ROOT_DIR/tandem" tandem ${PASSTHRU[@]+"${PASSTHRU[@]}"}
+  uv sync --project "$TANDEM_DIR" --frozen || die 4 "uv sync failed. See the output above."
+  exec uv run --project "$TANDEM_DIR" tandem ${PASSTHRU[@]+"${PASSTHRU[@]}"}
 }
 
 main "$@"

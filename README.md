@@ -201,7 +201,7 @@ If you want to add a custom agent or skill that won't be overwritten, the right 
 
 ## tandem: run several AI CLIs side by side
 
-`./run.sh` (from this package, run inside your workspace) launches **tandem**: your `claude` and `agy` sessions in one tmux window, planners on the left, implementers on the right, with a status window that shows in-progress work, phase progress, branches/worktrees, and the questions your agents have asked.
+`init` and `update` install `./run.sh` in your workspace (the tandem project goes under `.agent-workspace/tandem/`). `./run.sh` launches **tandem**: your `claude` and `agy` sessions in one tmux window, planners on the left, implementers on the right, with a status window that shows in-progress work, phase progress, branches/worktrees, and the questions your agents have asked.
 
 ```bash
 ./run.sh            # check dependencies, ask before installing/updating, then launch

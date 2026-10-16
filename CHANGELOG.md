@@ -6,7 +6,8 @@
 
 - Added `run.sh`: checks `git`, `tmux`, `uv`, `claude`, and `agy`, asks before every install or update, enforces the minimum versions in `tandem/min-versions.env`, then launches tandem. Supports `--check`, `--yes`, `--no`.
 - Added **tandem** (`tandem/`, Python + uv): launches `claude` / `agy` side by side in tmux as planners (left) and implementers (right), with a Textual status window (Status and Queries tabs), per-column agent tabs, a launch wizard, and an F-key keymap. It only spawns the official CLIs; it never sends keys to or reads from their panes.
-- `package.json` `files` now ships `run.sh` and the tandem sources. `init`, `update`, and `doctor` are unchanged and do not depend on Python.
+- `package.json` `files` now ships `run.sh` and the tandem sources. `init` and `update` now install `run.sh` (workspace root, executable) and the tandem project (`.agent-workspace/tandem/`), so `./run.sh` works in any workspace. A modified `run.sh` is backed up to `run.sh.bak`. They still do not require Python; only `run.sh` does.
+- `run.sh` prefers `.agent-workspace/tandem/` and falls back to a sibling `tandem/` (package checkout).
 
 ### Base Skills
 
