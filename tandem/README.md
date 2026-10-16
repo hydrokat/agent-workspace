@@ -28,7 +28,7 @@ On a laptop keyboard, macOS may treat F1-F12 as media keys: hold `fn`, or enable
 ## Layout
 
 ```text
-tmux -L tandem  (own socket and config; your ~/.tmux.conf is not loaded)
+tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side by side; your ~/.tmux.conf is not loaded)
 ├── window "main":  planner column | implementer column
 │                   status window (Textual): Status tab, Queries tab
 └── hidden windows "stash-<role>-<n>": background agents, swapped into a column when you switch tabs

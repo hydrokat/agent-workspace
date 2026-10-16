@@ -93,3 +93,14 @@ def test_pane_id_must_look_like_a_pane_id() -> None:
     fake = Fake({"display-message": Result(0, "own\n", "")})
     with pytest.raises(ValueError):
         client(fake).send_keys_own("%1; kill-server", "Enter")
+
+
+def test_each_workspace_gets_its_own_tmux_socket(tmp_path: Path) -> None:
+    from tandem.tmux.client import socket_for
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    assert socket_for(a) != socket_for(b)
+    assert socket_for(a) == socket_for(a) == socket_for(tmp_path / "a" / ".." / "a")
+    assert socket_for(a).startswith("tandem-") and "/" not in socket_for(a)

@@ -91,3 +91,14 @@ def test_quit_menu_offers_save_update_detach_kill() -> None:
     flat = " | ".join(calls[0])
     assert "save-exit" in flat and "tandem update'" in flat and "detach-client" in flat and "kill-session" in flat
     assert "TANDEM_WORKSPACE=/ws" in flat
+
+
+def test_legacy_shared_session_is_mentioned_not_reused(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from tandem.tmux.client import Result, TmuxClient
+
+    monkeypatch.setattr(TmuxClient, "run", lambda self, *a: Result(0 if self.socket == "tandem" else 1, "", ""))
+    cli._note_legacy_session()
+    assert "kill-server" in capsys.readouterr().err
+    monkeypatch.setattr(TmuxClient, "run", lambda self, *a: Result(1, "", ""))
+    cli._note_legacy_session()
+    assert capsys.readouterr().err == ""

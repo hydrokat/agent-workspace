@@ -1,3 +1,4 @@
+import hashlib
 import re
 import subprocess
 from collections.abc import Callable
@@ -17,6 +18,12 @@ ALLOWED = frozenset({
     "kill-session", "attach-session", "detach-client", "switch-client", "source-file", "show-options",
 })
 _OWN_ONLY = {"send-keys", "capture-pane"}
+
+
+def socket_for(workspace: Path) -> str:
+    """One tmux server (socket) per workspace, so projects run side by side without sharing a session."""
+    digest = hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:10]
+    return f"tandem-{digest}"
 
 
 class ToSViolation(Exception):

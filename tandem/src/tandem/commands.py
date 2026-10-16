@@ -14,7 +14,7 @@ from tandem.config import Config
 from tandem.coordination.store import CoordStore
 from tandem import quota, state, updater
 from tandem.tmux import keys
-from tandem.tmux.client import TmuxClient
+from tandem.tmux.client import TmuxClient, socket_for
 from tandem.tmux.layout import SESSION, Launch, Layout, ROLES
 
 
@@ -28,12 +28,17 @@ def agent_launch(spec: AgentSpec, coord_dir: str, workspace: Path) -> Launch:
     )
 
 
-def placeholder_launch(role: str, python: str = sys.executable) -> Launch:
-    return Launch([python, "-m", "tandem", "placeholder", role], role, 0, "placeholder", kind="own")
+def _own_env(workspace: Path | None) -> dict[str, str]:
+    return {"TANDEM_WORKSPACE": str(workspace)} if workspace else {}
 
 
-def status_launch(python: str = sys.executable) -> Launch:
-    return Launch([python, "-m", "tandem", "status"], "status", 0, "status", kind="own")
+def placeholder_launch(role: str, python: str = sys.executable, workspace: Path | None = None) -> Launch:
+    return Launch([python, "-m", "tandem", "placeholder", role], role, 0, "placeholder", kind="own",
+                  env=_own_env(workspace))
+
+
+def status_launch(python: str = sys.executable, workspace: Path | None = None) -> Launch:
+    return Launch([python, "-m", "tandem", "status"], "status", 0, "status", kind="own", env=_own_env(workspace))
 
 
 def coord_dir_for(workspace: Path, config: Config) -> Path:
@@ -42,9 +47,11 @@ def coord_dir_for(workspace: Path, config: Config) -> Path:
 
 def make_layout(workspace: Path, config: Config) -> Layout:
     conf = config.state_dir / "tandem.tmux.conf"
-    layout = Layout(TmuxClient(), coord=CoordStore(coord_dir_for(workspace, config)), workspace=str(workspace))
+    socket = socket_for(workspace)
+    layout = Layout(TmuxClient(socket=socket), coord=CoordStore(coord_dir_for(workspace, config)),
+                    workspace=str(workspace))
     layout.write_conf(conf)
-    layout.client = TmuxClient(conf=conf)
+    layout.client = TmuxClient(socket=socket, conf=conf)
     return layout
 
 
@@ -53,10 +60,10 @@ def start(specs: list[AgentSpec], workspace: Path, config: Config, saved: state.
     layout = make_layout(workspace, config)
     coord_dir = str(coord_dir_for(workspace, config))
     by_role = {role: [s for s in specs if s.role == role] for role in ROLES}
-    first = {role: (agent_launch(group[0], coord_dir, workspace) if group else placeholder_launch(role))
+    first = {role: (agent_launch(group[0], coord_dir, workspace) if group else placeholder_launch(role, workspace=workspace))
              for role, group in by_role.items()}
     size = shutil.get_terminal_size((160, 45))
-    layout.build(size.columns, size.lines, first["planner"], first["implementer"], status_launch())
+    layout.build(size.columns, size.lines, first["planner"], first["implementer"], status_launch(workspace=workspace))
     for role in ROLES:
         for spec in by_role[role][1:]:
             layout.add_agent(agent_launch(spec, coord_dir, workspace), activate=False)
@@ -65,11 +72,11 @@ def start(specs: list[AgentSpec], workspace: Path, config: Config, saved: state.
             layout.select(role, index)
         layout.apply_sizes(saved.columns_percent, saved.status_rows)
         layout.focus("planner" if by_role["planner"] else "implementer")
-    attach()
+    attach(workspace)
 
 
-def attach() -> None:
-    os.execvp("tmux", ["tmux", "-L", "tandem", "attach-session", "-t", SESSION])
+def attach(workspace: Path) -> None:
+    os.execvp("tmux", ["tmux", "-L", socket_for(workspace), "attach-session", "-t", SESSION])
 
 
 def add_agent(spec: AgentSpec, workspace: Path, config: Config) -> None:
@@ -112,7 +119,7 @@ def close_agent(layout: Layout, config: Config) -> None:
     pane = config.tmux_pane or layout.client.run_checked("display-message", "-p", "#{pane_id}").strip()
     role = _own_role(layout, config)
     if role in ROLES:
-        layout.close_agent(pane, placeholder_launch(role))
+        layout.close_agent(pane, placeholder_launch(role, workspace=Path(layout.workspace) if layout.workspace else None))
 
 
 def capture_state(layout: Layout) -> state.SavedState:
@@ -181,7 +188,8 @@ def quit_menu(layout: Layout, workspace: str | None = None) -> None:
 def reload_ui(layout: Layout, workspace: Path, config: Config) -> None:
     """Re-apply key bindings/hooks and restart tandem's own windows on the code now on disk."""
     layout.apply_chrome()
-    layout.respawn_own({"status": status_launch(), **{f"placeholder-{r}": placeholder_launch(r) for r in ROLES}})
+    layout.respawn_own({"status": status_launch(workspace=workspace),
+                            **{f"placeholder-{r}": placeholder_launch(r, workspace=workspace) for r in ROLES}})
     layout.refresh()
 
 

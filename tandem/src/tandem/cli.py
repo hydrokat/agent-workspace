@@ -76,7 +76,8 @@ def _launch(workspace: Path, config: Config, resume: bool = False, fresh: bool =
 
     layout = commands.make_layout(workspace, config)
     if layout.exists():
-        commands.attach()
+        commands.attach(workspace)
+    _note_legacy_session()
     saved = None if fresh else state.load(state.state_path(workspace))
     if resume and saved is None:
         print("No saved session to resume.", file=sys.stderr)
@@ -98,6 +99,21 @@ def _launch(workspace: Path, config: Config, resume: bool = False, fresh: bool =
         print("Cancelled.", file=sys.stderr)
         sys.exit(1)
     commands.start(specs, workspace, config, saved)
+
+
+def _note_legacy_session() -> None:
+    """Sessions started before per-project sockets live on the shared 'tandem' socket and are not reused."""
+    from tandem.tmux.client import TmuxClient
+    from tandem.tmux.layout import SESSION
+
+    try:
+        found = TmuxClient(socket="tandem").run("has-session", "-t", SESSION).code == 0
+    except OSError:
+        return
+    if found:
+        print("Note: an older tandem session (from before per-project sessions) is still running. "
+              "Detach and end it with `tmux -L tandem kill-server` once you no longer need it; "
+              "this project gets its own session.", file=sys.stderr)
 
 
 def _ask_resume(saved: state.SavedState) -> bool:
