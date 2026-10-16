@@ -284,3 +284,18 @@ def test_own_panes_are_pinned_to_their_workspace(tmp_path: Path) -> None:
 
     assert commands.status_launch(workspace=tmp_path).env == {"TANDEM_WORKSPACE": str(tmp_path)}
     assert commands.placeholder_launch("planner", workspace=tmp_path).env["TANDEM_WORKSPACE"] == str(tmp_path)
+
+
+def test_status_pane_border_has_a_title_that_is_not_the_hostname(layout: Layout) -> None:
+    ids = built(layout)
+    fmt = layout.client.run_checked("show-options", "-p", "-t", ids["status"], "pane-border-format")
+    assert "STATUS" in fmt and "pane_title" not in fmt
+
+
+def test_registered_session_records_the_model_not_the_label(layout: Layout, tmp_path: Path) -> None:
+    import json
+
+    launch = Launch(["sleep", "60"], "planner", 1, "claude·opus", session_id="planner-1",
+                    spec=json.dumps({"cli": "claude", "model": "opus", "skip_permissions": False, "cwd": None}))
+    layout.build(160, 40, launch, sleeper("implementer", 1), sleeper("status", 0, kind="own"))
+    assert {s.id: s.model for s in layout.coord.sessions()}["planner-1"] == "opus"  # type: ignore[union-attr]

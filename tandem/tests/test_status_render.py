@@ -25,7 +25,7 @@ def sess(**kw: str | float) -> Session:
 def test_summary_counts() -> None:
     s = snap(phases=[Phase("p", [Task("t-1", "a", "Done"), Task("t-2", "b", "Pending")])],
              sessions=[sess()], claims=[Claim("p", "t-2", "implementer-1", "", "", (), NOW - 5)])
-    assert render.summary_line(s) == "1/2 tasks · 1 agents · 1 claims · 0 open queries"
+    assert render.summary_line(s) == "1/2 tasks · 1 agent · 1 claim · 0 open queries"
 
 
 def test_summary_warns_on_stale_and_conflicts() -> None:
@@ -36,7 +36,7 @@ def test_summary_warns_on_stale_and_conflicts() -> None:
 
 def test_open_queries_counted() -> None:
     q = Query("q-1", "open", "a", "t", "s", 0.0, "?", (), "", "")
-    assert "1 open queries" in render.summary_line(snap(queries=[q]))
+    assert "1 open query" in render.summary_line(snap(queries=[q]))
 
 
 def test_session_row_has_words_not_just_symbols() -> None:
@@ -133,3 +133,8 @@ def test_repos_text_lists_workspace_then_each_codebase(tmp_path: Path) -> None:
 def test_repo_text_is_sanitized() -> None:
     info = GitInfo("m", ["m", "\x1b[31mevil"], [Worktree("/r", "m", main=True)])
     assert "\x1b" not in "\n".join(render.repo_lines("r", info))
+
+
+def test_counts_are_singular_when_one() -> None:
+    line = render.repo_lines("r", GitInfo("m", ["m"], [Worktree("/r", "m", main=True)]))[0]
+    assert line == "r · 1 branch · 0 worktrees"
