@@ -19,7 +19,7 @@ Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this tab
 | `F7` | focus planners |
 | `F8` | focus implementers |
 | `F9` | close the focused agent (asks first) |
-| `F10` | detach or quit (asks first) |
+| `F10` | exit menu: save and exit, detach, update tandem, kill |
 | `F11` | restart an exited agent |
 | `F12` | resize mode: arrows resize the focused pane, = resets, Enter exits |
 
@@ -37,6 +37,19 @@ tmux -L tandem  (own socket and config; your ~/.tmux.conf is not loaded)
 Terminals narrower than 100 columns stack the columns vertically, and the status window is kept to at most 40% of a short terminal (you can still drag it larger).
 
 The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `F11` restarts them.
+
+## Save, resume and update
+
+**Exit menu (`F10`):**
+
+- **Save state and exit** writes `.agent-workspace/tandem-session.json` (owner-only JSON: each agent's CLI, role, model, tab number and working folder, the tab showing in each column, and pane proportions), then ends the session and its agents.
+- **Detach** leaves everything running.
+- **Update tandem and workspace** (below).
+- **Kill session without saving** ends it and leaves any earlier saved file as it was.
+
+The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank / [q]uit** (Enter resumes). Non-interactive: `./run.sh -- --resume` or `--fresh`; `--fresh` keeps the file until you save again. Resuming relaunches the same agents with the same models and folders. Conversations are **not** restored: each CLI keeps its own history (for example `claude --resume`). An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
+
+**Update without quitting (`F10` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. Agents are not touched or restarted. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
 
 ## Coordination
 

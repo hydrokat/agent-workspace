@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from tandem import __version__
-from tandem import commands
+from tandem import commands, state
 from tandem.config import Config
 
 
@@ -14,6 +14,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Launch planner and implementer AI CLIs side-by-side in tmux.",
     )
     parser.add_argument("--version", action="version", version=f"tandem {__version__}")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--resume", action="store_true", help="resume the saved session without asking")
+    mode.add_argument("--fresh", action="store_true", help="start blank without asking (keeps the saved session file)")
     sub = parser.add_subparsers(dest="command", metavar="command")
     sub.add_parser("add-agent", help="add an agent to the running session (opened by F2)")
     tab = sub.add_parser("tab", help="switch agent tab in the focused column")
@@ -27,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
                        ("quit", "detach or quit"), ("help", "show the key help"),
                        ("first-run", "open help once on first attach"), ("status", "run the status window")):
         sub.add_parser(name, help=text)
+    update = sub.add_parser("update", help="update tandem and the workspace; agents keep running (F10 menu)")
+    update.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    sub.add_parser("save-exit", help="save the session state and end the session")
+    sub.add_parser("reload", help="restart tandem's own windows on the installed code")
     sub.add_parser("placeholder", help="empty-column placeholder").add_argument("role")
     return parser
 
@@ -37,7 +44,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     workspace = config.workspace or Path.cwd()
     command = args.command
     if command is None:
-        _launch(workspace, config)
+        _launch(workspace, config, resume=args.resume, fresh=args.fresh)
     elif command == "help":
         commands.show_help()
     elif command == "placeholder":
@@ -46,6 +53,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         from tandem.status.app import run_status
 
         run_status(workspace, config)
+    elif command == "update":
+        sys.exit(commands.run_update(workspace, config, args.yes))
     elif command == "add-agent":
         from tandem.wizard.runner import run_add_agent
 
@@ -56,17 +65,51 @@ def main(argv: Sequence[str] | None = None) -> None:
         _tmux_command(command, args, workspace, config)
 
 
-def _launch(workspace: Path, config: Config) -> None:
+def _launch(workspace: Path, config: Config, resume: bool = False, fresh: bool = False) -> None:
     from tandem.wizard.runner import run_launch_wizard
 
     layout = commands.make_layout(workspace, config)
     if layout.exists():
         commands.attach()
-    specs = run_launch_wizard()
+    saved = None if fresh else state.load(state.state_path(workspace))
+    if resume and saved is None:
+        print("No saved session to resume.", file=sys.stderr)
+        sys.exit(1)
+    if saved is not None and not resume:
+        resume = _ask_resume(saved)
+    specs = None
+    if resume and saved is not None:
+        specs, notes = commands.resume_specs(saved, workspace)
+        for note in notes:
+            print(note, file=sys.stderr)
+        if not specs:
+            print("Nothing from the saved session can be started. Starting blank.", file=sys.stderr)
+            saved = None
+    if not specs:
+        saved = None
+        specs = run_launch_wizard()
     if not specs:
         print("Cancelled.", file=sys.stderr)
         sys.exit(1)
-    commands.start(specs, workspace, config)
+    commands.start(specs, workspace, config, saved)
+
+
+def _ask_resume(saved: state.SavedState) -> bool:
+    """Resume or start blank; defaults to resume. Without a terminal, start blank."""
+    if not sys.stdin.isatty():
+        return False
+    print(state.describe(saved))
+    while True:
+        try:
+            answer = input("\n[R]esume it, start [b]lank, or [q]uit? ").strip().lower()
+        except EOFError:
+            return False
+        if answer in ("", "r", "resume"):
+            return True
+        if answer in ("b", "blank"):
+            return False
+        if answer in ("q", "quit"):
+            sys.exit(0)
 
 
 def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, config: Config) -> None:
@@ -90,6 +133,10 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
     elif command == "reset-layout":
         layout.reset()
     elif command == "quit":
-        commands.quit_menu(layout)
+        commands.quit_menu(layout, str(workspace))
+    elif command == "save-exit":
+        commands.save_exit(layout, workspace)
+    elif command == "reload":
+        commands.reload_ui(layout, workspace, config)
     elif command == "first-run":
         commands.first_run(layout, config)

@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 
 FORMAT = ("#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t"
-          "#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}")
+          "#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}")
 _UNSAFE = re.compile(r"[^A-Za-z0-9._:·\- ]")
 _COLUMN_NAMES = {"planner": "PLANNERS", "implementer": "IMPLEMENTERS"}
 
@@ -18,6 +18,7 @@ class PaneInfo:
     dead: bool
     dead_status: int | None
     session: str = ""
+    spec: str = ""
 
 
 def parse_panes(text: str) -> list[PaneInfo]:
@@ -25,11 +26,12 @@ def parse_panes(text: str) -> list[PaneInfo]:
     panes: list[PaneInfo] = []
     for line in text.splitlines():
         parts = line.split("\t")
-        if len(parts) != 9 or not parts[2] or not parts[3]:
+        if len(parts) not in (9, 10) or not parts[2] or not parts[3]:
             continue
-        pid, window, kind, role, index, label, dead, status, session = parts
+        pid, window, kind, role, index, label, dead, status, session = parts[:9]
+        spec = parts[9] if len(parts) == 10 else ""
         panes.append(PaneInfo(pid, window, kind, role, int(index) if index.isdigit() else 0, label,
-                              dead == "1", int(status) if status.lstrip("-").isdigit() else None, session))
+                              dead == "1", int(status) if status.lstrip("-").isdigit() else None, session, spec))
     return panes
 
 
