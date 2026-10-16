@@ -5,6 +5,7 @@ import { log, configure } from '../core/log.js';
 import { gatherUpdateInfo } from '../core/prompts.js';
 import { ensureDirs, initStarterFiles } from '../core/scaffold.js';
 import { installCanonicalAssets, syncAllProviders, refreshManagedBlock } from '../core/sync.js';
+import { installRuntime } from '../core/runtime.js';
 import { load as loadManifest, save as saveManifest, bump as bumpManifest } from '../core/manifest.js';
 import { run as runDoctor } from './doctor.js';
 
@@ -33,6 +34,8 @@ export async function run({ flags, cwd }) {
   refreshManagedBlock(cwd, flags.dryRun);
 
   installCanonicalAssets(cwd, manifest, flags.dryRun);
+
+  installRuntime(cwd, manifest, flags.dryRun);
 
   syncAllProviders(cwd, providers, manifest, flags.dryRun);
 

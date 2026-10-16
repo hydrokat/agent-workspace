@@ -8,6 +8,7 @@ import { gatherInitInfo } from '../core/prompts.js';
 import { ensureDirs, initStarterFiles } from '../core/scaffold.js';
 import { installCanonicalAssets, syncAllProviders } from '../core/sync.js';
 import { load as loadManifest, save as saveManifest, create as createManifest } from '../core/manifest.js';
+import { installRuntime } from '../core/runtime.js';
 import { linkCodebases } from '../core/link-codebases.js';
 import { run as runDoctor } from './doctor.js';
 
@@ -35,6 +36,8 @@ export async function run({ flags, cwd }) {
   initStarterFiles(cwd, flags.dryRun);
 
   installCanonicalAssets(cwd, manifest, flags.dryRun);
+
+  installRuntime(cwd, manifest, flags.dryRun);
 
   syncAllProviders(cwd, providers, manifest, flags.dryRun);
 

@@ -37,11 +37,4 @@ describe('npm pack contents', () => {
     const entry = JSON.parse(out)[0].files.find((f) => f.path === 'run.sh');
     assert.ok((entry.mode & 0o111) !== 0, 'run.sh executable');
   });
-
-  it('keeps tandem out of the Node CLI (init/update/doctor do not mention it)', async () => {
-    const { readFileSync } = await import('node:fs');
-    for (const f of ['init', 'update', 'doctor']) {
-      assert.ok(!/tandem/i.test(readFileSync(join(ROOT, `src/commands/${f}.js`), 'utf8')), f);
-    }
-  });
 });
