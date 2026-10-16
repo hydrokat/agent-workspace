@@ -116,10 +116,13 @@ When editing code:
 
 ## Step 6: Execute One Task At A Time
 
+Before the first task, run `python3 .agents/skills/agent-coordination/scripts/coord.py whoami` and `register`. If `coord.py` is unavailable or fails, say so and track work in `specs/in-progress.md` only.
+
 For each task:
+0. Claim it: `coord.py claim <phase> <task> --branch <branch> --worktree <path> --paths <affected paths>`. On a conflict, pick another unblocked task. Never take over a stale claim without asking the user via `coord.py ask`. If `coord.py overview` shows another implementer session is active, work in a dedicated worktree or branch.
 1. Mark the task as in progress in both `t-###.md` and `impl.md`.
 2. Implement only the scoped objective.
-3. Update task progress immediately after each meaningful milestone.
+3. Update task progress immediately after each meaningful milestone, run `coord.py heartbeat --task "<phase> <task>"`, and check `coord.py answers --mine`. Apply each answer, then `coord.py ack <id>`.
 4. Keep the `Knowledgebase References` section accurate as new references are discovered.
 5. Update the knowledgebase with decisions, reusable patterns, business flow changes, or lessons learned.
 6. Record implementation notes in the task file with changed files and key decisions.
@@ -128,6 +131,12 @@ For each task:
 9. Request or run a security review when the task touches risky surfaces.
 10. Run the code comment discipline cleanup before review or completion.
 11. Mark the task complete only when objectives, knowledgebase updates, validation, security review, and comment cleanup are done or explicitly documented as not applicable.
+
+Questions and blocking:
+- Ask with `coord.py ask --task ... --blocking-scope "<what is blocked>" "<question>"` and keep working on everything outside that scope.
+- Mark `Blocked` only the blocked objective, never the whole phase.
+- If the user answers directly in the CLI, record it with `coord.py answer <id> "<text>" --via cli`, then `ack` it, so the Queries tab updates.
+- Run `coord.py release <phase> <task>` when the task is `Done`, `Blocked`, or abandoned.
 
 Do not batch multiple task completions without updating progress between them.
 
@@ -169,4 +178,6 @@ Use these status terms consistently:
 - Never mark a task `Done` if `impl.md` and `t-###.md` disagree.
 - Never think inside code comments. Source comments are for durable code documentation only.
 - Never leave unnecessary code comments. Keep documentation-generator comments only when they add value, such as PHPDoc, JSDoc, Swagger/OpenAPI, or equivalent.
+- Always claim a task through `agent-coordination` before implementing it when coordination is available, and release it afterwards.
+- Never let an unanswered question stop unrelated work.
 - Keep changes surgical and scoped to the selected task.

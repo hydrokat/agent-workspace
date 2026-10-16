@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Coordination"
+  short_description: "Register sessions, claim tasks, and ask non-blocking questions through shared files."
+  default_prompt: "Use coord.py to register this session, claim a task, and check answers at checkpoints."
