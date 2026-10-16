@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-10-22]
+
+### tandem
+
+- Fixed: the help popup (and every other tandem window) began with `ERROR:root:code for hash blake2b was not found` and a traceback on Pythons built against a limited OpenSSL. tandem no longer imports `hashlib` (a test enforces it). The per-workspace tmux socket name is now derived differently, so a session started with the previous build is not reused; end it with `tmux -L <socket> kill-server` or just detach.
+
 ## [2026-10-21]
 
 ### tandem

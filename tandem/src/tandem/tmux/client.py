@@ -1,4 +1,4 @@
-import hashlib
+import random
 import re
 import subprocess
 from collections.abc import Callable
@@ -22,8 +22,10 @@ _OWN_ONLY = {"send-keys", "capture-pane"}
 
 def socket_for(workspace: Path) -> str:
     """One tmux server (socket) per workspace, so projects run side by side without sharing a session."""
-    digest = hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:10]
-    return f"tandem-{digest}"
+    # random.Random(str) seeds from a SHA-512 of the text (stable across Python versions). hashlib itself is
+    # avoided: on Pythons built against a limited OpenSSL, importing it prints errors into every pane and popup.
+    digest = random.Random(str(workspace.resolve())).getrandbits(40)
+    return f"tandem-{digest:010x}"
 
 
 class ToSViolation(Exception):
