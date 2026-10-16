@@ -46,3 +46,8 @@ def test_relative_xdg_state_home_ignored() -> None:
 def test_workspace_override_must_be_absolute() -> None:
     assert Config.from_env({"TANDEM_WORKSPACE": "/w"}).workspace == Path("/w")
     assert Config.from_env({"TANDEM_WORKSPACE": "w"}).workspace is None
+
+
+def test_session_id_is_validated() -> None:
+    assert Config.from_env({"TANDEM_SESSION_ID": "planner-1"}).session_id == "planner-1"
+    assert Config.from_env({"TANDEM_SESSION_ID": "../../x"}).session_id == ""

@@ -98,6 +98,10 @@ class Layout:
         c.run_checked("set-option", "-g", "status-left-length", "400")
         c.run_checked("set-option", "-g", "status-left", keys.status_left())
         c.run_checked("set-option", "-g", "status-right", "")
+        launcher_for_quota = keys.launcher_for(self.python, self.workspace)
+        c.run_checked("set-option", "-g", "status", "2")
+        c.run_checked("set-option", "-g", "status-interval", "10")
+        c.run_checked("set-option", "-g", "status-format[1]", f" #({launcher_for_quota} quota-line)")
         c.run_checked("set-option", "-g", "window-status-format", "")
         c.run_checked("set-option", "-g", "window-status-current-format", "")
         for argv in [*keys.bind_commands(self.python, self.workspace),

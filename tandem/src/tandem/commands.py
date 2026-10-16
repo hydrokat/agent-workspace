@@ -12,7 +12,7 @@ from tandem.adapters import adapter_for, session_env, session_id
 from tandem.adapters.base import AgentSpec
 from tandem.config import Config
 from tandem.coordination.store import CoordStore
-from tandem import state, updater
+from tandem import quota, state, updater
 from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient
 from tandem.tmux.layout import SESSION, Launch, Layout, ROLES
@@ -237,3 +237,36 @@ def show_help() -> None:
 def placeholder(role: str) -> None:
     print(f"No {role}s yet. Press F2 to add one.")
     signal.pause()
+
+
+def quota_feed(config: Config) -> None:
+    """Statusline command for Claude panes. Never fails loudly: a broken feed must not break the CLI's statusline."""
+    try:
+        text = sys.stdin.read(quota.MAX_INPUT + 1)
+        coord = config.coord_dir
+        out = quota.run_feed(text, coord, config.session_id, Path.cwd(), Path.home(), time.time()) if coord else ""
+    except Exception:
+        out = ""
+    sys.stdout.write(out)
+
+
+def quota_line(workspace: Path, config: Config) -> None:
+    """Text for tmux's second status row; fed by statusline data only, never by reading a pane."""
+    layout = make_layout(workspace, config)
+    try:
+        panes = layout.panes() if layout.exists() else []
+    except Exception:
+        panes = []
+    clis: list[str] = []
+    for pane in panes:
+        if pane.kind != "agent":
+            continue
+        try:
+            cli = json.loads(pane.spec)["cli"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if isinstance(cli, str) and cli not in clis:
+            clis.append(cli)
+    now = time.time()
+    claude = quota.read_claude(coord_dir_for(workspace, config)) if "claude" in clis else None
+    sys.stdout.write(quota.format_line(clis, claude, now))

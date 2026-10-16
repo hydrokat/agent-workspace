@@ -248,3 +248,9 @@ def test_respawn_own_restarts_only_tandem_panes(layout: Layout) -> None:
     time.sleep(0.3)
     assert layout.client.run_checked("display-message", "-p", "-t", ids["status"], "#{pane_pid}").strip() != before
     assert layout.client.run_checked("display-message", "-p", "-t", ids["left"], "#{pane_current_command}").strip() == "sleep"
+
+
+def test_second_status_row_runs_the_quota_line(layout: Layout) -> None:
+    built(layout)
+    assert layout.client.run_checked("show-options", "-g", "status").split()[-1] == "2"
+    assert "quota-line" in layout.client.run_checked("show-options", "-g", "status-format[1]")
