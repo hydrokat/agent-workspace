@@ -10,6 +10,8 @@ import { installCanonicalAssets, syncAllProviders } from '../core/sync.js';
 import { load as loadManifest, save as saveManifest, create as createManifest } from '../core/manifest.js';
 import { installRuntime } from '../core/runtime.js';
 import { linkCodebases } from '../core/link-codebases.js';
+import { repoState, initRepo, gitAvailable } from '../core/git.js';
+import { confirm } from '../core/prompts.js';
 import { run as runDoctor } from './doctor.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,6 +25,8 @@ export async function run({ flags, cwd }) {
     log.info('Run `agent-workspace update` to refresh, or use --force to re-initialize.');
     return;
   }
+
+  const wantsRepo = await decideRepo(flags, cwd);
 
   const { projectName, providers, linkCodebases: doLink, linkAll } = await gatherInitInfo(flags);
 
@@ -48,6 +52,12 @@ export async function run({ flags, cwd }) {
 
   if (!flags.dryRun) saveManifest(cwd, manifest);
 
+  if (wantsRepo) {
+    log.step('Creating a local git repository');
+    if (!flags.dryRun) initRepo(cwd);
+    log.created('.git (blank local repository; link a remote later with `git remote add origin <url>`)');
+  }
+
   log.step('Verifying workspace');
   const ok = await runDoctor({ flags: { ...flags, _internal: true }, cwd });
 
@@ -64,4 +74,20 @@ export async function run({ flags, cwd }) {
     '  • Run `agent-workspace update` after changing canonical files',
   ];
   log.summary(lines);
+}
+
+async function decideRepo(flags, cwd) {
+  const state = repoState(cwd);
+  if (state === 'own') return false;
+  if (state === 'nested') {
+    log.info('This folder is inside another git repository; not creating a nested one.');
+    return false;
+  }
+  if (!gitAvailable()) {
+    if (flags.git) log.warn('git was not found; skipping repository creation.');
+    return false;
+  }
+  if (flags.git !== null) return flags.git;
+  if (flags.yes) return false;
+  return confirm('This folder is not a git repository. Create a blank local one? (you can add a remote later)', false);
 }

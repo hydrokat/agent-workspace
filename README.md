@@ -80,6 +80,14 @@ What it does:
 
 ---
 
+### Git handling in `init` and `update`
+
+- `init` checks whether the folder is a git repository. If it isn't (and isn't inside another repo), it asks whether to create a **blank local repo**; link a remote yourself later with `git remote add origin <url>`.
+- `update` records which files it changes and, if the workspace is its own repo, asks whether to **commit just those files** (`chore: update agent-workspace to <version>`). Your other uncommitted edits and `.bak` backups are never included, and a protected branch (`main`, `master`, `trunk`) is called out in the question.
+- `--yes` never creates a repo or commits by itself; pass `--git` / `--commit` for that. Both default to **No**.
+- Private tandem state (`tandem-session.json`, coordination files) is git-ignored via `.agent-workspace/.gitignore`.
+- When the workspace is a git repo, the spec-planner's delivery task also delivers the workspace itself (specs, knowledgebase), on a non-protected branch; with no remote it commits and asks you how to integrate.
+
 ### `doctor` — verify the workspace
 
 Run this any time you want to confirm the workspace is in a valid state.
@@ -114,6 +122,8 @@ npx hydrokat/agent-workspace doctor --json
 | `--name <name>` | `init` | Set the project name without prompting |
 | `--no-link` | `init` | Skip sibling codebase linking |
 | `--link-all` | `init` | Link all sibling codebases without prompting |
+| `--git` / `--no-git` | `init` | Create (or skip) a blank local git repo without asking |
+| `--commit` / `--no-commit` | `update` | Commit (or skip committing) the files the update changed without asking |
 | `--dry-run` | `init`, `update` | Show what would change without writing anything |
 | `--quiet` | all | Suppress per-file output; show only summaries |
 | `--verbose` | all | Show all actions, including unchanged files |
