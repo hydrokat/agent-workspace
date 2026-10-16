@@ -37,3 +37,10 @@ def test_no_network_or_token_handling_modules() -> None:
     banned = re.compile(r"^\s*(import|from)\s+(requests|httpx|urllib\.request|socket|http\.client|aiohttp)\b", re.M)
     hits = [str(p.relative_to(SRC)) for p in SRC.rglob("*.py") if banned.search(p.read_text())]
     assert hits == []
+
+
+def test_tandem_never_imports_hashlib() -> None:
+    """On Pythons built against a limited OpenSSL, importing hashlib prints a traceback into every pane and popup."""
+    hits = [str(p.relative_to(SRC)) for p in SRC.rglob("*.py")
+            if any(line.strip().startswith(("import hashlib", "from hashlib")) for line in p.read_text().splitlines())]
+    assert hits == []
