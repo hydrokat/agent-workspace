@@ -16,7 +16,7 @@ from tandem.snapshot import StatusSnapshot, collect
 from tandem.status import render
 from tandem.status.notify import Notifier
 from tandem.status.queries_tab import QueriesTab
-from tandem.tmux.client import TmuxClient
+from tandem.tmux.client import TmuxClient, socket_for
 
 COMPACT_BELOW_ROWS = 8
 _PANE_ID = re.compile(r"^%\d+$")
@@ -127,4 +127,4 @@ class StatusApp(App[None]):
 def run_status(workspace: Path, config: Config) -> None:
     from tandem.commands import coord_dir_for
 
-    StatusApp(workspace, CoordStore(coord_dir_for(workspace, config)), tmux=TmuxClient()).run()
+    StatusApp(workspace, CoordStore(coord_dir_for(workspace, config)), tmux=TmuxClient(socket=socket_for(workspace))).run()

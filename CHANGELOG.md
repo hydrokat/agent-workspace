@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026-10-21]
+
+### tandem
+
+- Fixed: starting tandem in a second project attached to the first project's session. Every workspace now gets its own tmux server (`tandem-<hash of the workspace path>`), so projects run side by side. The status and placeholder windows are pinned to their workspace.
+- A session started by an older version still lives on the shared `tandem` socket and is not reused; tandem prints a note with the command to end it (`tmux -L tandem kill-server`).
+
 ## [2026-10-20]
 
 ### CLI Package

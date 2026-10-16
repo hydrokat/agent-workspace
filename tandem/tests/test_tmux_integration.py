@@ -254,3 +254,33 @@ def test_second_status_row_runs_the_quota_line(layout: Layout) -> None:
     built(layout)
     assert layout.client.run_checked("show-options", "-g", "status").split()[-1] == "2"
     assert "quota-line" in layout.client.run_checked("show-options", "-g", "status-format[1]")
+
+
+def test_two_workspaces_run_side_by_side_without_sharing_a_session(tmp_path: Path) -> None:
+    from tandem import commands
+    from tandem.config import Config
+    from tandem.tmux.client import socket_for
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    config = Config.from_env({"XDG_STATE_HOME": str(tmp_path / "state")})
+    la, lb = commands.make_layout(a, config), commands.make_layout(b, config)
+    try:
+        assert not la.exists() and not lb.exists()
+        la.build(160, 40, sleeper("planner", 1), sleeper("implementer", 1), sleeper("status", 0, kind="own"))
+        assert la.exists() and not lb.exists()
+        lb.build(160, 40, sleeper("planner", 1), sleeper("implementer", 1), sleeper("status", 0, kind="own"))
+        assert la.exists() and lb.exists()
+        lb.client.run_checked("kill-session", "-t", SESSION)
+        assert la.exists() and not lb.exists()
+    finally:
+        for ws in (a, b):
+            subprocess.run(["tmux", "-L", socket_for(ws), "kill-server"], capture_output=True)
+
+
+def test_own_panes_are_pinned_to_their_workspace(tmp_path: Path) -> None:
+    from tandem import commands
+
+    assert commands.status_launch(workspace=tmp_path).env == {"TANDEM_WORKSPACE": str(tmp_path)}
+    assert commands.placeholder_launch("planner", workspace=tmp_path).env["TANDEM_WORKSPACE"] == str(tmp_path)
