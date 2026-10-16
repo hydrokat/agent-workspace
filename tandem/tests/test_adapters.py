@@ -11,13 +11,22 @@ def spec(cli: str = "claude", role: str = "planner", model: str = "opus", **kw: 
 
 
 def test_claude_argv_snapshot() -> None:
-    assert ClaudeAdapter().build_argv(spec()) == [
-        "claude", "--permission-mode", "auto", "--model", "opus", "-n", "tandem-planner-1"]
+    argv = ClaudeAdapter().build_argv(spec())
+    assert argv[:7] == ["claude", "--permission-mode", "auto", "--model", "opus", "-n", "tandem-planner-1"]
+    assert argv[7] == "--settings" and len(argv) == 9
+
+
+def test_claude_settings_only_set_the_statusline_to_the_quota_feed() -> None:
+    import json
+
+    settings = json.loads(ClaudeAdapter().build_argv(spec())[8])
+    assert list(settings) == ["statusLine"] and settings["statusLine"]["type"] == "command"
+    assert settings["statusLine"]["command"].endswith("-m tandem quota-feed")
 
 
 def test_claude_always_auto_permission_mode() -> None:
     argv = ClaudeAdapter().build_argv(spec(role="implementer", model="claude-sonnet-5-5", index=3))
-    assert argv[1:3] == ["--permission-mode", "auto"] and argv[-1] == "tandem-implementer-3"
+    assert argv[1:3] == ["--permission-mode", "auto"] and argv[argv.index("-n") + 1] == "tandem-implementer-3"
 
 
 def test_claude_rejects_skip_permissions() -> None:

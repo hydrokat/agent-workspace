@@ -9,6 +9,12 @@
 - New `.agent-workspace/.gitignore` keeps `tandem-session.json`, `coordination/` and backups out of git.
 - spec-planner / spec-implement: when the agent workspace is itself a git repo, the delivery task also commits (and, with a remote, PRs and merges) the workspace's own changes.
 
+## [2026-10-19]
+
+### tandem
+
+- Quota line under the window (second tmux status row). Claude: fed by Claude Code's own documented statusline data (`rate_limits` 5-hour and 7-day), via `--settings`, chaining to your existing statusline. Antigravity and anything else: `quota not available`. No pane reading, no token use, no usage endpoints.
+
 ## [2026-10-18]
 
 ### tandem

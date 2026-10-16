@@ -32,6 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_parser(name, help=text)
     update = sub.add_parser("update", help="update tandem and the workspace; agents keep running (F10 menu)")
     update.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    sub.add_parser("quota-feed", help="Claude Code statusline hook: record quota, then run your own statusline")
+    sub.add_parser("quota-line", help="print the quota line shown under the window")
     sub.add_parser("save-exit", help="save the session state and end the session")
     sub.add_parser("reload", help="restart tandem's own windows on the installed code")
     sub.add_parser("placeholder", help="empty-column placeholder").add_argument("role")
@@ -53,6 +55,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         from tandem.status.app import run_status
 
         run_status(workspace, config)
+    elif command == "quota-feed":
+        commands.quota_feed(config)
+    elif command == "quota-line":
+        commands.quota_line(workspace, config)
     elif command == "update":
         sys.exit(commands.run_update(workspace, config, args.yes))
     elif command == "add-agent":

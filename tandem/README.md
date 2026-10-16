@@ -51,6 +51,14 @@ The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / star
 
 **Update without quitting (`F10` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. Agents are not touched or restarted. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
 
+## Quota line
+
+The second row of tmux's bottom bar shows subscription quota for the CLIs that have agents running, e.g. `Quota  claude: 5h 42% (resets 14:30) · 7d 12% (resets Mon 09:00)  │  agy: quota not available`. It refreshes every 10 seconds from local files.
+
+- **Claude Code:** tandem starts each Claude session with `--settings` pointing the documented *statusline* at `tandem quota-feed`. Claude Code itself passes `rate_limits` (the 5-hour and weekly windows) to that command; tandem stores only the percentages and reset times under `<coordination>/quota/`. Your own statusline is not lost: the feed runs the one from your local, project or user settings on the same input and prints its output. Claude only supplies this for Pro/Max subscribers and after a session's first reply; otherwise the line says `quota not available`. An old reading is labelled `[as of HH:MM]`.
+- **Antigravity (`agy`):** always `quota not available`. Its only quota view is the interactive `/usage` panel, and Google has not said that third parties may read its statusline data.
+- **What tandem does not do:** read or type into a pane, read an OAuth token, or call a usage endpoint.
+
 ## Coordination
 
 Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_COORD_DIR`): `sessions/`, `claims/`, `queries/`. The schema and state machines are in `templates/skills/agent-coordination/references/protocol.md`. Questions an agent asks appear in the **Queries** tab; your answer is written to the query file and the agent picks it up at its next checkpoint. Nothing is typed into a pane.
