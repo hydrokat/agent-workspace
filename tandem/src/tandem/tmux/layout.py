@@ -115,10 +115,23 @@ class Layout:
     def _register(self, launch: Launch, pane_id: str) -> None:
         if self.coord is not None and launch.kind == "agent" and launch.session_id:
             self.coord.write_session(launch.session_id, launch.argv[0], launch.role, pane_id,
-                                     launch.cwd or "", launch.label)
+                                     launch.cwd or "", self._model_of(launch))
+
+    @staticmethod
+    def _model_of(launch: Launch) -> str:
+        try:
+            model = json.loads(launch.spec)["model"]
+        except (ValueError, KeyError, TypeError):
+            return launch.label
+        return model if isinstance(model, str) else launch.label
 
     def refresh(self) -> None:
         panes = self.panes()
+        for pane in panes:
+            if pane.role == "status":
+                # tmux's default border title is the pane title, which is the machine's hostname
+                self.client.run_checked("set-option", "-p", "-t", pane.id, "pane-border-format",
+                                        "─ #{?pane_active,▶ ,}STATUS ─")
         for role in ROLES:
             shown = visible_pane(panes, role)
             if shown is not None:
