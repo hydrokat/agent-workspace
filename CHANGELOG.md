@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-10-18]
+
+### tandem
+
+- **Save and resume:** `F10` → *Save state and exit* writes `.agent-workspace/tandem-session.json` (owner-only JSON: agents' CLI, role, model, tab number, folder, visible tabs, pane proportions) and ends the session. The next launch asks to resume or start blank; `--resume` / `--fresh` skip the question. Conversations are not restored (each CLI has its own resume). Missing CLIs are skipped and deleted folders fall back to the workspace.
+- **Update without quitting:** `F10` → *Update tandem and workspace* (or `tandem update [--yes]`) saves state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link`, syncs tandem's Python environment, and restarts only tandem's own windows and key bindings. Agents keep running. A failed step restarts nothing. `TANDEM_UPDATE_SPEC=owner/repo[#ref]` selects another source.
+- The `F10` menu now offers save and exit, detach, update, and kill (no save).
+
 ## [2026-10-17]
 
 ### tandem
