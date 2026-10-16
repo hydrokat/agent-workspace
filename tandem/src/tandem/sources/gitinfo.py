@@ -7,6 +7,8 @@ from pathlib import Path
 class Worktree:
     path: str
     branch: str
+    main: bool = False
+    """True for the repository's own checkout (first entry of ``git worktree list``)."""
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,7 @@ def git_info(directory: Path, timeout: float = 5.0) -> GitInfo | None:
     for line in trees.splitlines():
         if line.startswith("worktree "):
             path = line[len("worktree "):]
-            worktrees.append(Worktree(path, ""))
+            worktrees.append(Worktree(path, "", main=not worktrees))
         elif line.startswith("branch ") and worktrees:
-            worktrees[-1] = Worktree(path, line.rsplit("/", 1)[-1])
+            worktrees[-1] = Worktree(path, line[len("branch "):].removeprefix("refs/heads/"), main=worktrees[-1].main)
     return GitInfo(current.strip(), [b for b in branches.splitlines() if b], worktrees)

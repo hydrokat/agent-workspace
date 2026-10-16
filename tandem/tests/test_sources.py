@@ -142,6 +142,14 @@ def test_git_info_reports_branches_and_worktrees(tmp_path: Path) -> None:
     info = git_info(tmp_path / "r")
     assert info is not None and info.current == "trunk"
     assert set(info.branches) == {"trunk", "feat"} and len(info.worktrees) == 2
+    assert [(Path(w.path).name, w.branch, w.main) for w in info.worktrees] == [("r", "trunk", True), ("r-wt", "feat", False)]
+
+
+def test_git_info_keeps_slashes_in_branch_names(tmp_path: Path) -> None:
+    repo(tmp_path / "r")
+    subprocess.run(["git", "branch", "deep/name"], cwd=tmp_path / "r", check=True)
+    subprocess.run(["git", "worktree", "add", "-q", str(tmp_path / "wt2"), "deep/name"], cwd=tmp_path / "r", check=True)
+    assert "deep/name" in {w.branch for w in git_info(tmp_path / "r").worktrees}  # type: ignore[union-attr]
 
 
 def test_git_info_not_a_repo_is_none(tmp_path: Path) -> None:
@@ -173,6 +181,15 @@ def test_codebases_from_symlinks_without_following_into_files(tmp_path: Path) ->
     (links / "dangling").symlink_to(tmp_path / "gone")
     found = {c.name: c for c in list_codebases(tmp_path / "ws")}
     assert found["pkg"].exists and found["pkg"].is_git and not found["dangling"].exists
+
+
+def test_codebases_skip_plain_files_like_the_codebase_map(tmp_path: Path) -> None:
+    repo(tmp_path / "pkg")
+    links = tmp_path / "ws" / "codebase-symlinks"
+    links.mkdir(parents=True)
+    (links / "pkg").symlink_to(tmp_path / "pkg")
+    (links / "codebase-map.md").write_text("# map")
+    assert [c.name for c in list_codebases(tmp_path / "ws")] == ["pkg"]
 
 
 def test_no_codebase_symlinks_dir(tmp_path: Path) -> None:
