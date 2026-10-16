@@ -1,7 +1,12 @@
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+
+DEFAULT_UPDATE_SPEC = "hydrokat/agent-workspace"
+_UPDATE_SPEC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+(#[A-Za-z0-9._/-]+)?$")
 
 
 @dataclass(frozen=True)
@@ -13,6 +18,7 @@ class Config:
     tmux_pane: str = ""
     workspace: Path | None = None
     state_dir: Path = Path.home() / ".local" / "state" / "tandem"
+    update_spec: str = DEFAULT_UPDATE_SPEC
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
@@ -25,5 +31,9 @@ class Config:
         workspace = Path(raw_ws) if raw_ws and Path(raw_ws).is_absolute() else None
         xdg = source.get("XDG_STATE_HOME", "")
         state_dir = Path(xdg) / "tandem" if xdg and Path(xdg).is_absolute() else Path.home() / ".local" / "state" / "tandem"
+        spec = source.get("TANDEM_UPDATE_SPEC", "") or DEFAULT_UPDATE_SPEC
+        if not _UPDATE_SPEC.match(spec):
+            raise ValueError("TANDEM_UPDATE_SPEC must look like owner/repo or owner/repo#ref")
         return cls(coord_dir=coord_dir, color=not source.get("NO_COLOR", ""),
-                   tmux_pane=source.get("TMUX_PANE", ""), workspace=workspace, state_dir=state_dir)
+                   tmux_pane=source.get("TMUX_PANE", ""), workspace=workspace, state_dir=state_dir,
+                   update_spec=spec)

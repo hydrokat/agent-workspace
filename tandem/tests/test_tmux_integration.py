@@ -187,3 +187,64 @@ def test_first_run_hook_registered(layout: Layout) -> None:
     built(layout)
     hooks = layout.client.run_checked("show-options", "-g", "client-attached")
     assert "first-run" in hooks
+
+
+def spec_launch(role: str, index: int, cli: str = "claude", model: str = "sonnet", cwd: str | None = None) -> Launch:
+    import json
+
+    launch = sleeper(role, index, label=f"{cli}·{model}")
+    return Launch(launch.argv, role, index, launch.label, env=launch.env, session_id=launch.session_id,
+                  spec=json.dumps({"cli": cli, "model": model, "skip_permissions": False, "cwd": cwd}))
+
+
+def test_capture_state_records_lineup_active_tab_and_sizes(layout: Layout) -> None:
+    from tandem import commands
+
+    layout.build(160, 40, spec_launch("planner", 1), spec_launch("implementer", 1, "agy", "gemini-3"),
+                 sleeper("status", 0, kind="own"))
+    layout.add_agent(spec_launch("planner", 2, model="opus", cwd="/tmp"))
+    layout.select("planner", 1)
+    layout.client.run_checked("resize-pane", "-t", visible_pane(layout.panes(), "planner").id, "-x", "40")  # type: ignore[union-attr]
+    snap = commands.capture_state(layout)
+    assert [(a.cli, a.role, a.model, a.index, a.cwd) for a in snap.agents] == [
+        ("claude", "planner", "sonnet", 1, None), ("claude", "planner", "opus", 2, "/tmp"),
+        ("agy", "implementer", "gemini-3", 1, None)]
+    assert snap.active == {"planner": 1, "implementer": 1}
+    assert snap.columns_percent is not None and 20 <= snap.columns_percent <= 30
+    assert snap.status_rows is not None and snap.status_rows >= 3
+
+
+def test_apply_sizes_restores_proportions(layout: Layout) -> None:
+    ids = built(layout)
+    layout.apply_sizes(30, 8)
+    percent, rows = layout.sizes()
+    assert percent is not None and 28 <= percent <= 32 and rows == 8
+    assert ids["left"]
+
+
+def test_save_exit_writes_state_then_ends_session(layout: Layout, tmp_path: Path) -> None:
+    from tandem import commands, state
+
+    layout.build(160, 40, spec_launch("planner", 1), spec_launch("implementer", 1), sleeper("status", 0, kind="own"))
+    commands.save_exit(layout, tmp_path)
+    loaded = state.load(state.state_path(tmp_path))
+    assert loaded is not None and len(loaded.agents) == 2
+    assert not layout.exists()
+
+
+def test_save_exit_keeps_session_when_there_is_nothing_to_save(layout: Layout, tmp_path: Path) -> None:
+    from tandem import commands, state
+
+    built(layout)
+    commands.save_exit(layout, tmp_path)
+    assert layout.exists() and not state.state_path(tmp_path).exists()
+
+
+def test_respawn_own_restarts_only_tandem_panes(layout: Layout) -> None:
+    ids = built(layout)
+    before = layout.client.run_checked("display-message", "-p", "-t", ids["status"], "#{pane_pid}").strip()
+    layout.respawn_own({"status": Launch(["sleep", "61"], "status", 0, "status", kind="own")})
+    import time
+    time.sleep(0.3)
+    assert layout.client.run_checked("display-message", "-p", "-t", ids["status"], "#{pane_pid}").strip() != before
+    assert layout.client.run_checked("display-message", "-p", "-t", ids["left"], "#{pane_current_command}").strip() == "sleep"

@@ -28,6 +28,8 @@ class Launch:
     env: dict[str, str] = field(default_factory=dict)
     cwd: str | None = None
     session_id: str = ""
+    spec: str = ""
+    """JSON of the AgentSpec fields needed to rebuild this agent (saved/resumed sessions)."""
 
 
 def conf_text(history: int = 50000) -> str:
@@ -74,7 +76,7 @@ class Layout:
     def _tag(self, pane_id: str, launch: Launch) -> None:
         for name, value in (("kind", launch.kind), ("role", launch.role), ("index", str(launch.index)),
                             ("label", launch.label), ("session", launch.session_id),
-                            ("argv", json.dumps(launch.argv))):
+                            ("argv", json.dumps(launch.argv)), ("spec", launch.spec)):
             self.client.run_checked("set-option", "-p", "-t", pane_id, f"@tandem_{name}", value)
 
     def build(self, width: int, height: int, left: Launch, right: Launch, status: Launch) -> dict[str, str]:
@@ -87,11 +89,11 @@ class Layout:
         for pane_id, launch in ((a, left), (b, right), (s, status)):
             self._tag(pane_id, launch)
             self._register(launch, pane_id)
-        self._apply_chrome()
+        self.apply_chrome()
         self.refresh()
         return {"left": a, "right": b, "status": s}
 
-    def _apply_chrome(self) -> None:
+    def apply_chrome(self) -> None:
         c = self.client
         c.run_checked("set-option", "-g", "status-left-length", "400")
         c.run_checked("set-option", "-g", "status-left", keys.status_left())
@@ -242,3 +244,37 @@ class Layout:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(conf_text())
         return path
+
+    def sizes(self) -> tuple[int | None, int | None]:
+        """(planner column width as a percent of the window or None when stacked, status rows or None)."""
+        panes = self.panes()
+        left, right = visible_pane(panes, "planner"), visible_pane(panes, "implementer")
+        status = next((p for p in panes if p.role == "status"), None)
+        out = self.client.run_checked("list-panes", "-t", f"{SESSION}:main", "-F",
+                                      "#{pane_id} #{pane_left} #{pane_width} #{pane_height} #{window_width}")
+        rows = {f[0]: f for f in (line.split() for line in out.splitlines()) if len(f) == 5 and all(x.isdigit() for x in f[1:])}
+        percent = None
+        if left and right and left.id in rows and right.id in rows and rows[left.id][1] != rows[right.id][1]:
+            percent = round(100 * int(rows[left.id][2]) / max(int(rows[left.id][4]), 1))
+        return percent, int(rows[status.id][3]) if status and status.id in rows else None
+
+    def apply_sizes(self, columns_percent: int | None, status_rows: int | None) -> None:
+        """Restore saved proportions; skipped when the columns are currently stacked or the window is tiny."""
+        panes = self.panes()
+        left = visible_pane(panes, "planner")
+        status = next((p for p in panes if p.role == "status"), None)
+        if status is not None and status_rows:
+            self.client.run_checked("resize-pane", "-t", status.id, "-y", str(status_rows))
+        right = visible_pane(panes, "implementer")
+        if columns_percent and left is not None and right is not None:
+            out = self.client.run_checked("list-panes", "-t", f"{SESSION}:main", "-F", "#{pane_id} #{pane_left}")
+            lefts = dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+            if lefts.get(left.id) != lefts.get(right.id):
+                self.client.run_checked("resize-pane", "-t", left.id, "-x", f"{columns_percent}%")
+
+    def respawn_own(self, launches: dict[str, Launch]) -> None:
+        """Restart tandem's own panes (status, placeholders) so they run freshly installed code; agents are untouched."""
+        for pane in self.panes():
+            launch = launches.get("status" if pane.role == "status" else f"placeholder-{pane.role}")
+            if pane.kind == "own" and launch is not None:
+                self.client.run_checked("respawn-pane", "-k", "-t", pane.id, *launch.argv)
