@@ -188,11 +188,18 @@ class Layout:
             self.coord.remove_session(pane.session)
         self.refresh()
 
-    def restart(self, pane_id: str, coord_dir: str) -> None:
+    def restart(self, pane_id: str, coord_dir: str, launch: Launch | None = None) -> None:
+        """Respawn an exited pane: with ``launch`` (an agent rebuilt to reopen its conversation), else its last argv."""
         out = self.client.run_checked("display-message", "-p", "-t", pane_id,
                                       "#{pane_dead}\t#{@tandem_argv}\t#{@tandem_session}\t#{@tandem_role}\t#{@tandem_cli}").rstrip("\n")
         dead, raw, session, role, _ = (out.split("\t") + [""] * 5)[:5]
         if dead != "1":
+            return
+        if launch is not None:
+            env = [arg for key, value in launch.env.items() for arg in ("-e", f"{key}={value}")]
+            self.client.run_checked("respawn-pane", "-k", "-t", pane_id, *env, *launch.argv)
+            self._tag(pane_id, launch)
+            self.refresh()
             return
         argv = json.loads(raw)
         if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):

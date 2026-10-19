@@ -6,25 +6,41 @@ import sys
 import subprocess
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from tandem.adapters import adapter_for, session_env, session_id
 from tandem.adapters.base import AgentSpec
 from tandem.config import Config
 from tandem.coordination.store import CoordStore
-from tandem import quota, state, updater
+from tandem import conversations, quota, state, updater
 from tandem.tmux import keys
-from tandem.tmux.client import TmuxClient, socket_for
+from tandem.tmux.client import TmuxClient, TmuxError, socket_for
 from tandem.tmux.layout import SESSION, Launch, Layout, ROLES
+from tandem.tmux.tabs import PaneInfo
 
 
-def agent_launch(spec: AgentSpec, coord_dir: str, workspace: Path) -> Launch:
+CLOSING = "@tandem_closing"
+
+
+def agent_launch(spec: AgentSpec, coord_dir: str, workspace: Path, resume: bool = False,
+                 claude_dir: Path | None = None) -> Launch:
+    """``resume`` reopens the agent's saved conversation when its CLI still has it; otherwise a new chat starts."""
+    if spec.cli == "claude" and spec.conversation is None:
+        spec = replace(spec, conversation=conversations.new_id())
+    reopen = resume and conversations.can_resume(spec.cli, spec.conversation, claude_dir or Path.home() / ".claude")
+    if spec.cli == "agy" and not reopen:
+        spec = replace(spec, conversation=None)
+    coord = Path(coord_dir)
+    log_file = str(conversations.agy_log_path(coord, session_id(spec))) if spec.cli == "agy" else None
+    if not reopen:
+        conversations.forget(coord, session_id(spec))
     return Launch(
-        argv=adapter_for(spec.cli).build_argv(spec), role=spec.role, index=spec.index,
-        label=f"{spec.cli}·{spec.model}", env=session_env(spec, coord_dir),
+        argv=adapter_for(spec.cli).build_argv(spec, resume=reopen, log_file=log_file), role=spec.role,
+        index=spec.index, label=f"{spec.cli}·{spec.model}", env=session_env(spec, coord_dir),
         cwd=spec.cwd or str(workspace), session_id=session_id(spec),
         spec=json.dumps({"cli": spec.cli, "model": spec.model, "skip_permissions": spec.skip_permissions,
-                         "cwd": spec.cwd}),
+                         "cwd": spec.cwd, "conversation": spec.conversation}),
     )
 
 
@@ -59,19 +75,26 @@ def start(specs: list[AgentSpec], workspace: Path, config: Config, saved: state.
     """Create the tmux session for ``specs`` and attach to it (replaces this process)."""
     layout = make_layout(workspace, config)
     coord_dir = str(coord_dir_for(workspace, config))
+    conversations.prepare(Path(coord_dir))
+    resume = saved is not None
+
+    def launch(spec: AgentSpec) -> Launch:
+        return agent_launch(spec, coord_dir, workspace, resume=resume, claude_dir=config.claude_dir)
+
     by_role = {role: [s for s in specs if s.role == role] for role in ROLES}
-    first = {role: (agent_launch(group[0], coord_dir, workspace) if group else placeholder_launch(role, workspace=workspace))
+    first = {role: (launch(group[0]) if group else placeholder_launch(role, workspace=workspace))
              for role, group in by_role.items()}
     size = shutil.get_terminal_size((160, 45))
     layout.build(size.columns, size.lines, first["planner"], first["implementer"], status_launch(workspace=workspace))
     for role in ROLES:
         for spec in by_role[role][1:]:
-            layout.add_agent(agent_launch(spec, coord_dir, workspace), activate=False)
+            layout.add_agent(launch(spec), activate=False)
     if saved is not None:
         for role, index in saved.active.items():
             layout.select(role, index)
         layout.apply_sizes(saved.columns_percent, saved.status_rows)
         layout.focus("planner" if by_role["planner"] else "implementer")
+    autosave(layout, workspace)
     attach(workspace)
 
 
@@ -85,7 +108,10 @@ def add_agent(spec: AgentSpec, workspace: Path, config: Config) -> None:
     same_role = [p.index for p in panes if p.role == spec.role and p.kind == "agent"]
     indexed = AgentSpec(spec.cli, spec.role, spec.model, max(same_role, default=0) + 1,
                         spec.skip_permissions, spec.cwd)
-    layout.add_agent(agent_launch(indexed, str(coord_dir_for(workspace, config)), workspace))
+    coord_dir = coord_dir_for(workspace, config)
+    conversations.prepare(coord_dir)
+    layout.add_agent(agent_launch(indexed, str(coord_dir), workspace))
+    autosave(layout, workspace)
 
 
 def _own_role(layout: Layout, config: Config) -> str:
@@ -120,42 +146,92 @@ def close_agent(layout: Layout, config: Config) -> None:
     role = _own_role(layout, config)
     if role in ROLES:
         layout.close_agent(pane, placeholder_launch(role, workspace=Path(layout.workspace) if layout.workspace else None))
+        if layout.workspace:
+            autosave(layout, Path(layout.workspace))
 
 
-def capture_state(layout: Layout) -> state.SavedState:
-    """Snapshot the lineup, visible tabs and proportions of the running session."""
+def _pane_spec(pane: PaneInfo, coord_dir: Path | None) -> AgentSpec | None:
+    """Rebuild a pane's AgentSpec; the conversation is the one its CLI last reported, else the one it started with."""
+    try:
+        raw = json.loads(pane.spec)
+        cli = raw["cli"]
+        live = conversations.current(coord_dir, pane.session, cli) if coord_dir is not None else None
+        return AgentSpec(cli, pane.role, raw["model"], pane.index,  # type: ignore[arg-type]
+                         bool(raw.get("skip_permissions")), raw.get("cwd"),
+                         live or conversations.valid_id(raw.get("conversation")))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def capture_state(layout: Layout, clean: bool = True) -> state.SavedState:
+    """Snapshot the lineup (with each agent's conversation), visible tabs and proportions of the running session."""
     panes = layout.panes()
-    agents: list[AgentSpec] = []
-    for pane in sorted((p for p in panes if p.kind == "agent"), key=lambda p: (ROLES.index(p.role), p.index)):
-        try:
-            raw = json.loads(pane.spec)
-            agents.append(AgentSpec(raw["cli"], pane.role, raw["model"], pane.index,  # type: ignore[arg-type]
-                                    bool(raw.get("skip_permissions")), raw.get("cwd")))
-        except (ValueError, KeyError, TypeError):
-            continue
+    coord_dir = layout.coord.root if layout.coord is not None else None
+    agents = [spec for pane in sorted((p for p in panes if p.kind == "agent"), key=lambda p: (ROLES.index(p.role), p.index))
+              if (spec := _pane_spec(pane, coord_dir)) is not None]
     active = {role: shown.index for role in ROLES
               if (shown := next((p for p in panes if p.role == role and p.window == "main" and p.kind == "agent"), None))}
     columns, rows = layout.sizes()
-    return state.SavedState(tuple(agents), active, columns, rows, time.time())
+    return state.SavedState(tuple(agents), active, columns, rows, time.time(), clean)
 
 
-def save_state(layout: Layout, workspace: Path) -> state.SavedState:
-    snapshot = capture_state(layout)
+def save_state(layout: Layout, workspace: Path, clean: bool = True) -> state.SavedState:
+    snapshot = capture_state(layout, clean)
     if not snapshot.agents:
         raise ValueError("no agents to save")
     state.save(state.state_path(workspace), snapshot)
     return snapshot
 
 
+def _closing(layout: Layout) -> bool:
+    return layout.client.run("show-options", "-qv", "-t", SESSION, CLOSING).out.strip() == "1"
+
+
+def autosave(layout: Layout, workspace: Path) -> bool:
+    """Crash-safety save of the running session (``clean=False``); never raises, never runs while it is closing."""
+    try:
+        if not layout.exists() or _closing(layout):
+            return False
+        snapshot = capture_state(layout, clean=False)
+        if not snapshot.agents or _closing(layout):
+            return False
+        state.save(state.state_path(workspace), snapshot)
+        return True
+    except (OSError, ValueError, TmuxError):
+        return False
+
+
 def save_exit(layout: Layout, workspace: Path) -> None:
     """Save the session, then end it. If saving fails the session is left running."""
+    layout.client.run_checked("set-option", "-t", SESSION, CLOSING, "1")
     try:
-        snapshot = save_state(layout, workspace)
+        snapshot = save_state(layout, workspace, clean=True)
     except (OSError, ValueError) as error:
+        layout.client.run_checked("set-option", "-u", "-t", SESSION, CLOSING)
         layout.client.run_checked("display-message", f"Not saved, session kept: {error}")
         return
     layout.client.run_checked("display-message", f"Saved {len(snapshot.agents)} agents. Closing.")
     layout.client.run_checked("kill-session", "-t", SESSION)
+
+
+def discard_exit(layout: Layout, workspace: Path) -> None:
+    """End the session and delete the saved state, so the next launch starts fresh without asking."""
+    layout.client.run_checked("set-option", "-t", SESSION, CLOSING, "1")
+    state.state_path(workspace).unlink(missing_ok=True)
+    layout.client.run_checked("kill-session", "-t", SESSION)
+
+
+def restart(layout: Layout, pane_id: str, workspace: Path, config: Config) -> None:
+    """Relaunch an exited agent, reopening its conversation when the CLI has one to reopen."""
+    pane = next((p for p in layout.panes() if p.id == pane_id and p.kind == "agent"), None)
+    coord_dir = coord_dir_for(workspace, config)
+    spec = _pane_spec(pane, coord_dir) if pane is not None else None
+    if spec is None:
+        layout.restart(pane_id, str(coord_dir))
+        return
+    conversations.prepare(coord_dir)
+    layout.restart(pane_id, str(coord_dir),
+                   agent_launch(spec, str(coord_dir), workspace, resume=True, claude_dir=config.claude_dir))
 
 
 def resume_specs(saved: state.SavedState, workspace: Path,
@@ -169,7 +245,8 @@ def resume_specs(saved: state.SavedState, workspace: Path,
             continue
         if a.cwd is not None and not Path(a.cwd).is_dir():
             notes.append(f"{a.role} {a.index}: {a.cwd} no longer exists, using the workspace folder.")
-            a = AgentSpec(a.cli, a.role, a.model, a.index, a.skip_permissions, None)
+            # Claude Code keeps conversations per folder, so its chat cannot follow the agent to a new one
+            a = replace(a, cwd=None, conversation=None if a.cli == "claude" else a.conversation)
         specs.append(a)
     return specs, notes
 
@@ -181,7 +258,7 @@ def quit_menu(layout: Layout, workspace: str | None = None) -> None:
         "Save state and exit (resume later)", "s", f"run-shell -b '{launcher} save-exit'",
         "Detach (agents keep running)", "d", "detach-client",
         "Update tandem and workspace", "u", f"display-popup -E -w 80% -h 70% '{launcher} update'",
-        "Kill session without saving", "k", f"kill-session -t {SESSION}",
+        "Quit and discard saved state (next launch is fresh)", "k", f"run-shell -b '{launcher} discard-exit'",
         "Cancel", "c", "")
 
 
@@ -213,7 +290,7 @@ def run_update(workspace: Path, config: Config, assume_yes: bool) -> int:
             return 1
     if layout.exists():
         try:
-            save_state(layout, workspace)
+            save_state(layout, workspace, clean=False)
             print("Saved current state first.")
         except Exception as error:  # saving is a courtesy, never a blocker
             print(f"(state not saved: {error})")

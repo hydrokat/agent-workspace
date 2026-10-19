@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from textual import on
@@ -19,6 +20,7 @@ from tandem.status.queries_tab import QueriesTab
 from tandem.tmux.client import TmuxClient, socket_for
 
 COMPACT_BELOW_ROWS = 8
+AUTOSAVE_SECONDS = 15.0
 _PANE_ID = re.compile(r"^%\d+$")
 HINTS = "Tab switch tabs · ↑↓ move · g go to agent's pane · r refresh · F6 queries"
 
@@ -40,12 +42,16 @@ class StatusApp(App[None]):
     ]
 
     def __init__(self, workspace: Path, store: CoordStore, tmux: TmuxClient | None = None,
-                 refresh_seconds: float = 2.0) -> None:
+                 refresh_seconds: float = 2.0, autosave: Callable[[], object] | None = None,
+                 autosave_seconds: float = AUTOSAVE_SECONDS) -> None:
         super().__init__()
         self.workspace = workspace
         self.store = store
         self.tmux = tmux
         self.refresh_seconds = refresh_seconds
+        self.autosave = autosave
+        """Saves the running session so a crash can be resumed; runs off the UI thread."""
+        self.autosave_seconds = autosave_seconds
         self.snapshot = StatusSnapshot()
         self.notifier = Notifier(tmux)
 
@@ -70,6 +76,12 @@ class StatusApp(App[None]):
     def on_mount(self) -> None:
         self.action_refresh_now()
         self.set_interval(self.refresh_seconds, self.action_refresh_now)
+        if self.autosave is not None:
+            self.set_interval(self.autosave_seconds, self._autosave)
+
+    def _autosave(self) -> None:
+        if self.autosave is not None:
+            self.run_worker(self.autosave, thread=True, exclusive=True, group="autosave")
 
     def action_refresh_now(self) -> None:
         self.run_worker(self._collect, thread=True, exclusive=True)
@@ -125,6 +137,8 @@ class StatusApp(App[None]):
 
 
 def run_status(workspace: Path, config: Config) -> None:
-    from tandem.commands import coord_dir_for
+    from tandem.commands import autosave, coord_dir_for, make_layout
 
-    StatusApp(workspace, CoordStore(coord_dir_for(workspace, config)), tmux=TmuxClient(socket=socket_for(workspace))).run()
+    layout = make_layout(workspace, config)
+    StatusApp(workspace, CoordStore(coord_dir_for(workspace, config)), tmux=TmuxClient(socket=socket_for(workspace)),
+              autosave=lambda: autosave(layout, workspace)).run()

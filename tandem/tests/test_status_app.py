@@ -199,3 +199,16 @@ def test_repositories_section_lists_codebase_branches_and_worktrees(tmp_path: Pa
         assert "* trunk" in body and "feat" in body and "→ ../pkg-wt" in body
 
     run_app(app, script)
+
+
+def test_status_window_autosaves_the_session_periodically(tmp_path: Path) -> None:
+    calls: list[float] = []
+    app = StatusApp(workspace(tmp_path), CoordStore(tmp_path / "coord"), refresh_seconds=60,
+                    autosave=lambda: calls.append(time.time()), autosave_seconds=0.05)
+
+    async def script(pilot: Pilot[None]) -> None:
+        await asyncio.sleep(0.3)
+        await app.workers.wait_for_complete()
+
+    run_app(app, script)
+    assert len(calls) >= 2

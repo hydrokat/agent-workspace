@@ -141,3 +141,13 @@ def test_hung_user_statusline_is_cut_off(tmp_path: Path, monkeypatch: pytest.Mon
     start = time.time()
     assert quota.chain("sleep 5", "{}") == ""
     assert time.time() - start < 3
+
+
+def test_feed_records_the_panes_current_conversation(tmp_path: Path) -> None:
+    from tandem import conversations
+
+    conv = "46f2fc12-7f1f-4ca2-b714-06cbbfd669e9"
+    quota.run_feed(json.dumps({"session_id": conv}), tmp_path / "coord", "planner-1", tmp_path, tmp_path, NOW)
+    assert conversations.recorded(tmp_path / "coord", "planner-1") == conv
+    quota.run_feed(json.dumps({"session_id": "nope"}), tmp_path / "coord", "planner-1", tmp_path, tmp_path, NOW)
+    assert conversations.recorded(tmp_path / "coord", "planner-1") == conv

@@ -84,3 +84,36 @@ def test_resume_specs_skip_missing_cli_and_fix_deleted_folders(tmp_path: Path) -
     specs, notes = commands.resume_specs(saved, tmp_path, which=lambda c: "/bin/" + c if c == "claude" else None)
     assert [(s.role, s.index, s.cwd) for s in specs] == [("planner", 1, str(tmp_path)), ("planner", 2, None)]
     assert any("agy is not installed" in n for n in notes) and any("no longer exists" in n for n in notes)
+
+
+CONV = "46f2fc12-7f1f-4ca2-b714-06cbbfd669e9"
+
+
+def test_conversations_and_clean_flag_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "s.json"
+    saved = state.SavedState((AgentSpec("claude", "planner", "opus", 1, False, None, CONV),), {"planner": 1},
+                             None, None, 5.0, clean=False)
+    state.save(path, saved)
+    assert state.load(path) == saved
+    assert json.loads(path.read_text())["version"] == state.STATE_VERSION
+
+
+def test_version_1_files_still_load_without_conversations() -> None:
+    data = {"version": 1, "saved_at": 1.0, "agents": [{"cli": "claude", "role": "planner", "model": "opus", "index": 1}]}
+    loaded = state.parse(data)
+    assert loaded is not None and loaded.agents[0].conversation is None and loaded.clean
+
+
+def test_bad_conversation_is_dropped_but_agent_kept() -> None:
+    data = {"version": 2, "agents": [{"cli": "agy", "role": "planner", "model": "m", "index": 1,
+                                      "conversation": "--resume ../../etc"}]}
+    loaded = state.parse(data)
+    assert loaded is not None and loaded.agents[0].conversation is None
+
+
+def test_describe_flags_unclean_exit_and_saved_chats() -> None:
+    saved = state.SavedState((AgentSpec("claude", "planner", "opus", 1, False, None, CONV),
+                              AgentSpec("agy", "implementer", "m", 1)), clean=False, saved_at=0.0)
+    text = state.describe(saved)
+    assert "did not exit cleanly" in text and "claude·opus (conversation)" in text and "agy·m," not in text
+    assert "agy·m (conversation)" not in text

@@ -121,3 +121,29 @@ def test_list_models_failure_raises_model_list_error() -> None:
     for runner in (failing, timing_out):
         with pytest.raises(ModelListError):
             AgyAdapter(runner=runner).list_models()
+
+
+CONV = "46f2fc12-7f1f-4ca2-b714-06cbbfd669e9"
+
+
+def test_claude_starts_under_its_conversation_id_and_resumes_it() -> None:
+    fresh = ClaudeAdapter().build_argv(spec(conversation=CONV))
+    assert fresh[-2:] == ["--session-id", CONV] and "--resume" not in fresh
+    resumed = ClaudeAdapter().build_argv(spec(conversation=CONV), resume=True)
+    assert resumed[-2:] == ["--resume", CONV] and "--session-id" not in resumed
+
+
+def test_conversation_ids_must_be_uuids() -> None:
+    with pytest.raises(ValueError):
+        ClaudeAdapter().build_argv(spec(conversation="--dangerous"))
+    with pytest.raises(ValueError):
+        AgyAdapter().build_argv(spec("agy", model="m1", conversation="--x"), resume=True)
+
+
+def test_agy_logs_to_tandem_file_and_reopens_on_resume() -> None:
+    argv = AgyAdapter().build_argv(spec("agy", model="m1", conversation=CONV), log_file="/c/conversations/agy-planner-1.log")
+    assert argv == ["agy", "--model", "m1", "--log-file", "/c/conversations/agy-planner-1.log"]
+    argv = AgyAdapter().build_argv(spec("agy", model="m1", conversation=CONV), resume=True)
+    assert argv[-2:] == ["--conversation", CONV]
+    with pytest.raises(ValueError):
+        AgyAdapter().build_argv(spec("agy", model="m1"), log_file="relative.log")

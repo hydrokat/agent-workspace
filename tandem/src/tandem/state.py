@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from tandem.adapters.base import AgentSpec, InvalidModelError, Role, validate_model_id
+from tandem.conversations import valid_id
 
-STATE_VERSION = 1
+STATE_VERSION = 2
+READABLE_VERSIONS = (1, 2)
 CLIS = ("claude", "agy")
 ROLES: tuple[Role, ...] = ("planner", "implementer")
 MAX_AGENTS = 40
@@ -16,9 +18,10 @@ MAX_AGENTS = 40
 
 @dataclass(frozen=True)
 class SavedState:
-    """What a resumed tandem session rebuilds: the agent lineup, visible tabs, and pane proportions.
+    """What a resumed tandem session rebuilds: the agent lineup with each agent's conversation ID,
+    visible tabs, and pane proportions.
 
-    Conversations are not stored: each CLI keeps its own history and offers its own resume.
+    Only conversation IDs are stored; the conversations themselves stay in each CLI's own history.
     """
 
     agents: tuple[AgentSpec, ...]
@@ -28,6 +31,8 @@ class SavedState:
     """Width of the planner column, as a percent of the window (None when the columns were stacked)."""
     status_rows: int | None = None
     saved_at: float = 0.0
+    clean: bool = True
+    """False for autosaves of a running session: if one is still the latest on launch, tandem did not exit cleanly."""
 
 
 def state_path(workspace: Path) -> Path:
@@ -38,8 +43,10 @@ def to_json(state: SavedState) -> dict[str, Any]:
     return {
         "version": STATE_VERSION,
         "saved_at": state.saved_at,
+        "clean": state.clean,
         "agents": [{"cli": a.cli, "role": a.role, "model": a.model, "index": a.index,
-                    "skip_permissions": a.skip_permissions, "cwd": a.cwd} for a in state.agents],
+                    "skip_permissions": a.skip_permissions, "cwd": a.cwd, "conversation": a.conversation}
+                   for a in state.agents],
         "active": state.active,
         "layout": {"columns_percent": state.columns_percent, "status_rows": state.status_rows},
     }
@@ -77,7 +84,7 @@ def _agent(raw: object) -> AgentSpec | None:
         validate_model_id(model)
     except InvalidModelError:
         return None
-    return AgentSpec(cli, role, model, index, skip, cwd)
+    return AgentSpec(cli, role, model, index, skip, cwd, valid_id(raw.get("conversation")))
 
 
 def _percent(raw: object, low: int, high: int) -> int | None:
@@ -86,7 +93,7 @@ def _percent(raw: object, low: int, high: int) -> int | None:
 
 def parse(data: object) -> SavedState | None:
     """Validate saved data; unusable entries are dropped, an unusable file yields None."""
-    if not isinstance(data, dict) or data.get("version") != STATE_VERSION:
+    if not isinstance(data, dict) or data.get("version") not in READABLE_VERSIONS:
         return None
     raw_agents = data.get("agents")
     if not isinstance(raw_agents, list):
@@ -107,7 +114,8 @@ def parse(data: object) -> SavedState | None:
     saved_at = data.get("saved_at")
     return SavedState(tuple(agents), active, _percent(layout.get("columns_percent"), 10, 90),
                       _percent(layout.get("status_rows"), 3, 60),
-                      float(saved_at) if isinstance(saved_at, (int, float)) and not isinstance(saved_at, bool) else 0.0)
+                      float(saved_at) if isinstance(saved_at, (int, float)) and not isinstance(saved_at, bool) else 0.0,
+                      data.get("clean") is not False)
 
 
 def load(path: Path) -> SavedState | None:
@@ -120,14 +128,19 @@ def load(path: Path) -> SavedState | None:
 def describe(state: SavedState, now: float | None = None) -> str:
     """One-screen summary shown before the resume/blank choice."""
     lines = []
+    title = "Saved session" if state.clean else "tandem did not exit cleanly (crash, reboot or closed terminal). Last autosave"
     when = state.saved_at
     if when:
         minutes = max(0, int(((now if now is not None else time.time()) - when) // 60))
-        lines.append(f"Saved session ({minutes} min ago)" if minutes < 120 else f"Saved session ({minutes // 60} h ago)")
+        lines.append(f"{title} ({minutes} min ago)" if minutes < 120 else f"{title} ({minutes // 60} h ago)")
     else:
-        lines.append("Saved session")
+        lines.append(title)
     for role in ROLES:
         mine = [a for a in state.agents if a.role == role]
         if mine:
-            lines.append(f"  {role}s: " + ", ".join(f"{a.cli}·{a.model}" for a in sorted(mine, key=lambda a: a.index)))
+            lines.append(f"  {role}s: " + ", ".join(
+                f"{a.cli}·{a.model}" + (" (conversation)" if a.conversation else "")
+                for a in sorted(mine, key=lambda a: a.index)))
+    if any(a.conversation for a in state.agents):
+        lines.append("  (conversation) = resuming reopens that agent's chat")
     return "\n".join(lines)

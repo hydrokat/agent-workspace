@@ -16,7 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"tandem {__version__}")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--resume", action="store_true", help="resume the saved session without asking")
-    mode.add_argument("--fresh", action="store_true", help="start blank without asking (keeps the saved session file)")
+    mode.add_argument("--fresh", action="store_true",
+                      help="start blank with new conversations, without asking (the saved session is replaced)")
     sub = parser.add_subparsers(dest="command", metavar="command")
     sub.add_parser("add-agent", help="add an agent to the running session (opened by F2)")
     tab = sub.add_parser("tab", help="switch agent tab in the focused column")
@@ -35,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("quota-feed", help="Claude Code statusline hook: record quota, then run your own statusline")
     sub.add_parser("quota-line", help="print the quota line shown under the window")
     sub.add_parser("save-exit", help="save the session state and end the session")
+    sub.add_parser("discard-exit", help="end the session and delete the saved state")
     sub.add_parser("reload", help="restart tandem's own windows on the installed code")
     sub.add_parser("placeholder", help="empty-column placeholder").add_argument("role")
     return parser
@@ -123,7 +125,7 @@ def _ask_resume(saved: state.SavedState) -> bool:
     print(state.describe(saved))
     while True:
         try:
-            answer = input("\n[R]esume it, start [b]lank, or [q]uit? ").strip().lower()
+            answer = input("\n[R]esume it, start [b]lank (new conversations), or [q]uit? ").strip().lower()
         except EOFError:
             return False
         if answer in ("", "r", "resume"):
@@ -143,9 +145,8 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
     elif command == "close-agent":
         commands.close_agent(layout, config)
     elif command == "restart":
-        pane = config.tmux_pane
-        if pane:
-            layout.restart(pane, str(commands.coord_dir_for(workspace, config)))
+        if config.tmux_pane:
+            commands.restart(layout, config.tmux_pane, workspace, config)
     elif command == "refresh":
         layout.refresh()
     elif command == "reflow":
@@ -158,6 +159,8 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
         commands.quit_menu(layout, str(workspace))
     elif command == "save-exit":
         commands.save_exit(layout, workspace)
+    elif command == "discard-exit":
+        commands.discard_exit(layout, workspace)
     elif command == "reload":
         commands.reload_ui(layout, workspace, config)
     elif command == "first-run":
