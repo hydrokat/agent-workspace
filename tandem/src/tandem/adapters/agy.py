@@ -3,6 +3,7 @@ import subprocess
 from collections.abc import Callable
 
 from tandem.adapters.base import AgentSpec, Model, ModelListError, validate_model_id
+from tandem.conversations import valid_id
 
 Runner = Callable[[list[str], float], tuple[int, str]]
 _MODEL_LINE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._:\-]{0,99})\t(.+)$")
@@ -30,10 +31,20 @@ class AgyAdapter:
     def __init__(self, runner: Runner = _subprocess_runner) -> None:
         self._runner = runner
 
-    def build_argv(self, spec: AgentSpec) -> list[str]:
+    def build_argv(self, spec: AgentSpec, resume: bool = False, log_file: str | None = None) -> list[str]:
+        """``--log-file`` is where tandem later finds the conversation ID; ``--conversation`` reopens it."""
         argv = ["agy", "--model", validate_model_id(spec.model)]
         if spec.skip_permissions:
             argv.append("--dangerously-skip-permissions")
+        if log_file is not None:
+            if not log_file.startswith("/"):
+                raise ValueError("log file must be an absolute path")
+            argv += ["--log-file", log_file]
+        if resume and spec.conversation is not None:
+            conversation = valid_id(spec.conversation)
+            if conversation is None:
+                raise ValueError("conversation id must be a UUID")
+            argv += ["--conversation", conversation]
         return argv
 
     def list_models(self) -> list[Model]:

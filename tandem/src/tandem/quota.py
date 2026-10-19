@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tandem import conversations
+
 SESSION_ID = re.compile(r"^[a-z]+-\d{1,2}$")
 MAX_INPUT = 1_000_000
 CHAIN_TIMEOUT = 5.0
@@ -160,12 +162,17 @@ def chain(command: str | None, stdin_text: str) -> str:
 
 
 def run_feed(stdin_text: str, coord_dir: Path, session_id: str, cwd: Path, home: Path, now: float) -> str:
-    """Statusline entry point: record the quota fields, then return what the user's own statusline prints."""
+    """Statusline entry point: record the quota fields and the session's conversation ID (so a resumed tandem
+    session reopens the chat this pane is on now), then return what the user's own statusline prints."""
     if len(stdin_text) <= MAX_INPUT:
         try:
-            quota = parse_statusline(json.loads(stdin_text), now)
+            data = json.loads(stdin_text)
+            quota = parse_statusline(data, now)
             if quota is not None:
                 write_feed(coord_dir, session_id, quota)
+            conversation = conversations.valid_id(data.get("session_id")) if isinstance(data, dict) else None
+            if conversation is not None and conversation != conversations.recorded(coord_dir, session_id):
+                conversations.record(coord_dir, session_id, conversation)
         except (ValueError, OSError):
             pass
     return chain(user_statusline(cwd, home), stdin_text)

@@ -31,7 +31,7 @@ KEYMAP: tuple[Binding, ...] = (
             "run-shell -b '{tandem} focus implementer'"),
     Binding("F9", "Agents", "close the focused agent (asks first)", "Close",
             "confirm-before -p 'Close this agent? (y/n)' \"run-shell -b '{tandem} close-agent'\""),
-    Binding("F10", "Quit", "exit menu: save and exit, detach, update tandem, kill", "Quit",
+    Binding("F10", "Quit", "exit menu: save and exit, detach, update tandem, discard", "Quit",
             "run-shell -b '{tandem} quit'"),
     Binding("F11", "Agents", "restart an exited agent", "Restart",
             "run-shell -b '{tandem} restart'"),

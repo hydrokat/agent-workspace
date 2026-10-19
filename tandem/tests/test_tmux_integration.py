@@ -299,3 +299,84 @@ def test_registered_session_records_the_model_not_the_label(layout: Layout, tmp_
                     spec=json.dumps({"cli": "claude", "model": "opus", "skip_permissions": False, "cwd": None}))
     layout.build(160, 40, launch, sleeper("implementer", 1), sleeper("status", 0, kind="own"))
     assert {s.id: s.model for s in layout.coord.sessions()}["planner-1"] == "opus"  # type: ignore[union-attr]
+
+
+CONV = "46f2fc12-7f1f-4ca2-b714-06cbbfd669e9"
+LIVE = "0b9a3c1e-1111-4222-8333-444455556666"
+
+
+def conv_launch(role: str, index: int, cli: str, conversation: str | None) -> Launch:
+    import json
+
+    launch = sleeper(role, index, label=f"{cli}·m")
+    return Launch(launch.argv, role, index, launch.label, env=launch.env, session_id=launch.session_id,
+                  spec=json.dumps({"cli": cli, "model": "m", "skip_permissions": False, "cwd": None,
+                                   "conversation": conversation}))
+
+
+def test_capture_state_saves_each_agents_current_conversation(layout: Layout, tmp_path: Path) -> None:
+    from tandem import commands, conversations
+
+    coord = tmp_path / "coord"
+    layout.build(160, 40, conv_launch("planner", 1, "claude", CONV), conv_launch("implementer", 1, "agy", None),
+                 sleeper("status", 0, kind="own"))
+    layout.add_agent(conv_launch("planner", 2, "claude", CONV))
+    conversations.record(coord, "planner-2", LIVE)  # the user ran /clear: the statusline now reports a new chat
+    log = conversations.agy_log_path(coord, "implementer-1")
+    log.write_text(f"Created conversation {CONV}\n")
+    snap = commands.capture_state(layout, clean=False)
+    assert [(a.role, a.index, a.conversation) for a in snap.agents] == [
+        ("planner", 1, CONV), ("planner", 2, LIVE), ("implementer", 1, CONV)]
+    assert snap.clean is False
+
+
+def test_autosave_writes_unclean_state_and_stops_once_closing(layout: Layout, tmp_path: Path) -> None:
+    from tandem import commands, state
+
+    layout.build(160, 40, conv_launch("planner", 1, "claude", CONV), sleeper("implementer", 0, kind="own"),
+                 sleeper("status", 0, kind="own"))
+    ws = tmp_path / "ws"
+    assert commands.autosave(layout, ws)
+    saved = state.load(state.state_path(ws))
+    assert saved is not None and not saved.clean and saved.agents[0].conversation == CONV
+    state.state_path(ws).unlink()
+    layout.client.run_checked("set-option", "-t", SESSION, commands.CLOSING, "1")
+    assert not commands.autosave(layout, ws) and not state.state_path(ws).exists()
+
+
+def test_discard_exit_removes_saved_state_and_ends_session(layout: Layout, tmp_path: Path) -> None:
+    from tandem import commands, state
+
+    layout.build(160, 40, conv_launch("planner", 1, "claude", CONV), sleeper("implementer", 0, kind="own"),
+                 sleeper("status", 0, kind="own"))
+    ws = tmp_path / "ws"
+    assert commands.autosave(layout, ws)
+    commands.discard_exit(layout, ws)
+    assert not state.state_path(ws).exists() and not layout.exists()
+
+
+def test_save_exit_saves_clean_state(layout: Layout, tmp_path: Path) -> None:
+    from tandem import commands, state
+
+    layout.build(160, 40, conv_launch("planner", 1, "claude", CONV), sleeper("implementer", 0, kind="own"),
+                 sleeper("status", 0, kind="own"))
+    ws = tmp_path / "ws"
+    commands.save_exit(layout, ws)
+    saved = state.load(state.state_path(ws))
+    assert saved is not None and saved.clean and not layout.exists()
+
+
+def test_restart_with_launch_retags_the_pane(layout: Layout) -> None:
+    import json
+    import time
+
+    built(layout)
+    new = layout.add_agent(Launch(["sh", "-c", "exit 1"], "planner", 2, "boom", session_id="planner-2"))
+    for _ in range(40):
+        if any(p.dead for p in layout.panes()):
+            break
+        time.sleep(0.1)
+    relaunch = conv_launch("planner", 2, "claude", CONV)
+    layout.restart(new, coord_dir="/tmp/coord", launch=relaunch)
+    pane = next(p for p in layout.panes() if p.id == new)
+    assert not pane.dead and json.loads(pane.spec)["conversation"] == CONV

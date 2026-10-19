@@ -76,7 +76,7 @@ def test_flags_are_mutually_exclusive() -> None:
         cli.build_parser().parse_args(["--resume", "--fresh"])
 
 
-def test_quit_menu_offers_save_update_detach_kill() -> None:
+def test_quit_menu_offers_save_update_detach_discard() -> None:
     calls: list[tuple[str, ...]] = []
 
     class Client:
@@ -89,7 +89,7 @@ def test_quit_menu_offers_save_update_detach_kill() -> None:
 
     commands.quit_menu(L(), "/ws")  # type: ignore[arg-type]
     flat = " | ".join(calls[0])
-    assert "save-exit" in flat and "tandem update'" in flat and "detach-client" in flat and "kill-session" in flat
+    assert "save-exit" in flat and "tandem update'" in flat and "detach-client" in flat and "discard-exit" in flat
     assert "TANDEM_WORKSPACE=/ws" in flat
 
 

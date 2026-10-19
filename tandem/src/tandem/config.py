@@ -20,6 +20,8 @@ class Config:
     state_dir: Path = Path.home() / ".local" / "state" / "tandem"
     update_spec: str = DEFAULT_UPDATE_SPEC
     session_id: str = ""
+    claude_dir: Path = Path.home() / ".claude"
+    """Claude Code's config folder (``CLAUDE_CONFIG_DIR``); tandem only checks whether a transcript exists there."""
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
@@ -34,9 +36,11 @@ class Config:
         state_dir = Path(xdg) / "tandem" if xdg and Path(xdg).is_absolute() else Path.home() / ".local" / "state" / "tandem"
         raw_session = source.get("TANDEM_SESSION_ID", "")
         session = raw_session if re.fullmatch(r"[a-z]+-\d{1,2}", raw_session) else ""
+        raw_claude = source.get("CLAUDE_CONFIG_DIR", "")
+        claude_dir = Path(raw_claude) if raw_claude and Path(raw_claude).is_absolute() else Path.home() / ".claude"
         spec = source.get("TANDEM_UPDATE_SPEC", "") or DEFAULT_UPDATE_SPEC
         if not _UPDATE_SPEC.match(spec):
             raise ValueError("TANDEM_UPDATE_SPEC must look like owner/repo or owner/repo#ref")
         return cls(coord_dir=coord_dir, color=not source.get("NO_COLOR", ""),
                    tmux_pane=source.get("TMUX_PANE", ""), workspace=workspace, state_dir=state_dir,
-                   update_spec=spec, session_id=session)
+                   update_spec=spec, session_id=session, claude_dir=claude_dir)

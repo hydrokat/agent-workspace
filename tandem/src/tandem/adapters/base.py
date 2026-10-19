@@ -29,12 +29,14 @@ class AgentSpec:
     index: int = 1
     skip_permissions: bool = False
     cwd: str | None = None
+    conversation: str | None = None
+    """The CLI's own conversation ID (a UUID), so a resumed session reopens the same chat."""
 
 
 class Adapter(Protocol):
     cli: str
 
-    def build_argv(self, spec: AgentSpec) -> list[str]: ...
+    def build_argv(self, spec: AgentSpec, resume: bool = False, log_file: str | None = None) -> list[str]: ...
 
     def list_models(self) -> list[Model]: ...
 
