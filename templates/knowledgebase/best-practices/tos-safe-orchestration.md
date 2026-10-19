@@ -11,6 +11,8 @@ Rules for tools that run several official AI CLIs (`claude`, `agy`, ...) togethe
 5. **Enforce with tests, not discipline.** Keep a default-deny command allow-list in one client class, make the only `send-keys`/`capture-pane` helpers refuse anything not marked as the tool's own pane (fail closed), and add a source-grep test so the forbidden commands cannot appear elsewhere (`tandem/tests/test_tos_guard.py`).
 6. **argv, never shell strings.** Validate model ids (`^[A-Za-z0-9][A-Za-z0-9._:-]*$`, no leading `-`) and pass them as separate argv elements. Pass only the environment the agent needs (`TANDEM_SESSION_ID`, `TANDEM_ROLE`, `TANDEM_CLI`, `TANDEM_COORD_DIR`).
 
+7. **Resume through IDs, not contents.** To restore AI state, store only the conversation ID and reopen it with the CLI's documented resume flag. Get the ID from something the CLI hands you: an ID you assigned (`claude --session-id`), its documented statusline payload, or a log it writes to a path you passed (`agy --log-file`). Never read a transcript's contents; checking that a transcript file exists is enough to decide whether to resume.
+
 ## Consequences for UX
 
 - No keystroke-injected answers: questions are answered in a separate window and picked up by the agent at its next checkpoint.
