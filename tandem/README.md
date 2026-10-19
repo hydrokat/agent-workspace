@@ -4,6 +4,8 @@ Run several AI CLIs (`claude`, `agy`) side by side in one tmux session: **planne
 
 tandem only **launches** the official CLIs exactly as you would from a shell, with their documented flags. It never types into them, reads their output, proxies their traffic, or touches their credentials. Coordination happens only because agents choose to read and write shared files through the `agent-coordination` skill.
 
+To resume conversations, tandem reads only two things the CLIs produce: the log `agy` writes to the `--log-file` tandem passes it (for the conversation ID), and whether a Claude transcript file with a given ID exists. It never reads a conversation's contents.
+
 ## Keys
 
 Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this table are generated from it). tmux's prefix is disabled, so tandem consumes no other keys.
@@ -19,7 +21,7 @@ Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this tab
 | `F7` | focus planners |
 | `F8` | focus implementers |
 | `F9` | close the focused agent (asks first) |
-| `F10` | exit menu: save and exit, detach, update tandem, kill |
+| `F10` | exit menu: save and exit, detach, update tandem, discard |
 | `F11` | restart an exited agent |
 | `F12` | resize mode: arrows resize the focused pane, = resets, Enter exits |
 
@@ -36,18 +38,29 @@ tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side
 
 Terminals narrower than 100 columns stack the columns vertically, and the status window is kept to at most 40% of a short terminal (you can still drag it larger).
 
-The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `F11` restarts them.
+The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `F11` restarts them and reopens their conversation when the CLI has one to reopen.
 
 ## Save, resume and update
 
+tandem keeps `.agent-workspace/tandem-session.json` (owner-only JSON) up to date while it runs. The file holds each agent's CLI, role, model, tab number, working folder and **conversation ID**, plus the tab showing in each column and the pane proportions. tandem autosaves it on start, whenever an agent is added or closed, and every 15 seconds from the status window. After a crash, a reboot or a closed terminal window, the next launch can pick up where you were.
+
 **Exit menu (`F10`):**
 
-- **Save state and exit** writes `.agent-workspace/tandem-session.json` (owner-only JSON: each agent's CLI, role, model, tab number and working folder, the tab showing in each column, and pane proportions), then ends the session and its agents.
-- **Detach** leaves everything running.
+- **Save state and exit** saves (marked as a clean exit), then ends the session and its agents.
+- **Detach** leaves everything running; the next launch re-attaches.
 - **Update tandem and workspace** (below).
-- **Kill session without saving** ends it and leaves any earlier saved file as it was.
+- **Quit and discard saved state** deletes the saved file and ends the session, so the next launch starts fresh without asking.
 
-The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank / [q]uit** (Enter resumes). Non-interactive: `./run.sh -- --resume` or `--fresh`; `--fresh` keeps the file until you save again. Resuming relaunches the same agents with the same models and folders. Conversations are **not** restored: each CLI keeps its own history (for example `claude --resume`). An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
+The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank (new conversations) / [q]uit** (Enter resumes). If the last save was an autosave, the prompt says tandem did not exit cleanly. Non-interactive: `./run.sh -- --resume` or `--fresh`. A blank start replaces the saved file once the new session autosaves. An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
+
+**AI state (conversations).** Resuming relaunches each agent with its model and folder and reopens its own conversation, using only documented CLI flags:
+
+| CLI | New agent | Resume | Where tandem learns the current conversation |
+|---|---|---|---|
+| `claude` | `--session-id <uuid>` (tandem picks the UUID) | `--resume <uuid>` | the `session_id` Claude Code passes to the statusline command tandem already sets, so `/clear` or `/resume` inside the pane is followed |
+| `agy` | `--log-file <coordination>/conversations/agy-<role>-<n>.log` | `--conversation <id>` | the last `Created/Streaming conversation <id>` line in that log (best effort: if the log format changes, the agent starts a new conversation) |
+
+The conversations themselves stay in each CLI's own history; tandem stores only the IDs (in `tandem-session.json` and `<coordination>/conversations/`). Claude is only asked to `--resume` when its transcript exists (`$CLAUDE_CONFIG_DIR` or `~/.claude`, `projects/*/<uuid>.jsonl`); a session that never got a message starts fresh under the same ID. A Claude agent whose folder was deleted starts a new conversation, because Claude keeps conversations per folder. `F11` on an exited agent reopens its conversation the same way.
 
 **Update without quitting (`F10` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. Agents are not touched or restarted. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
 

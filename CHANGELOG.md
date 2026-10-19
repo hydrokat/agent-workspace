@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### tandem
+
+- **Resume conversations (AI state):** saved sessions now carry each agent's conversation ID, so resuming reopens the same chats. Claude agents start with `--session-id <uuid>` and resume with `--resume <uuid>`. The ID follows `/clear` and `/resume` through the `session_id` Claude Code passes to the statusline feed. A session with no transcript yet starts fresh under the same ID. `agy` agents write their log to a per-agent `--log-file`; tandem takes the latest conversation ID from it and resumes with `--conversation <id>`. tandem never reads a conversation's contents.
+- **Crash recovery:** the session is autosaved on start, on add/close agent, and every 15 s from the status window. If the last save was an autosave, the launch prompt says tandem did not exit cleanly and still offers resume or a blank start (new conversations).
+- `F11` (restart an exited agent) reopens its conversation instead of starting a new one.
+- `F10` → *Kill session without saving* is now *Quit and discard saved state*: it deletes `tandem-session.json`, so the next launch starts fresh.
+- `tandem-session.json` is now version 2 (adds `conversation` per agent and `clean`). Version 1 files still load.
+
 ## [2026-10-23]
 
 ### Docs
