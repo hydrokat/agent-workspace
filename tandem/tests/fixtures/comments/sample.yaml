@@ -1,0 +1,6 @@
+key: value # trailing
+url: http://x.example/#anchor
+run: |
+  # shell comment in block
+  echo hi
+# ----- section -----
