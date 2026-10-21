@@ -53,4 +53,44 @@ describe('doctor', () => {
     assert.ok(typeof first.level === 'string', 'json records have level');
     assert.ok(typeof first.message === 'string', 'json records have message');
   });
+
+  it('fails when a template skill SKILL.md is missing', async () => {
+    const skillMd = join(dir, '.agents/skills/spec-implement/SKILL.md');
+    unlinkSync(skillMd);
+
+    const { code, stdout, stderr } = await runCli(['doctor'], dir);
+    assert.notEqual(code, 0, 'doctor exits non-zero on missing skill');
+    const output = stdout + stderr;
+    assert.ok(output.includes('spec-implement'), 'reports missing skill');
+
+    // restore
+    await runCli(['update', '--yes', '--no-link'], dir);
+  });
+
+  it('fails when a stale skill directory exists in .agents/skills', async () => {
+    const staleDir = join(dir, '.agents/skills/stale-skill');
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(join(staleDir, 'SKILL.md'), '# Stale');
+
+    const { code, stdout, stderr } = await runCli(['doctor'], dir);
+    assert.notEqual(code, 0, 'doctor exits non-zero on stale skill directory');
+    const output = stdout + stderr;
+    assert.ok(output.includes('stale-skill'), 'reports stale skill');
+
+    // clean up
+    cleanup(staleDir);
+  });
+
+  it('fails when a legacy .gemini/skills directory exists', async () => {
+    const legacyDir = join(dir, '.gemini/skills');
+    mkdirSync(legacyDir, { recursive: true });
+
+    const { code, stdout, stderr } = await runCli(['doctor'], dir);
+    assert.notEqual(code, 0, 'doctor exits non-zero on legacy .gemini/skills');
+    const output = stdout + stderr;
+    assert.ok(output.includes('.gemini/skills'), 'reports legacy .gemini/skills');
+
+    // clean up
+    cleanup(legacyDir);
+  });
 });

@@ -1,9 +1,16 @@
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, existsSync, lstatSync, symlinkSync, readlinkSync, unlinkSync, statSync, rmSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, dirname } from 'node:path';
 import { parse as parseFm, serialize as serializeFm } from './frontmatter.js';
 import { log } from './log.js';
 import { getProvider } from './providers.js';
 import { templatePath, listAgents, listSkills } from './assets.js';
+
+function pruneManagedPrefix(manifest, relPrefix) {
+  if (!manifest || !Array.isArray(manifest.managedFiles)) return;
+  manifest.managedFiles = manifest.managedFiles.filter(
+    (item) => item !== relPrefix && !item.startsWith(relPrefix + '/')
+  );
+}
 
 function writeManaged(full, content, dryRun) {
   let action = 'created';
@@ -74,20 +81,35 @@ function clearDir(dir) {
   }
 }
 
-function copyDirRecursive(src, dest, dryRun) {
+function copyDirRecursive(src, dest, dryRun, target = null) {
   if (!dryRun) mkdirSync(dest, { recursive: true });
   for (const entry of readdirSync(src)) {
     const srcPath = join(src, entry);
     const destPath = join(dest, entry);
     const s = statSync(srcPath);
     if (s.isDirectory()) {
-      copyDirRecursive(srcPath, destPath, dryRun);
+      copyDirRecursive(srcPath, destPath, dryRun, target);
     } else {
       const content = readFileSync(srcPath, 'utf8');
       const action = writeManaged(destPath, content, dryRun);
       if (action === 'created') log.created(destPath);
       else if (action === 'updated') { log.backedUp(destPath); log.updated(destPath); }
       else log.unchanged(destPath);
+    }
+  }
+
+  if (existsSync(dest)) {
+    const srcEntries = new Set(readdirSync(src));
+    for (const entry of readdirSync(dest)) {
+      if (entry.endsWith('.bak')) continue;
+      if (!srcEntries.has(entry)) {
+        const p = join(dest, entry);
+        const rel = target ? relative(target, p) : p;
+        if (!dryRun) {
+          rmSync(p, { recursive: true, force: true });
+        }
+        log.info(`Removed stale skill file: ${rel}`);
+      }
     }
   }
 }
@@ -128,14 +150,15 @@ export function syncProvider(target, providerName, manifest, dryRun = false) {
     else log.unchanged(rel);
   }
 
-  // Remove stale agent files (present in dir but not in current template); skip .bak files
   if (!provider.native && !dryRun && existsSync(agentsDir)) {
     for (const entry of readdirSync(agentsDir)) {
       if (entry.endsWith('.bak')) continue;
       const p = join(agentsDir, entry);
       if (!writtenAgentFiles.has(p)) {
         unlinkSync(p);
-        log.info(`Removed stale agent: ${relative(target, p)}`);
+        const rel = relative(target, p);
+        log.info(`Removed stale agent: ${rel}`);
+        pruneManagedPrefix(manifest, rel);
       }
     }
   }
@@ -149,18 +172,50 @@ export function syncProvider(target, providerName, manifest, dryRun = false) {
       const srcDir = templatePath('skills', skillName);
       const destDir = join(skillsDir, skillName);
       writtenSkillDirs.add(skillName);
-      copyDirRecursive(srcDir, destDir, dryRun);
+      copyDirRecursive(srcDir, destDir, dryRun, target);
       if (manifest) {
         const rel = relative(target, destDir);
         if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel);
       }
     }
 
-    if (!dryRun && existsSync(skillsDir)) {
+    if (existsSync(skillsDir)) {
       for (const entry of readdirSync(skillsDir)) {
+        if (entry.endsWith('.bak')) continue;
         if (!writtenSkillDirs.has(entry)) {
-          rmSync(join(skillsDir, entry), { recursive: true });
-          log.info(`Removed stale skill: ${relative(target, join(skillsDir, entry))}`);
+          const p = join(skillsDir, entry);
+          const rel = relative(target, p);
+          if (!dryRun) {
+            rmSync(p, { recursive: true, force: true });
+          }
+          log.info(`Removed stale skill: ${rel}`);
+          pruneManagedPrefix(manifest, rel);
+        }
+      }
+    }
+  } else {
+    const providerRoot = dirname(provider.agentsDir);
+    if (providerRoot !== '.agents') {
+      const legacySkillsDir = join(target, providerRoot, 'skills');
+      if (existsSync(legacySkillsDir)) {
+        for (const entry of readdirSync(legacySkillsDir)) {
+          if (entry.endsWith('.bak')) continue;
+          const p = join(legacySkillsDir, entry);
+          const rel = relative(target, p);
+          if (!dryRun) {
+            rmSync(p, { recursive: true, force: true });
+          }
+          log.info(`Removed stale skill: ${rel}`);
+          pruneManagedPrefix(manifest, rel);
+        }
+        if (!dryRun) {
+          try {
+            const remaining = readdirSync(legacySkillsDir);
+            if (remaining.length === 0) {
+              rmSync(legacySkillsDir, { recursive: true, force: true });
+              pruneManagedPrefix(manifest, relative(target, legacySkillsDir));
+            }
+          } catch { /* absent */ }
         }
       }
     }
@@ -173,6 +228,7 @@ export function syncAllProviders(target, providers, manifest, dryRun = false) {
 
 export function installCanonicalAssets(target, manifest, dryRun = false) {
   log.step('Installing agents');
+  const templateAgents = new Set(listAgents());
   for (const agentName of listAgents()) {
     const srcPath = templatePath('agents', agentName, 'AGENT.md');
     const destDir = join(target, '.agents', 'agents', agentName);
@@ -187,14 +243,47 @@ export function installCanonicalAssets(target, manifest, dryRun = false) {
     else log.unchanged(rel);
   }
 
+  const canonicalAgentsDir = join(target, '.agents', 'agents');
+  if (existsSync(canonicalAgentsDir)) {
+    for (const entry of readdirSync(canonicalAgentsDir)) {
+      if (entry.endsWith('.bak')) continue;
+      if (!templateAgents.has(entry)) {
+        const p = join(canonicalAgentsDir, entry);
+        const rel = relative(target, p);
+        if (!dryRun) {
+          rmSync(p, { recursive: true, force: true });
+        }
+        log.info(`Removed stale agent: ${rel}`);
+        pruneManagedPrefix(manifest, rel);
+      }
+    }
+  }
+
   log.step('Installing skills');
+  const templateSkills = new Set(listSkills());
   for (const skillName of listSkills()) {
     const srcDir = templatePath('skills', skillName);
     const destDir = join(target, '.agents', 'skills', skillName);
-    copyDirRecursive(srcDir, destDir, dryRun);
+    copyDirRecursive(srcDir, destDir, dryRun, target);
     if (manifest) {
       const rel = relative(target, destDir);
       if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel);
+    }
+  }
+
+  const canonicalSkillsDir = join(target, '.agents', 'skills');
+  if (existsSync(canonicalSkillsDir)) {
+    for (const entry of readdirSync(canonicalSkillsDir)) {
+      if (entry.endsWith('.bak')) continue;
+      if (!templateSkills.has(entry)) {
+        const p = join(canonicalSkillsDir, entry);
+        const rel = relative(target, p);
+        if (!dryRun) {
+          rmSync(p, { recursive: true, force: true });
+        }
+        log.info(`Removed stale skill: ${rel}`);
+        pruneManagedPrefix(manifest, rel);
+      }
     }
   }
 

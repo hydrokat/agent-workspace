@@ -120,3 +120,88 @@ describe('update adds new agents', () => {
     }
   });
 });
+
+describe('update cleans up stale skills and agents', () => {
+  let dir;
+  before(async () => {
+    dir = makeTmp();
+    await runCli(['init', '--yes', '--providers', 'claude,antigravity,codex', '--no-link'], dir);
+  });
+  after(() => cleanup(dir));
+
+  it('removes stale skill directory from .agents/skills and .claude/skills', async () => {
+    writeFile(dir, '.agents/skills/stale-skill/SKILL.md', '# Stale');
+    writeFile(dir, '.claude/skills/stale-skill/SKILL.md', '# Stale');
+
+    const manifestRel = '.agent-workspace/manifest.json';
+    const manifest = JSON.parse(readFile(dir, manifestRel));
+    manifest.managedFiles.push('.agents/skills/stale-skill', '.claude/skills/stale-skill');
+    writeFile(dir, manifestRel, JSON.stringify(manifest, null, 2) + '\n');
+
+    const { code, stdout } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0);
+    assert.ok(!fileExists(dir, '.agents/skills/stale-skill'), 'stale skill removed from .agents/skills');
+    assert.ok(!fileExists(dir, '.claude/skills/stale-skill'), 'stale skill removed from .claude/skills');
+    assert.ok(stdout.includes('Removed stale skill: .agents/skills/stale-skill'));
+    assert.ok(stdout.includes('Removed stale skill: .claude/skills/stale-skill'));
+
+    const updatedManifest = JSON.parse(readFile(dir, manifestRel));
+    assert.ok(!updatedManifest.managedFiles.includes('.agents/skills/stale-skill'));
+    assert.ok(!updatedManifest.managedFiles.includes('.claude/skills/stale-skill'));
+  });
+
+  it('removes stale agent directory from .agents/agents and prunes manifest', async () => {
+    writeFile(dir, '.agents/agents/stale-agent/AGENT.md', '# Stale');
+    const manifestRel = '.agent-workspace/manifest.json';
+    const manifest = JSON.parse(readFile(dir, manifestRel));
+    manifest.managedFiles.push('.agents/agents/stale-agent/AGENT.md');
+    writeFile(dir, manifestRel, JSON.stringify(manifest, null, 2) + '\n');
+
+    const { code, stdout } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0);
+    assert.ok(!fileExists(dir, '.agents/agents/stale-agent'), 'stale agent removed from .agents/agents');
+    assert.ok(stdout.includes('Removed stale agent: .agents/agents/stale-agent'));
+
+    const updatedManifest = JSON.parse(readFile(dir, manifestRel));
+    assert.ok(!updatedManifest.managedFiles.includes('.agents/agents/stale-agent/AGENT.md'));
+  });
+
+  it('removes stale file inside an existing skill directory while preserving .bak files', async () => {
+    const staleFile = '.agents/skills/spec-planner/scripts/old-helper.py';
+    const backupFile = '.agents/skills/spec-planner/scripts/old-helper.py.bak';
+    writeFile(dir, staleFile, '# old helper');
+    writeFile(dir, backupFile, '# backup');
+
+    const { code, stdout } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0);
+    assert.ok(!fileExists(dir, staleFile), 'stale file inside skill removed');
+    assert.ok(fileExists(dir, backupFile), 'backup file preserved');
+    assert.ok(stdout.includes('Removed stale skill file: ' + staleFile));
+  });
+
+  it('removes legacy .gemini/skills directory and prunes manifest entries', async () => {
+    writeFile(dir, '.gemini/skills/specs-planner/SKILL.md', '# Legacy');
+    const manifestRel = '.agent-workspace/manifest.json';
+    const manifest = JSON.parse(readFile(dir, manifestRel));
+    manifest.managedFiles.push('.gemini/skills/specs-planner');
+    writeFile(dir, manifestRel, JSON.stringify(manifest, null, 2) + '\n');
+
+    const { code, stdout } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0);
+    assert.ok(!fileExists(dir, '.gemini/skills/specs-planner'), 'legacy skill inside .gemini/skills removed');
+    assert.ok(!fileExists(dir, '.gemini/skills'), 'empty legacy .gemini/skills directory removed');
+    assert.ok(stdout.includes('Removed stale skill: .gemini/skills/specs-planner'));
+
+    const updatedManifest = JSON.parse(readFile(dir, manifestRel));
+    assert.ok(!updatedManifest.managedFiles.includes('.gemini/skills/specs-planner'));
+  });
+
+  it('--dry-run does not delete stale skills or files', async () => {
+    writeFile(dir, '.agents/skills/dry-stale/SKILL.md', '# Stale');
+    const { code } = await runCli(['update', '--yes', '--no-link', '--dry-run'], dir);
+    assert.equal(code, 0);
+    assert.ok(fileExists(dir, '.agents/skills/dry-stale'), 'stale skill remains after dry-run');
+    // clean up
+    cleanup(join(dir, '.agents/skills/dry-stale'));
+  });
+});
