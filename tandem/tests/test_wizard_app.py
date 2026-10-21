@@ -144,6 +144,7 @@ def test_summary_step_actions_use_modifier_keys() -> None:
         hints = str(p.app.query_one("#hints").render())
         assert "Alt+a" in hints and "Alt+d" in hints and "Shift+L" in hints
         await p.press("alt+a")
+        assert isinstance(p.app, WizardApp)
         assert p.app.flow.step.name == "CLI"
         await p.press("escape")
 
