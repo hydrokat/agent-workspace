@@ -92,6 +92,11 @@ function validateProviders(list) {
   return valid.length > 0 ? valid : ['claude'];
 }
 
+/** True at a terminal, or when AGENT_WORKSPACE_INTERACTIVE=1 asks for prompts to be read from piped input. */
+export function isInteractive() {
+  return process.stdin.isTTY === true || process.env.AGENT_WORKSPACE_INTERACTIVE === '1';
+}
+
 /** One-off yes/no question with its own readline interface. */
 export async function confirm(question, defaultYes = false) {
   const iface = rl();
