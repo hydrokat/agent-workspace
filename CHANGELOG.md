@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-21
+
 ### CI
 
 - Added a GitHub Actions workflow: `npm test` on Node 20, and `mypy` plus `pytest` for tandem on Python (with tmux installed), for every pull request and push to `trunk`.
