@@ -20,6 +20,35 @@ describe('npm pack contents', () => {
     }
   });
 
+  it('ships the script-first skills with their scripts and templates', () => {
+    const skills = 'templates/skills';
+    const required = [
+      'spec-planner/scripts/specs.py', 'spec-planner/assets/impl.md', 'spec-planner/assets/task.md',
+      'spec-planner/assets/delivery-task.md', 'spec-implement/assets/task-metadata.md',
+      'spec-compile/assets/completed.md', 'spec-compile/assets/incomplete.md',
+      'spec-explain/SKILL.md', 'spec-explain/agents/openai.yaml', 'spec-explain/assets/explanation.md',
+      'explain/SKILL.md', 'explain/agents/openai.yaml', 'explain/scripts/locate.py',
+      'explain/assets/technical.md', 'explain/assets/non-technical.md',
+      'feasibility/SKILL.md', 'feasibility/agents/openai.yaml', 'feasibility/assets/report.md',
+      'code-cleanup/SKILL.md', 'code-cleanup/agents/openai.yaml', 'code-cleanup/scripts/comments.py',
+      'code-cleanup/assets/candidates.md', 'workspace-cleanup/scripts/scan_workspace.py',
+      'workspace-cleanup/assets/candidates.md', 'pull-request/assets/pr-body.md',
+      'knowledge/assets/decision.md', 'knowledge/assets/context-note.md', 'knowledge/assets/best-practice.md',
+      'knowledge/assets/business-flow.md',
+    ];
+    for (const rel of required) assert.ok(files.includes(`${skills}/${rel}`), `${rel} packed`);
+  });
+
+  it('ships the generic knowledgebase notes for the script-first workflow', () => {
+    for (const note of ['deterministic-skill-scripts', 'parallel-spec-execution', 'comment-classification']) {
+      assert.ok(files.includes(`templates/knowledgebase/best-practices/${note}.md`), `${note} packed`);
+    }
+  });
+
+  it('ships no bytecode or test fixtures inside the skills', () => {
+    assert.deepEqual(files.filter((f) => f.startsWith('templates/') && /(__pycache__|\.pyc$|\.pytest_cache)/.test(f)), []);
+  });
+
   it('ships run.sh and the tandem project needed to run it', () => {
     for (const p of ['run.sh', 'tandem/pyproject.toml', 'tandem/uv.lock', 'tandem/min-versions.env',
       'tandem/src/tandem/cli.py', 'tandem/README.md']) {

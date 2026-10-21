@@ -26,47 +26,25 @@ Do not flag:
 
 ## Workflow
 
-### 1. Gather Context
+### 1. Scan
 
-- Read `AGENTS.md`'s Core Directory Map and System Architecture to learn the expected structure.
-- Read `.gitignore` to know what's already excluded from version control.
-- Run `git status --short` to distinguish tracked, modified, and untracked files.
-- Read `specs/in-progress.md` if present, to cross-check whether `.tmp/` content or in-progress files are still active.
+Run the scanner. It reads `AGENTS.md`, `.gitignore`, git state, and `specs/in-progress.md` itself, applies the "Do not flag" rules above, and saves its result for the delete step:
 
-### 2. Scan For Candidates
+```bash
+python3 .agents/skills/workspace-cleanup/scripts/scan_workspace.py [--stale-days N]
+```
 
-Walk the workspace (root and managed directories) and check for each category listed above. For every candidate, capture:
-- Relative path.
-- Category (OS/editor cruft, stale backup, orphaned generated output, empty directory, stale scratch file, unrecognized file).
-- Why it was flagged.
-- Last-modified date when it helps the user judge staleness.
+It prints JSON: `counts` by category and `candidates`, each with `path`, `kind` (`file` or `dir`), `category`, `reason`, `needs_review`, and last-`modified` date. The categories are `os-editor-cruft`, `stale-backup`, `empty-directory`, `orphaned-generated-output`, `stale-scratch` (older than 14 days by default and not referenced by `specs/in-progress.md`), and `unrecognized-file` (always `needs_review`).
 
-Skip anything covered by the "Do not flag" list.
+If the script is missing or fails, say so and fall back to the manual scan: read `AGENTS.md`'s Core Directory Map and System Architecture, `.gitignore`, `git status --short`, and `specs/in-progress.md`, then walk the workspace for each category above.
+
+### 2. Review The Candidates
+
+Read the candidate list against what you know of the workspace. Move anything you are unsure about to "needs review". Add nothing the scanner did not find without telling the user why.
 
 ### 3. Present Findings
 
-Group and list every candidate before taking any action:
-
-```markdown
-## Workspace Cleanup Candidates
-
-### OS/editor cruft
-- `path/to/file` — reason, last modified
-
-### Stale backups
-- `path/to/file.bak` — reason, last modified
-
-### Orphaned generated output
-- `.claude/skills/old-skill/` — no matching `.agents/skills/old-skill/`
-
-### Empty directories
-- `path/to/dir/` — empty, not documented in AGENTS.md
-
-### Unrecognized files
-- `path/to/file` — not covered by Core Directory Map or .gitignore
-```
-
-If no candidates are found, say so clearly and stop.
+Group and list every candidate before taking any action, using the layout in `assets/candidates.md` (drop categories with no candidates, and show `needs_review` items under "Needs review"). If no candidates are found, say so clearly and stop.
 
 ### 4. Ask Before Deleting
 
@@ -77,7 +55,7 @@ If no candidates are found, say so clearly and stop.
 
 ### 5. Delete And Report
 
-- Delete only the approved items.
+- Delete only the approved items, with `python3 .agents/skills/workspace-cleanup/scripts/scan_workspace.py --delete <path> [<path> …]`. The script deletes a path only if it was in the last scan, is unchanged since, is inside the workspace, and is not protected (`specs/`, `knowledgebase/` other than `*.bak` files, `.git`, `AGENTS.md`). It never follows symlinks, and removes an empty directory only while it is still empty. Refused paths are reported under `refused`; tell the user why. Without the script, delete the approved items by hand after the same checks.
 - Report what was deleted, what was left in place and why, and any residual candidates that still need manual review.
 
 ## Mandates
@@ -88,3 +66,4 @@ If no candidates are found, say so clearly and stop.
 - **Preserve Ambiguous Files**: When uncertain, list the file as "needs review" instead of assuming it is safe to delete.
 - **Respect Ignore Rules**: Skip files already covered by `.gitignore` unless they've grown unexpectedly large, duplicated, or old.
 - **Respect Ownership**: Never flag or delete `specs/`, `knowledgebase/business-flows/`, `knowledgebase/context-history/`, or other user-owned content.
+- **Script-First**: Scan and delete with `scan_workspace.py`, falling back to the manual steps only when the script is unavailable. The approval gate is unchanged: the script never deletes on its own.
