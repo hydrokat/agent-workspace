@@ -112,10 +112,10 @@ function planCli(cli) {
 function listLine(plan) {
   const { info, latest, command } = plan;
   const name = info.cli.padEnd(7);
-  if (command.skipped) return `  ↑ ${name} skipped — ${command.skipped}`;
+  if (command.skipped) return `↑ ${name} skipped — ${command.skipped}`;
   const found = latest.state === 'available' ? (latest.latest ? `${latest.latest} available` : 'update available') : 'latest unknown';
   const run = command.argv ? command.argv.join(' ') : `run it yourself: ${command.manual}`;
-  return `  ${name} ${(info.version || '?').padEnd(8)} ${info.channel.padEnd(8)} ${found} → ${run}`;
+  return `${name} ${(info.version || '?').padEnd(8)} ${info.channel.padEnd(8)} ${found} → ${run}`;
 }
 
 /** Checks the workspace's AI CLIs and, with consent, runs each CLI's own update command. Never fails the update. */
@@ -152,11 +152,11 @@ async function updateAiClis(flags, providers, cwd) {
       const r = applyUpdate(plan.info);
       const name = plan.info.cli.padEnd(7);
       if (r.ok) {
-        log.info(r.changed ? `  ✔ ${name} ${r.before} → ${r.after}` : `  ✔ ${name} ${r.after || r.before} (up to date)`);
+        log.info(r.changed ? `✔ ${name} ${r.before} → ${r.after}` : `✔ ${name} ${r.after || r.before} (up to date)`);
         results.push({ cli: plan.info.cli, action: r.changed ? 'updated' : 'current', before: r.before, after: r.after });
       } else {
         const why = r.timedOut ? 'timed out' : `exit ${r.exitCode ?? '?'}`;
-        log.info(`  ✖ ${name} update failed (${why}) — run it yourself: ${r.command}`);
+        log.info(`✖ ${name} update failed (${why}) — run it yourself: ${r.command}`);
         results.push({ cli: plan.info.cli, action: 'failed', before: r.before, after: r.after, command: r.command });
       }
     }
