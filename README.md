@@ -70,7 +70,8 @@ npx hydrokat/agent-workspace update
 ```
 
 What it does:
-- Refreshes all managed files (agents, skills, guidelines) with the latest shipped versions
+- Refreshes all managed files (agents, skills, and the guideline documents in `knowledgebase/guidelines/`) with the latest shipped versions
+- Adds any knowledgebase note or README that is missing, but never overwrites one that already exists: notes like `context-history/key-decisions.md` and `best-practices/*.md` are yours once created
 - If you edited a managed file locally, it backs it up to `<file>.bak` before overwriting
 - Refreshes the model table and operating principles in `AGENTS.md` (the managed block between `<!-- managed:start -->` and `<!-- managed:end -->`)
 - Fully regenerates provider outputs, fixing any manual drift
