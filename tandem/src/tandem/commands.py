@@ -12,12 +12,17 @@ from pathlib import Path
 from tandem.adapters import adapter_for, session_env, session_id
 from tandem.adapters.base import AgentSpec
 from tandem.config import Config
+from tandem.coordination.schema import STALE_SECONDS
 from tandem.coordination.store import CoordStore
-from tandem import conversations, quota, state, updater
+import re
+
+from tandem import conversations, quota, state, updater, versions
 from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient, TmuxError, socket_for
 from tandem.tmux.layout import SESSION, Launch, Layout, ROLES
 from tandem.tmux.tabs import PaneInfo
+
+cli_version: Callable[[str], str] = versions.installed_version
 
 
 CLOSING = "@tandem_closing"
@@ -38,7 +43,7 @@ def agent_launch(spec: AgentSpec, coord_dir: str, workspace: Path, resume: bool 
     return Launch(
         argv=adapter_for(spec.cli).build_argv(spec, resume=reopen, log_file=log_file), role=spec.role,
         index=spec.index, label=f"{spec.cli}·{spec.model}", env=session_env(spec, coord_dir),
-        cwd=spec.cwd or str(workspace), session_id=session_id(spec),
+        cwd=spec.cwd or str(workspace), session_id=session_id(spec), cli_version=cli_version(spec.cli),
         spec=json.dumps({"cli": spec.cli, "model": spec.model, "skip_permissions": spec.skip_permissions,
                          "cwd": spec.cwd, "conversation": spec.conversation}),
     )
@@ -296,9 +301,74 @@ def run_update(workspace: Path, config: Config, assume_yes: bool) -> int:
             print(f"(state not saved: {error})")
     result = updater.run_update(workspace, config.update_spec, lambda: _reload_in_fresh_process(workspace, layout))
     print(f"\n{'OK' if result.ok else 'FAILED'}: {result.message}")
+    if result.ok and layout.exists():
+        try:
+            offer_restarts(layout, workspace, config, sys.stdin.isatty())
+        except (OSError, ValueError, TmuxError) as error:
+            print(f"(could not check running agents: {error})")
     if sys.stdin.isatty():
         input("\nPress Enter to close.")
     return 0 if result.ok else 1
+
+
+def find_stale(layout: Layout, workspace: Path, config: Config) -> list[updater.StaleAgent]:
+    """Running agents that started on an older CLI version than the one installed now."""
+    coord_dir = coord_dir_for(workspace, config)
+    now = time.time()
+    busy = {}
+    if layout.coord is not None:
+        for claim in layout.coord.claims():
+            if now - claim.heartbeat < STALE_SECONDS:
+                phase = re.match(r"p-\d+", claim.phase)
+                busy[claim.session] = f"{phase.group(0) if phase else claim.phase} {claim.task}"
+
+    def resumable(pane: PaneInfo) -> bool:
+        spec = _pane_spec(pane, coord_dir)
+        return spec is not None and conversations.can_resume(spec.cli, spec.conversation, config.claude_dir)
+
+    return updater.stale_agents(layout.panes(), cli_version, resumable, busy)
+
+
+def restart_stale(layout: Layout, workspace: Path, config: Config, chosen: list[updater.StaleAgent]) -> list[str]:
+    """Respawn each chosen agent on the new CLI, reopening its conversation. One failure never stops the others."""
+    coord_dir = coord_dir_for(workspace, config)
+    conversations.prepare(coord_dir)
+    panes = {p.id: p for p in layout.panes()}
+    messages: list[str] = []
+    for agent in chosen:
+        name = f"{agent.role} {agent.index}"
+        pane = panes.get(agent.pane_id)
+        spec = _pane_spec(pane, coord_dir) if pane is not None else None
+        if spec is None:
+            messages.append(f"{name}: not restarted (its launch details are not available)")
+            continue
+        try:
+            launch = agent_launch(spec, str(coord_dir), workspace, resume=True, claude_dir=config.claude_dir)
+            layout.restart_live(agent.pane_id, launch)
+            messages.append(f"{name}: restarted on {agent.installed}")
+        except (TmuxError, ValueError, OSError) as error:
+            messages.append(f"{name}: not restarted ({error})")
+    return messages
+
+
+def offer_restarts(layout: Layout, workspace: Path, config: Config, interactive: bool,
+                   ask: Callable[[str], str] = input, out: Callable[[str], None] = print) -> None:
+    """After an update: say which agents still run the old CLI and, at a terminal, restart the ones you pick."""
+    stale = find_stale(layout, workspace, config)
+    if not stale:
+        return
+    if not interactive:
+        out("\nThese agents still run an older CLI (restart them from tandem when convenient):")
+        for agent in stale:
+            out(f"  {updater.describe_stale(agent)}")
+        return
+    chosen = updater.choose_restarts(stale, ask, out)
+    if not chosen:
+        out("No agents restarted.")
+        return
+    for message in restart_stale(layout, workspace, config, chosen):
+        out(message)
+    autosave(layout, workspace)
 
 
 def first_run(layout: Layout, config: Config) -> None:

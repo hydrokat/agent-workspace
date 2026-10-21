@@ -44,3 +44,19 @@ def test_tandem_never_imports_hashlib() -> None:
     hits = [str(p.relative_to(SRC)) for p in SRC.rglob("*.py")
             if any(line.strip().startswith(("import hashlib", "from hashlib")) for line in p.read_text().splitlines())]
     assert hits == []
+
+
+def test_respawn_pane_only_runs_through_the_layout_restart_paths() -> None:
+    """Replacing a running agent is allowed only via Layout.restart / restart_live (and tandem's own placeholder)."""
+    import ast
+
+    allowed = {"restart", "_respawn", "close_agent", "respawn_own"}
+    found: list[str] = []
+    for path in SRC.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            source = ast.get_source_segment(path.read_text(), func) or ""
+            own_lines = [line for line in source.splitlines() if "respawn-pane" in line]
+            if own_lines and not (path.name == "layout.py" and func.name in allowed):
+                found.append(f"{path.relative_to(SRC)}:{func.name}")
+    assert found == []

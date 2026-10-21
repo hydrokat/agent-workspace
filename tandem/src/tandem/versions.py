@@ -1,4 +1,7 @@
 import re
+import shutil
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +17,10 @@ class InvalidMinVersionsError(ValueError):
 class Version:
     parts: tuple[int, ...]
     suffix: str
+
+    @property
+    def text(self) -> str:
+        return ".".join(str(p) for p in self.parts) + self.suffix
 
 
 def parse_version(raw: str) -> Version | None:
@@ -49,3 +56,22 @@ def parse_min_versions(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         result[key] = value
     return result
+
+
+def _capture(argv: list[str]) -> tuple[int, str]:
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+    return done.returncode, done.stdout
+
+
+def installed_version(cli: str, which: Callable[[str], str | None] = shutil.which,
+                      runner: Callable[[list[str]], tuple[int, str]] = _capture) -> str:
+    """The version `cli --version` reports, or an empty string when it is missing or does not answer."""
+    path = which(cli)
+    if path is None:
+        return ""
+    code, out = runner([path, "--version"])
+    parsed = parse_version(out) if code == 0 else None
+    return parsed.text if parsed else ""

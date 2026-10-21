@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 import sys
@@ -6,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import tandem
+from tandem.tmux.tabs import PaneInfo
 
 Runner = Callable[[list[str], Path, float], tuple[int, str]]
 UPDATE_TIMEOUT = 900.0
@@ -60,7 +62,7 @@ def _content(path: Path) -> bytes | None:
 
 
 def plan(workspace: Path, spec: str) -> list[str]:
-    lines = [f"1. npx --yes {spec} update --yes --no-link   (refreshes skills, agents, run.sh and tandem)"]
+    lines = [f"1. npx --yes {spec} update --yes --no-link   (refreshes skills, agents, run.sh and tandem, and updates the installed AI CLIs: claude update, agy update, codex through its package manager)"]
     if running_from_workspace(workspace):
         lines += ["2. uv sync   (refreshes tandem's Python environment)",
                   "3. restart tandem's own windows (status, placeholders) on the new code"]
@@ -108,3 +110,90 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
     if changed:
         result.message += " Minimum dependency versions changed: quit and start with ./run.sh to re-check them."
     return result
+
+
+@dataclass(frozen=True)
+class StaleAgent:
+    """A running agent whose CLI was updated after it started, so it still runs the old version."""
+
+    pane_id: str
+    role: str
+    index: int
+    cli: str
+    model: str
+    launched: str
+    installed: str
+    resumable: bool
+    busy: bool
+    claim: str
+
+
+def _cli_and_model(pane: PaneInfo) -> tuple[str, str]:
+    try:
+        raw = json.loads(pane.spec)
+        return str(raw["cli"]), str(raw["model"])
+    except (ValueError, KeyError, TypeError):
+        return "", ""
+
+
+def stale_agents(panes: list[PaneInfo], installed: Callable[[str], str], resumable: Callable[[PaneInfo], bool],
+                 busy: dict[str, str]) -> list[StaleAgent]:
+    """Agents whose launched version differs from (or was never recorded against) the installed one.
+
+    A CLI that does not answer ``--version`` cannot be judged and is skipped. ``busy`` maps a session id to the
+    claim it holds with a fresh heartbeat.
+    """
+    versions: dict[str, str] = {}
+    found: list[StaleAgent] = []
+    for pane in panes:
+        if pane.kind != "agent":
+            continue
+        cli, model = _cli_and_model(pane)
+        if not cli:
+            continue
+        if cli not in versions:
+            versions[cli] = installed(cli)
+        if not versions[cli] or pane.cli_version == versions[cli]:
+            continue
+        found.append(StaleAgent(pane.id, pane.role, pane.index, cli, model, pane.cli_version, versions[cli],
+                                resumable(pane), pane.session in busy, busy.get(pane.session, "")))
+    return found
+
+
+def default_selection(stale: list[StaleAgent]) -> set[str]:
+    """Pre-selected: agents that reopen their conversation and are not in the middle of claimed work."""
+    return {s.pane_id for s in stale if s.resumable and not s.busy}
+
+
+def describe_stale(agent: StaleAgent) -> str:
+    note = (f"busy (claim {agent.claim})" if agent.busy
+            else "resumes conversation" if agent.resumable else "would start a new chat")
+    return (f"{agent.role} {agent.index}  {agent.cli}·{agent.model}  {agent.launched or 'unknown'} → "
+            f"{agent.installed}  {note}")
+
+
+def choose_restarts(stale: list[StaleAgent], ask: Callable[[str], str] = input,
+                    out: Callable[[str], None] = print) -> list[StaleAgent]:
+    """Let the user pick which stale agents to restart. Enter keeps the safe defaults; end of input restarts none."""
+    selected = default_selection(stale)
+    out("These agents still run an older CLI:")
+    if any(s.cli == "agy" for s in stale):
+        out("(agy: the update may replace its binary under a running agent, so a restart is advised.)")
+    while True:
+        for number, agent in enumerate(stale, 1):
+            out(f"  [{'x' if agent.pane_id in selected else ' '}] {number} {describe_stale(agent)}")
+        out("Restart: a=all  numbers=toggle  Enter=restart selected  n=none")
+        try:
+            answer = ask("> ").strip().lower()
+        except EOFError:
+            return []
+        if answer == "":
+            return [s for s in stale if s.pane_id in selected]
+        if answer == "n":
+            return []
+        for token in answer.replace(",", " ").split():
+            if token == "a":
+                selected = {s.pane_id for s in stale}
+            elif token.isdigit() and 1 <= int(token) <= len(stale):
+                pane_id = stale[int(token) - 1].pane_id
+                selected ^= {pane_id}
