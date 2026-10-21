@@ -71,7 +71,7 @@ def test_tmux_root_bindings_single_and_multi_modifier(layout: Layout) -> None:
         capture_output=True, text=True, check=True
     ).stdout
     assert "M-h" in out
-    assert "C-M-n" in out
+    assert "C-M-n" in out or "M-C-n" in out
 
 
 def test_add_agent_swaps_in_and_tab_navigation(layout: Layout) -> None:
