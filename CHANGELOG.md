@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-10-21
+
 ### CLI Package
 
 - `update` now offers to update the AI CLIs in your workspace (`claude`, `agy`, and `codex` when it is a configured provider; `claude` and `agy` are always checked because tandem launches them). Only installed CLIs are considered; nothing is installed and `sudo` is never used. Each CLI is updated with its own documented command (`claude update`, `agy update`, `npm install -g @openai/codex@latest` or `brew upgrade --cask codex`); a command that would need `sudo` or a piped install script is shown for you to run instead. One question, default No: `--update-clis` or `--yes` applies, `--no-update-clis` skips, `--dry-run` only lists, and with no terminal it prints how to apply. `DISABLE_UPDATES=1` is respected for claude. A failed CLI update is reported and never fails `update`; a CLI below tandem's minimum version gets a warning. `--json` adds an `aiClis` record. `AGENT_WORKSPACE_INTERACTIVE=1` reads the answer from piped input.
