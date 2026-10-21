@@ -19,6 +19,8 @@ Commands:
       any drift in a file leaves that file untouched and exits 1.
       {"removed", "files": [{file, removed, status}]}
 """
+from __future__ import annotations
+
 import argparse
 import ast
 import bisect

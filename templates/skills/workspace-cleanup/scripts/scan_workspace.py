@@ -16,6 +16,8 @@ Stdlib only. JSON on stdout. Exit codes: 0 ok, 1 refused/nothing to delete from,
       inside the root, and not protected (specs/, knowledgebase/ except *.bak files, .git, AGENTS.md).
       Never follows symlinks. {"deleted": [...], "refused": [{path, reason}]}; exit 1 if any refused.
 """
+from __future__ import annotations
+
 import argparse
 import fnmatch
 import json
