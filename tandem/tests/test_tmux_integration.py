@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tandem.coordination.store import CoordStore
+from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient
 from tandem.tmux.layout import SESSION, Launch, Layout
 from tandem.tmux.tabs import agents_in, visible_pane
@@ -57,7 +58,20 @@ def test_border_title_lists_tabs(layout: Layout) -> None:
 def test_options_mouse_and_hint_bar(layout: Layout) -> None:
     built(layout)
     assert "on" in layout.client.run_checked("show-options", "-g", "mouse")
-    assert "F1 Help" in layout.client.run_checked("show-options", "-g", "status-left")
+    assert "on" in layout.client.run_checked("show-options", "-g", "extended-keys")
+    assert "Alt+h Help" in layout.client.run_checked("show-options", "-g", "status-left")
+
+
+def test_tmux_root_bindings_single_and_multi_modifier(layout: Layout) -> None:
+    built(layout)
+    for cmd in keys.bind_commands("/fake/python"):
+        layout.client.run_checked(*cmd)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True
+    ).stdout
+    assert "M-h" in out
+    assert "C-M-n" in out
 
 
 def test_add_agent_swaps_in_and_tab_navigation(layout: Layout) -> None:

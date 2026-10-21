@@ -117,3 +117,34 @@ def test_hint_bar_lists_keys() -> None:
         await p.press("escape")
 
     drive(app(), script)
+
+
+def test_model_step_alt_f_focuses_filter() -> None:
+    async def script(p: Pilot[list[AgentSpec] | None]) -> None:
+        await p.press("enter")  # cli: claude
+        await p.press("enter")  # role: planner
+        await p.app.workers.wait_for_complete()
+        await p.pause()
+        hints = str(p.app.query_one("#hints").render())
+        assert "Alt+f" in hints
+        await p.press("alt+f")
+        assert p.app.focused == p.app.query_one("#input")
+        await p.press("escape")
+
+    drive(app(), script)
+
+
+def test_summary_step_actions_use_modifier_keys() -> None:
+    async def script(p: Pilot[list[AgentSpec] | None]) -> None:
+        await p.press("enter")  # claude
+        await p.press("enter")  # planner
+        await p.app.workers.wait_for_complete()
+        await p.pause()
+        await p.press("enter")  # model
+        hints = str(p.app.query_one("#hints").render())
+        assert "Alt+a" in hints and "Alt+d" in hints and "Shift+L" in hints
+        await p.press("alt+a")
+        assert p.app.flow.step.name == "CLI"
+        await p.press("escape")
+
+    drive(app(), script)
