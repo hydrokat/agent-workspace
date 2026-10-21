@@ -14,6 +14,10 @@
 - `F10` → *Kill session without saving* is now *Quit and discard saved state*: it deletes `tandem-session.json`, so the next launch starts fresh.
 - `tandem-session.json` is now version 2 (adds `conversation` per agent and `clean`). Version 1 files still load.
 
+### CLI Package
+
+- Fixed: `update` replaced knowledgebase notes you had edited (for example `context-history/key-decisions.md`, `best-practices/lessons-learned.md`, `guidelines/README.md`) with the shipped template, leaving only a `.bak`. It now only adds notes that are missing and leaves existing ones alone (`↷ … yours; not overwritten`). The guideline documents in `knowledgebase/guidelines/` are still refreshed, with a `.bak` of local edits.
+
 ### Base Skills
 
 - Added four commands, each read-only except `/code-cleanup`:

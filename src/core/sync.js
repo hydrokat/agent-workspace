@@ -209,11 +209,17 @@ export function installCanonicalAssets(target, manifest, dryRun = false) {
       if (f === 'README.md' && !isGuidelines) continue;
       const src = join(subdirPath, f);
       const dest = join(target, 'knowledgebase', subdir, f);
-      if (!dryRun) mkdirSync(join(dest, '..'), { recursive: true });
-      const content = readFileSync(src, 'utf8');
-      const action = writeManaged(dest, content, dryRun);
       const rel = relative(target, dest);
-      if (manifest) { if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel); }
+      const content = readFileSync(src, 'utf8');
+      const managed = isGuidelines && f !== 'README.md';
+      if (!managed && existsSync(dest)) {
+        if (readFileSync(dest, 'utf8') === content) log.unchanged(rel);
+        else log.skipped(`${rel} (yours; not overwritten)`);
+        continue;
+      }
+      if (!dryRun) mkdirSync(join(dest, '..'), { recursive: true });
+      const action = writeManaged(dest, content, dryRun);
+      if (manifest && managed) { if (!manifest.managedFiles.includes(rel)) manifest.managedFiles.push(rel); }
       if (action === 'created') log.created(rel);
       else if (action === 'updated') { log.backedUp(rel + '.bak'); log.updated(rel); }
       else log.unchanged(rel);

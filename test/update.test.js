@@ -45,6 +45,35 @@ describe('update', () => {
     assert.equal(after, kbContent, 'user kb entry untouched');
   });
 
+  it('keeps edited knowledgebase notes and refreshes only the guideline documents', async () => {
+    const mine = {
+      'knowledgebase/context-history/key-decisions.md': '# Key Decisions\n\n### 2026-01-01: Mine\n',
+      'knowledgebase/context-history/task-completion-log.md': '# Log\n\nmine\n',
+      'knowledgebase/best-practices/lessons-learned.md': '# Lessons\n\nmine\n',
+      'knowledgebase/guidelines/README.md': '# Guidelines\n\nmine\n',
+    };
+    for (const [rel, text] of Object.entries(mine)) writeFile(dir, rel, text);
+    const guideline = 'knowledgebase/guidelines/security.md';
+    writeFile(dir, guideline, readFile(dir, guideline) + '\n<!-- local edit -->');
+
+    const { code } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0);
+
+    for (const [rel, text] of Object.entries(mine)) {
+      assert.equal(readFile(dir, rel), text, `${rel} untouched`);
+      assert.ok(!fileExists(dir, rel + '.bak'), `${rel} not backed up`);
+    }
+    assert.ok(fileExists(dir, guideline + '.bak'), 'edited guideline backed up');
+    assert.ok(!readFile(dir, guideline).includes('<!-- local edit -->'), 'guideline refreshed');
+  });
+
+  it('recreates a deleted knowledgebase note from the template', async () => {
+    const rel = 'knowledgebase/context-history/key-decisions.md';
+    unlinkSync(join(dir, rel));
+    await runCli(['update', '--yes', '--no-link'], dir);
+    assert.ok(readFile(dir, rel).includes('# Key Decisions'));
+  });
+
   it('installs release versioning guideline on update', async () => {
     unlinkSync(join(dir, 'knowledgebase/guidelines/release-versioning.md'));
 
