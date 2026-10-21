@@ -71,6 +71,7 @@ npx hydrokat/agent-workspace update
 
 What it does:
 - Refreshes all managed files (agents, skills, and the guideline documents in `knowledgebase/guidelines/`) with the latest shipped versions
+- Removes stale skills, files inside skill directories, and stale agents across all providers (`.agents/skills`, `.claude/skills`, and legacy `.gemini/skills`) while preserving `.bak` backups
 - Adds any knowledgebase note or README that is missing, but never overwrites one that already exists: notes like `context-history/key-decisions.md` and `best-practices/*.md` are yours once created
 - If you edited a managed file locally, it backs it up to `<file>.bak` before overwriting
 - Refreshes the model table and operating principles in `AGENTS.md` (the managed block between `<!-- managed:start -->` and `<!-- managed:end -->`)
@@ -120,6 +121,7 @@ npx hydrokat/agent-workspace doctor
 
 What it checks:
 - Required directories and `AGENTS.md` exist
+- All template skills are present and no stale skill directories (or legacy `.gemini/skills`) exist
 - Every agent has a generated output file for each configured provider
 - Generated agents have valid frontmatter (`name`, `description`, `model`)
 - Each agent's `model:` value matches the expected model for that provider
@@ -183,8 +185,7 @@ your-project-agent-workspace/
 │   ├── agents/                        # Claude-compatible agent files (model injected)
 │   └── skills/
 ├── .gemini/                           # Generated — do not edit manually (if configured)
-│   ├── agents/
-│   └── skills/
+│   └── agents/
 ├── knowledgebase/
 │   ├── guidelines/                    # Architecture, security, testing standards
 │   ├── best-practices/                # Operating principles
@@ -281,13 +282,13 @@ The window shows planners on the left, implementers on the right, and the status
 
 <p align="center"><img src="docs/images/status.svg" alt="Status tab with repositories, branches and worktrees" width="49%"> <img src="docs/images/queries.svg" alt="Queries tab with an open question" width="49%"></p>
 
-<p align="center"><img src="docs/images/help.svg" alt="F1 help popup listing tandem's keys" width="70%"></p>
+<p align="center"><img src="docs/images/help.svg" alt="Alt+h help popup listing tandem's keys" width="70%"></p>
 
 <sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `docs/screenshots/make_screenshots.py`; a test fails if a screenshot contains a home-directory path.</sub>
 
 **Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning.
 
-**Save and resume.** tandem autosaves the session (agents, models, folders, layout and each agent's conversation ID) while it runs. After a crash or a clean `F10` → *Save state and exit*, the next `./run.sh` asks whether to resume, which reopens every agent's conversation through `claude --resume` / `agy --conversation`, or to start blank. See `tandem/README.md` → *Save, resume and update*.
+**Save and resume.** tandem autosaves the session (agents, models, folders, layout and each agent's conversation ID) while it runs. After a crash or a clean `Ctrl+Alt+x` → *Save state and exit*, the next `./run.sh` asks whether to resume, which reopens every agent's conversation through `claude --resume` / `agy --conversation`, or to start blank. See `tandem/README.md` → *Save, resume and update*.
 
 **Coordination.** The `agent-coordination` skill (`scripts/coord.py`) lets sessions register, claim spec tasks atomically, send heartbeats, and ask questions without blocking: an agent keeps working outside the blocked scope while the question waits in the **Queries** tab. Planners check running and planned work before planning; implementers claim before coding and use a worktree when another implementer is active. Without tandem, the same skill works from any CLI.
 

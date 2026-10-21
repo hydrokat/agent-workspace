@@ -115,9 +115,11 @@ def fake_clis(root: Path) -> Path:
     (bin_dir / "implementer.txt").write_text(IMPLEMENTER_SCREEN)
     (bin_dir / "agy.txt").write_text(AGY_SCREEN)
     (bin_dir / "claude").write_text(
-        f'#!/bin/sh\ncat "{bin_dir}/${{TANDEM_ROLE:-planner}}.txt"\nexec sleep 3600\n')
+        f'#!/bin/sh\nif [ "$1" = "--version" ]; then echo "claude 1.0.0"; exit 0; fi\n'
+        f'cat "{bin_dir}/${{TANDEM_ROLE:-planner}}.txt"\nexec sleep 3600\n')
     (bin_dir / "agy").write_text(
-        f'#!/bin/sh\nif [ "$1" = models ]; then printf "gemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\n"; exit 0; fi\n'
+        f'#!/bin/sh\nif [ "$1" = "--version" ]; then echo "agy 1.0.0"; exit 0; fi\n'
+        f'if [ "$1" = models ]; then printf "gemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\n"; exit 0; fi\n'
         f'cat "{bin_dir}/agy.txt"\nexec sleep 3600\n')
     for f in ("claude", "agy"):
         (bin_dir / f).chmod(0o755)
@@ -186,7 +188,7 @@ def main() -> None:
         time.sleep(3)
         save("status", "Status tab: work in progress, repositories (branch → worktree), phases")
         # 3. queries tab
-        sh("tmux", "-L", sock, "send-keys", "-t", status, "F6")
+        sh("tmux", "-L", sock, "send-keys", "-t", status, "M-q")
         time.sleep(3)
         save("queries", "Queries tab: questions your agents queued while they keep working")
         sh("tmux", "-L", sock, "send-keys", "-t", status, "Tab")
@@ -196,7 +198,7 @@ def main() -> None:
                           f"env TANDEM_WORKSPACE={ws} {py} -m tandem help"], env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
-        save("help", "F1 help")
+        save("help", "Alt+h help")
         sh("tmux", "-L", sock, "display-popup", "-c", client, "-C")
     finally:
         sh("tmux", "-L", sock, "kill-server")
