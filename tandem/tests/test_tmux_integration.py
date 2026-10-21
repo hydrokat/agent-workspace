@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -21,7 +22,7 @@ def sleeper(role: str, index: int, kind: str = "agent", label: str = "") -> Laun
 
 @pytest.fixture
 def layout(tmp_path: Path) -> Iterator[Layout]:
-    socket = f"tandem-test-{os.getpid()}"
+    socket = f"tandem-test-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     client = TmuxClient(socket=socket)
     lay = Layout(client, coord=CoordStore(tmp_path / "coord"))
     conf = lay.write_conf(tmp_path / "tandem.conf")
