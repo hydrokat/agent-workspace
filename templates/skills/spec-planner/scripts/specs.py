@@ -66,6 +66,8 @@ Status and compile commands:
                               {"filter", "scope", "written", "phases": {in_scope, complete, incomplete},
                               "tasks": {in_scope, complete}, "note", "warnings"}.
 """
+from __future__ import annotations
+
 import argparse
 import datetime
 import json

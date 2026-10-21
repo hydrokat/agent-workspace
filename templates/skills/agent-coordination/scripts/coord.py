@@ -3,6 +3,8 @@
 
 Stdlib only. JSON on stdout. Exit codes: 0 ok, 1 conflict/not allowed, 2 invalid input.
 """
+from __future__ import annotations
+
 import argparse
 import fcntl
 import json

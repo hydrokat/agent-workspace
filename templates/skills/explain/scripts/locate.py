@@ -16,6 +16,8 @@ Commands (read-only):
       Searches tracked files of the current repo and of each repo under codebase-symlinks/.
       Skips binary, vendored, generated, oversized, and secret files, and symlinks that leave their repo.
 """
+from __future__ import annotations
+
 import argparse
 import difflib
 import json
