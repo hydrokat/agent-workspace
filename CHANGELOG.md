@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### CI
+
+- Added a GitHub Actions workflow: `npm test` on Node 20, and `mypy` plus `pytest` for tandem on Python (with tmux installed), for every pull request and push to `trunk`.
+
 ### tandem
 
 - **Resume conversations (AI state):** saved sessions now carry each agent's conversation ID, so resuming reopens the same chats. Claude agents start with `--session-id <uuid>` and resume with `--resume <uuid>`. The ID follows `/clear` and `/resume` through the `session_id` Claude Code passes to the statusline feed. A session with no transcript yet starts fresh under the same ID. `agy` agents write their log to a per-agent `--log-file`; tandem takes the latest conversation ID from it and resumes with `--conversation <id>`. tandem never reads a conversation's contents.
