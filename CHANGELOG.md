@@ -10,6 +10,22 @@
 - `F10` → *Kill session without saving* is now *Quit and discard saved state*: it deletes `tandem-session.json`, so the next launch starts fresh.
 - `tandem-session.json` is now version 2 (adds `conversation` per agent and `clean`). Version 1 files still load.
 
+### Base Skills
+
+- Added four commands, each read-only except `/code-cleanup`:
+  - `/spec-explain [phase]` explains a phase from its specs: what it fixes, what it develops, why, where, and where it stands.
+  - `/explain <module or feature> [--non-technical]` explains how part of a codebase works, with `file:line` references and a diagram, or in plain language. Code is found with the new `locate.py`, which searches the repo and the linked codebases and skips secrets, binaries, and vendored files.
+  - `/feasibility <feature>` decides whether something can be built here and how: verdict, effort, options with a recommendation, risks, and unknowns. `locate.py stack` reports the languages, frameworks, and test runners it relies on. Third-party terms and ban risk count as hard blockers.
+  - `/code-cleanup [paths] [--diff <base>]` lists unnecessary comments (commented-out code, restating or narrating comments, dividers, empty comments, TODOs with no owner), asks which to delete, then removes only the approved ones. Documentation-generator comments, directives, and license headers are never listed. Deletion refuses files that changed since the scan and runs the tests afterwards.
+- Script-first skills: repetitive steps now run as stdlib Python scripts with JSON output, with the manual steps kept as a fallback. `spec-planner/scripts/specs.py` reads and writes specs (`list`, `show`, `resolve`, `new-phase`, `new-task`, `lint`, `set-status`, `normalize`, `compile`, `waves`). `workspace-cleanup/scripts/scan_workspace.py` produces the candidate list and deletes only approved, unchanged, unprotected paths.
+- Template-driven skills: the planner's phase, task, and delivery templates, the spec-compile output, the pull request description, the knowledgebase entries, and the new commands' chat layouts moved into each skill's `assets/`. Script-filled fields use `{{field}}`; the agent fills the `[...]` placeholders, and `specs.py lint` fails while any is left.
+- `spec-implement` plans parallel waves with `specs.py waves` (dependencies, overlapping Affected Paths, shared hot files, gates, unknown footprints) and runs each wave in parallel through the CLI's own subagents with one worktree per task and ordered, tested merges, or sequentially when subagents are unavailable. Status changes go through `specs.py set-status`, which keeps `t-###.md` and `impl.md` in sync and refuses `Done` until objectives, tests, and security are checked.
+- `spec-implement` and the delivery task now run `/code-cleanup --diff <merge-target>` instead of an unguided comment cleanup pass. `spec-planner` adds a generated `## Parallel Waves` section to `impl.md`.
+
+### Base Files
+
+- Added best-practice notes: deterministic skill scripts, parallel spec execution, and comment classification.
+
 ## [2026-10-23]
 
 ### Docs

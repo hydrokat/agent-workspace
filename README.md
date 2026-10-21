@@ -9,7 +9,7 @@ When you work with AI coding assistants (Claude Code, Antigravity CLI, Codex), e
 `agent-workspace` solves that by giving you a structured directory that your AI provider reads automatically:
 
 - **Agent definitions** — named roles (`tech-lead-orchestrator`, `senior-backend-dev`, `qa-engineer`, etc.) with clear responsibilities, delegation rules, and the right model pre-assigned per provider
-- **Reusable skills** — step-by-step instructions the AI follows for recurring tasks (workspace init, knowledge management, spec planning with repo-scoped `p-###` phases, `t-###` tasks, and UI mockups for frontend work, spec implementation with caveman-mode execution and strict code-comment discipline, pull requests, code review, and `/workspace-cleanup` to find and remove files that don't belong in the workspace)
+- **Reusable skills** — step-by-step instructions the AI follows for recurring tasks (workspace init, knowledge management, spec planning with repo-scoped `p-###` phases, `t-###` tasks, and UI mockups for frontend work, spec implementation with caveman-mode execution and strict code-comment discipline, pull requests, code review, `/workspace-cleanup` to find and remove files that don't belong in the workspace, and the read-and-explain commands `/spec-explain`, `/explain`, `/feasibility`, and `/code-cleanup` — see [Slash commands](#slash-commands-for-your-ai))
 - **Shared guidelines** — architecture standards, security rules, and best practices the AI respects across every conversation, including branch protection (agents never commit directly to `main`, `master`, or `trunk` unless explicitly told to, and use a worktree or a new branch before implementing) and concurrent agent awareness (agents check for other agents' in-progress work before starting instead of assuming exclusive access)
 - **Live progress tracking** — `specs/in-progress.md` lists every task or spec an agent is actively working on, its next step, the owning spec (or `adhoc` if it has none), and the explicitly assigned agent and worktree to prevent collision, so you always know what's in flight; entries are removed as soon as the task completes
 - **Provider outputs** — each provider gets its own compatibility format (`.claude/`, `.gemini/`) auto-generated from a single source of truth
@@ -206,6 +206,29 @@ Antigravity reads skills from `.agents/skills/` directly (the canonical source),
 - **`.agents/agents/`** and **`.agents/skills/`** — these are managed library files. If you edit them locally, `update` will back them up and restore the shipped version.
 
 If you want to add a custom agent or skill that won't be overwritten, the right place is a separate directory outside `.agents/` (e.g., `my-agents/`), then reference it from your `AGENTS.md`.
+
+---
+
+## Slash commands for your AI
+
+Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, and Codex.
+
+| Command | What it does |
+|---|---|
+| `/spec-plan` | Plan a phase: branches, scope, tasks with Affected Paths and Depends On, a generated Parallel Waves section, and a final delivery task |
+| `/spec-implement [phase] [task]` | Implement a phase: plans parallel waves, claims tasks, keeps `t-###.md` and `impl.md` in sync, runs `/code-cleanup --diff` before review |
+| `/spec-compile [all\|completed\|incomplete\|NNN\|NNN-NNN]` | Compile completed and incomplete specs into `specs/compiled/` |
+| `/spec-explain [phase]` | Explain a phase: what it fixes, what it develops, why, where, and its state |
+| `/explain <module or feature> [--non-technical]` | Explain how part of the codebase works, technically by default or in plain language |
+| `/feasibility <feature>` | Decide whether a feature can be built here and how: verdict, effort, options, risks, unknowns |
+| `/code-cleanup [paths] [--diff <base>]` | List unnecessary comments, ask which to delete, then delete only those |
+| `/workspace-cleanup` | List files that may not belong in the workspace and delete the ones you approve |
+
+`/spec-explain`, `/explain`, and `/feasibility` never change files unless you ask them to save. `/code-cleanup` and `/workspace-cleanup` delete nothing without your explicit answer.
+
+### Script-first skills
+
+Repetitive steps run as small Python 3 scripts (standard library only) that print JSON, so the AI keeps only the judgment work. Run them with `python3`, for example `python3 .agents/skills/spec-planner/scripts/specs.py list`. If a script is missing or fails, the skill says so and falls back to the manual steps. Skills that scaffold files render templates from their `assets/` folder.
 
 ---
 
