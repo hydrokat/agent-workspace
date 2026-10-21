@@ -5,7 +5,7 @@ import { resolve as resolveModel, agents as allAgents } from '../core/models.js'
 import { getProvider } from '../core/providers.js';
 import { load as loadManifest } from '../core/manifest.js';
 import { log, configure } from '../core/log.js';
-import { listAgents } from '../core/assets.js';
+import { listAgents, listSkills } from '../core/assets.js';
 
 function check(passed, label) {
   if (passed) log.ok(label);
@@ -27,6 +27,25 @@ export async function run({ flags, cwd }) {
     results.push(check(existsSync(join(cwd, dir)), `Dir exists: ${dir}`));
   }
   results.push(check(existsSync(join(cwd, 'AGENTS.md')), 'AGENTS.md present'));
+
+  const templateSkills = new Set(listSkills());
+  for (const skillName of listSkills()) {
+    const skillPath = join(cwd, '.agents', 'skills', skillName, 'SKILL.md');
+    results.push(check(existsSync(skillPath), `Skill exists: .agents/skills/${skillName}`));
+  }
+
+  const canonicalSkillsDir = join(cwd, '.agents', 'skills');
+  if (existsSync(canonicalSkillsDir)) {
+    for (const entry of readdirSync(canonicalSkillsDir)) {
+      if (entry.endsWith('.bak')) continue;
+      const p = join(canonicalSkillsDir, entry);
+      let isDir = false;
+      try { isDir = lstatSync(p).isDirectory(); } catch { /* absent */ }
+      if (isDir) {
+        results.push(check(templateSkills.has(entry), `No stale skill: .agents/skills/${entry}`));
+      }
+    }
+  }
 
   for (const providerName of providers) {
     const provider = getProvider(providerName);
@@ -77,7 +96,30 @@ export async function run({ flags, cwd }) {
       }
       results.push(check(docOk, `[${providerName}] compat doc is symlink or absent: ${provider.doc}`));
     }
+
+    if (!provider.nativeSkills) {
+      for (const skillName of listSkills()) {
+        const skillPath = join(cwd, provider.skillsDir, skillName, 'SKILL.md');
+        results.push(check(existsSync(skillPath), `[${providerName}] skill exists: ${skillName}`));
+      }
+
+      const providerSkillsDir = join(cwd, provider.skillsDir);
+      if (existsSync(providerSkillsDir)) {
+        for (const entry of readdirSync(providerSkillsDir)) {
+          if (entry.endsWith('.bak')) continue;
+          const p = join(providerSkillsDir, entry);
+          let isDir = false;
+          try { isDir = lstatSync(p).isDirectory(); } catch { /* absent */ }
+          if (isDir) {
+            results.push(check(templateSkills.has(entry), `[${providerName}] no stale skill: ${entry}`));
+          }
+        }
+      }
+    }
   }
+
+  const legacyGeminiSkills = join(cwd, '.gemini', 'skills');
+  results.push(check(!existsSync(legacyGeminiSkills), 'No legacy .gemini/skills directory'));
 
   const knownAgents = allAgents();
   const templateAgents = listAgents();
