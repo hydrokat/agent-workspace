@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### CLI Package
+
+- **Universal stale skills and agents cleanup:** `update` and `sync` prune deleted templates across all providers (`.agents/skills`, `.claude/skills`, and legacy `.gemini/skills`). Files removed from a template skill are cleaned up within existing skill directories (preserving `.bak` files). Stale agent definitions removed from templates are pruned from `.agents/agents` and provider directories (`.claude/agents`, etc.). Removed files and directories are pruned from `manifest.managedFiles`.
+- `doctor` reports stale skills and agents in `.agents/skills` and provider directories, and flags any existing `.gemini/skills` directory as an error.
+
+### tandem
+
+- **Modifier key requirements and multi-modifier chords:** All tandem keyboard shortcuts now require at least one modifier key (`Ctrl`, `Alt`, `Shift`) with support for multi-modifier combinations (`Ctrl+Alt+<key>`). Bare function keys (`F1`–`F12`) are replaced with `Alt+<key>` and `Ctrl+Alt+<key>` shortcuts (e.g. `Alt+h` for help, `Ctrl+Alt+n` for add-agent, `Alt+s` for status window, `Alt+q` for queries tab, `Ctrl+Alt+w` for status window focus, `Ctrl+Alt+x` for quit menu, `Ctrl+Alt+r` for reset layout, `Ctrl+Alt+z` for reflow).
+- Enabled `set-option -g extended-keys on` in tmux layout to ensure terminal pass-through of multi-modifier combinations.
+- Updated Textual app shortcut keys and action bindings across `StatusApp`, `QueriesTab`, and `WizardApp`.
+- Updated SVG screenshots and documentation across the README and tandem README.
+
 ## [1.2.0] — 2026-10-21
 
 ### CLI Package
