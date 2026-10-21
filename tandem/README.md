@@ -62,7 +62,19 @@ The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / star
 
 The conversations themselves stay in each CLI's own history; tandem stores only the IDs (in `tandem-session.json` and `<coordination>/conversations/`). Claude is only asked to `--resume` when its transcript exists (`$CLAUDE_CONFIG_DIR` or `~/.claude`, `projects/*/<uuid>.jsonl`); a session that never got a message starts fresh under the same ID. A Claude agent whose folder was deleted starts a new conversation, because Claude keeps conversations per folder. `F11` on an exited agent reopens its conversation the same way.
 
-**Update without quitting (`F10` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. Agents are not touched or restarted. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
+**Update without quitting (`F10` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. The same `update` also updates the installed AI CLIs (`claude update`, `agy update`, codex through its package manager) without asking, because you confirmed the update. Agents are not restarted automatically. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
+
+**Agents still on the old CLI.** A running `claude` or `agy` keeps the binary it started with. tandem records each agent's CLI version when it launches it (the pane tag `@tandem_cli_version`). When the update finishes, tandem compares those with the versions installed now and lists the agents that are behind (or were started by an older tandem and have no recorded version):
+
+```
+These agents still run an older CLI:
+  [x] 1 planner 1      claude·opus      2.1.305 → 2.1.310  resumes conversation
+  [ ] 2 implementer 1  claude·sonnet    2.1.305 → 2.1.310  busy (claim p-004 t-002)
+  [ ] 3 implementer 2  agy·flash        1.3.5 → 1.3.6      would start a new chat
+Restart: a=all  numbers=toggle  Enter=restart selected  n=none
+```
+
+Enter restarts the selected agents with `respawn-pane -k`, relaunching each with its model and folder and **resuming its conversation** (the same flags as a resumed session), then autosaves. Pre-selected are agents that can reopen their conversation and are not busy. An agent holding a claim with a fresh heartbeat is marked busy, because restarting interrupts its current turn; one with no conversation to reopen would start a new chat. Neither is selected unless you pick it. A restart that fails keeps the pane and shows the error; the others continue. Without a terminal, tandem only lists the agents. agy may replace its binary under a running agent when it updates, so a restart is advised for agy agents. tandem still never types into or reads an agent pane.
 
 ## Quota line
 

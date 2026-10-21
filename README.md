@@ -75,9 +75,30 @@ What it does:
 - If you edited a managed file locally, it backs it up to `<file>.bak` before overwriting
 - Refreshes the model table and operating principles in `AGENTS.md` (the managed block between `<!-- managed:start -->` and `<!-- managed:end -->`)
 - Fully regenerates provider outputs, fixing any manual drift
+- Offers to update your AI CLIs (see below)
 - **Never touches** your project content: `specs/`, `knowledgebase/business-flows/`, or any knowledgebase entries you wrote yourself
 
 `update` reads your saved manifest so it remembers which providers you configured — no re-prompting required.
+
+#### Updating your AI CLIs
+
+After the workspace files are updated, `update` looks at the AI CLIs this workspace uses: `claude`, `agy` (Antigravity), and `codex` when it is a configured provider, plus `claude` and `agy` always, because tandem launches them. Only CLIs already on your `PATH` are considered; `update` never installs one and never uses `sudo`.
+
+```
+▶ AI CLIs
+  claude  2.1.305  native   latest unknown → claude update
+  codex   0.52.0   npm      0.54.1 available → npm install -g @openai/codex@latest
+Check and apply these updates? [y/N]
+  ✔ claude  2.1.305 → 2.1.310
+  ✖ codex   update failed (exit 1) — run it yourself: npm install -g @openai/codex@latest
+```
+
+- Each CLI is updated with its own documented command (`claude update`, `agy update`, and for codex `npm install -g @openai/codex@latest` or `brew upgrade --cask codex`). Where a CLI has no documented command that is safe to run, for example codex installed with its install script, `update` prints the command for you to run. It never pipes a download into a shell.
+- Where a read-only check exists (npm, Homebrew), a CLI that is already current is left out. `claude` and `agy` have no check-only mode, so they are listed as "latest unknown" and their updater decides.
+- **Consent:** one question, default No. `--update-clis` or `--yes` applies without asking; `--no-update-clis` skips (and wins over `--yes`); `--dry-run` only lists. With no terminal and no flag, it prints one line saying how to apply and does nothing. Set `AGENT_WORKSPACE_INTERACTIVE=1` to answer from piped input.
+- `DISABLE_UPDATES=1` is respected for claude: it is skipped with a note.
+- A failed or timed-out (5 minutes) CLI update never fails `update`; it is reported with the command to run yourself. A CLI still below tandem's minimum version gets a warning.
+- `--json` adds an `aiClis` record with the results. The step runs last, so a slow CLI update cannot leave the workspace half-updated.
 
 ---
 
@@ -125,6 +146,7 @@ npx hydrokat/agent-workspace doctor --json
 | `--link-all` | `init` | Link all sibling codebases without prompting |
 | `--git` / `--no-git` | `init` | Create (or skip) a blank local git repo without asking |
 | `--commit` / `--no-commit` | `update` | Commit (or skip committing) the files the update changed without asking |
+| `--update-clis` / `--no-update-clis` | `update` | Update (or skip updating) the installed AI CLIs without asking |
 | `--dry-run` | `init`, `update` | Show what would change without writing anything |
 | `--quiet` | all | Suppress per-file output; show only summaries |
 | `--verbose` | all | Show all actions, including unchanged files |
