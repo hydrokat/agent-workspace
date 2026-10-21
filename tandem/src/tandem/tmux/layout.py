@@ -38,6 +38,7 @@ def conf_text(history: int = 50000) -> str:
     """tandem-owned tmux config; the user's ~/.tmux.conf is never loaded."""
     return "\n".join([
         "set-option -g mouse on",
+        "set-option -g extended-keys on",
         "set-option -g prefix None",
         "set-option -g prefix2 None",
         "set-option -g escape-time 10",

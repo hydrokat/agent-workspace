@@ -143,7 +143,7 @@ def focus(layout: Layout, config: Config, target: str) -> None:
         return
     layout.client.run_checked("select-pane", "-t", status.id)
     if target == "queries":
-        layout.client.send_keys_own(status.id, "F6")
+        layout.client.send_keys_own(status.id, "M-q")
 
 
 def close_agent(layout: Layout, config: Config) -> None:
@@ -390,7 +390,8 @@ def show_help() -> None:
 
 
 def placeholder(role: str) -> None:
-    print(f"No {role}s yet. Press F2 to add one.")
+    add_key = keys.key_for("add-agent") or "Ctrl+Alt+n"
+    print(f"No {role}s yet. Press {add_key} to add one.")
     signal.pause()
 
 

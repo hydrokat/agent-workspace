@@ -97,7 +97,7 @@ def test_refresh_key_picks_up_new_sessions(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         assert app.query_one("#sessions", OptionList).option_count == 0
         write_session(coord, "planner-1", role="planner")
-        await p.press("r")
+        await p.press("alt+r")
         await app.workers.wait_for_complete()
         await p.pause()
         assert app.query_one("#sessions", OptionList).option_count == 1
@@ -115,7 +115,7 @@ def test_goto_focuses_the_agents_pane(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         app.query_one("#sessions", OptionList).focus()
         await p.press("down")
-        await p.press("g")
+        await p.press("alt+g")
         assert tmux.calls == [("select-pane", "-t", "%7")]
 
     run_app(app, script)
@@ -131,7 +131,7 @@ def test_goto_ignores_invalid_pane_ids(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         app.query_one("#sessions", OptionList).focus()
         await p.press("down")
-        await p.press("g")
+        await p.press("alt+g")
         assert tmux.calls == []
 
     run_app(app, script)
@@ -158,11 +158,11 @@ def test_escape_sequences_in_spec_titles_never_reach_the_screen(tmp_path: Path) 
     run_app(app, script)
 
 
-def test_queries_tab_exists_and_f6_switches_to_it(tmp_path: Path) -> None:
+def test_queries_tab_exists_and_alt_q_switches_to_it(tmp_path: Path) -> None:
     app = StatusApp(workspace(tmp_path), CoordStore(tmp_path / "c"))
 
     async def script(p: Pilot[None]) -> None:
-        await p.press("f6")
+        await p.press("alt+q")
         assert app.query_one(TabbedContent).active == "queries-pane"
 
     run_app(app, script)

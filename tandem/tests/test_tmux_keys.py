@@ -1,13 +1,112 @@
 import shlex
+import pytest
 
 from tandem.tmux import keys
 from tandem.tmux.client import ALLOWED
 
-EXPECTED = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
+EXPECTED_KEYS = {
+    "Alt+h",
+    "Ctrl+Alt+n",
+    "Alt+Up",
+    "Alt+Down",
+    "Alt+s",
+    "Alt+q",
+    "Alt+1",
+    "Alt+2",
+    "Ctrl+Alt+w",
+    "Ctrl+Alt+x",
+    "Ctrl+Alt+r",
+    "Ctrl+Alt+z",
+}
 
 
-def test_keymap_covers_documented_keys() -> None:
-    assert {b.key for b in keys.KEYMAP} == EXPECTED
+def test_parse_shortcut_human_format() -> None:
+    assert keys.parse_shortcut("Alt+h") == (("Alt",), "h")
+    assert keys.parse_shortcut("Ctrl+Alt+n") == (("Ctrl", "Alt"), "n")
+    assert keys.parse_shortcut("Alt+Shift+F1") == (("Alt", "Shift"), "F1")
+    assert keys.parse_shortcut("Ctrl+Alt+Shift+r") == (("Ctrl", "Alt", "Shift"), "r")
+
+
+def test_parse_shortcut_tmux_format() -> None:
+    assert keys.parse_shortcut("M-h") == (("Alt",), "h")
+    assert keys.parse_shortcut("C-M-n") == (("Ctrl", "Alt"), "n")
+    assert keys.parse_shortcut("M-S-F1") == (("Alt", "Shift"), "F1")
+    assert keys.parse_shortcut("C-M-S-r") == (("Ctrl", "Alt", "Shift"), "r")
+    assert keys.parse_shortcut("M-Up") == (("Alt",), "Up")
+    assert keys.parse_shortcut("M-1") == (("Alt",), "1")
+
+
+def test_parse_shortcut_textual_format() -> None:
+    assert keys.parse_shortcut("alt+h") == (("Alt",), "h")
+    assert keys.parse_shortcut("ctrl+alt+n") == (("Ctrl", "Alt"), "n")
+    assert keys.parse_shortcut("alt+shift+f1") == (("Alt", "Shift"), "F1")
+    assert keys.parse_shortcut("ctrl+alt+shift+r") == (("Ctrl", "Alt", "Shift"), "r")
+
+
+def test_modifier_order_canonicalization() -> None:
+    assert keys.parse_shortcut("Shift+Alt+Ctrl+r") == (("Ctrl", "Alt", "Shift"), "r")
+    assert keys.parse_shortcut("Alt+Ctrl+n") == (("Ctrl", "Alt"), "n")
+    assert keys.parse_shortcut("Shift+Ctrl+r") == (("Ctrl", "Shift"), "r")
+
+
+def test_format_shortcut() -> None:
+    assert keys.format_shortcut("M-h") == "Alt+h"
+    assert keys.format_shortcut("c-m-n") == "Ctrl+Alt+n"
+    assert keys.format_shortcut("shift+alt+f1") == "Alt+Shift+F1"
+    assert keys.format_shortcut("C-M-S-r") == "Ctrl+Alt+Shift+r"
+
+
+def test_tmux_key() -> None:
+    assert keys.tmux_key("Alt+h") == "M-h"
+    assert keys.tmux_key("Ctrl+Alt+n") == "C-M-n"
+    assert keys.tmux_key("Alt+Shift+F1") == "M-S-F1"
+    assert keys.tmux_key("Ctrl+Alt+Shift+r") == "C-M-S-r"
+    assert keys.tmux_key("Alt+Up") == "M-Up"
+    assert keys.tmux_key("Alt+1") == "M-1"
+
+
+def test_textual_key() -> None:
+    assert keys.textual_key("Alt+h") == "alt+h"
+    assert keys.textual_key("Ctrl+Alt+n") == "ctrl+alt+n"
+    assert keys.textual_key("Alt+Shift+F1") == "alt+shift+f1"
+    assert keys.textual_key("Ctrl+Alt+Shift+r") == "ctrl+alt+shift+r"
+    assert keys.textual_key("Alt+Up") == "alt+up"
+
+
+def test_reject_zero_modifier_shortcut() -> None:
+    for invalid in ("F1", "a", "Enter", "Up", "h", "1"):
+        with pytest.raises(ValueError, match="at least one modifier"):
+            keys.parse_shortcut(invalid)
+
+
+def test_reject_duplicate_modifier() -> None:
+    for invalid in ("Ctrl+Ctrl+a", "C-C-n", "Alt+M-h", "Shift+shift+x"):
+        with pytest.raises(ValueError, match="[Dd]uplicate"):
+            keys.parse_shortcut(invalid)
+
+
+def test_reject_unknown_modifier() -> None:
+    for invalid in ("Super+a", "Cmd+x", "Win+1", "Foo+bar"):
+        with pytest.raises(ValueError, match="[Uu]nknown"):
+            keys.parse_shortcut(invalid)
+
+
+def test_reject_empty_base_key() -> None:
+    for invalid in ("", "Ctrl+", "C-M-", "Alt+", "Ctrl+Alt+"):
+        with pytest.raises(ValueError):
+            keys.parse_shortcut(invalid)
+
+
+def test_binding_properties() -> None:
+    b = keys.Binding("Ctrl+Alt+n", "Agents", "add an agent", "New agent", "cmd")
+    assert b.modifiers == ("Ctrl", "Alt")
+    assert b.base_key == "n"
+    assert b.tmux_key == "C-M-n"
+    assert b.textual_key == "ctrl+alt+n"
+
+
+def test_keymap_covers_expected_keys() -> None:
+    assert {b.key for b in keys.KEYMAP} == EXPECTED_KEYS
 
 
 def test_keys_are_unique() -> None:
@@ -27,11 +126,6 @@ def test_bound_tmux_commands_are_on_allow_list_or_run_shell() -> None:
         assert first in ALLOWED | {"run-shell"}, (b.key, first)
 
 
-def test_no_chord_keys_that_claude_or_agy_commonly_use() -> None:
-    for b in keys.KEYMAP:
-        assert b.key.startswith("F") and not b.key.startswith(("C-", "M-")), b.key
-
-
 def test_hint_bar_is_generated_from_keymap() -> None:
     bar = keys.hint_bar()
     for b in keys.KEYMAP:
@@ -45,11 +139,12 @@ def test_help_lines_cover_every_key() -> None:
         assert b.key in text
 
 
-def test_bind_commands_use_root_table_and_the_python_launcher() -> None:
+def test_bind_commands_use_root_table_and_tmux_key() -> None:
     cmds = keys.bind_commands(python="/usr/bin/python 3")
     assert len(cmds) == len(keys.KEYMAP)
+    expected_tmux = {keys.tmux_key(k) for k in EXPECTED_KEYS}
     for argv in cmds:
-        assert argv[:3] == ["bind-key", "-n", argv[2]] and argv[2] in EXPECTED
+        assert argv[:3] == ["bind-key", "-n", argv[2]] and argv[2] in expected_tmux
     joined = " ".join(" ".join(a) for a in cmds)
     assert "'/usr/bin/python 3'" in joined
 
@@ -78,4 +173,13 @@ def test_status_left_swaps_hint_while_resizing() -> None:
 
 
 def test_resize_is_documented_in_help() -> None:
-    assert "F12" in "\n".join(keys.help_lines())
+    assert "Ctrl+Alt+z" in "\n".join(keys.help_lines())
+
+
+def test_tandem_keys_override() -> None:
+    env = {"TANDEM_KEYS": "help=Alt+F1,quit=Ctrl+Alt+q"}
+    custom = keys.keymap(env)
+    assert custom[0].key == "Alt+F1"
+    assert custom[9].key == "Ctrl+Alt+q"
+    # Unoverridden bindings remain default
+    assert custom[1].key == "Ctrl+Alt+n"

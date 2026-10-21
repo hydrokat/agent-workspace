@@ -210,7 +210,7 @@ def test_user_can_mark_withdrawn(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         await refresh(app, p)
         tab(app).query_one("#q-list", OptionList).focus()
-        await p.press("down", "w")
+        await p.press("down", "alt+w")
         await p.pause()
         assert CoordStore(root).queries()[0].status == "withdrawn"
 
@@ -310,7 +310,7 @@ def test_goto_asking_agent_pane(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         await refresh(app, p)
         tab(app).query_one("#q-list", OptionList).focus()
-        await p.press("down", "g")
+        await p.press("down", "alt+g")
         assert ("select-pane", "-t", "%4") in tmux.calls
 
     run_app(app, script)

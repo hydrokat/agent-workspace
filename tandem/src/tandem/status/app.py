@@ -22,7 +22,7 @@ from tandem.tmux.client import TmuxClient, socket_for
 COMPACT_BELOW_ROWS = 8
 AUTOSAVE_SECONDS = 15.0
 _PANE_ID = re.compile(r"^%\d+$")
-HINTS = "Tab switch tabs · ↑↓ move · g go to agent's pane · r refresh · F6 queries"
+HINTS = "Tab switch tabs · ↑↓ move · Alt+g go to agent's pane · Alt+r refresh · Alt+q queries"
 
 
 class StatusApp(App[None]):
@@ -36,9 +36,9 @@ class StatusApp(App[None]):
     .compact TabbedContent { height: auto; }
     """
     BINDINGS = [
-        Binding("r", "refresh_now", "Refresh"),
-        Binding("g", "goto", "Go to agent"),
-        Binding("f6", "show_queries", "Queries"),
+        Binding("alt+r", "refresh_now", "Refresh"),
+        Binding("alt+g", "goto", "Go to agent"),
+        Binding("alt+q", "show_queries", "Queries"),
     ]
 
     def __init__(self, workspace: Path, store: CoordStore, tmux: TmuxClient | None = None,

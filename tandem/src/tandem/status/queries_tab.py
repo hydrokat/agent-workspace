@@ -18,7 +18,7 @@ from tandem.status.render import age
 from tandem.tmux.client import TmuxClient
 
 _PANE_ID = re.compile(r"^%\d+$")
-HINTS = "↑↓ move · Enter answer · 1-9 pick option · Ctrl+S send · Esc cancel · w withdraw · g go to agent"
+HINTS = "↑↓ move · Enter answer · 1-9 pick option · Ctrl+S send · Esc cancel · Alt+w withdraw · Alt+g go to agent"
 EMPTY = "No open questions. Agents keep working while they wait."
 
 
@@ -28,8 +28,8 @@ class QueriesTab(Vertical):
     BINDINGS = [
         Binding("ctrl+s", "send", "Send"),
         Binding("escape", "cancel", "Cancel"),
-        Binding("w", "withdraw", "Withdraw"),
-        Binding("g", "goto", "Go to agent"),
+        Binding("alt+w", "withdraw", "Withdraw"),
+        Binding("alt+g", "goto", "Go to agent"),
     ]
     DEFAULT_CSS = """
     QueriesTab #q-list { height: 1fr; min-height: 3; }

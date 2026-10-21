@@ -16,10 +16,10 @@ ModelLoader = Callable[[str], list[Model]]
 HINTS = {
     Step.CLI: "↑↓ move  Enter pick  Esc cancel  ? help",
     Step.ROLE: "↑↓ move  Enter pick  Esc back",
-    Step.MODEL: "↑↓ move  Enter pick  / filter or type an ID  Esc back",
+    Step.MODEL: "↑↓ move  Enter pick  Alt+f filter or type an ID  Esc back",
     Step.PERMS: "↑↓ move  Enter pick  Esc back",
     Step.CWD: "Type a directory (blank = workspace root)  Enter next  Esc back",
-    Step.SUMMARY: "Enter on a row: edit  a add another  d delete  L launch all  Esc back",
+    Step.SUMMARY: "Enter on a row: edit  Alt+a add another  Alt+d delete  Shift+L launch all  Esc back",
 }
 ROLE_TEXT = {
     "planner": "Planner      — left column; plans and breaks down specs",
@@ -40,9 +40,9 @@ class WizardApp(App[list[AgentSpec] | None]):
     BINDINGS = [
         Binding("escape", "go_back", "Back"),
         Binding("L", "launch", "Launch all"),
-        Binding("a", "add", "Add"),
-        Binding("d", "delete", "Delete"),
-        Binding("slash", "focus_input", "Filter"),
+        Binding("alt+a", "add", "Add"),
+        Binding("alt+d", "delete", "Delete"),
+        Binding("alt+f", "focus_input", "Filter"),
     ]
 
     def __init__(self, installed: Mapping[str, bool], model_loader: ModelLoader, single: bool = False) -> None:
