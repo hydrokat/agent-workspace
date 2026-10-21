@@ -35,6 +35,11 @@ def installed_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     return ws
 
 
+def test_plan_mentions_the_ai_cli_update(tmp_path: Path) -> None:
+    text = "\n".join(updater.plan(tmp_path, "o/r"))
+    assert "AI CLIs" in text and "claude update" in text
+
+
 def test_runs_update_sync_then_reload_in_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ws = installed_workspace(tmp_path, monkeypatch)
     rec, quiet = Recorder(), Recorder()

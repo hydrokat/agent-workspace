@@ -30,6 +30,8 @@ class Launch:
     session_id: str = ""
     spec: str = ""
     """JSON of the AgentSpec fields needed to rebuild this agent (saved/resumed sessions)."""
+    cli_version: str = ""
+    """The CLI version this pane was launched with, so an update can tell which agents are behind."""
 
 
 def conf_text(history: int = 50000) -> str:
@@ -76,7 +78,8 @@ class Layout:
     def _tag(self, pane_id: str, launch: Launch) -> None:
         for name, value in (("kind", launch.kind), ("role", launch.role), ("index", str(launch.index)),
                             ("label", launch.label), ("session", launch.session_id),
-                            ("argv", json.dumps(launch.argv)), ("spec", launch.spec)):
+                            ("argv", json.dumps(launch.argv)), ("spec", launch.spec),
+                            ("cli_version", launch.cli_version)):
             self.client.run_checked("set-option", "-p", "-t", pane_id, f"@tandem_{name}", value)
 
     def build(self, width: int, height: int, left: Launch, right: Launch, status: Launch) -> dict[str, str]:
@@ -196,10 +199,7 @@ class Layout:
         if dead != "1":
             return
         if launch is not None:
-            env = [arg for key, value in launch.env.items() for arg in ("-e", f"{key}={value}")]
-            self.client.run_checked("respawn-pane", "-k", "-t", pane_id, *env, *launch.argv)
-            self._tag(pane_id, launch)
-            self.refresh()
+            self._respawn(pane_id, launch)
             return
         argv = json.loads(raw)
         if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
@@ -207,6 +207,20 @@ class Layout:
         env = ["-e", f"TANDEM_SESSION_ID={session}", "-e", f"TANDEM_ROLE={role}",
                "-e", f"TANDEM_CLI={argv[0]}", "-e", f"TANDEM_COORD_DIR={coord_dir}"]
         self.client.run_checked("respawn-pane", "-k", "-t", pane_id, *env, *argv)
+        self.refresh()
+
+    def restart_live(self, pane_id: str, launch: Launch) -> None:
+        """Replace a running agent with ``launch`` (an update gave its CLI a new version); other panes are untouched."""
+        agent = next((p for p in self.panes() if p.id == pane_id and p.kind == "agent"), None)
+        if agent is None:
+            raise TmuxError(f"{pane_id} is not an agent pane")
+        self._respawn(pane_id, launch)
+
+    def _respawn(self, pane_id: str, launch: Launch) -> None:
+        env = [arg for key, value in launch.env.items() for arg in ("-e", f"{key}={value}")]
+        self.client.run_checked("respawn-pane", "-k", "-t", pane_id, *env, *launch.argv)
+        self._tag(pane_id, launch)
+        self._register(launch, pane_id)
         self.refresh()
 
     def focus(self, role: str) -> None:
