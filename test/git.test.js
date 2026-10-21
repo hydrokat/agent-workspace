@@ -217,8 +217,9 @@ describe('delivery guidance', () => {
     const dir = makeTmp();
     try {
       await runCli(['init', ...BASE], dir);
-      const skill = readFile(dir, '.agents/skills/spec-planner/SKILL.md');
-      assert.match(skill, /agent workspace itself is a git repository/i);
+      const delivery = readFile(dir, '.agents/skills/spec-planner/assets/delivery-task.md');
+      assert.match(delivery, /agent workspace itself is a git repository/i);
+      assert.match(readFile(dir, '.agents/skills/spec-planner/SKILL.md'), /Workspace Is Delivered Too/);
     } finally { cleanup(dir); }
   });
 });

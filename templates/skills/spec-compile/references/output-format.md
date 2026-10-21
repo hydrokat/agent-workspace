@@ -1,6 +1,6 @@
 # Compiled Spec Output Format
 
-Both output files live in `specs/compiled/`. Create the directory if it does not exist (it will have been cleared in Step 4 of the workflow).
+Both output files live in `specs/compiled/`. `specs.py compile` renders them from `assets/completed.md` and `assets/incomplete.md`, creating the directory if it does not exist after clearing the old output. The layout below is the contract those templates follow; use it when writing the files by hand.
 
 ---
 
