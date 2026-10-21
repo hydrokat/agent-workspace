@@ -1,0 +1,4 @@
+interface:
+  display_name: "Explain"
+  short_description: "Explain how a module or feature works"
+  default_prompt: "/explain"
