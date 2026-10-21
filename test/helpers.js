@@ -15,9 +15,9 @@ export function cleanup(dir) {
   rmSync(dir, { recursive: true, force: true });
 }
 
-export function runCli(args, cwd) {
+export function runCli(args, cwd, env = process.env) {
   return new Promise((resolve) => {
-    const proc = spawn(process.execPath, [BIN, ...args], { cwd, env: process.env });
+    const proc = spawn(process.execPath, [BIN, ...args], { cwd, env });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', d => { stdout += d; });
@@ -26,9 +26,9 @@ export function runCli(args, cwd) {
   });
 }
 
-export function runCliWithInput(args, cwd, input) {
+export function runCliWithInput(args, cwd, input, env = process.env) {
   return new Promise((resolve) => {
-    const proc = spawn(process.execPath, [BIN, ...args], { cwd, env: process.env });
+    const proc = spawn(process.execPath, [BIN, ...args], { cwd, env });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', d => { stdout += d; });

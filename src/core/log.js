@@ -32,6 +32,9 @@ export const log = {
   backedUp: (path) => emit('file', '•', `${path} (backed up)`),
   skipped: (path) => emit('file', '↷', `${path} (skipped)`),
   unchanged: (path) => emit('unchanged', '=', path),
+  data: (key, value) => {
+    if (_json) console.log(JSON.stringify({ level: 'data', key, value, ts: new Date().toISOString() }));
+  },
   summary: (lines) => {
     if (_json) return;
     const width = Math.max(...lines.map(l => l.length), 40);

@@ -27,6 +27,7 @@ Options:
   --dry-run              Show what would change without writing anything
   --git / --no-git       init: create (or skip creating) a local git repo without asking
   --commit / --no-commit update: commit (or skip committing) the files the update changed without asking
+  --update-clis / --no-update-clis update: update (or skip updating) the installed AI CLIs (claude, agy, codex) without asking
   --version              Print version
   --help                 Print this help
 
@@ -68,6 +69,8 @@ function parseArgs(argv) {
     else if (arg === '--no-git') { flags.git = false; }
     else if (arg === '--commit') { flags.commit = true; }
     else if (arg === '--no-commit') { flags.commit = false; }
+    else if (arg === '--update-clis') { flags.updateClis = true; }
+    else if (arg === '--no-update-clis') { flags.updateClis = false; }
     else if (arg === '--version') { flags.version = true; }
     else if (arg === '--help' || arg === '-h') { flags.help = true; }
     else if (arg === '--providers' && argv[i + 1]) { flags.providers = argv[++i].split(',').map(p => p.trim()); }
