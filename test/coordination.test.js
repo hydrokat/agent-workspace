@@ -27,6 +27,18 @@ describe('coordination skills', () => {
     assert.ok(skill.includes('Check Active & Planned Work'));
     assert.ok(skill.includes('## Affected Paths'));
     assert.ok(skill.includes('## Depends On'));
+    const task = readFile(dir, '.agents/skills/spec-planner/assets/task.md');
+    assert.ok(task.includes('## Affected Paths') && task.includes('## Depends On'));
+  });
+
+  it('spec-planner ships its templates and script and the skill calls them', () => {
+    for (const rel of ['scripts/specs.py', 'assets/impl.md', 'assets/task.md', 'assets/delivery-task.md']) {
+      assert.ok(fileExists(dir, `.agents/skills/spec-planner/${rel}`), rel);
+    }
+    const skill = readFile(dir, '.agents/skills/spec-planner/SKILL.md');
+    for (const needle of ['specs.py new-phase', 'specs.py new-task', 'specs.py lint', 'assets/']) {
+      assert.ok(skill.includes(needle), `mentions ${needle}`);
+    }
   });
 
   it('spec-implement claims, heartbeats, checks answers, and releases', () => {
@@ -34,6 +46,30 @@ describe('coordination skills', () => {
     for (const needle of ['coord.py claim', 'heartbeat', 'answers --mine', 'release', '--via cli']) {
       assert.ok(skill.includes(needle), `mentions ${needle}`);
     }
+  });
+
+  it('spec-implement and spec-compile run on specs.py and ship their templates', () => {
+    const implement = readFile(dir, '.agents/skills/spec-implement/SKILL.md');
+    for (const needle of ['specs.py set-status', 'specs.py normalize', 'specs.py resolve', 'assets/task-metadata.md']) {
+      assert.ok(implement.includes(needle), `spec-implement mentions ${needle}`);
+    }
+    const compile = readFile(dir, '.agents/skills/spec-compile/SKILL.md');
+    assert.ok(compile.includes('specs.py compile') && compile.includes('Manual Fallback'));
+    for (const rel of ['spec-implement/assets/task-metadata.md', 'spec-compile/assets/completed.md', 'spec-compile/assets/incomplete.md']) {
+      assert.ok(fileExists(dir, `.agents/skills/${rel}`), rel);
+    }
+  });
+
+  it('spec-implement plans parallel waves with worktree subagents and a sequential fallback', () => {
+    const implement = readFile(dir, '.agents/skills/spec-implement/SKILL.md');
+    for (const needle of ['## Step 6a', 'specs.py waves', '<working-branch>--t-###', 'Sequential mode', 'worktree isolation',
+      'Never run tasks with overlapping']) {
+      assert.ok(implement.includes(needle), `spec-implement mentions ${needle}`);
+    }
+    for (const needle of ['coord.py claim', 'coord.py release']) assert.ok(implement.includes(needle), needle);
+    const planner = readFile(dir, '.agents/skills/spec-planner/SKILL.md');
+    assert.ok(planner.includes('specs.py waves') && planner.includes('Parallel Waves'));
+    assert.ok(readFile(dir, '.agents/skills/spec-planner/assets/impl.md').includes('## Parallel Waves'));
   });
 
   it('both skills degrade gracefully without coordination', () => {

@@ -20,7 +20,7 @@ Determine the requested implementation scope before editing files.
 | `/spec-implement p-002-agent-workspace t-003` | Only `specs/p-002-agent-workspace/t-003.md` |
 | `/spec-implement t-003` | `t-003.md` in the active or latest incomplete phase |
 
-If scope is ambiguous, inspect `specs/` and choose the latest `p-###-*` phase with incomplete tasks. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create new legacy spec paths. Tell the user which scope was selected.
+Resolve the phase argument with `python3 .agents/skills/spec-planner/scripts/specs.py resolve [<phase>]` (it accepts `p-002`, `002`, `2`, the full directory name, or nothing for the latest phase with an incomplete task). If scope is ambiguous, inspect `specs/` and choose the latest `p-###-*` phase with incomplete tasks. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create new legacy spec paths. Tell the user which scope was selected.
 
 ## Step 1: Prepare The Branch
 
@@ -46,29 +46,17 @@ Do not begin implementation until the current spec intent, task objectives, exis
 
 ## Step 3: Normalize Task Metadata
 
-Every selected task file must include or be updated to include these sections before or during execution:
+Every selected task file must include these sections before or during execution: **Agent Assignment**, **Knowledgebase References**, **Progress**, and **Knowledgebase Updates**. Add the missing ones with:
 
-```markdown
-## Agent Assignment
-- **Primary Agent**: [agent-name]
-- **Supporting Agents**: [agent-name, if needed]
-- **Skills**: [caveman, task-specific skill-name, if needed]
-
-## Knowledgebase References
-- [relative/path.md] — [why it matters]
-
-## Progress
-- [ ] Read spec and task context
-- [ ] Assigned appropriate agent and skills
-- [ ] Implemented changes
-- [ ] Updated knowledgebase
-- [ ] Validated changes
-
-## Knowledgebase Updates
-- [ ] [relative/path.md] — [summary of update needed or completed]
+```bash
+python3 .agents/skills/spec-planner/scripts/specs.py normalize <phase> <task>
 ```
 
+The script appends only the sections the file does not already have (a `Knowledge References` or `Knowledge Updates` section counts), copied from `assets/task-metadata.md`, before `## Status`. It never rewrites existing content. Then replace every `[...]` placeholder with real content: the primary agent, supporting agents, and skills (including `caveman` when available), the knowledgebase files that matter and why, and the updates needed.
+
 If no relevant knowledgebase reference exists, create one in the appropriate `knowledgebase/` directory before or during implementation and reference it from the task.
+
+If `specs.py` is unavailable or fails, say so and add the sections by hand from `assets/task-metadata.md`.
 
 ## Step 4: Assign Agents And Skills
 
@@ -112,7 +100,32 @@ Forbidden comments:
 When editing code:
 1. Prefer clear names, small functions, and direct structure over explanatory comments.
 2. Put implementation notes, tradeoffs, and follow-up work in the task file or knowledgebase, not in source comments.
-3. Before marking a task complete, remove unnecessary comments and keep only documentation comments that add durable value.
+3. Before marking a task complete, run `/code-cleanup --diff <merge-target>` (from the `code-cleanup` skill): it lists the unnecessary comments on the lines you changed, asks which to delete, and deletes only the approved ones. Keep only documentation comments that add durable value. If `code-cleanup` is not installed, remove unnecessary comments by hand under the same rules.
+
+## Step 6a: Plan Parallel Waves
+
+Skip this step when only one task is selected. Otherwise work out which of the selected tasks can run at the same time before starting any of them:
+
+```bash
+python3 .agents/skills/spec-planner/scripts/specs.py waves <phase> [--max-parallel N] [--cleared "<gate text>"]
+```
+
+The script orders the unfinished tasks into waves from each task's `## Depends On` and `## Affected Paths`. Tasks with overlapping paths (equal, parent and child, or a shared hot file such as `CHANGELOG.md`, `package.json`, a lockfile, or `test/pack.test.js`) never share a wave. A task with no `## Affected Paths` runs alone. The delivery task runs alone, last. A `## Depends On` entry that is not a task id (for example "PR #13 merged") is a **gate**: the task is `gated` until the user confirms it. It reports each task as `ready`, `waiting`, `gated`, `running`, `blocked`, `in-review`, or `done`, with the reason (`depends:t-002`, `paths:<path>`, `gate:<text>`, `unknown-footprint`), and exits `1` naming a dependency cycle. Tasks claimed through `agent-coordination` or marked In Progress are `running`.
+
+1. Show the plan as a table: wave, tasks, and why each task is not in an earlier wave.
+2. For every gate, ask the user whether it is cleared. Re-run `waves` with `--cleared "<gate text>"` for the ones that are.
+3. Ask once: run the waves **in parallel** as shown, or **sequentially**. Do not ask again per wave unless a merge conflicts or tests fail.
+
+**Parallel mode** is allowed only when this CLI can spawn subagents with worktree isolation (for example Claude Code's Agent tool with `isolation: "worktree"`). Never drive another CLI from outside or by keystrokes. For each wave:
+1. The orchestrator (this session) stays on the working branch. Each task gets its own worktree and branch `<working-branch>--t-###` (task id from `waves`, never typed by hand), cut from the working branch's current HEAD.
+2. Start one subagent per task, in the role from the task's Agent Assignment. Each subagent claims its task (`coord.py claim` with its worktree and paths), follows Steps 2 to 8 for that task only, and commits on its task branch. It never pushes, never merges, and never edits files outside its task's `## Affected Paths` plus its own `t-###.md`. It does not change `impl.md` or run `set-status`; it reports a summary and its test results instead.
+3. Only the orchestrator edits `impl.md`, through `specs.py set-status`, so parallel tasks never write the same file.
+4. Before starting a wave, run the full test suite on the working branch; do not start a wave on a failing baseline. When the wave finishes, merge the task branches into the working branch in task-number order and run the full test suite after each merge. A merge fails the check when the suite has a failure the baseline did not have. If a merge conflicts or the check fails, stop merging that wave, abort or revert that merge, mark the task `Blocked` with the reason, and keep the tasks already merged.
+5. Remove the task worktrees and branches, release the claims (`coord.py release`), re-run `waves`, and start the next wave.
+
+**Sequential mode** is the fallback when subagents are unavailable (Codex, agy, or any CLI without them) or the user prefers it. Run the tasks one at a time in `order` from `waves`, using Step 6 for each. Under tandem, several implementer panes can each run `/spec-implement`: `coord.py claim` stops two panes from taking the same task, and `waves` shows claimed tasks as `running`.
+
+A blocked or failed task only holds back the tasks that depend on it. Unrelated tasks in later waves still run.
 
 ## Step 6: Execute One Task At A Time
 
@@ -120,7 +133,7 @@ Before the first task, run `python3 .agents/skills/agent-coordination/scripts/co
 
 For each task:
 0. Claim it: `coord.py claim <phase> <task> --branch <branch> --worktree <path> --paths <affected paths>`. On a conflict, pick another unblocked task. Never take over a stale claim without asking the user via `coord.py ask`. If `coord.py overview` shows another implementer session is active, work in a dedicated worktree or branch.
-1. Mark the task as in progress in both `t-###.md` and `impl.md`.
+1. Mark the task as in progress in both `t-###.md` and `impl.md`: `python3 .agents/skills/spec-planner/scripts/specs.py set-status <phase> <task> "In Progress"`.
 2. Implement only the scoped objective.
 3. Update task progress immediately after each meaningful milestone, run `coord.py heartbeat --task "<phase> <task>"`, and check `coord.py answers --mine`. Apply each answer, then `coord.py ack <id>`.
 4. Keep the `Knowledgebase References` section accurate as new references are discovered.
@@ -129,9 +142,9 @@ For each task:
 7. Run the narrowest useful validation first, then broader validation when appropriate.
 8. Record validation results in the task file.
 9. Request or run a security review when the task touches risky surfaces.
-10. Run the code comment discipline cleanup before review or completion.
+10. Run the code comment discipline cleanup (`/code-cleanup --diff <merge-target>`, see Step 5) before review or completion.
 11. For a delivery task, deliver every repository involved. If the agent workspace is itself a git repository, include it (specs, knowledgebase, `AGENTS.md`) on a non-protected branch; open and merge a PR only when it has a remote, otherwise commit on the branch and ask the user how to integrate.
-12. Mark the task complete only when objectives, knowledgebase updates, validation, security review, and comment cleanup are done or explicitly documented as not applicable.
+12. Mark the task complete only when objectives, knowledgebase updates, validation, security review, and comment cleanup are done or explicitly documented as not applicable. Then run `specs.py set-status <phase> <task> Done`; it refuses (exit 1, `missing`) until the task's objectives, testing, and security checklists are fully checked.
 
 Questions and blocking:
 - Ask with `coord.py ask --task ... --blocking-scope "<what is blocked>" "<question>"` and keep working on everything outside that scope.
@@ -155,7 +168,7 @@ Write high-signal entries only. Prefer updating existing files over creating dup
 
 ## Step 8: Maintain Progress
 
-Always synchronize progress in both places:
+Change a task's status only with `python3 .agents/skills/spec-planner/scripts/specs.py set-status <phase> <task> <Pending|In Progress|Blocked|In Review|Done>`. One call updates the task's `## Status`, the `impl.md` Timeline label, and the `impl.md` Tasks checkbox together, so the two files cannot disagree. If the script is unavailable or fails, say so and edit the same three places by hand. Always keep progress synchronized in both places:
 - `specs/p-###-[repo-or-multi]/t-###.md`: detailed progress, assignment, references, implementation notes, validation, and knowledgebase updates.
 - `specs/p-###-[repo-or-multi]/impl.md`: task list status and phase-level timeline/status.
 
@@ -177,6 +190,9 @@ Use these status terms consistently:
 - Always update task progress after each meaningful milestone.
 - Never mark a task `Done` without validation evidence in the task file.
 - Never mark a task `Done` if `impl.md` and `t-###.md` disagree.
+- Never run tasks with overlapping `## Affected Paths` in the same wave, and never run a task with unknown paths beside another task.
+- Run tasks in parallel only through this CLI's own subagent feature with worktree isolation, or through separate panes. Never push, merge, or edit `impl.md` from a subagent.
+- Change statuses with `specs.py set-status`, and add missing task metadata with `specs.py normalize`, falling back to manual edits only when the script is unavailable.
 - Never think inside code comments. Source comments are for durable code documentation only.
 - Never leave unnecessary code comments. Keep documentation-generator comments only when they add value, such as PHPDoc, JSDoc, Swagger/OpenAPI, or equivalent.
 - Always claim a task through `agent-coordination` before implementing it when coordination is available, and release it afterwards.

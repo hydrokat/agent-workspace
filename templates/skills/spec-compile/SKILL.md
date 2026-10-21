@@ -33,19 +33,19 @@ Before touching compiled output, update the knowledgebase to reflect current pro
 - Use `business-analyst` to identify what changed and `technical-writer` to produce clean documentation.
 - Only update knowledgebase entries that have new or changed information — do not rewrite unchanged content.
 
-## Step 2: Scan Specs
+## Step 2: Compile
 
-Read files under `specs/` for all phases in scope:
-- `specs/p-###-[repo-or-multi]/impl.md` — phase plan, repository scope, and task index
-- `specs/p-###-[repo-or-multi]/t-###.md` — individual task files
+Steps 2 to 5 are one deterministic command. Run it after Step 1:
 
-Skip `specs/compiled/` entirely (output directory, not input).
+```bash
+python3 .agents/skills/spec-planner/scripts/specs.py compile [all|completed|incomplete|NNN|NNN-NNN]
+```
 
-For range/single filters, only read the matching `p-###-*` directories. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create or rewrite them. Log a warning if a requested phase directory does not exist.
+It reads the `p-###-[repo-or-multi]/impl.md` and `t-###.md` files for the phases in scope (skipping `specs/compiled/`; legacy `phase-XXX/task-YYY.md` specs are read, never created or rewritten), classifies every task, clears the old output, and writes the new files. It prints JSON: `filter`, `scope`, `written`, `phases` (`in_scope`, `complete`, `incomplete`), `tasks`, `note` (set when the argument was unrecognised and fell back to `all`), and `warnings` (for example a requested phase directory that does not exist).
 
-## Step 3: Classify Each Task
+### Classification
 
-A task is **complete** when it satisfies all three criteria. See [references/completion-criteria.md](references/completion-criteria.md) for exact detection patterns.
+A task is **complete** when it satisfies all three criteria. See [references/completion-criteria.md](references/completion-criteria.md) for the exact detection patterns the script applies.
 
 | Criterion | Required signal |
 |---|---|
@@ -53,34 +53,28 @@ A task is **complete** when it satisfies all three criteria. See [references/com
 | Tested | `## Testing` / `## Test Results` section has at least one `[x]` item |
 | Security Audited | `## Security` / `## Security Audit` section has at least one `[x]` item |
 
-A phase is **complete** when every one of its tasks is complete.
+A phase is **complete** when every one of its tasks is complete. A phase with no task files is incomplete. A task file that cannot be read is reported with unknown (❓) criteria and its path.
 
-## Step 4: Clear Old Compiled Output
+### Output
 
-Before writing anything new, delete the output files that will be replaced:
+| Filter mode | Cleared before writing | Written |
+|---|---|---|
+| `all` | the entire `specs/compiled/` directory | `completed.md` and `incomplete.md` |
+| `completed` | `specs/compiled/completed.md` | `completed.md` |
+| `incomplete` | `specs/compiled/incomplete.md` | `incomplete.md` |
+| range / single | `completed.md` and `incomplete.md` | both, with a scope note |
 
-| Filter mode | Files to delete |
-|---|---|
-| `all` | entire `specs/compiled/` directory |
-| `completed` | `specs/compiled/completed.md` only |
-| `incomplete` | `specs/compiled/incomplete.md` only |
-| range / single | `specs/compiled/completed.md` and `specs/compiled/incomplete.md` |
+The files are rendered from `assets/completed.md` and `assets/incomplete.md`; [references/output-format.md](references/output-format.md) describes the layout. `specs/compiled/` must be a real directory; the script refuses to clear a link.
 
-Recreate `specs/compiled/` (or ensure it exists) after clearing.
+### Manual Fallback
 
-## Step 5: Write Compiled Output
-
-Write only the files determined in Step 0. See [references/output-format.md](references/output-format.md) for exact structure.
-
-- **`specs/compiled/completed.md`** — phases (in scope) where every task passed all three criteria.
-- **`specs/compiled/incomplete.md`** — phases (in scope) with at least one incomplete task, with a per-task breakdown of missing criteria.
-
-For range/single compilations, add a scope note at the top of each file indicating which phases were included.
+If `specs.py` is unavailable or fails, say so and do the same work by hand: read the specs in scope, classify each task with the criteria above, delete the output files named in the table, and write the files following `references/output-format.md`.
 
 ## Mandates
 
 - Always run Step 1 (knowledgebase update) before clearing or writing compiled output.
 - Never modify original spec files — read only.
 - Clear before write — never append to stale compiled files.
-- If `specs/` has no phases in scope, write a minimal output stating no matching specs were found.
+- Compile with `specs.py compile`, falling back to the manual steps only when the script is unavailable.
+- If `specs/` has no phases in scope, the output states that no matching specs were found.
 - Report a one-line summary to the user after each compiled file is written: how many phases and tasks were included.
