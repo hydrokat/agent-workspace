@@ -10,7 +10,6 @@ import fcntl
 import json
 import os
 import re
-import secrets
 import subprocess
 import sys
 import tempfile
@@ -178,7 +177,7 @@ def list_json(directory: Path, store: Store) -> list[dict[str, Any]]:
 
 def cmd_whoami(args: argparse.Namespace, store: Store) -> None:
     if not (args.session or os.environ.get("TANDEM_SESSION_ID")):
-        args.session = f"s-{secrets.token_hex(4)}"
+        args.session = f"s-{os.urandom(4).hex()}"
         data = identity(args)
         register(args, store)
         emit({**data, "generated": True, "hint": f"export TANDEM_SESSION_ID={data['session']}"})
@@ -281,7 +280,7 @@ def cmd_claims(args: argparse.Namespace, store: Store) -> None:
 
 def cmd_ask(args: argparse.Namespace, store: Store) -> None:
     sid = session_id(args)
-    qid = f"q-{secrets.token_hex(4)}"
+    qid = f"q-{os.urandom(4).hex()}"
     task = clean_text(args.task, "task")[:120]
     fields = {
         "id": qid, "status": "open", "asked_by": sid, "task": task,

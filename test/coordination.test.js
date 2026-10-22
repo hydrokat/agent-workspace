@@ -1,5 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
 import { makeTmp, cleanup, runCli, fileExists, readFile, writeFile } from './helpers.js';
 
 describe('coordination skills', () => {
@@ -96,5 +98,17 @@ describe('coordination skills', () => {
     writeFile(dir, 'AGENTS.md', '# Mine\n\nkeep me\n\n' + readFile(dir, 'AGENTS.md'));
     await runCli(['update', '--yes', '--no-link'], dir);
     assert.ok(readFile(dir, 'AGENTS.md').includes('keep me'));
+  });
+
+  it('coord.py starts silently when importing hashlib would print to stderr', () => {
+    const poison = makeTmp();
+    writeFile(poison, 'hashlib.py', "import sys\nsys.stderr.write('hashlib imported\\n')\n");
+    const res = spawnSync('python3', [join(dir, '.agents/skills/agent-coordination/scripts/coord.py'), 'whoami'], {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONPATH: poison, TANDEM_COORD_DIR: join(poison, 'coord') },
+    });
+    cleanup(poison);
+    assert.equal(res.status, 0);
+    assert.equal(res.stderr, '');
   });
 });
