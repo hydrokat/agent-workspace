@@ -211,3 +211,38 @@ def test_root_resolution_without_path_format_flag(tmp_path: Path) -> None:
     p = subprocess.run([sys.executable, str(SCRIPT), "register"], cwd=wt, env=env, capture_output=True, text=True)
     assert p.returncode == 0, p.stderr
     assert (main / ".agent-workspace/coordination/sessions/s1.json").exists()
+
+
+SKILL_SCRIPTS = [p for p in sorted(SCRIPT.parents[2].glob("*/scripts/*.py")) if "import yaml" not in p.read_text()]
+
+
+@pytest.mark.parametrize("script", SKILL_SCRIPTS, ids=lambda p: f"{p.parent.parent.name}/{p.name}")
+def test_skill_scripts_start_without_importing_hashlib(script: Path, tmp_path: Path) -> None:
+    poison = tmp_path / "poison"
+    poison.mkdir()
+    (poison / "hashlib.py").write_text("raise ImportError('hashlib must not be imported at startup')\n")
+    env = {**os.environ, "PYTHONPATH": str(poison)}
+    proc = subprocess.run([sys.executable, str(script), "--help"], capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stderr == ""
+
+
+def test_generated_ids_keep_their_shape(coord: Path) -> None:
+    session = out(run(coord, "whoami", env={"TANDEM_SESSION_ID": ""}))["session"]
+    assert isinstance(session, str) and len(session) == 10 and session.startswith("s-")
+    int(session[2:], 16)
+
+
+def test_ask_runs_cleanly_with_hashlib_broken(coord: Path, tmp_path: Path) -> None:
+    poison = tmp_path / "poison"
+    poison.mkdir()
+    (poison / "hashlib.py").write_text("raise ImportError('hashlib must not be imported')\n")
+    proc = run(coord, "ask", "Which branch?", "--task", "t-001", "--blocking-scope", "x", env={"PYTHONPATH": str(poison)})
+    assert proc.returncode == 0 and proc.stderr == ""
+    assert str(out(proc)["id"]).startswith("q-")
+
+
+@pytest.mark.parametrize("script", SKILL_SCRIPTS, ids=lambda p: f"{p.parent.parent.name}/{p.name}")
+def test_skill_scripts_never_import_secrets_or_hashlib(script: Path) -> None:
+    text = script.read_text()
+    assert "import secrets" not in text and "import hashlib" not in text
