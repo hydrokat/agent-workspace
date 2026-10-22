@@ -1,6 +1,8 @@
 import re
 from dataclasses import dataclass
 
+from tandem.tmux import keys
+
 FORMAT = ("#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t"
           "#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}")
 _UNSAFE = re.compile(r"[^A-Za-z0-9._:·\- ]")
@@ -65,7 +67,7 @@ def render_title(panes: list[PaneInfo], role: str) -> str:
     agents = agents_in(panes, role)
     head = f"─ #{{?pane_active,▶ ,}}{name} ─"
     if not agents:
-        return f"{head} No {role}s yet. Press F2 to add one"
+        return f"{head} No {role}s yet. Press {keys.display_shortcut(keys.key_for('add-agent'))} to add one"
     current = visible_pane(panes, role)
     tabs: list[str] = []
     for p in agents:

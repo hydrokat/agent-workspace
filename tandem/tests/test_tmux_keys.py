@@ -127,26 +127,35 @@ def test_bound_tmux_commands_are_on_allow_list_or_run_shell() -> None:
 
 
 def test_hint_bar_is_generated_from_keymap() -> None:
-    bar = keys.hint_bar()
-    for b in keys.KEYMAP:
-        if b.hint:
-            assert f"{b.key} {b.hint}" in bar
+    for platform in ("linux", "darwin"):
+        bar = keys.hint_bar(platform=platform)
+        for b in keys.KEYMAP:
+            if b.hint:
+                assert f"{b.display_key(platform)} {b.hint}" in bar
 
 
 def test_help_lines_cover_every_key() -> None:
-    text = "\n".join(keys.help_lines())
-    for b in keys.KEYMAP:
-        assert b.key in text
+    for platform in ("linux", "darwin"):
+        text = "\n".join(keys.help_lines(platform=platform))
+        for b in keys.KEYMAP:
+            assert b.display_key(platform) in text
 
 
 def test_bind_commands_use_root_table_and_tmux_key() -> None:
-    cmds = keys.bind_commands(python="/usr/bin/python 3")
+    cmds = keys.bind_commands(python="/usr/bin/python 3", platform="linux")
     assert len(cmds) == len(keys.KEYMAP)
     expected_tmux = {keys.tmux_key(k) for k in EXPECTED_KEYS}
     for argv in cmds:
         assert argv[:3] == ["bind-key", "-n", argv[2]] and argv[2] in expected_tmux
     joined = " ".join(" ".join(a) for a in cmds)
     assert "'/usr/bin/python 3'" in joined
+
+    cmds_mac = keys.bind_commands(python="/usr/bin/python 3", platform="darwin")
+    assert len(cmds_mac) > len(keys.KEYMAP)
+    mac_keys = {argv[2] for argv in cmds_mac}
+    assert "˙" in mac_keys
+    assert "ß" in mac_keys
+    assert "œ" in mac_keys
 
 
 def test_hint_bar_is_plain_text() -> None:
@@ -173,7 +182,70 @@ def test_status_left_swaps_hint_while_resizing() -> None:
 
 
 def test_resize_is_documented_in_help() -> None:
-    assert "Ctrl+Alt+z" in "\n".join(keys.help_lines())
+    assert "Ctrl+Alt+z" in "\n".join(keys.help_lines("linux"))
+    assert "Ctrl+Opt+z" in "\n".join(keys.help_lines("darwin"))
+
+
+def test_alt_name_and_display_shortcut() -> None:
+    assert keys.alt_name("darwin") == "Opt"
+    assert keys.alt_name("linux") == "Alt"
+    assert keys.alt_name("freebsd") == "Alt"
+
+    assert keys.display_shortcut("Alt+h", "darwin") == "Opt+h"
+    assert keys.display_shortcut("Ctrl+Alt+r", "darwin") == "Ctrl+Opt+r"
+    assert keys.display_shortcut("Alt+h", "linux") == "Alt+h"
+    assert keys.display_shortcut("Ctrl+Alt+r", "linux") == "Ctrl+Alt+r"
+
+
+def test_option_char_and_textual_binding_keys() -> None:
+    assert keys.option_char("Alt+h", "darwin") == "˙"
+    assert keys.option_char("Alt+s", "darwin") == "ß"
+    assert keys.option_char("Alt+q", "darwin") == "œ"
+    assert keys.option_char("Alt+1", "darwin") == "¡"
+    assert keys.option_char("Alt+2", "darwin") == "™"
+    assert keys.option_char("Alt+Up", "darwin") is None
+    assert keys.option_char("Ctrl+Alt+r", "darwin") is None
+    assert keys.option_char("Alt+h", "linux") is None
+
+    assert keys.textual_binding_keys("Alt+q", "darwin") == "alt+q,œ"
+    assert keys.textual_binding_keys("Alt+s", "darwin") == "alt+s,ß"
+    assert keys.textual_binding_keys("Alt+q", "linux") == "alt+q"
+    assert keys.textual_binding_keys("Ctrl+Alt+r", "darwin") == "ctrl+alt+r"
+
+
+def test_parse_shortcut_with_mac_modifiers() -> None:
+    assert keys.parse_shortcut("Opt+h") == (("Alt",), "h")
+    assert keys.parse_shortcut("Option+h") == (("Alt",), "h")
+    assert keys.parse_shortcut("⌥+h") == (("Alt",), "h")
+    assert keys.parse_shortcut("⌃+⌥+r") == (("Ctrl", "Alt"), "r")
+    assert keys.parse_shortcut("⇧+Opt+a") == (("Alt", "Shift"), "a")
+
+
+def test_expand_command_and_run_shell_with_spaces() -> None:
+    ws = "/path with spaces/my project"
+    py = "/custom path/python3"
+    launcher = keys.launcher_for(py, ws)
+    cmd = keys.run_shell(launcher, "add-agent")
+    assert cmd.startswith('run-shell -b "')
+    assert cmd.endswith('"')
+    assert f"TANDEM_WORKSPACE='{ws}'" in cmd
+    assert f"'{py}'" in cmd
+
+    pop = keys.popup(launcher, "help", width="80%", height="70%")
+    assert pop.startswith('display-popup -E -w 80% -h 70% "')
+    assert pop.endswith('"')
+    assert f"TANDEM_WORKSPACE='{ws}'" in pop
+
+
+def test_wizard_help_lines() -> None:
+    lines_linux = keys.wizard_help_lines("linux")
+    assert any("Alt+a" in line for line in lines_linux)
+    assert any("?" in line for line in lines_linux)
+
+    lines_darwin = keys.wizard_help_lines("darwin")
+    assert any("Opt+a" in line for line in lines_darwin)
+    assert any("?" in line for line in lines_darwin)
+
 
 
 def test_tandem_keys_override() -> None:

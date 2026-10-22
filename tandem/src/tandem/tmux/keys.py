@@ -1,6 +1,7 @@
 import os
 import re
 import shlex
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -11,11 +12,22 @@ _MODIFIER_MAP: dict[str, str] = {
     "control": "Ctrl",
     "c": "Ctrl",
     "alt": "Alt",
+    "opt": "Alt",
+    "option": "Alt",
+    "⌥": "Alt",
+    "⌃": "Ctrl",
+    "⇧": "Shift",
     "meta": "Alt",
     "m": "Alt",
     "shift": "Shift",
     "s": "Shift",
 }
+
+MACOS_OPTION_CHARS: dict[str, str] = {
+    "h": "˙", "s": "ß", "q": "œ", "1": "¡", "2": "™", "g": "©", "r": "®",
+    "w": "∑", "f": "ƒ", "a": "å", "d": "∂", "x": "≈", "z": "Ω",
+}
+"""What a macOS terminal sends for Option+<key> when "Use Option as Meta" is off."""
 
 _TMUX_MOD_MAP: dict[str, str] = {
     "Ctrl": "C-",
@@ -72,7 +84,7 @@ def parse_shortcut(raw: str) -> tuple[tuple[str, ...], str]:
         work = work[:-2]
 
     tokens: list[str] = []
-    pattern = re.compile(r"^([A-Za-z0-9_]+)[\+\-]")
+    pattern = re.compile(r"^([A-Za-z0-9_⌥⌃⇧]+)[\+\-]")
     while True:
         m = pattern.match(work)
         if not m:
@@ -128,6 +140,47 @@ def textual_key(raw: str) -> str:
     return "+".join([*(_TEXTUAL_MOD_MAP[m] for m in mods), base.lower()])
 
 
+def alt_name(platform: str = sys.platform) -> str:
+    return "Opt" if platform == "darwin" else "Alt"
+
+
+def display_shortcut(raw: str, platform: str = sys.platform) -> str:
+    mods, base = parse_shortcut(raw)
+    return "+".join((*(alt_name(platform) if m == "Alt" else m for m in mods), base))
+
+
+def option_char(raw: str, platform: str = sys.platform) -> str | None:
+    """The character macOS types for a lone Option+<key> shortcut, or None where it does not apply."""
+    mods, base = parse_shortcut(raw)
+    if platform == "darwin" and mods == ("Alt",):
+        return MACOS_OPTION_CHARS.get(base.lower())
+    return None
+
+
+def textual_binding_keys(raw: str, platform: str = sys.platform) -> str:
+    """Textual binding string: the alt chord, plus the macOS Option character when there is one."""
+    char = option_char(raw, platform)
+    return f"{textual_key(raw)},{char}" if char else textual_key(raw)
+
+
+def _dq(text: str) -> str:
+    """Escape for tmux's double-quoted strings, so shlex single quotes inside survive untouched."""
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+
+
+def run_shell(launcher: str, subcommand: str) -> str:
+    return f'run-shell -b "{_dq(launcher)} {subcommand}"'
+
+
+def popup(launcher: str, subcommand: str, width: str, height: str) -> str:
+    return f'display-popup -E -w {width} -h {height} "{_dq(launcher)} {subcommand}"'
+
+
+def expand_command(command: str, launcher: str) -> str:
+    """``{tandem}`` is the launcher for one tmux parse; ``{tandem2}`` for a command nested inside another."""
+    return command.replace("{tandem2}", _dq(_dq(launcher))).replace("{tandem}", _dq(launcher))
+
+
 @dataclass(frozen=True)
 class Binding:
     key: str
@@ -159,30 +212,36 @@ class Binding:
     def textual_key(self) -> str:
         return textual_key(self.key)
 
+    def display_key(self, platform: str = sys.platform) -> str:
+        return display_shortcut(self.key, platform)
+
+    def option_char(self, platform: str = sys.platform) -> str | None:
+        return option_char(self.key, platform)
+
 
 DEFAULT_KEYMAP: tuple[Binding, ...] = (
     Binding("Alt+h", "Help", "open this help", "Help",
-            "display-popup -E -w 70% -h 70% {tandem} help"),
+            "display-popup -E -w 70% -h 70% \"{tandem} help\""),
     Binding("Ctrl+Alt+n", "Agents", "add an agent", "New agent",
-            "display-popup -E -w 90% -h 90% {tandem} add-agent"),
+            "display-popup -E -w 90% -h 90% \"{tandem} add-agent\""),
     Binding("Alt+Up", "Tabs", "previous agent in this column", "Prev",
-            "run-shell -b '{tandem} tab prev'"),
+            'run-shell -b "{tandem} tab prev"'),
     Binding("Alt+Down", "Tabs", "next agent in this column", "Next",
-            "run-shell -b '{tandem} tab next'"),
+            'run-shell -b "{tandem} tab next"'),
     Binding("Alt+s", "Status", "focus the status window", "Status",
-            "run-shell -b '{tandem} focus status'"),
+            'run-shell -b "{tandem} focus status"'),
     Binding("Alt+q", "Status", "open the Queries tab", "Queries",
-            "run-shell -b '{tandem} focus queries'"),
+            'run-shell -b "{tandem} focus queries"'),
     Binding("Alt+1", "Columns", "focus planners", "Planners",
-            "run-shell -b '{tandem} focus planner'"),
+            'run-shell -b "{tandem} focus planner"'),
     Binding("Alt+2", "Columns", "focus implementers", "Implementers",
-            "run-shell -b '{tandem} focus implementer'"),
+            'run-shell -b "{tandem} focus implementer"'),
     Binding("Ctrl+Alt+w", "Agents", "close the focused agent (asks first)", "Close",
-            "confirm-before -p 'Close this agent? (y/n)' \"run-shell -b '{tandem} close-agent'\""),
+            "confirm-before -p 'Close this agent? (y/n)' \"run-shell -b \\\"{tandem2} close-agent\\\"\""),
     Binding("Ctrl+Alt+x", "Quit", "exit menu: save and exit, detach, update tandem, discard", "Quit",
-            "run-shell -b '{tandem} quit'"),
+            'run-shell -b "{tandem} quit"'),
     Binding("Ctrl+Alt+r", "Agents", "restart an exited agent", "Restart",
-            "run-shell -b '{tandem} restart'"),
+            'run-shell -b "{tandem} restart"'),
     Binding("Ctrl+Alt+z", "Layout", "resize mode: arrows resize the focused pane, = resets, Enter exits", "Resize",
             "switch-client -T tandem-resize"),
 )
@@ -250,8 +309,17 @@ RESIZE_STEP_COLS = 5
 RESIZE_STEP_ROWS = 2
 
 
-def hint_bar() -> str:
-    return "  ".join(f"{b.key} {b.hint}" for b in KEYMAP if b.hint)
+STATUS_REFRESH = "Alt+r"
+GO_TO_AGENT = "Alt+g"
+WITHDRAW = "Alt+w"
+WIZARD_ADD = "Alt+a"
+WIZARD_DELETE = "Alt+d"
+WIZARD_FILTER = "Alt+f"
+WIZARD_HELP = "Alt+h"
+
+
+def hint_bar(platform: str = sys.platform) -> str:
+    return "  ".join(f"{b.display_key(platform)} {b.hint}" for b in KEYMAP if b.hint)
 
 
 def resize_hint() -> str:
@@ -263,18 +331,54 @@ def status_left() -> str:
     return f" #{{?#{{==:#{{client_key_table}},{RESIZE_TABLE}}},{resize_hint()},{hint_bar()}}} "
 
 
-def help_lines() -> list[str]:
-    lines = ["tandem keys (planners = left column, implementers = right column)", ""]
-    group = ""
+def _global_help_lines(platform: str) -> list[str]:
+    grouped: dict[str, list[Binding]] = {}
     for b in KEYMAP:
-        label = b.group if b.group != group else ""
-        group = b.group
-        lines.append(f"  {label:<9} {b.key:<12} {b.description}")
-    resize_k = key_for("resize") or "Ctrl+Alt+z"
-    lines += ["", "  Mouse     click a pane to focus it; drag a border to resize; scroll wheel scrolls",
-              f"  Resize    {resize_k} then arrows (←→ {RESIZE_STEP_COLS} columns, ↑↓ {RESIZE_STEP_ROWS} rows) on the focused pane; = resets; Enter exits",
-              "  Detach    your agents keep running; run `tandem` again to re-attach"]
+        grouped.setdefault(b.group, []).append(b)
+    lines = ["Global (tmux)"]
+    for group, items in grouped.items():
+        for position, b in enumerate(items):
+            lines.append(f"  {group if position == 0 else '':<9} {b.display_key(platform):<12} {b.description}")
     return lines
+
+
+def wizard_help_lines(platform: str = sys.platform) -> list[str]:
+    def d(raw: str) -> str:
+        return display_shortcut(raw, platform)
+
+    return [f"{d(WIZARD_FILTER)} focus the model filter", f"{d(WIZARD_ADD)} add another agent",
+            f"{d(WIZARD_DELETE)} delete the highlighted agent", "Shift+L launch all agents",
+            "Esc back or cancel", f"? or {d(WIZARD_HELP)} this help"]
+
+
+def help_lines(platform: str = sys.platform) -> list[str]:
+    def d(raw: str) -> str:
+        return display_shortcut(raw, platform)
+
+    resize_k = d(key_for("resize") or "Ctrl+Alt+z")
+    return [
+        "tandem keys (planners = left column, implementers = right column)", "",
+        *_global_help_lines(platform), "",
+        "Status & Queries window",
+        "  Status    Tab          switch between the Status and Queries tabs",
+        f"            {d(STATUS_REFRESH):<12} refresh the status now",
+        f"            {d(GO_TO_AGENT):<12} go to the highlighted or asking agent's pane",
+        "  Queries   Enter        answer the selected open question",
+        "            1-9          fill the answer with a numbered option",
+        "            Ctrl+S       send the answer",
+        f"            {d(WITHDRAW):<12} mark the selected question withdrawn",
+        "            Esc          clear the draft and return to the list", "",
+        "Launch / add-agent wizard",
+        f"  Model     {d(WIZARD_FILTER):<12} focus the model filter",
+        f"  Summary   {d(WIZARD_ADD):<12} add another agent",
+        f"            {d(WIZARD_DELETE):<12} delete the highlighted agent",
+        "            Shift+L      launch all configured agents",
+        "            Esc          back or cancel", "",
+        "  Mouse     click a pane to focus it; drag a border to resize; scroll wheel scrolls",
+        f"  Resize    {resize_k} then arrows (←→ {RESIZE_STEP_COLS} columns, ↑↓ {RESIZE_STEP_ROWS} rows) on the focused pane; = resets; Enter exits",
+        f"  Custom    set TANDEM_KEYS=\"help={d('Ctrl+Alt+h')},quit={d('Ctrl+Alt+q')}\" (each needs at least one modifier)",
+        "  Detach    your agents keep running; run `tandem` again to re-attach",
+    ]
 
 
 def launcher_for(python: str, workspace: str | None = None, module: str = "tandem") -> str:
@@ -283,12 +387,16 @@ def launcher_for(python: str, workspace: str | None = None, module: str = "tande
     return f"env TANDEM_WORKSPACE={shlex.quote(workspace)} {base}" if workspace else base
 
 
-def bind_commands(python: str, workspace: str | None = None) -> list[list[str]]:
-    """tmux ``bind-key`` argv lists (root table) for every binding."""
+def bind_commands(python: str, workspace: str | None = None, platform: str = sys.platform) -> list[list[str]]:
+    """tmux ``bind-key`` argv lists (root table) for every binding, plus macOS Option characters on macOS."""
     launcher = launcher_for(python, workspace)
     result: list[list[str]] = []
     for b in KEYMAP:
-        result.append(["bind-key", "-n", b.tmux_key, *_split(b.command.replace("{tandem}", launcher))])
+        command = expand_command(b.command, launcher)
+        result.append(["bind-key", "-n", b.tmux_key, *_split(command)])
+        char = b.option_char(platform)
+        if char:
+            result.append(["bind-key", "-n", char, *_split(command)])
     return result
 
 
@@ -298,7 +406,7 @@ def resize_commands(python: str, workspace: str | None = None) -> list[list[str]
     bindings = {
         "Left": f"resize-pane -L {RESIZE_STEP_COLS} ; {stay}", "Right": f"resize-pane -R {RESIZE_STEP_COLS} ; {stay}",
         "Up": f"resize-pane -U {RESIZE_STEP_ROWS} ; {stay}", "Down": f"resize-pane -D {RESIZE_STEP_ROWS} ; {stay}",
-        "=": f"run-shell -b '{launcher_for(python, workspace)} reset-layout' ; {stay}",
+        "=": f"{run_shell(launcher_for(python, workspace), 'reset-layout')} ; {stay}",
         "Enter": "switch-client -T root", "Escape": "switch-client -T root", "q": "switch-client -T root",
     }
     return [["bind-key", "-T", RESIZE_TABLE, key, command] for key, command in bindings.items()]

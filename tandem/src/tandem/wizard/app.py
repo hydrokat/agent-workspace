@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from collections.abc import Callable, Mapping
 
 from textual import on
@@ -9,18 +10,27 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from tandem.adapters.base import AgentSpec, Model, ModelListError
+from tandem.tmux import keys
 from tandem.wizard.flow import CLIS, ROLES, Step, WizardFlow
 
 ModelLoader = Callable[[str], list[Model]]
 
-HINTS = {
-    Step.CLI: "↑↓ move  Enter pick  Esc cancel  ? help",
-    Step.ROLE: "↑↓ move  Enter pick  Esc back",
-    Step.MODEL: "↑↓ move  Enter pick  Alt+f filter or type an ID  Esc back",
-    Step.PERMS: "↑↓ move  Enter pick  Esc back",
-    Step.CWD: "Type a directory (blank = workspace root)  Enter next  Esc back",
-    Step.SUMMARY: "Enter on a row: edit  Alt+a add another  Alt+d delete  Shift+L launch all  Esc back",
-}
+def hints(platform: str = sys.platform) -> dict[Step, str]:
+    def d(raw: str) -> str:
+        return keys.display_shortcut(raw, platform)
+
+    return {
+        Step.CLI: "↑↓ move  Enter pick  Esc cancel  ? help",
+        Step.ROLE: "↑↓ move  Enter pick  Esc back  ? help",
+        Step.MODEL: f"↑↓ move  Enter pick  {d(keys.WIZARD_FILTER)} filter or type an ID  Esc back  ? help",
+        Step.PERMS: "↑↓ move  Enter pick  Esc back  ? help",
+        Step.CWD: "Type a directory (blank = workspace root)  Enter next  Esc back",
+        Step.SUMMARY: (f"Enter on a row: edit  {d(keys.WIZARD_ADD)} add another  {d(keys.WIZARD_DELETE)} delete  "
+                       f"Shift+L launch all  Esc back  ? help"),
+    }
+
+
+HINTS = hints()
 ROLE_TEXT = {
     "planner": "Planner      — left column; plans and breaks down specs",
     "implementer": "Implementer  — right column; claims tasks, codes in worktrees",
@@ -28,7 +38,7 @@ ROLE_TEXT = {
 
 
 class WizardApp(App[list[AgentSpec] | None]):
-    """Launch / add-agent wizard. ``single=True`` returns after one agent (used for F2)."""
+    """Launch / add-agent wizard. ``single=True`` returns after one agent (used by the add-agent popup)."""
 
     CSS = """
     #agents { height: auto; padding: 0 1; }
@@ -40,9 +50,10 @@ class WizardApp(App[list[AgentSpec] | None]):
     BINDINGS = [
         Binding("escape", "go_back", "Back"),
         Binding("L", "launch", "Launch all"),
-        Binding("alt+a", "add", "Add"),
-        Binding("alt+d", "delete", "Delete"),
-        Binding("alt+f", "focus_input", "Filter"),
+        Binding(keys.textual_binding_keys(keys.WIZARD_ADD), "add", "Add"),
+        Binding(keys.textual_binding_keys(keys.WIZARD_DELETE), "delete", "Delete"),
+        Binding(keys.textual_binding_keys(keys.WIZARD_FILTER), "focus_input", "Filter"),
+        Binding(f"question_mark,{keys.textual_binding_keys(keys.WIZARD_HELP)}", "help", "Help"),
     ]
 
     def __init__(self, installed: Mapping[str, bool], model_loader: ModelLoader, single: bool = False) -> None:
@@ -201,6 +212,9 @@ class WizardApp(App[list[AgentSpec] | None]):
             self.exit(list(self.flow.agents))
             return
         self._render_step()
+
+    def action_help(self) -> None:
+        self.notify("\n".join(keys.wizard_help_lines()), title="Keys", timeout=15)
 
     def action_go_back(self) -> None:
         if self.flow.step is Step.CLI and not self.flow.agents:

@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--fresh", action="store_true",
                       help="start blank with new conversations, without asking (the saved session is replaced)")
     sub = parser.add_subparsers(dest="command", metavar="command")
-    sub.add_parser("add-agent", help="add an agent to the running session (opened by F2)")
+    sub.add_parser("add-agent", help="add an agent to the running session (opened by the add-agent key)")
     tab = sub.add_parser("tab", help="switch agent tab in the focused column")
     tab.add_argument("direction", choices=["prev", "next", "select"])
     tab.add_argument("number", nargs="?", type=int)
@@ -145,8 +145,9 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
     elif command == "close-agent":
         commands.close_agent(layout, config)
     elif command == "restart":
-        if config.tmux_pane:
-            commands.restart(layout, config.tmux_pane, workspace, config)
+        pane = config.tmux_pane or layout.client.run_checked("display-message", "-p", "#{pane_id}").strip()
+        if pane:
+            commands.restart(layout, pane, workspace, config)
     elif command == "refresh":
         layout.refresh()
     elif command == "reflow":

@@ -5,6 +5,7 @@ from textual.pilot import Pilot
 from textual.widgets import OptionList
 
 from tandem.adapters.base import AgentSpec, Model, ModelListError
+from tandem.tmux import keys
 from tandem.wizard.app import WizardApp
 
 
@@ -126,7 +127,7 @@ def test_model_step_alt_f_focuses_filter() -> None:
         await p.app.workers.wait_for_complete()
         await p.pause()
         hints = str(p.app.query_one("#hints").render())
-        assert "Alt+f" in hints
+        assert f"{keys.alt_name()}+f" in hints
         await p.press("alt+f")
         assert p.app.focused == p.app.query_one("#input")
         await p.press("escape")
@@ -142,10 +143,20 @@ def test_summary_step_actions_use_modifier_keys() -> None:
         await p.pause()
         await p.press("enter")  # model
         hints = str(p.app.query_one("#hints").render())
-        assert "Alt+a" in hints and "Alt+d" in hints and "Shift+L" in hints
+        alt = keys.alt_name()
+        assert f"{alt}+a" in hints and f"{alt}+d" in hints and "Shift+L" in hints
         await p.press("alt+a")
         assert isinstance(p.app, WizardApp)
         assert p.app.flow.step.name == "CLI"
         await p.press("escape")
 
     drive(app(), script)
+
+
+def test_wizard_help_key_shows_notification() -> None:
+    async def script(p: Pilot[list[AgentSpec] | None]) -> None:
+        await p.press("question_mark")
+        assert any(n.title == "Keys" for n in p.app._notifications)
+
+    drive(app(), script)
+
