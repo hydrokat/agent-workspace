@@ -4,11 +4,20 @@
 
 ### CLI Package
 
+- **Python selection and per-workspace virtualenv isolation (`run.sh`, `tandem/src/tandem/updater.py`):** `run.sh` automatically probes and selects a healthy Python interpreter across `PATH` and standard system paths (`/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, `/usr/bin/python3`) that has a functional `hashlib` with `blake2b`, `blake2s`, and `sha256`, preventing noisy tracebacks from pyenv/OpenSSL builds on startup. It isolates the tandem editable virtualenv per workspace (`~/.local/state/tandem/venv-<workspace>`) so workspaces do not clobber each other's environments, and automatically removes and rebuilds broken virtualenvs. In-app update (`updater.py`) synchronizes directly into the active virtualenv.
+- **Zero-`hashlib` coordination script (`coord.py`):** Removed `import secrets` and switched token generation to `os.urandom(4).hex()`, ensuring `coord.py` and all skill scripts start cleanly without touching Python's `hashlib` or triggering OpenSSL warnings.
 - **Universal stale skills and agents cleanup:** `update` and `sync` prune deleted templates across all providers (`.agents/skills`, `.claude/skills`, and legacy `.gemini/skills`). Files removed from a template skill are cleaned up within existing skill directories (preserving `.bak` files). Stale agent definitions removed from templates are pruned from `.agents/agents` and provider directories (`.claude/agents`, etc.). Removed files and directories are pruned from `manifest.managedFiles`.
 - `doctor` reports stale skills and agents in `.agents/skills` and provider directories, and flags any existing `.gemini/skills` directory as an error.
 
 ### tandem
 
+- **OS-aware modifier display and native macOS Option bindings (`tandem/src/tandem/tmux/keys.py`, `status/app.py`, `wizard/app.py`):** Tandem renders shortcuts using `Opt` on macOS (`darwin`) and `Alt` on Linux across the status bar hint, Help window, placeholder panes, Status window, Queries tab, and Launch wizard. `parse_shortcut()` accepts `Opt`, `Option`, `⌥`, `⌃`, and `⇧` so macOS configurations in `TANDEM_KEYS` parse naturally. On macOS terminals where "Use Option as Meta" is disabled, tandem binds native macOS Option characters (`˙`, `ß`, `œ`, `¡`, `™`, `©`, `®`, `∑`, `ƒ`, `å`, `∂`) across tmux and Textual.
+- **Tandem shortcut and shell quoting fixes:**
+  - Fall back to `display-message -p "#{pane_id}"` for `Ctrl+Opt+r` / `Ctrl+Alt+r` (`restart`) when running inside tmux `run-shell` where `TMUX_PANE` is empty, and unset `TMUX_PANE` in tmux configuration to avoid leaking outer tmux session pane IDs.
+  - Wrap `run-shell -b` and `display-popup` commands in double quotes so workspace and Python paths containing spaces are cleanly quoted without bash syntax errors.
+  - Fixed focus switching in `StatusApp`: `Opt+q`/`Alt+q` focuses `#q-list` immediately, and `Opt+s`/`Alt+s` returns to the Status tab and focuses `#sessions`.
+  - Added `?` and `Opt+h`/`Alt+h` help popup support in `WizardApp`.
+  - Cleaned up duplicate headers and documented all window, wizard, resize, and customization shortcuts in the expanded Help popup (`Opt+h`/`Alt+h`).
 - **Modifier key requirements and multi-modifier chords:** All tandem keyboard shortcuts now require at least one modifier key (`Ctrl`, `Alt`, `Shift`) with support for multi-modifier combinations (`Ctrl+Alt+<key>`). Bare function keys (`F1`–`F12`) are replaced with `Alt+<key>` and `Ctrl+Alt+<key>` shortcuts (e.g. `Alt+h` for help, `Ctrl+Alt+n` for add-agent, `Alt+s` for status window, `Alt+q` for queries tab, `Ctrl+Alt+w` for status window focus, `Ctrl+Alt+x` for quit menu, `Ctrl+Alt+r` for reset layout, `Ctrl+Alt+z` for reflow).
 - Enabled `set-option -g extended-keys on` in tmux layout to ensure terminal pass-through of multi-modifier combinations.
 - Updated Textual app shortcut keys and action bindings across `StatusApp`, `QueriesTab`, and `WizardApp`.
