@@ -17,7 +17,10 @@ UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_ENV_HINTS=1
-export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-${XDG_STATE_HOME:-$HOME/.local/state}/tandem/venv}"
+TANDEM_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tandem"
+VENV_SLUG="$(printf '%s' "$TANDEM_DIR" | tr -c 'A-Za-z0-9' '-')"
+VENV_SLUG="${VENV_SLUG#-}"
+export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$TANDEM_STATE_DIR/venv-$VENV_SLUG}"
 
 MODE=""
 ANSWERS=""
@@ -155,6 +158,42 @@ version_ge() {
     [ "$x" -lt "$y" ] && return 1
   done
   [[ "$sa" > "$sb" || "$sa" == "$sb" ]]
+}
+
+# A Python is healthy when it meets the minimum version and imports hashlib (with blake2) without printing anything:
+# builds against a limited OpenSSL log tracebacks on import, which would then appear in every tandem pane.
+python_healthy() {
+  local min
+  min="$(min_for PYTHON)"
+  capture 10 "$1" -c 'import hashlib, sys; hashlib.blake2b(); hashlib.blake2s(); hashlib.sha256(); print("%d.%d" % sys.version_info[:2])' || return 1
+  [[ "$CAP_OUT" =~ ^[0-9]+\.[0-9]+$ ]] || return 1
+  [ -z "$min" ] || version_ge "$CAP_OUT" "$min"
+}
+
+select_python() {
+  local candidate resolved
+  if [ -n "${UV_PYTHON:-}" ] && python_healthy "$UV_PYTHON"; then
+    return 0
+  fi
+  for candidate in python3 python ${TANDEM_PYTHON_FALLBACKS:-/opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3}; do
+    resolved="$(command -v "$candidate" 2>/dev/null)" || continue
+    if python_healthy "$resolved"; then
+      export UV_PYTHON="$resolved"
+      return 0
+    fi
+    printf 'Skipping %s: too old or broken hashlib.\n' "$resolved" >&2
+  done
+  unset UV_PYTHON
+  return 1
+}
+
+# Only ever deletes a real virtualenv (pyvenv.cfg present) whose interpreter no longer works.
+remove_broken_venv() {
+  local venv="$1"
+  [ -f "$venv/pyvenv.cfg" ] && [ -e "$venv/bin/python" ] || return 0
+  python_healthy "$venv/bin/python" && return 0
+  printf 'Removing broken virtualenv %s; uv will rebuild it.\n' "$venv" >&2
+  rm -rf "$venv"
 }
 
 set_var() {
@@ -421,6 +460,9 @@ main() {
     exit "$code"
   fi
   act
+  select_python || true
+  remove_broken_venv "$UV_PROJECT_ENVIRONMENT"
+  remove_broken_venv "$TANDEM_STATE_DIR/venv"
   uv sync --project "$TANDEM_DIR" --frozen || die 4 "uv sync failed. See the output above."
   exec uv run --project "$TANDEM_DIR" tandem ${PASSTHRU[@]+"${PASSTHRU[@]}"}
 }

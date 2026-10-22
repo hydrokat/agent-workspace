@@ -39,8 +39,8 @@ case "$name" in
     case "$*" in
       "self update --dry-run") [ -f "$STATE/uv.dryrun.fail" ] && { echo "network down" >&2; exit 1; }; [ -f "$STATE/uv.dryrun" ] && cat "$STATE/uv.dryrun"; exit 0;;
       "self update") [ -f "$STATE/uv.noupdate" ] || bump uv; exit 0;;
-      sync*) exit 0;;
-      run*) echo "TANDEM-RAN cwd=$PWD args=$* venv=$UV_PROJECT_ENVIRONMENT"; exit 0;;
+      sync*) echo "sync-python=$UV_PYTHON" >> "$STATE/calls.log"; exit 0;;
+      run*) echo "TANDEM-RAN cwd=$PWD args=$* venv=$UV_PROJECT_ENVIRONMENT python=$UV_PYTHON"; exit 0;;
     esac;;
   claude|agy)
     if [ "$1" = update ]; then [ -f "$STATE/$name.noupdate" ] || bump "$name"; exit 0; fi;;
@@ -79,11 +79,11 @@ function setup({ versions = ok(), os = 'Darwin', managers = ['brew'], min = MIN 
   return { base, pkg, state, bin, work, mark: (f, c = '') => writeFileSync(join(state, f), c) };
 }
 
-function run(env, args = [], { stdin = null } = {}) {
+function run(env, args = [], { stdin = null, extraEnv = {} } = {}) {
   return new Promise((resolve) => {
     const proc = spawn(join(env.bin, 'bash'), [join(env.pkg, 'run.sh'), ...args], {
       cwd: env.work,
-      env: { PATH: env.bin, HOME: env.base, STATE: env.state, BIN: env.bin, NO_COLOR: '1' },
+      env: { PATH: env.bin, HOME: env.base, STATE: env.state, BIN: env.bin, NO_COLOR: '1', ...extraEnv },
       stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
     let stdout = '', stderr = '';
@@ -94,6 +94,18 @@ function run(env, args = [], { stdin = null } = {}) {
   });
 }
 const calls = (env) => (existsSync(join(env.state, 'calls.log')) ? readFileSync(join(env.state, 'calls.log'), 'utf8') : '');
+
+const HEALTHY_PY = (v = '3.12') => `#!/bin/sh\necho ${v}\n`;
+const BROKEN_PY = '#!/bin/sh\necho "ERROR:root:code for hash blake2b was not found." >&2\necho 3.12\n';
+
+function fakePython(path, body) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+const slugOf = (pkg) => join(pkg, 'tandem').replace(/[^A-Za-z0-9]/g, '-').replace(/^-+/, '');
 
 describe('run.sh happy path', () => {
   it('keeps the tandem virtualenv outside the (possibly read-only) package directory', async () => {
@@ -307,5 +319,106 @@ describe('run.sh security', () => {
 
   it('sets HOMEBREW_NO_AUTO_UPDATE for its own checks', () => {
     assert.match(readFileSync(join(ROOT, 'run.sh'), 'utf8'), /HOMEBREW_NO_AUTO_UPDATE=1/);
+  });
+});
+
+describe('run.sh per-workspace virtualenv', () => {
+  it('gives every workspace its own virtualenv so editable installs never collide', async () => {
+    const a = setup(), b = setup();
+    const ra = await run(a), rb = await run(b);
+    const venv = (r) => r.stdout.match(/venv=(\S+)/)[1];
+    assert.equal(venv(ra), `${a.base}/.local/state/tandem/venv-${slugOf(a.pkg)}`);
+    assert.equal(venv(rb), `${b.base}/.local/state/tandem/venv-${slugOf(b.pkg)}`);
+    assert.notEqual(venv(ra).split('/').pop(), venv(rb).split('/').pop());
+  });
+
+  it('honours an explicit UV_PROJECT_ENVIRONMENT', async () => {
+    const env = setup();
+    const r = await run(env, [], { extraEnv: { UV_PROJECT_ENVIRONMENT: join(env.base, 'mine') } });
+    assert.match(r.stdout, new RegExp(`venv=${env.base}/mine `));
+  });
+});
+
+describe('run.sh healthy Python selection', () => {
+  const pythonOf = (r) => r.stdout.match(/python=(\S*)/)[1];
+
+  it('uses the Python on PATH when it is healthy', async () => {
+    const env = setup();
+    fakePython(join(env.bin, 'python3'), HEALTHY_PY());
+    const r = await run(env);
+    assert.equal(pythonOf(r), join(env.bin, 'python3'));
+    assert.match(r.calls, new RegExp(`sync-python=${join(env.bin, 'python3')}`));
+  });
+
+  it('skips a Python whose hashlib prints blake2 errors and uses a fallback', async () => {
+    const env = setup();
+    fakePython(join(env.bin, 'python3'), BROKEN_PY);
+    const fallback = fakePython(join(env.base, 'fallback/python3'), HEALTHY_PY());
+    const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: fallback } });
+    assert.equal(r.code, 0, r.out);
+    assert.equal(pythonOf(r), fallback);
+    assert.match(r.stderr, /broken hashlib/);
+  });
+
+  it('skips a Python older than TANDEM_MIN_PYTHON', async () => {
+    const env = setup();
+    fakePython(join(env.bin, 'python3'), HEALTHY_PY('3.9'));
+    const fallback = fakePython(join(env.base, 'fallback/python3'), HEALTHY_PY('3.13'));
+    const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: fallback } });
+    assert.equal(pythonOf(r), fallback);
+  });
+
+  it('lets uv choose when no healthy Python is found', async () => {
+    const env = setup();
+    fakePython(join(env.bin, 'python3'), BROKEN_PY);
+    const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: join(env.base, 'nowhere/python3') } });
+    assert.equal(r.code, 0, r.out);
+    assert.equal(pythonOf(r), '');
+  });
+});
+
+describe('run.sh broken virtualenv recovery', () => {
+  const venvOf = (env) => join(env.base, '.local/state/tandem', `venv-${slugOf(env.pkg)}`);
+  const makeVenv = (dir, body) => {
+    writeFileSync(join(mkdirSyncReturn(dir), 'pyvenv.cfg'), 'home = /x\n');
+    fakePython(join(dir, 'bin/python'), body);
+  };
+  const mkdirSyncReturn = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
+
+  it('removes a virtualenv whose Python cannot import hashlib so uv rebuilds it', async () => {
+    const env = setup();
+    makeVenv(venvOf(env), BROKEN_PY);
+    await run(env);
+    assert.ok(!existsSync(venvOf(env)));
+  });
+
+  it('removes a broken legacy shared virtualenv', async () => {
+    const env = setup();
+    const legacy = join(env.base, '.local/state/tandem/venv');
+    makeVenv(legacy, BROKEN_PY);
+    await run(env);
+    assert.ok(!existsSync(legacy));
+  });
+
+  it('keeps a healthy virtualenv', async () => {
+    const env = setup();
+    makeVenv(venvOf(env), HEALTHY_PY());
+    await run(env);
+    assert.ok(existsSync(join(venvOf(env), 'bin/python')));
+  });
+
+  it('never deletes a directory that is not a virtualenv', async () => {
+    const env = setup();
+    const dir = venvOf(env);
+    fakePython(join(dir, 'bin/python'), BROKEN_PY);
+    await run(env);
+    assert.ok(existsSync(join(dir, 'bin/python')));
+  });
+
+  it('does not touch virtualenvs under --check', async () => {
+    const env = setup();
+    makeVenv(venvOf(env), BROKEN_PY);
+    await run(env, ['--check']);
+    assert.ok(existsSync(venvOf(env)));
   });
 });
