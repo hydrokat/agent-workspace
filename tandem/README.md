@@ -8,7 +8,7 @@ To resume conversations, tandem reads only two things the CLIs produce: the log 
 
 ## Keys
 
-Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this table are generated from it). tmux's prefix is disabled, so tandem consumes no other keys. Every shortcut requires **at least 1 modifier key** (`Ctrl`, `Alt`, `Shift`) and supports multi-modifier chords. Custom shortcuts can be set via `TANDEM_KEYS="action=Shortcut,..."` (e.g. `TANDEM_KEYS="help=Alt+F1,quit=Ctrl+Alt+q"`).
+Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this table are generated from it). tmux's prefix is disabled, so tandem consumes no other keys. Every shortcut requires **at least 1 modifier key** (`Ctrl`, `Alt`, `Shift`) and supports multi-modifier chords. Shortcuts are OS-aware: they display with `Opt` on macOS (`Opt+h`, `Ctrl+Opt+n`, etc.) and `Alt` on Linux. On macOS terminals where Option does not send Meta, tandem also binds native macOS Option character keystrokes (`˙`, `ß`, `œ`, etc.) automatically. Custom shortcuts can be set via `TANDEM_KEYS="action=Shortcut,..."` (e.g. `TANDEM_KEYS="help=Opt+F1,quit=Ctrl+Opt+q"`).
 
 | Key | Action |
 |---|---|
@@ -52,6 +52,8 @@ tandem keeps `.agent-workspace/tandem-session.json` (owner-only JSON) up to date
 - **Quit and discard saved state** deletes the saved file and ends the session, so the next launch starts fresh without asking.
 
 The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank (new conversations) / [q]uit** (Enter resumes). If the last save was an autosave, the prompt says tandem did not exit cleanly. Non-interactive: `./run.sh -- --resume` or `--fresh`. A blank start replaces the saved file once the new session autosaves. An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
+
+**Per-workspace environment isolation and Python health:** `./run.sh` automatically tests and selects a healthy Python interpreter across `PATH` and system locations (`/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, `/usr/bin/python3`) that supports `blake2b`/`blake2s`/`sha256` in `hashlib`, passing it to `uv` via `UV_PYTHON`. Tandem isolates each workspace's editable virtualenv under `${XDG_STATE_HOME:-~/.local/state}/tandem/venv-<slug>`, so parallel workspaces never clobber each other's environments, and automatically removes and rebuilds broken virtualenvs.
 
 **AI state (conversations).** Resuming relaunches each agent with its model and folder and reopens its own conversation, using only documented CLI flags:
 
