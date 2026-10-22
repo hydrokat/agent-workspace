@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,11 @@ class UpdateResult:
     reloaded: bool = False
     old_version: str = ""
     new_version: str = ""
+
+
+def active_environment() -> str | None:
+    """The virtualenv this process runs in, so ``uv sync`` refreshes it instead of a shared default."""
+    return sys.prefix if sys.prefix != sys.base_prefix else None
 
 
 def installed_dir(workspace: Path) -> Path:
@@ -95,6 +101,9 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
     if which("uv") is None:
         result.message = "Workspace files were updated but uv was not found to refresh tandem. Run ./run.sh to finish."
         return result
+    environment = active_environment()
+    if environment:
+        os.environ.setdefault("UV_PROJECT_ENVIRONMENT", environment)
     code, note = runner(["uv", "sync", "--project", str(installed_dir(workspace)), "--frozen"], workspace, SYNC_TIMEOUT)
     if code != 0:
         result.message = f"uv sync failed (exit {code}). tandem keeps running the old code; run ./run.sh to repair."

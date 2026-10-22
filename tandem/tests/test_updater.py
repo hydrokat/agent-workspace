@@ -1,3 +1,5 @@
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -110,3 +112,44 @@ def test_spec_from_env_is_validated() -> None:
 
 def test_version_is_importable() -> None:
     assert tandem.__version__
+
+
+class EnvRecorder(Recorder):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sync_env: str | None = None
+
+    def __call__(self, argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        if argv[:2] == ["uv", "sync"]:
+            self.sync_env = os.environ.get("UV_PROJECT_ENVIRONMENT")
+        return super().__call__(argv, cwd, timeout)
+
+
+def test_sync_targets_the_running_virtualenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = installed_workspace(tmp_path, monkeypatch)
+    monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
+    monkeypatch.setattr(sys, "prefix", "/state/tandem/venv-ws")
+    monkeypatch.setattr(sys, "base_prefix", "/usr/local")
+    rec = EnvRecorder()
+    updater.run_update(ws, "o/r", reloader([]), "py", rec, Recorder(), have("npx", "uv"))
+    assert rec.sync_env == "/state/tandem/venv-ws"
+
+
+def test_sync_keeps_an_explicit_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = installed_workspace(tmp_path, monkeypatch)
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/explicit/venv")
+    monkeypatch.setattr(sys, "prefix", "/state/tandem/venv-ws")
+    monkeypatch.setattr(sys, "base_prefix", "/usr/local")
+    rec = EnvRecorder()
+    updater.run_update(ws, "o/r", reloader([]), "py", rec, Recorder(), have("npx", "uv"))
+    assert rec.sync_env == "/explicit/venv"
+
+
+def test_sync_leaves_the_environment_alone_outside_a_virtualenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = installed_workspace(tmp_path, monkeypatch)
+    monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
+    monkeypatch.setattr(sys, "prefix", "/usr/local")
+    monkeypatch.setattr(sys, "base_prefix", "/usr/local")
+    rec = EnvRecorder()
+    updater.run_update(ws, "o/r", reloader([]), "py", rec, Recorder(), have("npx", "uv"))
+    assert rec.sync_env is None
