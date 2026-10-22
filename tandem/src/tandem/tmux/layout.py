@@ -39,6 +39,7 @@ def conf_text(history: int = 50000) -> str:
     return "\n".join([
         "set-option -g mouse on",
         "set-option -g extended-keys on",
+        "set-environment -g -u TMUX_PANE",
         "set-option -g prefix None",
         "set-option -g prefix2 None",
         "set-option -g escape-time 10",
@@ -112,9 +113,9 @@ class Layout:
                      *keys.resize_commands(self.python, self.workspace)]:
             c.run_checked(*argv)
         launcher = keys.launcher_for(self.python, self.workspace)
-        c.run_checked("set-hook", "-g", "client-resized", f"run-shell -b '{launcher} reflow'")
-        c.run_checked("set-hook", "-g", "client-attached", f"run-shell -b '{launcher} first-run'")
-        c.run_checked("set-hook", "-g", "pane-died", f"run-shell -b '{launcher} refresh'")
+        c.run_checked("set-hook", "-g", "client-resized", keys.run_shell(launcher, "reflow"))
+        c.run_checked("set-hook", "-g", "client-attached", keys.run_shell(launcher, "first-run"))
+        c.run_checked("set-hook", "-g", "pane-died", keys.run_shell(launcher, "refresh"))
 
     def _register(self, launch: Launch, pane_id: str) -> None:
         if self.coord is not None and launch.kind == "agent" and launch.session_id:

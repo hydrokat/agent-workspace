@@ -144,6 +144,8 @@ def focus(layout: Layout, config: Config, target: str) -> None:
     layout.client.run_checked("select-pane", "-t", status.id)
     if target == "queries":
         layout.client.send_keys_own(status.id, "M-q")
+    elif target == "status":
+        layout.client.send_keys_own(status.id, "M-s")
 
 
 def close_agent(layout: Layout, config: Config) -> None:
@@ -260,10 +262,10 @@ def quit_menu(layout: Layout, workspace: str | None = None) -> None:
     launcher = keys.launcher_for(sys.executable, workspace)
     layout.client.run_checked(
         "display-menu", "-T", "tandem",
-        "Save state and exit (resume later)", "s", f"run-shell -b '{launcher} save-exit'",
+        "Save state and exit (resume later)", "s", keys.run_shell(launcher, "save-exit"),
         "Detach (agents keep running)", "d", "detach-client",
-        "Update tandem and workspace", "u", f"display-popup -E -w 80% -h 70% '{launcher} update'",
-        "Quit and discard saved state (next launch is fresh)", "k", f"run-shell -b '{launcher} discard-exit'",
+        "Update tandem and workspace", "u", keys.popup(launcher, "update", "80%", "70%"),
+        "Quit and discard saved state (next launch is fresh)", "k", keys.run_shell(launcher, "discard-exit"),
         "Cancel", "c", "")
 
 
@@ -390,7 +392,7 @@ def show_help() -> None:
 
 
 def placeholder(role: str) -> None:
-    add_key = keys.key_for("add-agent") or "Ctrl+Alt+n"
+    add_key = keys.display_shortcut(keys.key_for("add-agent") or "Ctrl+Alt+n")
     print(f"No {role}s yet. Press {add_key} to add one.")
     signal.pause()
 

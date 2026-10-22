@@ -25,6 +25,6 @@ def run_launch_wizard(
 def run_add_agent(
     installed: dict[str, bool] | None = None, loader: Callable[[str], list[Model]] = load_models
 ) -> AgentSpec | None:
-    """Single-agent variant used inside a tmux popup (F2)."""
+    """Single-agent variant used inside a tmux popup (add-agent key)."""
     result = WizardApp(installed or installed_clis(), loader, single=True).run()
     return result[0] if result else None

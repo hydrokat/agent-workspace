@@ -1,4 +1,5 @@
 import re
+import sys
 import time
 
 from textual import on
@@ -15,10 +16,19 @@ from tandem.coordination.store import AnswerConflictError, CoordStore
 from tandem.sanitize import clean
 from tandem.status.notify import order_queries
 from tandem.status.render import age
+from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient
 
 _PANE_ID = re.compile(r"^%\d+$")
-HINTS = "↑↓ move · Enter answer · 1-9 pick option · Ctrl+S send · Esc cancel · Alt+w withdraw · Alt+g go to agent"
+
+
+def hints(platform: str = sys.platform) -> str:
+    return (f"↑↓ move · Enter answer · 1-9 pick option · Ctrl+S send · Esc cancel · "
+            f"{keys.display_shortcut(keys.WITHDRAW, platform)} withdraw · "
+            f"{keys.display_shortcut(keys.GO_TO_AGENT, platform)} go to agent")
+
+
+HINTS = hints()
 EMPTY = "No open questions. Agents keep working while they wait."
 
 
@@ -28,8 +38,8 @@ class QueriesTab(Vertical):
     BINDINGS = [
         Binding("ctrl+s", "send", "Send"),
         Binding("escape", "cancel", "Cancel"),
-        Binding("alt+w", "withdraw", "Withdraw"),
-        Binding("alt+g", "goto", "Go to agent"),
+        Binding(keys.textual_binding_keys(keys.WITHDRAW), "withdraw", "Withdraw"),
+        Binding(keys.textual_binding_keys(keys.GO_TO_AGENT), "goto", "Go to agent"),
     ]
     DEFAULT_CSS = """
     QueriesTab #q-list { height: 1fr; min-height: 3; }

@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,7 +11,7 @@ import pytest
 from tandem.coordination.store import CoordStore
 from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient
-from tandem.tmux.layout import SESSION, Launch, Layout
+from tandem.tmux.layout import SESSION, Launch, Layout, conf_text
 from tandem.tmux.tabs import agents_in, visible_pane
 
 pytestmark = pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not installed")
@@ -59,7 +60,7 @@ def test_options_mouse_and_hint_bar(layout: Layout) -> None:
     built(layout)
     assert "on" in layout.client.run_checked("show-options", "-g", "mouse")
     assert "on" in layout.client.run_checked("show-options", "-g", "extended-keys")
-    assert "Alt+h Help" in layout.client.run_checked("show-options", "-g", "status-left")
+    assert f"{keys.alt_name()}+h Help" in layout.client.run_checked("show-options", "-g", "status-left")
 
 
 def test_tmux_root_bindings_single_and_multi_modifier(layout: Layout) -> None:
@@ -72,6 +73,8 @@ def test_tmux_root_bindings_single_and_multi_modifier(layout: Layout) -> None:
     ).stdout
     assert "M-h" in out
     assert "C-M-n" in out or "M-C-n" in out
+    if sys.platform == "darwin":
+        assert "˙" in out
 
 
 def test_add_agent_swaps_in_and_tab_navigation(layout: Layout) -> None:
@@ -395,3 +398,27 @@ def test_restart_with_launch_retags_the_pane(layout: Layout) -> None:
     layout.restart(new, coord_dir="/tmp/coord", launch=relaunch)
     pane = next(p for p in layout.panes() if p.id == new)
     assert not pane.dead and json.loads(pane.spec)["conversation"] == CONV
+
+
+def test_conf_text_unsets_tmux_pane() -> None:
+    text = conf_text(50000)
+    assert "set-environment -g -u TMUX_PANE" in text
+
+
+def test_restart_fallback_uses_active_pane_when_env_pane_empty(layout: Layout) -> None:
+    import json
+    import time
+    from tandem.config import Config
+
+    built(layout)
+    new = layout.add_agent(Launch(["sh", "-c", "exit 1"], "planner", 2, "boom", session_id="planner-2"))
+    for _ in range(40):
+        if any(p.dead for p in layout.panes()):
+            break
+        time.sleep(0.1)
+    layout.client.run_checked("select-pane", "-t", new)
+    cfg = Config.from_env(env={})
+    assert not cfg.tmux_pane
+    pane_id = cfg.tmux_pane or layout.client.run_checked("display-message", "-p", "#{pane_id}").strip()
+    assert pane_id == new
+

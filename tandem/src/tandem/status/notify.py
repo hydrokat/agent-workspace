@@ -1,5 +1,6 @@
 from tandem.coordination.schema import Query
 from tandem.sanitize import clean
+from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient
 
 ACK_LIMIT = 20
@@ -36,4 +37,4 @@ class Notifier:
             if self._tmux is None:
                 continue
             who = clean(q.asked_by).replace("#", "##")[:40]
-            self._tmux.run("display-message", "-d", "4000", f"tandem: new question from {who} (F6 to answer)")
+            self._tmux.run("display-message", "-d", "4000", f"tandem: new question from {who} ({keys.display_shortcut(keys.key_for('queries'))} to answer)")

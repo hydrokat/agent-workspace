@@ -164,6 +164,25 @@ def test_queries_tab_exists_and_alt_q_switches_to_it(tmp_path: Path) -> None:
     async def script(p: Pilot[None]) -> None:
         await p.press("alt+q")
         assert app.query_one(TabbedContent).active == "queries-pane"
+        await p.pause()
+        assert app.focused == app.query_one("#q-list")
+
+        await p.press("alt+s")
+        assert app.query_one(TabbedContent).active == "status-pane"
+        await p.pause()
+        assert app.focused == app.query_one("#sessions")
+
+        import sys
+        if sys.platform == "darwin":
+            await p.press("œ")
+            assert app.query_one(TabbedContent).active == "queries-pane"
+            await p.pause()
+            assert app.focused == app.query_one("#q-list")
+
+            await p.press("ß")
+            assert app.query_one(TabbedContent).active == "status-pane"
+            await p.pause()
+            assert app.focused == app.query_one("#sessions")
 
     run_app(app, script)
 

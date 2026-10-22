@@ -89,7 +89,7 @@ def test_quit_menu_offers_save_update_detach_discard() -> None:
 
     commands.quit_menu(L(), "/ws")  # type: ignore[arg-type]
     flat = " | ".join(calls[0])
-    assert "save-exit" in flat and "tandem update'" in flat and "detach-client" in flat and "discard-exit" in flat
+    assert "save-exit" in flat and "tandem update" in flat and "detach-client" in flat and "discard-exit" in flat
     assert "TANDEM_WORKSPACE=/ws" in flat
 
 

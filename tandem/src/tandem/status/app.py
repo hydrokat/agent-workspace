@@ -1,4 +1,5 @@
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,13 +17,24 @@ from tandem.coordination.store import CoordStore
 from tandem.snapshot import StatusSnapshot, collect
 from tandem.status import render
 from tandem.status.notify import Notifier
+from tandem.tmux import keys
 from tandem.status.queries_tab import QueriesTab
 from tandem.tmux.client import TmuxClient, socket_for
 
 COMPACT_BELOW_ROWS = 8
 AUTOSAVE_SECONDS = 15.0
 _PANE_ID = re.compile(r"^%\d+$")
-HINTS = "Tab switch tabs · ↑↓ move · Alt+g go to agent's pane · Alt+r refresh · Alt+q queries"
+
+
+def hints(platform: str = sys.platform) -> str:
+    def d(raw: str) -> str:
+        return keys.display_shortcut(raw, platform)
+
+    return (f"Tab switch tabs · ↑↓ move · {d(keys.GO_TO_AGENT)} go to agent's pane · {d(keys.STATUS_REFRESH)} refresh · "
+            f"{d('Alt+s')} status · {d('Alt+q')} queries")
+
+
+HINTS = hints()
 
 
 class StatusApp(App[None]):
@@ -36,9 +48,10 @@ class StatusApp(App[None]):
     .compact TabbedContent { height: auto; }
     """
     BINDINGS = [
-        Binding("alt+r", "refresh_now", "Refresh"),
-        Binding("alt+g", "goto", "Go to agent"),
-        Binding("alt+q", "show_queries", "Queries"),
+        Binding(keys.textual_binding_keys(keys.STATUS_REFRESH), "refresh_now", "Refresh"),
+        Binding(keys.textual_binding_keys(keys.GO_TO_AGENT), "goto", "Go to agent"),
+        Binding(keys.textual_binding_keys("Alt+q"), "show_queries", "Queries"),
+        Binding(keys.textual_binding_keys("Alt+s"), "show_status", "Status"),
     ]
 
     def __init__(self, workspace: Path, store: CoordStore, tmux: TmuxClient | None = None,
@@ -126,6 +139,11 @@ class StatusApp(App[None]):
 
     def action_show_queries(self) -> None:
         self.query_one(TabbedContent).active = "queries-pane"
+        self.call_after_refresh(self.query_one("#q-list", OptionList).focus)
+
+    def action_show_status(self) -> None:
+        self.query_one(TabbedContent).active = "status-pane"
+        self.call_after_refresh(self.query_one("#sessions", OptionList).focus)
 
     def action_goto(self) -> None:
         sessions = self.query_one("#sessions", OptionList)
