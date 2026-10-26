@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_parser(name, help=text)
     update = sub.add_parser("update", help="update tandem and the workspace; agents keep running (F10 menu)")
     update.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    click = sub.add_parser("click", help="dispatch a status-bar or pane-menu click action")
+    click.add_argument("action", nargs="?", default="", help="action name from the hint bar")
     sub.add_parser("quota-feed", help="Claude Code statusline hook: record quota, then run your own statusline")
     sub.add_parser("quota-line", help="print the quota line shown under the window")
     sub.add_parser("save-exit", help="save the session state and end the session")
@@ -171,5 +173,7 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
         commands.discard_exit(layout, workspace)
     elif command == "reload":
         commands.reload_ui(layout, workspace, config)
+    elif command == "click":
+        commands.click(layout, config, args.action)
     elif command == "first-run":
         commands.first_run(layout, config)

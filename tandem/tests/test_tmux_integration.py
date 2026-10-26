@@ -405,6 +405,41 @@ def test_conf_text_unsets_tmux_pane() -> None:
     assert "set-environment -g -u TMUX_PANE" in text
 
 
+def test_mouse_bindings_applied_after_apply_chrome(layout: Layout) -> None:
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert "MouseDown1Status" in out
+    assert "MouseDown3Pane" in out
+
+
+def test_unsafe_mouse_defaults_unbound_after_apply_chrome(layout: Layout) -> None:
+    import re
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    # Check exact key token: surrounded by whitespace so "MouseDown3Status" does not
+    # false-match inside "M-MouseDown3Status" (a different, unrelated key).
+    for unsafe in ("MouseDown3Status", "MouseDown3StatusLeft", "M-MouseDown3Pane"):
+        pattern = rf"(?<!\S){re.escape(unsafe)}(?!\S)"
+        matches = re.findall(pattern, out)
+        assert not matches, f"{unsafe} should have been unbound; still present in list-keys"
+
+
+def test_safe_tmux_mouse_defaults_still_present(layout: Layout) -> None:
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    for safe in ("MouseDrag1Border", "MouseDown1Pane", "WheelUpPane"):
+        assert safe in out, f"{safe} default should still be bound"
+
+
 def test_restart_fallback_uses_active_pane_when_env_pane_empty(layout: Layout) -> None:
     import json
     import time

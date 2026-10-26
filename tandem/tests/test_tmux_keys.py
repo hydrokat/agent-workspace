@@ -178,7 +178,10 @@ def test_resize_mode_keys_stay_in_table_and_can_exit() -> None:
 
 def test_status_left_swaps_hint_while_resizing() -> None:
     text = keys.status_left()
-    assert "client_key_table" in text and "RESIZE" in text and keys.hint_bar() in text
+    assert "client_key_table" in text
+    assert "RESIZE" in text
+    assert "#[range=user|" in text
+    assert keys.resize_hint() in text
 
 
 def test_resize_is_documented_in_help() -> None:
@@ -255,3 +258,114 @@ def test_tandem_keys_override() -> None:
     assert custom[9].key == "Ctrl+Alt+q"
     # Unoverridden bindings remain default
     assert custom[1].key == "Ctrl+Alt+n"
+
+
+def test_click_actions_parallel_to_keymap() -> None:
+    assert len(keys.CLICK_ACTIONS) == len(keys.DEFAULT_KEYMAP)
+    assert len(set(keys.CLICK_ACTIONS)) == len(keys.CLICK_ACTIONS), "CLICK_ACTIONS must be unique"
+    for action in keys.CLICK_ACTIONS:
+        assert len(action.encode()) <= 15, f"action '{action}' exceeds 15 bytes"
+
+
+def test_hint_bar_with_ranges_wraps_each_hint() -> None:
+    for platform in ("linux", "darwin"):
+        ranged = keys.hint_bar_with_ranges(platform)
+        for b, action in zip(keys.KEYMAP, keys.CLICK_ACTIONS):
+            if b.hint:
+                assert f"#[range=user|{action}]" in ranged
+                assert f"{b.display_key(platform)} {b.hint}#[norange]" in ranged
+
+
+def test_hint_bar_with_ranges_has_no_bare_hints() -> None:
+    ranged = keys.hint_bar_with_ranges("linux")
+    assert "#[range=user|" in ranged
+    assert "#[norange]" in ranged
+
+
+def test_status_left_resize_arm_has_no_ranges() -> None:
+    text = keys.status_left()
+    resize_hint = keys.resize_hint()
+    assert resize_hint in text
+    assert "#[range=user|" not in resize_hint
+
+
+def test_mouse_commands_contains_expected_bindings() -> None:
+    cmds = keys.mouse_commands("/py", "/ws")
+    verbs = [c[0] for c in cmds]
+    assert verbs.count("bind-key") >= 2
+    assert verbs.count("unbind-key") == 3
+
+
+def test_mouse_commands_mousedown1status_runs_click() -> None:
+    cmds = keys.mouse_commands("/py", "/ws")
+    click1 = next(c for c in cmds if c[:3] == ["bind-key", "-n", "MouseDown1Status"])
+    cmd_str = click1[3]
+    assert "run-shell" in cmd_str
+    assert "click" in cmd_str
+    assert "mouse_status_range" in cmd_str
+
+
+def test_mouse_commands_mousedown3pane_has_display_menu() -> None:
+    cmds = keys.mouse_commands("/py", "/ws")
+    click3 = next(c for c in cmds if c[:3] == ["bind-key", "-n", "MouseDown3Pane"])
+    cmd_str = " ".join(click3)
+    assert "display-menu" in cmd_str
+    assert "Focus this pane" in cmd_str
+    assert "Restart agent" in cmd_str
+    assert "Close agent" in cmd_str
+    assert "New agent" in cmd_str
+    assert "Help" in cmd_str
+
+
+def test_mouse_commands_unbinds_unsafe_defaults() -> None:
+    cmds = keys.mouse_commands("/py")
+    unbind_keys = [c[c.index("-n") + 1] for c in cmds if c[0] == "unbind-key" and "-n" in c]
+    assert "MouseDown3Status" in unbind_keys
+    assert "MouseDown3StatusLeft" in unbind_keys
+    assert "M-MouseDown3Pane" in unbind_keys
+
+
+def test_mouse_commands_does_not_touch_safe_defaults() -> None:
+    cmds = keys.mouse_commands("/py")
+    touched_keys = [c[c.index("-n") + 1] for c in cmds if c[0] in ("bind-key", "unbind-key") and "-n" in c]
+    for safe in ("MouseDrag1Border", "MouseDown1Pane", "WheelUpPane"):
+        assert safe not in touched_keys, f"{safe} must not be touched"
+
+
+def test_mouse_commands_display_menu_no_forbidden_ops() -> None:
+    for platform in ("linux", "darwin"):
+        cmds = keys.mouse_commands("/py", "/ws", platform)
+        full = " ".join(token for argv in cmds for token in argv)
+        for bad in ("send-keys", "capture-pane", "pipe-pane", "paste-buffer", "copy-mode"):
+            assert bad not in full, f"forbidden op '{bad}' found in mouse_commands"
+
+
+def test_mouse_commands_quoting_paths_with_spaces() -> None:
+    ws = "/path with spaces/proj"
+    py = "/my python/python3"
+    cmds = keys.mouse_commands(py, ws)
+    full = " ".join(token for argv in cmds for token in argv)
+    assert f"TANDEM_WORKSPACE='{ws}'" in full
+    assert f"'{py}'" in full
+
+
+def test_mouse_commands_both_platforms() -> None:
+    for platform in ("linux", "darwin"):
+        cmds = keys.mouse_commands("/py", "/ws", platform)
+        assert len(cmds) == 5
+
+
+def test_mouse_commands_unbind_uses_quiet_flag() -> None:
+    cmds = keys.mouse_commands("/py")
+    for c in cmds:
+        if c[0] == "unbind-key":
+            assert "-q" in c, f"unbind-key missing -q: {c}"
+
+
+def test_help_lines_include_mouse_group() -> None:
+    for platform in ("linux", "darwin"):
+        lines = keys.help_lines(platform)
+        text = "\n".join(lines)
+        assert "Mouse" in text
+        assert "right-click" in text
+        assert "context menu" in text
