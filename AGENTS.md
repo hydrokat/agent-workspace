@@ -21,7 +21,7 @@ n/a
 ### 1. Research-First Approach
 Before modifying code, contributors should:
 - Consult the `knowledgebase/` for relevant patterns.
-- Review the current `specs/phase-016-submission-vouching/impl.md` to understand the broader context.
+- Review the current `specs/p-020-task-tracker-web/impl.md` to understand the broader context.
 - Load `WORKFLOW.md` for debugging and development tasks.
 - Review existing tests to prevent regressions.
 
