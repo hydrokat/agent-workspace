@@ -9,7 +9,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.content import Content
 from textual.events import Click, Resize
-from textual.widgets import Collapsible, OptionList, Static, TabbedContent, TabPane
+from textual.widgets import Collapsible, Footer, OptionList, Static, TabbedContent, TabPane
 from textual.widgets.option_list import Option
 
 from tandem.config import Config
@@ -79,17 +79,28 @@ class StatusApp(App[None]):
 
     CSS = """
     #summary { height: 1; padding: 0 1; text-style: bold; }
-    #hints { height: 1; padding: 0 1; text-style: dim; }
     #sessions { height: auto; max-height: 6; }
     .compact #body { display: none; }
     .compact TabbedContent { height: auto; }
     .compact UpdateBanner { display: none; }
     """
     BINDINGS = [
-        Binding(keys.textual_binding_keys(keys.STATUS_REFRESH), "refresh_now", "Refresh"),
-        Binding(keys.textual_binding_keys(keys.GO_TO_AGENT), "goto", "Go to agent"),
-        Binding(keys.textual_binding_keys("Alt+q"), "show_queries", "Queries"),
-        Binding(keys.textual_binding_keys("Alt+s"), "show_status", "Status"),
+        Binding(
+            keys.textual_binding_keys(keys.STATUS_REFRESH), "refresh_now", "Refresh",
+            key_display=keys.display_shortcut(keys.STATUS_REFRESH),
+        ),
+        Binding(
+            keys.textual_binding_keys(keys.GO_TO_AGENT), "goto", "Go to agent",
+            key_display=keys.display_shortcut(keys.GO_TO_AGENT),
+        ),
+        Binding(
+            keys.textual_binding_keys("Alt+s"), "show_status", "Status",
+            key_display=keys.display_shortcut("Alt+s"),
+        ),
+        Binding(
+            keys.textual_binding_keys("Alt+q"), "show_queries", "Queries",
+            key_display=keys.display_shortcut("Alt+q"),
+        ),
     ]
 
     def __init__(self, workspace: Path, store: CoordStore, tmux: TmuxClient | None = None,
@@ -125,7 +136,7 @@ class StatusApp(App[None]):
                         yield Static("", id="conflicts", markup=False)
             with TabPane("Queries", id="queries-pane"):
                 yield QueriesTab(self.store, self.tmux)
-        yield Static(HINTS, id="hints", markup=False)
+        yield Footer()
 
     def on_mount(self) -> None:
         self.action_refresh_now()
@@ -180,6 +191,10 @@ class StatusApp(App[None]):
         for banner in self.query(UpdateBanner):
             banner.display = not compact
         self._render_repos()
+
+    @on(OptionList.OptionSelected, "#sessions")
+    def _session_selected(self, event: OptionList.OptionSelected) -> None:
+        self.action_goto()
 
     def action_show_queries(self) -> None:
         self.query_one(TabbedContent).active = "queries-pane"

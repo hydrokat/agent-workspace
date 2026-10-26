@@ -6,7 +6,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.content import Content
-from textual.widgets import Input, OptionList, Static
+from textual.widgets import Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from tandem.adapters.base import AgentSpec, Model, ModelListError
@@ -45,15 +45,23 @@ class WizardApp(App[list[AgentSpec] | None]):
     #question { padding: 1 1 0 1; text-style: bold; }
     #choices { height: 1fr; }
     #message { height: 1; padding: 0 1; }
-    #hints { height: 1; padding: 0 1; text-style: dim; }
     """
     BINDINGS = [
-        Binding("escape", "go_back", "Back"),
-        Binding("L", "launch", "Launch all"),
-        Binding(keys.textual_binding_keys(keys.WIZARD_ADD), "add", "Add"),
-        Binding(keys.textual_binding_keys(keys.WIZARD_DELETE), "delete", "Delete"),
-        Binding(keys.textual_binding_keys(keys.WIZARD_FILTER), "focus_input", "Filter"),
-        Binding(f"question_mark,{keys.textual_binding_keys(keys.WIZARD_HELP)}", "help", "Help"),
+        Binding("escape", "go_back", "Back", key_display="Esc"),
+        Binding(
+            keys.textual_binding_keys(keys.WIZARD_FILTER), "focus_input", "Filter",
+            key_display=keys.display_shortcut(keys.WIZARD_FILTER),
+        ),
+        Binding("L", "launch", "Launch all", key_display="Shift+L"),
+        Binding(
+            keys.textual_binding_keys(keys.WIZARD_ADD), "add", "Add",
+            key_display=keys.display_shortcut(keys.WIZARD_ADD),
+        ),
+        Binding(
+            keys.textual_binding_keys(keys.WIZARD_DELETE), "delete", "Delete",
+            key_display=keys.display_shortcut(keys.WIZARD_DELETE),
+        ),
+        Binding(f"question_mark,{keys.textual_binding_keys(keys.WIZARD_HELP)}", "help", "Help", key_display="?"),
     ]
 
     def __init__(self, installed: Mapping[str, bool], model_loader: ModelLoader, single: bool = False) -> None:
@@ -70,7 +78,7 @@ class WizardApp(App[list[AgentSpec] | None]):
         yield OptionList(id="choices")
         yield Input(id="input")
         yield Static("", id="message")
-        yield Static("", id="hints")
+        yield Footer()
 
     def on_mount(self) -> None:
         self.title = "tandem · Launch agents"
@@ -94,7 +102,7 @@ class WizardApp(App[list[AgentSpec] | None]):
         field.display = step in (Step.MODEL, Step.CWD)
         field.value = ""
         question = self.query_one("#question", Static)
-        self.query_one("#hints", Static).update(HINTS[step])
+        self.refresh_bindings()
         if step is Step.CLI:
             question.update("Which AI CLI?")
             for cli in CLIS:
@@ -212,6 +220,16 @@ class WizardApp(App[list[AgentSpec] | None]):
             self.exit(list(self.flow.agents))
             return
         self._render_step()
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        step = self.flow.step
+        if action in ("go_back", "help"):
+            return True
+        if action == "focus_input":
+            return step is Step.MODEL
+        if action in ("add", "delete", "launch"):
+            return step is Step.SUMMARY
+        return None
 
     def action_help(self) -> None:
         self.notify("\n".join(keys.wizard_help_lines()), title="Keys", timeout=15)

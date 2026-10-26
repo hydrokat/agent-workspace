@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from textual.pilot import Pilot
-from textual.widgets import OptionList, Static, TabbedContent
+from textual.widgets import Footer, OptionList, Static, TabbedContent
 
 from tandem.coordination.store import CoordStore
 from tandem.status.app import StatusApp
@@ -327,5 +327,79 @@ def test_update_banner_click_text_triggers_tmux_popup(tmp_path: Path) -> None:
         await p.click("#banner-text")
         await p.pause()
         assert any("display-popup" in call[0] for call in tmux.calls)
+
+    run_app(app, script)
+
+
+# ---------------------------------------------------------------------------
+# Clickable Footer
+# ---------------------------------------------------------------------------
+
+
+def test_footer_replaces_hints_static(tmp_path: Path) -> None:
+    app = StatusApp(workspace(tmp_path), CoordStore(tmp_path / "c"))
+
+    async def script(p: Pilot[None]) -> None:
+        assert len(app.query(Footer)) == 1
+
+    run_app(app, script)
+
+
+def test_footer_present_in_compact_mode(tmp_path: Path) -> None:
+    app = StatusApp(workspace(tmp_path), CoordStore(tmp_path / "c"))
+
+    async def script(p: Pilot[None]) -> None:
+        footers = app.query(Footer)
+        assert len(footers) == 1
+        assert footers.first().display is True
+
+    run_app(app, script, size=(100, 6))
+
+
+def test_footer_key_display_is_os_aware(tmp_path: Path) -> None:
+    import sys
+    from textual.binding import Binding as TextualBinding
+    from tandem.tmux.keys import alt_name
+
+    app = StatusApp(workspace(tmp_path), CoordStore(tmp_path / "c"))
+
+    async def script(p: Pilot[None]) -> None:
+        expected_prefix = alt_name(sys.platform)
+        tb_bindings = [b for b in app.BINDINGS if isinstance(b, TextualBinding)]
+        displays = [b.key_display for b in tb_bindings if b.key_display]
+        assert any(expected_prefix in d for d in displays)
+
+    run_app(app, script)
+
+
+def test_session_row_enter_goes_to_agent(tmp_path: Path) -> None:
+    ws = workspace(tmp_path)
+    coord = tmp_path / "coord"
+    write_session(coord, "implementer-1", pane="%7")
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(coord), tmux=tmux)  # type: ignore[arg-type]
+
+    async def script(p: Pilot[None]) -> None:
+        sessions = app.query_one("#sessions", OptionList)
+        sessions.focus()
+        await p.press("down")
+        await p.press("enter")
+        await p.pause()
+        assert tmux.calls == [("select-pane", "-t", "%7")]
+
+    run_app(app, script)
+
+
+def test_session_row_click_goes_to_agent(tmp_path: Path) -> None:
+    ws = workspace(tmp_path)
+    coord = tmp_path / "coord"
+    write_session(coord, "implementer-1", pane="%7")
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(coord), tmux=tmux)  # type: ignore[arg-type]
+
+    async def script(p: Pilot[None]) -> None:
+        await p.click("#sessions", offset=(4, 1))
+        await p.pause()
+        assert tmux.calls == [("select-pane", "-t", "%7")]
 
     run_app(app, script)
