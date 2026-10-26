@@ -29,7 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
                        ("refresh", "redraw tab titles"), ("reflow", "re-stack columns for the terminal size"),
                        ("reset-layout", "reset pane sizes to the defaults"),
                        ("quit", "detach or quit"), ("help", "show the key help"),
-                       ("first-run", "open help once on first attach"), ("status", "run the status window")):
+                       ("first-run", "open help once on first attach"), ("status", "run the status window"),
+                       ("whats-new", "show what changed in the last update")):
         sub.add_parser(name, help=text)
     update = sub.add_parser("update", help="update tandem and the workspace; agents keep running (F10 menu)")
     update.add_argument("--yes", action="store_true", help="do not ask for confirmation")
@@ -51,6 +52,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _launch(workspace, config, resume=args.resume, fresh=args.fresh)
     elif command == "help":
         commands.show_help()
+    elif command == "whats-new":
+        commands.show_whats_new(workspace)
     elif command == "placeholder":
         commands.placeholder(args.role)
     elif command == "status":
@@ -78,6 +81,10 @@ def _launch(workspace: Path, config: Config, resume: bool = False, fresh: bool =
 
     layout = commands.make_layout(workspace, config)
     if layout.exists():
+        from tandem.notice import read_notice
+        notice = read_notice(workspace)
+        if notice is not None and not notice.seen:
+            commands._reload_in_fresh_process(workspace, layout)
         commands.attach(workspace)
     _note_legacy_session()
     saved = None if fresh else state.load(state.state_path(workspace))
