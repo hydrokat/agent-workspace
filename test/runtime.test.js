@@ -69,4 +69,14 @@ describe('run.sh and tandem installation', () => {
       assert.ok(!fileExists(d, 'run.sh'));
     } finally { cleanup(d); }
   });
+
+  it('init installs CHANGELOG.md to .agent-workspace/tandem/CHANGELOG.md', () => {
+    assert.ok(fileExists(dir, '.agent-workspace/tandem/CHANGELOG.md'), 'CHANGELOG.md installed');
+  });
+
+  it('update adds update-notice.env and update-check.env to .agent-workspace/.gitignore', () => {
+    const gitignore = readFile(dir, '.agent-workspace/.gitignore');
+    assert.ok(gitignore.includes('update-notice.env'), 'update-notice.env in .gitignore');
+    assert.ok(gitignore.includes('update-check.env'), 'update-check.env in .gitignore');
+  });
 });

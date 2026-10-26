@@ -11,6 +11,7 @@
     "src",
     "templates",
     "run.sh",
+    "CHANGELOG.md",
     "tandem/pyproject.toml",
     "tandem/uv.lock",
     "tandem/min-versions.env",

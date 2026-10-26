@@ -56,6 +56,10 @@ describe('npm pack contents', () => {
     }
   });
 
+  it('ships CHANGELOG.md at the package root', () => {
+    assert.ok(files.includes('CHANGELOG.md'), 'CHANGELOG.md packed');
+  });
+
   it('does not ship virtualenvs, caches, or tandem tests', () => {
     const bad = files.filter((f) => /(^|\/)(\.venv|__pycache__|\.pytest_cache|\.mypy_cache)(\/|$)/.test(f) || f.startsWith('tandem/tests/'));
     assert.deepEqual(bad, []);
