@@ -5,10 +5,10 @@ import time
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.content import Content
 from textual.events import Key
-from textual.widgets import OptionList, Static, TextArea
+from textual.widgets import Button, OptionList, Static, TextArea
 from textual.widgets.option_list import Option
 
 from tandem.coordination.schema import Query, Session
@@ -44,9 +44,12 @@ class QueriesTab(Vertical):
     DEFAULT_CSS = """
     QueriesTab #q-list { height: 1fr; min-height: 3; }
     QueriesTab #q-detail { height: auto; padding: 0 1; }
+    QueriesTab #q-options { height: auto; max-height: 4; display: none; }
+    QueriesTab #q-options.visible { display: block; }
     QueriesTab #q-answer { height: 4; }
     QueriesTab #q-notice { height: 1; padding: 0 1; }
-    QueriesTab #q-hints { height: 1; padding: 0 1; text-style: dim; }
+    QueriesTab #q-buttons { height: 1; }
+    QueriesTab #q-buttons Button { min-width: 0; margin: 0 1 0 0; }
     """
 
     def __init__(self, store: CoordStore, tmux: TmuxClient | None = None) -> None:
@@ -61,9 +64,14 @@ class QueriesTab(Vertical):
     def compose(self) -> ComposeResult:
         yield OptionList(id="q-list")
         yield Static(EMPTY, id="q-detail", markup=False)
+        yield OptionList(id="q-options")
         yield TextArea(id="q-answer")
         yield Static("", id="q-notice", markup=False)
-        yield Static(HINTS, id="q-hints", markup=False)
+        with Horizontal(id="q-buttons"):
+            yield Button("Send", id="q-btn-send", compact=True, disabled=True)
+            yield Button("Withdraw", id="q-btn-withdraw", compact=True, disabled=True)
+            yield Button("Go to agent", id="q-btn-goto", compact=True, disabled=True)
+            yield Button("Cancel", id="q-btn-cancel", compact=True, disabled=True)
 
     def update_data(self, queries: list[Query], sessions: list[Session]) -> None:
         self.queries, self.sessions = queries, sessions
@@ -123,21 +131,39 @@ class QueriesTab(Vertical):
     def _show(self, query: Query | None) -> None:
         detail = self.query_one("#q-detail", Static)
         answer = self.query_one("#q-answer", TextArea)
+        options_list = self.query_one("#q-options", OptionList)
         self._current = query.id if query else None
         if query is None:
             detail.update(EMPTY)
             answer.text = ""
+            options_list.clear_options()
+            options_list.set_class(False, "visible")
+            self._update_buttons(None)
             return
         lines = [f"{query.id} · asked by {clean(query.asked_by)} · task {clean(query.task)}", clean(query.question)]
-        if query.options:
-            lines.append("Options: " + "   ".join(f"[{i + 1}] {clean(o)}" for i, o in enumerate(query.options)))
         if query.status != "open":
             how = "in CLI" if query.answered_via == "cli" else "via tandem"
             lines.append(f"Status: {query.status} {how}. Answer: {clean(query.answer)}" if query.answer
                          else f"Status: {query.status}")
         detail.update("\n".join(lines))
+        options_list.clear_options()
+        if query.options:
+            for i, opt in enumerate(query.options):
+                options_list.add_option(Option(Content(f"({i + 1}) {clean(opt)}"), id=str(i)))
+            options_list.set_class(True, "visible")
+        else:
+            options_list.set_class(False, "visible")
         answer.text = self._drafts.get(query.id, "")
         answer.read_only = query.status != "open"
+        self._update_buttons(query)
+
+    def _update_buttons(self, query: Query | None) -> None:
+        is_open = query is not None and query.status == "open"
+        draft = self.query_one("#q-answer", TextArea).text.strip()
+        self.query_one("#q-btn-send", Button).disabled = not is_open or not draft
+        self.query_one("#q-btn-withdraw", Button).disabled = not is_open
+        self.query_one("#q-btn-goto", Button).disabled = query is None
+        self.query_one("#q-btn-cancel", Button).disabled = query is None
 
     def on_key(self, event: Key) -> None:
         if event.key.isdigit() and event.key != "0" and isinstance(self.app.focused, OptionList):
@@ -147,6 +173,38 @@ class QueriesTab(Vertical):
                 self.query_one("#q-answer", TextArea).text = clean(query.options[index])
                 self._save_draft()
                 event.stop()
+
+    @on(OptionList.OptionSelected, "#q-options")
+    def _option_clicked(self, event: OptionList.OptionSelected) -> None:
+        query = self._find(self._current)
+        if query is None or query.status != "open":
+            return
+        index = int(str(event.option.id))
+        if index < len(query.options):
+            self.query_one("#q-answer", TextArea).text = clean(query.options[index])
+            self._save_draft()
+            self._update_buttons(query)
+
+    @on(TextArea.Changed, "#q-answer")
+    def _answer_changed(self, event: TextArea.Changed) -> None:
+        query = self._find(self._current)
+        self._update_buttons(query)
+
+    @on(Button.Pressed, "#q-btn-send")
+    def _btn_send(self, event: Button.Pressed) -> None:
+        self.action_send()
+
+    @on(Button.Pressed, "#q-btn-withdraw")
+    def _btn_withdraw(self, event: Button.Pressed) -> None:
+        self.action_withdraw()
+
+    @on(Button.Pressed, "#q-btn-goto")
+    def _btn_goto(self, event: Button.Pressed) -> None:
+        self.action_goto()
+
+    @on(Button.Pressed, "#q-btn-cancel")
+    def _btn_cancel(self, event: Button.Pressed) -> None:
+        self.action_cancel()
 
     def _notice(self, text: str) -> None:
         self.query_one("#q-notice", Static).update(text)
