@@ -110,7 +110,8 @@ class Layout:
         c.run_checked("set-option", "-g", "window-status-format", "")
         c.run_checked("set-option", "-g", "window-status-current-format", "")
         for argv in [*keys.bind_commands(self.python, self.workspace),
-                     *keys.resize_commands(self.python, self.workspace)]:
+                     *keys.resize_commands(self.python, self.workspace),
+                     *keys.mouse_commands(self.python, self.workspace)]:
             c.run_checked(*argv)
         launcher = keys.launcher_for(self.python, self.workspace)
         c.run_checked("set-hook", "-g", "client-resized", keys.run_shell(launcher, "reflow"))

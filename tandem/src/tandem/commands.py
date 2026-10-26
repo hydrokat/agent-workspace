@@ -429,6 +429,46 @@ def show_whats_new(workspace: Path) -> None:
     mark_seen(workspace)
 
 
+def click(layout: Layout, config: Config, action: str) -> None:
+    """Dispatch a status-bar or menu click; no-op for unknown or empty actions."""
+    from tandem.tmux.keys import CLICK_ACTIONS, RESIZE_TABLE, launcher_for, run_shell
+
+    if action not in frozenset(CLICK_ACTIONS):
+        return
+
+    launcher = launcher_for(sys.executable, layout.workspace)
+
+    if action == "help":
+        layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} help")
+    elif action == "add-agent":
+        layout.client.run_checked("display-popup", "-E", "-w", "90%", "-h", "90%", f"{launcher} add-agent")
+    elif action == "prev":
+        tab(layout, config, "prev")
+    elif action == "next":
+        tab(layout, config, "next")
+    elif action == "status":
+        focus(layout, config, "status")
+    elif action == "queries":
+        focus(layout, config, "queries")
+    elif action == "planner":
+        focus(layout, config, "planner")
+    elif action == "implementer":
+        focus(layout, config, "implementer")
+    elif action == "close-agent":
+        layout.client.run_checked(
+            "confirm-before", "-p", "Close this agent? (y/n)",
+            run_shell(launcher, "close-agent"),
+        )
+    elif action == "quit":
+        quit_menu(layout, layout.workspace)
+    elif action == "restart":
+        pane = config.tmux_pane or layout.client.run_checked("display-message", "-p", "#{pane_id}").strip()
+        if pane:
+            restart(layout, pane, Path(layout.workspace) if layout.workspace else Path.cwd(), config)
+    elif action == "resize":
+        layout.client.run_checked("switch-client", "-T", RESIZE_TABLE)
+
+
 def show_help() -> None:
     print("\n".join(keys.help_lines()))
     print("\nPress Enter to close.")
