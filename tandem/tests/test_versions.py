@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
 
+from tandem import __version__
 from tandem.versions import (
     InvalidMinVersionsError,
     Version,
@@ -89,3 +91,11 @@ def test_parse_min_versions_never_executes_content(tmp_path: Path) -> None:
     with pytest.raises(InvalidMinVersionsError):
         parse_min_versions(f)
     assert not marker.exists()
+
+
+def test_package_json_version_matches_tandem_version() -> None:
+    package_json = Path(__file__).parent.parent.parent / "package.json"
+    pkg_version = json.loads(package_json.read_text())["version"]
+    assert pkg_version == __version__, (
+        f"package.json version ({pkg_version}) must equal tandem.__version__ ({__version__})"
+    )

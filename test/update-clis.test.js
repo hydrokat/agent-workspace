@@ -169,7 +169,7 @@ describe('update: AI CLIs step', () => {
     install('claude', '2.1.200');
     const { code, stdout } = await update(['--yes']);
     assert.equal(code, 0);
-    assert.match(stdout, /⚠ claude 2\.1\.200 is below tandem's minimum 2\.1\.301/);
+    assert.match(stdout, /⚠ claude 2\.1\.200 is below tandem's minimum 2\.1\.310/);
   });
 
   it('emits the results as a JSON record with --json', async () => {
