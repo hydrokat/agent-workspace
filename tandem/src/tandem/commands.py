@@ -303,6 +303,9 @@ def run_update(workspace: Path, config: Config, assume_yes: bool) -> int:
             print(f"(state not saved: {error})")
     result = updater.run_update(workspace, config.update_spec, lambda: _reload_in_fresh_process(workspace, layout))
     print(f"\n{'OK' if result.ok else 'FAILED'}: {result.message}")
+    if result.ok and result.old_version and result.new_version and result.old_version != result.new_version:
+        from tandem.notice import write_notice
+        write_notice(workspace, result.old_version, result.new_version)
     if result.ok and layout.exists():
         try:
             offer_restarts(layout, workspace, config, sys.stdin.isatty())
@@ -374,12 +377,56 @@ def offer_restarts(layout: Layout, workspace: Path, config: Config, interactive:
 
 
 def first_run(layout: Layout, config: Config) -> None:
+    launcher = keys.launcher_for(sys.executable, str(config.workspace) if config.workspace else None)
+
+    if config.workspace is not None:
+        from tandem.notice import read_notice
+        notice = read_notice(config.workspace)
+        if notice is not None and not notice.seen:
+            layout.client.run_checked(
+                "display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} whats-new"
+            )
+
     marker = config.state_dir / "first-run-done"
     if marker.exists():
         return
     config.state_dir.mkdir(parents=True, exist_ok=True)
     marker.write_text(str(time.time()))
-    layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", keys.launcher_for(sys.executable, str(config.workspace) if config.workspace else None) + " help")
+    layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} help")
+
+
+def show_whats_new(workspace: Path) -> None:
+    """Print a What's New summary for the most recent update notice and mark it seen."""
+    from tandem.notice import mark_seen, read_notice, whats_new
+
+    notice = read_notice(workspace)
+    if notice is None:
+        print("No update notice found.")
+        return
+
+    changelog_path = workspace / ".agent-workspace" / "tandem" / "CHANGELOG.md"
+    try:
+        changelog = changelog_path.read_text()
+    except OSError:
+        changelog = ""
+
+    print(f"What's new in tandem {notice.to_version} (updated from {notice.from_version})")
+    bullets = whats_new(changelog, notice.from_version, notice.to_version)
+    if bullets:
+        print()
+        for b in bullets:
+            print(f" • {b}")
+    else:
+        print("\n (release notes unavailable)")
+
+    print(f"\nFull notes: {changelog_path}")
+    print("Press Enter to close.")
+    try:
+        input()
+    except EOFError:
+        pass
+
+    mark_seen(workspace)
 
 
 def show_help() -> None:

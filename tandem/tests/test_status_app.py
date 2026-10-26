@@ -231,3 +231,101 @@ def test_status_window_autosaves_the_session_periodically(tmp_path: Path) -> Non
 
     run_app(app, script)
     assert len(calls) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Update banner
+# ---------------------------------------------------------------------------
+
+
+def test_update_banner_shown_for_unseen_notice(tmp_path: Path) -> None:
+    from tandem.notice import write_notice
+    from tandem.status.app import UpdateBanner
+
+    ws = workspace(tmp_path)
+    write_notice(ws, "1.2.0", "1.3.0", at=1700000000)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"))
+
+    async def script(p: Pilot[None]) -> None:
+        banners = app.query(UpdateBanner)
+        assert len(banners) == 1
+        assert "1.3.0" in str(banners.first().query_one("#banner-text", Static).render())
+
+    run_app(app, script)
+
+
+def test_update_banner_hidden_when_no_notice(tmp_path: Path) -> None:
+    from tandem.status.app import UpdateBanner
+
+    app = StatusApp(workspace(tmp_path), CoordStore(tmp_path / "coord"))
+
+    async def script(p: Pilot[None]) -> None:
+        assert len(app.query(UpdateBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_update_banner_hidden_when_notice_already_seen(tmp_path: Path) -> None:
+    from tandem.notice import mark_seen, write_notice
+    from tandem.status.app import UpdateBanner
+
+    ws = workspace(tmp_path)
+    write_notice(ws, "1.2.0", "1.3.0", at=1700000000)
+    mark_seen(ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"))
+
+    async def script(p: Pilot[None]) -> None:
+        assert len(app.query(UpdateBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_update_banner_hidden_in_compact_mode(tmp_path: Path) -> None:
+    from tandem.notice import write_notice
+    from tandem.status.app import UpdateBanner
+
+    ws = workspace(tmp_path)
+    write_notice(ws, "1.2.0", "1.3.0", at=1700000000)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"))
+
+    async def script(p: Pilot[None]) -> None:
+        banners = app.query(UpdateBanner)
+        assert len(banners) == 1
+        assert banners.first().display is False
+
+    run_app(app, script, size=(100, 6))
+
+
+def test_update_banner_dismiss_marks_seen_and_removes_banner(tmp_path: Path) -> None:
+    from tandem.notice import read_notice, write_notice
+    from tandem.status.app import UpdateBanner
+
+    ws = workspace(tmp_path)
+    write_notice(ws, "1.2.0", "1.3.0", at=1700000000)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"))
+
+    async def script(p: Pilot[None]) -> None:
+        assert len(app.query(UpdateBanner)) == 1
+        await p.click("#banner-dismiss")
+        await p.pause()
+        assert len(app.query(UpdateBanner)) == 0
+        n = read_notice(ws)
+        assert n is not None and n.seen is True
+
+    run_app(app, script)
+
+
+def test_update_banner_click_text_triggers_tmux_popup(tmp_path: Path) -> None:
+    from tandem.notice import write_notice
+
+    ws = workspace(tmp_path)
+    write_notice(ws, "1.2.0", "1.3.0", at=1700000000)
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), tmux=tmux)  # type: ignore[arg-type]
+
+    async def script(p: Pilot[None]) -> None:
+        await p.click("#banner-text")
+        await p.pause()
+        assert any("display-popup" in call[0] for call in tmux.calls)
+
+    run_app(app, script)

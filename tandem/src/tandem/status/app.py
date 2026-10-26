@@ -6,14 +6,15 @@ from pathlib import Path
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.content import Content
-from textual.events import Resize
+from textual.events import Click, Resize
 from textual.widgets import Collapsible, OptionList, Static, TabbedContent, TabPane
 from textual.widgets.option_list import Option
 
 from tandem.config import Config
 from tandem.coordination.store import CoordStore
+from tandem.notice import Notice, mark_seen, read_notice
 from tandem.snapshot import StatusSnapshot, collect
 from tandem.status import render
 from tandem.status.notify import Notifier
@@ -24,6 +25,42 @@ from tandem.tmux.client import TmuxClient, socket_for
 COMPACT_BELOW_ROWS = 8
 AUTOSAVE_SECONDS = 15.0
 _PANE_ID = re.compile(r"^%\d+$")
+
+
+class UpdateBanner(Horizontal):
+    """One-line notice shown above the tabs while an update notice is unseen."""
+
+    DEFAULT_CSS = """
+    UpdateBanner { height: 1; }
+    UpdateBanner #banner-text { padding: 0 1; width: 1fr; }
+    UpdateBanner #banner-dismiss { width: 3; }
+    """
+
+    def __init__(self, notice: Notice, workspace: Path, tmux: TmuxClient | None = None) -> None:
+        super().__init__()
+        self._notice = notice
+        self._workspace = workspace
+        self._tmux = tmux
+
+    def compose(self) -> ComposeResult:
+        yield Static(
+            f"⬆ Updated to tandem {self._notice.to_version} — click for what's new",
+            id="banner-text",
+            markup=False,
+        )
+        yield Static("[×]", id="banner-dismiss", markup=False)
+
+    def on_click(self, event: Click) -> None:
+        widget_id = event.widget.id if event.widget is not None else None
+        if widget_id == "banner-dismiss":
+            mark_seen(self._workspace)
+            self.remove()
+        elif widget_id == "banner-text":
+            if self._tmux is not None:
+                launcher = keys.launcher_for(sys.executable, str(self._workspace))
+                self._tmux.run_checked(
+                    "display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} whats-new"
+                )
 
 
 def hints(platform: str = sys.platform) -> str:
@@ -46,6 +83,7 @@ class StatusApp(App[None]):
     #sessions { height: auto; max-height: 6; }
     .compact #body { display: none; }
     .compact TabbedContent { height: auto; }
+    .compact UpdateBanner { display: none; }
     """
     BINDINGS = [
         Binding(keys.textual_binding_keys(keys.STATUS_REFRESH), "refresh_now", "Refresh"),
@@ -69,6 +107,9 @@ class StatusApp(App[None]):
         self.notifier = Notifier(tmux)
 
     def compose(self) -> ComposeResult:
+        notice = read_notice(self.workspace)
+        if notice is not None and not notice.seen:
+            yield UpdateBanner(notice, self.workspace, self.tmux)
         with TabbedContent(initial="status-pane"):
             with TabPane("Status", id="status-pane"):
                 yield Static("Loading…", id="summary", markup=False)
@@ -133,8 +174,11 @@ class StatusApp(App[None]):
 
     @on(Resize)
     def _resized(self, event: Resize) -> None:
-        self.set_class(event.size.height < COMPACT_BELOW_ROWS, "compact")
-        self.query_one("#body").display = event.size.height >= COMPACT_BELOW_ROWS
+        compact = event.size.height < COMPACT_BELOW_ROWS
+        self.set_class(compact, "compact")
+        self.query_one("#body").display = not compact
+        for banner in self.query(UpdateBanner):
+            banner.display = not compact
         self._render_repos()
 
     def action_show_queries(self) -> None:
