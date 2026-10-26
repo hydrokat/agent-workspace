@@ -58,6 +58,19 @@ When the knowledgebase needs updating:
 - Add or update `business-flows/` when the change affects process, workflow, or decision logic.
 - Add or update `context-history/` when the change is historically important, architectural, or useful for future reasoning.
 
+## Entry Templates
+
+Start new entries from the templates in `assets/` so they match the existing files:
+
+| Template | Use for | Goes in |
+|---|---|---|
+| `assets/decision.md` | a product, process, operations, or tooling decision (the `key-decisions.md` format) | `context-history/key-decisions.md` |
+| `assets/context-note.md` | a task completion record (the `task-completion-log.md` format) | `context-history/task-completion-log.md` |
+| `assets/best-practice.md` | a reusable pattern or lesson | `best-practices/<topic>.md` |
+| `assets/business-flow.md` | a process, user flow, or decision path | `business-flows/<flow>.md` |
+
+Append decisions and log entries to the existing file; create a new file for a best practice or business flow only when no existing file covers it. Replace every `[...]` placeholder.
+
 ## Quality Standards
 
 - **High-Signal Only**: Focus on what changed, why it matters, and how it should be applied.
