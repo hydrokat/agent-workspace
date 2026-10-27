@@ -352,7 +352,7 @@ def test_mouse_commands_quoting_paths_with_spaces() -> None:
 def test_mouse_commands_both_platforms() -> None:
     for platform in ("linux", "darwin"):
         cmds = keys.mouse_commands("/py", "/ws", platform)
-        assert len(cmds) == 5
+        assert len(cmds) == 6
 
 
 def test_mouse_commands_unbind_uses_quiet_flag() -> None:
@@ -369,3 +369,28 @@ def test_help_lines_include_mouse_group() -> None:
         assert "Mouse" in text
         assert "right-click" in text
         assert "context menu" in text
+
+
+def test_mouse_commands_mousedown1border_runs_click_tab() -> None:
+    cmds = keys.mouse_commands("/py", "/ws")
+    border = next(c for c in cmds if c[:3] == ["bind-key", "-n", "MouseDown1Border"])
+    cmd_str = border[3]
+    assert "select-pane -t =" in cmd_str
+    assert "run-shell" in cmd_str
+    assert "click-tab" in cmd_str
+    assert "pane_id" in cmd_str
+    assert "mouse_x" in cmd_str
+    assert "pane_left" in cmd_str
+
+
+def test_mouse_commands_mousedown1border_is_one_compound_string() -> None:
+    cmds = keys.mouse_commands("/py", "/ws")
+    border = next(c for c in cmds if c[:3] == ["bind-key", "-n", "MouseDown1Border"])
+    # The command must be a single string argument (lessons-learned: compound bind-key commands)
+    assert len(border) == 4
+
+
+def test_help_lines_mention_tab_clicks() -> None:
+    for platform in ("linux", "darwin"):
+        text = "\n".join(keys.help_lines(platform))
+        assert "tab" in text.lower() and "column" in text.lower()

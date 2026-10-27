@@ -57,8 +57,50 @@ def neighbor(panes: list[PaneInfo], role: str, step: int) -> PaneInfo | None:
     return agents[(position + step) % len(agents)]
 
 
+@dataclass(frozen=True)
+class TabSpan:
+    """Column range [start, end) and pane id of one agent tab in a rendered column title."""
+    start: int
+    end: int
+    pane_id: str
+
+
 def _safe(text: str) -> str:
     return _UNSAFE.sub("?", text)
+
+
+def title_spans(panes: list[PaneInfo], role: str, active: bool) -> list[TabSpan]:
+    """Column [start, end) ranges of each agent tab exactly as render_title() lays them out.
+
+    Each character is counted as one display cell. Returns an empty list when there are no agents.
+    """
+    name = _COLUMN_NAMES.get(role, role.upper())
+    agents = agents_in(panes, role)
+    if not agents:
+        return []
+    current = visible_pane(panes, role)
+    # head mirrors render_title: "─ " + ("▶ " if active) + name + " ─"
+    head_len = len("─ ") + (len("▶ ") if active else 0) + len(name) + len(" ─")
+    pos = head_len + 1  # single space between head and first tab
+    spans: list[TabSpan] = []
+    for p in agents:
+        text = f"{p.index} {_safe(p.label)}"
+        if p.dead:
+            dead_status = str(p.dead_status) if p.dead_status is not None else "?"
+            text = f"⚠{text}(exited {dead_status})"
+        if current and p.id == current.id:
+            text = f"[{text}]"
+        spans.append(TabSpan(pos, pos + len(text), p.id))
+        pos += len(text) + 2  # two-space separator between tabs
+    return spans
+
+
+def tab_at(spans: list[TabSpan], column: int) -> str | None:
+    """Pane id of the tab whose span contains ``column``, or ``None`` if no tab covers it."""
+    for span in spans:
+        if span.start <= column < span.end:
+            return span.pane_id
+    return None
 
 
 def render_title(panes: list[PaneInfo], role: str) -> str:

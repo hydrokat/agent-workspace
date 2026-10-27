@@ -401,9 +401,16 @@ def mouse_commands(python: str, workspace: str | None = None,
         _mouse3_menu_cmd(launcher),
     ]
 
+    border_sub = "click-tab #{q:pane_id} #{mouse_x} #{pane_left}"
+    click1_border: list[str] = [
+        "bind-key", "-n", "MouseDown1Border",
+        f"select-pane -t = ; {run_shell(launcher, border_sub)}",
+    ]
+
     return [
         click1_status,
         click3_pane,
+        click1_border,
         ["unbind-key", "-q", "-n", "MouseDown3Status"],
         ["unbind-key", "-q", "-n", "MouseDown3StatusLeft"],
         ["unbind-key", "-q", "-n", "M-MouseDown3Pane"],
@@ -455,6 +462,7 @@ def help_lines(platform: str = sys.platform) -> list[str]:
         "            Esc          back or cancel", "",
         "Mouse",
         "            click a status-bar hint = press its key",
+        "            click a tab in a column title to switch to that agent",
         "            right-click a pane = context menu (focus, restart, close, new agent, …)",
         "            click a pane to focus it; drag a border to resize; scroll wheel scrolls",
         f"  Resize    {resize_k} then arrows (←→ {RESIZE_STEP_COLS} columns, ↑↓ {RESIZE_STEP_ROWS} rows) on the focused pane; = resets; Enter exits",

@@ -469,6 +469,49 @@ def click(layout: Layout, config: Config, action: str) -> None:
         layout.client.run_checked("switch-client", "-T", RESIZE_TABLE)
 
 
+def click_tab(layout: Layout, config: Config, pane_id: str, x: int, left: int) -> None:
+    """Switch to the agent tab at display column x-left on pane pane_id's border.
+
+    Opens the add-agent wizard when the column has no agents. Silently ignores invalid
+    pane ids, non-column panes, and clicks on the head or gap between tabs.
+    """
+    from tandem.tmux.tabs import agents_in, tab_at, title_spans
+
+    if not re.match(r"^%\d+$", pane_id):
+        return
+    result = layout.client.run("display-message", "-p", "-t", pane_id,
+                               "#{@tandem_role}\t#{pane_active}")
+    if result.code != 0:
+        return
+    parts = result.out.strip().split("\t")
+    if len(parts) != 2:
+        return
+    role, active_flag = parts
+    if role not in ROLES:
+        return
+
+    is_active = active_flag == "1"
+    panes = layout.panes()
+    spans = title_spans(panes, role, is_active)
+    column = x - left
+
+    if not spans:
+        launcher = keys.launcher_for(sys.executable, layout.workspace)
+        layout.client.run_checked("display-popup", "-E", "-w", "90%", "-h", "90%",
+                                  f"{launcher} add-agent")
+        return
+
+    clicked_id = tab_at(spans, column)
+    if clicked_id is None:
+        return
+
+    target = next((p for p in agents_in(panes, role) if p.id == clicked_id), None)
+    if target is None:
+        return
+
+    layout.select(role, target.index)
+
+
 def show_help() -> None:
     print("\n".join(keys.help_lines()))
     print("\nPress Enter to close.")
