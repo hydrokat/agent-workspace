@@ -17,7 +17,8 @@
     "tandem/min-versions.env",
     "tandem/README.md",
     "tandem/src",
-    "!tandem/**/__pycache__"
+    "!tandem/**/__pycache__",
+    "!templates/**/__pycache__"
   ],
   "engines": {
     "node": ">=18"

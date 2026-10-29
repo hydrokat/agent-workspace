@@ -4,6 +4,24 @@ All pull requests must declare their intended Semantic Versioning impact before
 merge. Use the Semantic Versioning 2.0.0 guide as the source of truth:
 https://semver.org/
 
+## Every Package Change Needs A Version Bump
+
+Any change that alters the contents or behavior of the published package must
+ship with a version bump in the same PR. This includes code, scripts (`run.sh`,
+tandem), bundled skills, agents, templates, and tool minimums such as
+`min-versions.env`. Do not defer the bump to a later PR or leave it to the
+release step.
+
+- Pick the impact from the table below and bump every place the version is
+  declared so they stay identical. The package and tandem share one release
+  version.
+- Never reuse a released version number; the auto-update check compares
+  versions, so an unbumped change is never delivered to existing installs.
+- The only exception is a change that does not ship in the package
+  (documentation-only, test-only, workspace-only files). Mark those `None` and
+  say why, as described below.
+- A PR that changes the package without a version bump is not merge-ready.
+
 ## Required PR Version Impact
 
 Every PR must identify one of these version impacts:
