@@ -484,6 +484,11 @@ print_whats_new() {
         if [ "$collecting" -eq 1 ] && [ "$count" -lt 8 ]; then
           bullet="${line#- }"
           bullet="${bullet#\* }"
+          case "$bullet" in
+            '**'*'**'*) bullet="${bullet#\*\*}"; bullet="${bullet%%\*\**}" ;;
+          esac
+          bullet="${bullet%:}"
+          bullet="${bullet//\`/}"
           bullets="${bullets}${bullet}"$'\n'
           count=$((count + 1))
         fi ;;

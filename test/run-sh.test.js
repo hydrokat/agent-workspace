@@ -456,6 +456,18 @@ describe('run.sh auto-update', () => {
     assert.ok(r.stdout.includes('TANDEM-RAN'), 're-exec ran tandem');
   });
 
+  it('shows only the bold label of a changelog bullet, without markdown', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    setupChangelog(env, '1.2.0', '1.3.0', '**Auto-update on launch (`run.sh`):** checks for a newer release before doing anything else');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /• Auto-update on launch \(run\.sh\)\s+│/);
+    assert.ok(!r.out.includes('**'), 'bold markers are removed');
+    assert.ok(!r.out.includes('before doing anything else'), 'description is dropped');
+  });
+
   it('truncates long what\'s-new headlines so the box stays aligned', async () => {
     const env = setup();
     setupManifest(env, '1.2.0');
