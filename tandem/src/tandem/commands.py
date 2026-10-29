@@ -259,12 +259,21 @@ def resume_specs(saved: state.SavedState, workspace: Path,
 
 
 def quit_menu(layout: Layout, workspace: str | None = None) -> None:
+    from tandem.update_check import installed_version_from_manifest, read_state, should_offer
+
     launcher = keys.launcher_for(sys.executable, workspace)
+    update_label = "Update tandem and workspace"
+    if workspace is not None:
+        ws_path = Path(workspace)
+        check_state = read_state(ws_path)
+        installed = installed_version_from_manifest(ws_path)
+        if should_offer(installed, check_state.latest, check_state.skip):
+            update_label = f"Update tandem and workspace  ({check_state.latest} available)"
     layout.client.run_checked(
         "display-menu", "-T", "tandem",
         "Save state and exit (resume later)", "s", keys.run_shell(launcher, "save-exit"),
         "Detach (agents keep running)", "d", "detach-client",
-        "Update tandem and workspace", "u", keys.popup(launcher, "update", "80%", "70%"),
+        update_label, "u", keys.popup(launcher, "update", "80%", "70%"),
         "Quit and discard saved state (next launch is fresh)", "k", keys.run_shell(launcher, "discard-exit"),
         "Cancel", "c", "")
 

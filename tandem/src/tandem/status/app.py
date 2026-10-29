@@ -1,5 +1,6 @@
 import re
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +22,17 @@ from tandem.status.notify import Notifier
 from tandem.tmux import keys
 from tandem.status.queries_tab import QueriesTab
 from tandem.tmux.client import TmuxClient, socket_for
+from tandem.update_check import (
+    CheckState,
+    Runner,
+    due,
+    installed_version_from_manifest,
+    latest_version,
+    read_state,
+    record,
+    should_offer,
+    write_state,
+)
 
 COMPACT_BELOW_ROWS = 8
 AUTOSAVE_SECONDS = 15.0
@@ -63,6 +75,56 @@ class UpdateBanner(Horizontal):
                 )
 
 
+class OfferBanner(Horizontal):
+    """One-line offer shown when a newer release is available during the session."""
+
+    DEFAULT_CSS = """
+    OfferBanner { height: 1; }
+    OfferBanner #offer-text { padding: 0 1; width: 1fr; }
+    OfferBanner #offer-update { width: auto; padding: 0 1; }
+    OfferBanner #offer-later { width: auto; padding: 0 1; }
+    OfferBanner #offer-skip { width: auto; padding: 0 1; }
+    """
+
+    def __init__(self, installed: str, latest: str, workspace: Path,
+                 tmux: TmuxClient | None = None) -> None:
+        super().__init__()
+        self._installed = installed
+        self._latest = latest
+        self._workspace = workspace
+        self._tmux = tmux
+
+    def compose(self) -> ComposeResult:
+        yield Static(
+            f"⬆ agent-workspace {self._installed} → {self._latest} available",
+            id="offer-text",
+            markup=False,
+        )
+        yield Static("[Update now]", id="offer-update", markup=False)
+        yield Static("[Later]", id="offer-later", markup=False)
+        yield Static("[Skip this version]", id="offer-skip", markup=False)
+
+    def on_click(self, event: Click) -> None:
+        widget_id = event.widget.id if event.widget is not None else None
+        if widget_id == "offer-update":
+            self._run_update_popup()
+        elif widget_id == "offer-later":
+            self.remove()
+            self.app.refresh_bindings()
+        elif widget_id == "offer-skip":
+            state = read_state(self._workspace)
+            write_state(self._workspace, CheckState(last=state.last, latest=state.latest, skip=self._latest))
+            self.remove()
+            self.app.refresh_bindings()
+
+    def _run_update_popup(self) -> None:
+        if self._tmux is not None:
+            launcher = keys.launcher_for(sys.executable, str(self._workspace))
+            self._tmux.run_checked(
+                "display-popup", "-E", "-w", "80%", "-h", "70%", f"{launcher} update --yes"
+            )
+
+
 def hints(platform: str = sys.platform) -> str:
     def d(raw: str) -> str:
         return keys.display_shortcut(raw, platform)
@@ -74,6 +136,10 @@ def hints(platform: str = sys.platform) -> str:
 HINTS = hints()
 
 
+_UPDATE_NOW_KEY = "Alt+u"
+_CHECK_INTERVAL_SECONDS = 600.0
+
+
 class StatusApp(App[None]):
     """Bottom-pane dashboard: Status tab (and Queries tab, see queries_tab)."""
 
@@ -83,6 +149,7 @@ class StatusApp(App[None]):
     .compact #body { display: none; }
     .compact TabbedContent { height: auto; }
     .compact UpdateBanner { display: none; }
+    .compact OfferBanner { display: none; }
     """
     BINDINGS = [
         Binding(
@@ -92,6 +159,11 @@ class StatusApp(App[None]):
         Binding(
             keys.textual_binding_keys(keys.GO_TO_AGENT), "goto", "Go to agent",
             key_display=keys.display_shortcut(keys.GO_TO_AGENT),
+        ),
+        Binding(
+            keys.textual_binding_keys(_UPDATE_NOW_KEY), "update_now", "Update now",
+            key_display=keys.display_shortcut(_UPDATE_NOW_KEY),
+            show=False,
         ),
         Binding(
             keys.textual_binding_keys("Alt+s"), "show_status", "Status",
@@ -105,7 +177,10 @@ class StatusApp(App[None]):
 
     def __init__(self, workspace: Path, store: CoordStore, tmux: TmuxClient | None = None,
                  refresh_seconds: float = 2.0, autosave: Callable[[], object] | None = None,
-                 autosave_seconds: float = AUTOSAVE_SECONDS) -> None:
+                 autosave_seconds: float = AUTOSAVE_SECONDS,
+                 config: Config | None = None,
+                 update_runner: Runner | None = None,
+                 now: Callable[[], float] | None = None) -> None:
         super().__init__()
         self.workspace = workspace
         self.store = store
@@ -116,6 +191,11 @@ class StatusApp(App[None]):
         self.autosave_seconds = autosave_seconds
         self.snapshot = StatusSnapshot()
         self.notifier = Notifier(tmux)
+        self._config = config
+        self._update_runner = update_runner
+        self._now: Callable[[], float] = now if now is not None else time.time
+        self._notified_versions: set[str] = set()
+        self._offered_versions: set[str] = set()
 
     def compose(self) -> ComposeResult:
         notice = read_notice(self.workspace)
@@ -143,10 +223,59 @@ class StatusApp(App[None]):
         self.set_interval(self.refresh_seconds, self.action_refresh_now)
         if self.autosave is not None:
             self.set_interval(self.autosave_seconds, self._autosave)
+        if self._config is not None and self._config.update_check:
+            self._maybe_check_update()
+            self.set_interval(_CHECK_INTERVAL_SECONDS, self._maybe_check_update)
 
     def _autosave(self) -> None:
         if self.autosave is not None:
             self.run_worker(self.autosave, thread=True, exclusive=True, group="autosave")
+
+    def _maybe_check_update(self) -> None:
+        if self._config is None or not self._config.update_check:
+            return
+        state = read_state(self.workspace)
+        if due(state, self._now(), self._config.update_interval):
+            self.run_worker(self._run_check_worker, thread=True, exclusive=True, group="update-check")
+
+    def _run_check_worker(self) -> None:
+        from tandem.updater import run_capturing as _run_capturing
+
+        if self._config is None:
+            return
+        spec = self._config.update_spec
+        runner = self._update_runner if self._update_runner is not None else _run_capturing
+        now = self._now()
+        latest = latest_version(spec, self.workspace, runner)
+        state = read_state(self.workspace)
+        new_state = record(self.workspace, state, now, latest)
+        installed = installed_version_from_manifest(self.workspace)
+        if should_offer(installed, new_state.latest, new_state.skip):
+            self.call_from_thread(self._show_offer, installed or "", new_state.latest)
+
+    def _show_offer(self, installed: str, latest: str) -> None:
+        if latest in self._offered_versions:
+            return
+        self._offered_versions.add(latest)
+        for banner in self.query(OfferBanner):
+            banner.remove()
+        tabbed = self.query_one(TabbedContent)
+        self.mount(OfferBanner(installed, latest, self.workspace, self.tmux), before=tabbed)
+        if self.tmux is not None and latest not in self._notified_versions:
+            self._notified_versions.add(latest)
+            self.tmux.run_checked("display-message", f"tandem: update {latest} available — see the Status window")
+        self.refresh_bindings()
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "update_now":
+            return bool(self.query(OfferBanner))
+        return True
+
+    def action_update_now(self) -> None:
+        banners = self.query(OfferBanner)
+        if not banners:
+            return
+        banners.first()._run_update_popup()
 
     def action_refresh_now(self) -> None:
         self.run_worker(self._collect, thread=True, exclusive=True)
@@ -190,6 +319,8 @@ class StatusApp(App[None]):
         self.query_one("#body").display = not compact
         for banner in self.query(UpdateBanner):
             banner.display = not compact
+        for offer in self.query(OfferBanner):
+            offer.display = not compact
         self._render_repos()
 
     @on(OptionList.OptionSelected, "#sessions")
@@ -218,4 +349,4 @@ def run_status(workspace: Path, config: Config) -> None:
 
     layout = make_layout(workspace, config)
     StatusApp(workspace, CoordStore(coord_dir_for(workspace, config)), tmux=TmuxClient(socket=socket_for(workspace)),
-              autosave=lambda: autosave(layout, workspace)).run()
+              autosave=lambda: autosave(layout, workspace), config=config).run()

@@ -7,8 +7,10 @@ from pathlib import Path
 from textual.pilot import Pilot
 from textual.widgets import Footer, OptionList, Static, TabbedContent
 
+from tandem.config import Config
 from tandem.coordination.store import CoordStore
 from tandem.status.app import StatusApp
+from tandem.update_check import Runner
 
 
 def write_session(root: Path, sid: str, **kw: object) -> None:
@@ -401,5 +403,331 @@ def test_session_row_click_goes_to_agent(tmp_path: Path) -> None:
         await p.click("#sessions", offset=(4, 1))
         await p.pause()
         assert tmux.calls == [("select-pane", "-t", "%7")]
+
+    run_app(app, script)
+
+
+# ---------------------------------------------------------------------------
+# In-session update offer banner (t-007)
+# ---------------------------------------------------------------------------
+
+
+def _make_config(tmp_path: Path, ws: Path, interval: int = 600) -> Config:
+    (ws / ".agent-workspace").mkdir(parents=True, exist_ok=True)
+    (ws / ".agent-workspace" / "manifest.json").write_text('{"version": "1.3.0"}')
+    return Config.from_env({"TANDEM_WORKSPACE": str(ws), "TANDEM_UPDATE_INTERVAL": str(interval)})
+
+
+def _fake_runner(version: str | None, calls: list[list[str]] | None = None) -> Runner:
+    def run(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        if calls is not None:
+            calls.append(argv)
+        if version is None:
+            return 1, ""
+        return 0, version
+
+    return run
+
+
+def test_offer_banner_shown_when_newer_version_available(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        banners = app.query(OfferBanner)
+        assert len(banners) == 1
+        text = str(banners.first().query_one("#offer-text", Static).render())
+        assert "1.3.0" in text and "1.4.0" in text
+
+    run_app(app, script)
+
+
+def test_offer_banner_not_shown_when_up_to_date(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.3.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_offer_banner_not_shown_when_check_fails(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner(None), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_offer_banner_later_hides_it(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 1
+        await p.click("#offer-later")
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_offer_banner_skip_writes_skip_version(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+    from tandem.update_check import read_state
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 1
+        await p.click("#offer-skip")
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+        state = read_state(ws)
+        assert state.skip == "1.4.0"
+
+    run_app(app, script)
+
+
+def test_offer_banner_update_now_triggers_popup(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), tmux=tmux,  # type: ignore[arg-type]
+                    config=cfg, update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 1
+        await p.click("#offer-update")
+        await p.pause()
+        assert any("display-popup" in c[0] and "--yes" in c[-1] for c in tmux.calls)
+
+    run_app(app, script)
+
+
+def test_offer_banner_update_now_key_triggers_popup(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), tmux=tmux,  # type: ignore[arg-type]
+                    config=cfg, update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 1
+        await p.press("alt+u")
+        await p.pause()
+        assert any("display-popup" in c[0] and "--yes" in c[-1] for c in tmux.calls)
+
+    run_app(app, script)
+
+
+def test_offer_banner_hidden_in_compact_mode(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        offers = app.query(OfferBanner)
+        assert len(offers) == 1
+        assert offers.first().display is False
+
+    run_app(app, script, size=(100, 6))
+
+
+def test_offer_banner_not_shown_when_update_check_disabled(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    (ws / ".agent-workspace").mkdir(parents=True, exist_ok=True)
+    (ws / ".agent-workspace" / "manifest.json").write_text('{"version": "1.3.0"}')
+    cfg = Config.from_env({"TANDEM_WORKSPACE": str(ws), "TANDEM_UPDATE_CHECK": "0"})
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_offer_banner_not_shown_for_skipped_version(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+    from tandem.update_check import CheckState, write_state
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    write_state(ws, CheckState(last=0.0, latest="1.4.0", skip="1.4.0"))
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_offer_banner_not_due_when_recently_checked(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+    from tandem.update_check import CheckState, write_state
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws, interval=3600)
+    now_ts = 1_700_000_000.0
+    write_state(ws, CheckState(last=now_ts - 100, latest="", skip=""))
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: now_ts)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+
+    run_app(app, script)
+
+
+def test_offer_banner_tmux_message_sent_once(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), tmux=tmux,  # type: ignore[arg-type]
+                    config=cfg, update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        msg_calls = [c for c in tmux.calls if c[0] == "display-message"]
+        assert len(msg_calls) == 1
+        assert "1.4.0" in msg_calls[0][-1]
+
+    run_app(app, script)
+
+
+def test_offer_update_now_key_no_op_without_offer(tmp_path: Path) -> None:
+    """Alt+u does nothing when no offer is showing."""
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), tmux=tmux,  # type: ignore[arg-type]
+                    config=cfg, update_runner=_fake_runner("1.3.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        popup_calls_before = [c for c in tmux.calls if c[0] == "display-popup"]
+        await p.press("alt+u")
+        await p.pause()
+        popup_calls_after = [c for c in tmux.calls if c[0] == "display-popup"]
+        assert len(popup_calls_after) == len(popup_calls_before)
+
+    run_app(app, script)
+
+
+def test_update_now_footer_binding_visible_when_offer_showing(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 1
+        assert app.check_action("update_now", ()) is True
+
+    run_app(app, script)
+
+
+def test_update_now_footer_binding_hidden_when_no_offer(tmp_path: Path) -> None:
+    from tandem.status.app import OfferBanner
+    from tandem.update_check import CheckState, write_state
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    now_ts = 1_700_000_000.0
+    write_state(ws, CheckState(last=now_ts - 10, latest="1.3.0", skip=""))
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), config=cfg,
+                    update_runner=_fake_runner("1.3.0"), now=lambda: now_ts)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        assert len(app.query(OfferBanner)) == 0
+        assert app.check_action("update_now", ()) is False
+
+    run_app(app, script)
+
+
+def test_offer_display_popup_argv_uses_update_yes(tmp_path: Path) -> None:
+    """display-popup must end with 'update --yes' so the update runs non-interactively."""
+    from tandem.status.app import OfferBanner
+
+    ws = workspace(tmp_path)
+    cfg = _make_config(tmp_path, ws)
+    tmux = FakeTmux()
+    app = StatusApp(ws, CoordStore(tmp_path / "coord"), tmux=tmux,  # type: ignore[arg-type]
+                    config=cfg, update_runner=_fake_runner("1.4.0"), now=lambda: 1_700_000_000.0)
+
+    async def script(p: Pilot[None]) -> None:
+        await app.workers.wait_for_complete()
+        await p.pause()
+        await p.click("#offer-update")
+        await p.pause()
+        popup_calls = [c for c in tmux.calls if c[0] == "display-popup"]
+        assert len(popup_calls) == 1
+        cmd = popup_calls[0][-1]
+        assert "update" in cmd and "--yes" in cmd
 
     run_app(app, script)
