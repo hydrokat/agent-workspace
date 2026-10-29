@@ -8,6 +8,22 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const IMAGES = join(ROOT, 'docs', 'images');
 const PRIVATE = [/\/Users\//, /\/home\/[a-z]/i, /\/private\//, /\/var\/folders/, /\.pyenv/, /\/tmp\//, /\.local\/state/, /[\w.+-]+@[\w-]+\.\w+/];
 
+describe('README auto-update documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+
+  it('documents --no-update flag', () => {
+    assert.ok(readme.includes('--no-update'), '--no-update documented in README');
+  });
+
+  it('documents TANDEM_AUTO_UPDATE env var', () => {
+    assert.ok(readme.includes('TANDEM_AUTO_UPDATE'), 'TANDEM_AUTO_UPDATE documented in README');
+  });
+
+  it('documents TANDEM_UPDATE_SPEC env var', () => {
+    assert.ok(readme.includes('TANDEM_UPDATE_SPEC'), 'TANDEM_UPDATE_SPEC documented in README');
+  });
+});
+
 describe('README screenshots', () => {
   const svgs = existsSync(IMAGES) ? readdirSync(IMAGES).filter((f) => f.endsWith('.svg')) : [];
 

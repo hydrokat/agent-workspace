@@ -12,3 +12,15 @@ def test_readme_keymap_matches_keys_py() -> None:
 
 def test_readme_states_tos_rule() -> None:
     assert "never types into them" in README
+
+
+def test_readme_documents_update_check_env() -> None:
+    assert "TANDEM_UPDATE_CHECK" in README
+
+
+def test_readme_documents_update_interval_env() -> None:
+    assert "TANDEM_UPDATE_INTERVAL" in README
+
+
+def test_readme_documents_no_update_flag() -> None:
+    assert "--no-update" in README
