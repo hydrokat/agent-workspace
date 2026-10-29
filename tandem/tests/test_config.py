@@ -53,9 +53,7 @@ def test_session_id_is_validated() -> None:
     assert Config.from_env({"TANDEM_SESSION_ID": "../../x"}).session_id == ""
 
 
-# ---------------------------------------------------------------------------
 # update_interval and update_check (t-007)
-# ---------------------------------------------------------------------------
 
 
 def test_update_interval_default() -> None:

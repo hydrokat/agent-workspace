@@ -235,9 +235,7 @@ def test_status_window_autosaves_the_session_periodically(tmp_path: Path) -> Non
     assert len(calls) >= 2
 
 
-# ---------------------------------------------------------------------------
 # Update banner
-# ---------------------------------------------------------------------------
 
 
 def test_update_banner_shown_for_unseen_notice(tmp_path: Path) -> None:
@@ -333,9 +331,7 @@ def test_update_banner_click_text_triggers_tmux_popup(tmp_path: Path) -> None:
     run_app(app, script)
 
 
-# ---------------------------------------------------------------------------
 # Clickable Footer
-# ---------------------------------------------------------------------------
 
 
 def test_footer_replaces_hints_static(tmp_path: Path) -> None:
@@ -407,9 +403,7 @@ def test_session_row_click_goes_to_agent(tmp_path: Path) -> None:
     run_app(app, script)
 
 
-# ---------------------------------------------------------------------------
 # In-session update offer banner (t-007)
-# ---------------------------------------------------------------------------
 
 
 def _make_config(tmp_path: Path, ws: Path, interval: int = 600) -> Config:

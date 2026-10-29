@@ -71,8 +71,6 @@ def test_title_escapes_tmux_format_characters() -> None:
     assert "a" in title
 
 
-# --- title_spans and tab_at ---
-
 def test_title_spans_empty_column_returns_empty_list() -> None:
     assert title_spans([], "planner", active=True) == []
     assert title_spans([], "planner", active=False) == []

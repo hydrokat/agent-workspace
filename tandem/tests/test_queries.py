@@ -316,9 +316,7 @@ def test_goto_asking_agent_pane(tmp_path: Path) -> None:
     run_app(app, script)
 
 
-# ---------------------------------------------------------------------------
 # Clickable buttons and numbered options
-# ---------------------------------------------------------------------------
 
 
 def test_buttons_disabled_when_no_question_selected(tmp_path: Path) -> None:

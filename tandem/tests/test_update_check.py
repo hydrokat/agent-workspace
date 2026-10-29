@@ -20,10 +20,6 @@ from tandem.update_check import (
 )
 
 
-# ---------------------------------------------------------------------------
-# due()
-# ---------------------------------------------------------------------------
-
 
 def test_due_when_never_checked() -> None:
     state = CheckState()
@@ -50,10 +46,6 @@ def test_due_respects_custom_interval() -> None:
     assert due(state, 1_000_000.0 + 700, 600) is True
     assert due(state, 1_000_000.0 + 500, 600) is False
 
-
-# ---------------------------------------------------------------------------
-# should_offer()
-# ---------------------------------------------------------------------------
 
 
 def test_offer_when_newer_version_available() -> None:
@@ -104,9 +96,7 @@ def test_offer_with_major_bump() -> None:
     assert should_offer("1.3.0", "2.0.0", "") is True
 
 
-# ---------------------------------------------------------------------------
 # read_state / write_state
-# ---------------------------------------------------------------------------
 
 
 def test_fresh_state_when_file_missing(tmp_path: Path) -> None:
@@ -171,10 +161,6 @@ def test_partial_file_returns_default_values(tmp_path: Path) -> None:
     assert back.skip == ""
 
 
-# ---------------------------------------------------------------------------
-# record()
-# ---------------------------------------------------------------------------
-
 
 def test_record_updates_last_and_latest(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
@@ -211,10 +197,6 @@ def test_record_persists_to_disk(tmp_path: Path) -> None:
     assert back.last == 1_700_000_000.0
     assert back.latest == "1.4.0"
 
-
-# ---------------------------------------------------------------------------
-# latest_version()
-# ---------------------------------------------------------------------------
 
 
 def _runner_ok(version: str):  # type: ignore[no-untyped-def]
@@ -267,10 +249,6 @@ def test_latest_version_failed_npx_still_records_last(tmp_path: Path) -> None:
     assert new_state.last == 9_000_000.0
     assert new_state.latest == ""
 
-
-# ---------------------------------------------------------------------------
-# installed_version_from_manifest()
-# ---------------------------------------------------------------------------
 
 
 def test_reads_version_from_manifest(tmp_path: Path) -> None:

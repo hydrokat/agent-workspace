@@ -27,18 +27,14 @@ CHANGELOG = """\
 """
 
 
-# ---------------------------------------------------------------------------
 # notice_path
-# ---------------------------------------------------------------------------
 
 
 def test_notice_path(tmp_path: Path) -> None:
     assert notice_path(tmp_path) == tmp_path / ".agent-workspace" / "update-notice.env"
 
 
-# ---------------------------------------------------------------------------
 # read_notice — valid inputs
-# ---------------------------------------------------------------------------
 
 
 def test_read_notice_valid(tmp_path: Path) -> None:
@@ -82,9 +78,7 @@ def test_read_notice_ignores_blank_lines(tmp_path: Path) -> None:
     assert read_notice(tmp_path) is not None
 
 
-# ---------------------------------------------------------------------------
 # read_notice — invalid inputs → None
-# ---------------------------------------------------------------------------
 
 
 def test_read_notice_missing_file(tmp_path: Path) -> None:
@@ -159,9 +153,7 @@ def test_read_notice_non_integer_at(tmp_path: Path) -> None:
     assert read_notice(tmp_path) is None
 
 
-# ---------------------------------------------------------------------------
 # write_notice
-# ---------------------------------------------------------------------------
 
 
 def test_write_notice_creates_parseable_file(tmp_path: Path) -> None:
@@ -188,9 +180,7 @@ def test_write_notice_defaults_at_to_now(tmp_path: Path) -> None:
     assert n is not None and before <= n.at <= after
 
 
-# ---------------------------------------------------------------------------
 # mark_seen
-# ---------------------------------------------------------------------------
 
 
 def test_mark_seen_sets_seen_flag(tmp_path: Path) -> None:
@@ -222,9 +212,7 @@ def test_mark_seen_no_notice_is_noop(tmp_path: Path) -> None:
     mark_seen(tmp_path)  # must not raise
 
 
-# ---------------------------------------------------------------------------
 # whats_new
-# ---------------------------------------------------------------------------
 
 
 def test_whats_new_extracts_bullets_in_range() -> None:
