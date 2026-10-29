@@ -1,3 +1,4 @@
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -59,15 +60,23 @@ def read_notice(workspace: Path) -> Notice | None:
         return None
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace the notice in one step so a concurrent reader never sees a partial file."""
+    tmp = path.with_suffix(".env.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def write_notice(workspace: Path, from_version: str, to_version: str,
                  at: int | None = None) -> None:
     path = notice_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
     ts = at if at is not None else int(time.time())
-    path.write_text(
+    _write_atomic(
+        path,
         f"TANDEM_UPDATE_FROM={from_version}\n"
         f"TANDEM_UPDATE_TO={to_version}\n"
-        f"TANDEM_UPDATE_AT={ts}\n"
+        f"TANDEM_UPDATE_AT={ts}\n",
     )
 
 
@@ -76,12 +85,12 @@ def mark_seen(workspace: Path) -> None:
     notice = read_notice(workspace)
     if notice is None or notice.seen:
         return
-    path = notice_path(workspace)
-    path.write_text(
+    _write_atomic(
+        notice_path(workspace),
         f"TANDEM_UPDATE_FROM={notice.from_version}\n"
         f"TANDEM_UPDATE_TO={notice.to_version}\n"
         f"TANDEM_UPDATE_AT={notice.at}\n"
-        f"TANDEM_UPDATE_SEEN=1\n"
+        f"TANDEM_UPDATE_SEEN=1\n",
     )
 
 

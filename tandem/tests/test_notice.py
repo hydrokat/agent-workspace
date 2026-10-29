@@ -288,3 +288,24 @@ def test_whats_new_invalid_to_v_returns_empty() -> None:
 
 def test_whats_new_empty_changelog_returns_empty() -> None:
     assert whats_new("", "1.2.0", "1.3.0") == []
+
+
+def test_write_notice_replaces_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    replaced: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def spy(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        replaced.append((str(src), str(dst)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+    write_notice(tmp_path, "1.2.0", "1.3.0", at=100)
+    mark_seen(tmp_path)
+
+    assert len(replaced) == 2
+    assert all(dst == str(notice_path(tmp_path)) for _, dst in replaced)
+    assert not list(notice_path(tmp_path).parent.glob("*.tmp"))
+    notice = read_notice(tmp_path)
+    assert notice is not None and notice.seen

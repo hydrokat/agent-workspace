@@ -107,7 +107,7 @@ class OfferBanner(Horizontal):
     def on_click(self, event: Click) -> None:
         widget_id = event.widget.id if event.widget is not None else None
         if widget_id == "offer-update":
-            self._run_update_popup()
+            self.run_update_popup()
         elif widget_id == "offer-later":
             self.remove()
             self.app.refresh_bindings()
@@ -117,7 +117,7 @@ class OfferBanner(Horizontal):
             self.remove()
             self.app.refresh_bindings()
 
-    def _run_update_popup(self) -> None:
+    def run_update_popup(self) -> None:
         if self._tmux is not None:
             launcher = keys.launcher_for(sys.executable, str(self._workspace))
             self._tmux.run_checked(
@@ -275,7 +275,7 @@ class StatusApp(App[None]):
         banners = self.query(OfferBanner)
         if not banners:
             return
-        banners.first()._run_update_popup()
+        banners.first().run_update_popup()
 
     def action_refresh_now(self) -> None:
         self.run_worker(self._collect, thread=True, exclusive=True)

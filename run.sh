@@ -461,8 +461,10 @@ valid_spec() {
 
 write_notice() {
   local from_v="$1" to_v="$2"
+  local notice="$ROOT_DIR/.agent-workspace/update-notice.env"
   printf 'TANDEM_UPDATE_FROM=%s\nTANDEM_UPDATE_TO=%s\nTANDEM_UPDATE_AT=%s\n' \
-    "$from_v" "$to_v" "$(date +%s)" > "$ROOT_DIR/.agent-workspace/update-notice.env"
+    "$from_v" "$to_v" "$(date +%s)" > "$notice.tmp"
+  mv "$notice.tmp" "$notice"
 }
 
 print_whats_new() {
@@ -531,7 +533,7 @@ maybe_update() {
   [ -n "$local_ver" ] || return 0
 
   printf 'Checking for agent-workspace updates… '
-  capture 60 npx --yes "$SPEC" --version || rc=$?
+  capture 15 npx --yes "$SPEC" --version || rc=$?
   remote_ver="$(extract_version "$CAP_OUT")"
 
   if [ "$rc" -ne 0 ] || [ -z "$remote_ver" ]; then
