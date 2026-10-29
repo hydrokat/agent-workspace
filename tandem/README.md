@@ -25,7 +25,16 @@ Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this tab
 | `Ctrl+Alt+r` | restart an exited agent |
 | `Ctrl+Alt+z` | resize mode: arrows resize the focused pane, = resets, Enter exits |
 
-Mouse works too: click a pane to focus it, drag a border to resize, scroll to scroll. Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the focused pane, `=` resets to the default sizes, `Enter`/`Esc` leaves resize mode.
+Mouse works everywhere:
+
+- **Click a status-bar hint** to press its keyboard shortcut.
+- **Click an agent tab** in a column title to switch to that agent. Clicking "No planners yet…" opens the add-agent wizard.
+- **Right-click any pane** to open a context menu: focus, restart (if exited), close, new agent, status/queries, resize, help.
+- **Click a pane** to focus it; **drag a border** to resize; **scroll** to scroll.
+- **Click the update banner** in the Status window to open the "What's new" popup; click **[×]** to dismiss it.
+- When an in-session update offer is shown, click **[Update now]**, **[Later]**, or **[Skip this version]** in the banner.
+
+Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the focused pane, `=` resets to the default sizes, `Enter`/`Esc` leaves resize mode.
 
 ## Layout
 
@@ -65,6 +74,23 @@ The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / star
 The conversations themselves stay in each CLI's own history; tandem stores only the IDs (in `tandem-session.json` and `<coordination>/conversations/`). Claude is only asked to `--resume` when its transcript exists (`$CLAUDE_CONFIG_DIR` or `~/.claude`, `projects/*/<uuid>.jsonl`); a session that never got a message starts fresh under the same ID. A Claude agent whose folder was deleted starts a new conversation, because Claude keeps conversations per folder. `Ctrl+Alt+r` on an exited agent reopens its conversation the same way.
 
 **Update without quitting (`Ctrl+Alt+x` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. The same `update` also updates the installed AI CLIs (`claude update`, `agy update`, codex through its package manager) without asking, because you confirmed the update. Agents are not restarted automatically. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
+
+**What's new popup and banner.** After `./run.sh` applies a launch-time update, and after an in-app update, tandem reads `.agent-workspace/update-notice.env` and shows a "What's new in tandem X.Y.Z" popup the next time you attach, plus a dismissible `⬆ Updated to tandem X.Y.Z` banner at the top of the Status window. Clicking the banner text opens the popup; clicking `[×]` dismisses it. The notice is shown once, then marked as seen.
+
+**In-session update check.** While tandem is running, the Status window checks for a newer release every 4 hours in a background thread. When one is found, a non-blocking offer banner appears at the top of the Status window:
+
+```
+⬆ agent-workspace 1.3.0 → 1.4.0 available  [Update now]  [Later]  [Skip this version]
+```
+
+A single tmux message also announces the update. Nothing is applied automatically. Click `[Update now]` or press `Alt+u` / `Opt+u` to open the update popup. On macOS, `Opt+u` requires "Use Option as Meta" to be enabled in your terminal emulator; `Opt+u` is a dead key (for combining diacritical marks) in most macOS terminals when that option is off. Click `[Later]` to dismiss the banner without skipping, or `[Skip this version]` to stop offering that version until a newer one is found.
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `TANDEM_UPDATE_CHECK` | `1` | Set to `0` to disable the in-session update check entirely. |
+| `TANDEM_UPDATE_INTERVAL` | `14400` | How often in seconds to check for updates (minimum 600). |
+
+The check state lives in `.agent-workspace/update-check.env` (strict `KEY=VALUE` data file, never sourced). A failed or timed-out check (60 s) is silent; the last-check timestamp is still recorded. Only the Status window runs the checker — one per session — so no locking is needed. Pass `--no-update` to `run.sh` to also skip the launch-time check on a single launch.
 
 **Agents still on the old CLI.** A running `claude` or `agy` keeps the binary it started with. tandem records each agent's CLI version when it launches it (the pane tag `@tandem_cli_version`). When the update finishes, tandem compares those with the versions installed now and lists the agents that are behind (or were started by an older tandem and have no recorded version):
 

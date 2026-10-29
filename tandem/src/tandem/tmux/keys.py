@@ -318,8 +318,35 @@ WIZARD_FILTER = "Alt+f"
 WIZARD_HELP = "Alt+h"
 
 
+CLICK_ACTIONS: tuple[str, ...] = (
+    "help",        # 0: Alt+h
+    "add-agent",   # 1: Ctrl+Alt+n
+    "prev",        # 2: Alt+Up
+    "next",        # 3: Alt+Down
+    "status",      # 4: Alt+s
+    "queries",     # 5: Alt+q
+    "planner",     # 6: Alt+1
+    "implementer", # 7: Alt+2
+    "close-agent", # 8: Ctrl+Alt+w
+    "quit",        # 9: Ctrl+Alt+x
+    "restart",     # 10: Ctrl+Alt+r
+    "resize",      # 11: Ctrl+Alt+z
+)
+"""Canonical action name for each KEYMAP entry; also the allow-list for ``tandem click``."""
+
+
 def hint_bar(platform: str = sys.platform) -> str:
     return "  ".join(f"{b.display_key(platform)} {b.hint}" for b in KEYMAP if b.hint)
+
+
+def hint_bar_with_ranges(platform: str = sys.platform,
+                         km: tuple[Binding, ...] = KEYMAP) -> str:
+    """Hint bar where each hint is wrapped in a tmux ``range=user|<action>`` click target."""
+    parts = []
+    for b, action in zip(km, CLICK_ACTIONS):
+        if b.hint:
+            parts.append(f"#[range=user|{action}]{b.display_key(platform)} {b.hint}#[norange]")
+    return "  ".join(parts)
 
 
 def resize_hint() -> str:
@@ -327,8 +354,67 @@ def resize_hint() -> str:
 
 
 def status_left() -> str:
-    """Hint bar, swapped for the resize help while the resize key table is active."""
-    return f" #{{?#{{==:#{{client_key_table}},{RESIZE_TABLE}}},{resize_hint()},{hint_bar()}}} "
+    """Hint bar (with click ranges), swapped for the resize help while the resize key table is active."""
+    return f" #{{?#{{==:#{{client_key_table}},{RESIZE_TABLE}}},{resize_hint()},{hint_bar_with_ranges()}}} "
+
+
+def _mouse3_menu_cmd(launcher: str) -> str:
+    """Single-string command for the right-click pane binding.
+
+    Built as one string so that tmux stores it as a compound command rather than
+    treating ``;`` as a live command separator during ``bind-key`` processing.
+    """
+    close_cmd = expand_command(KEYMAP[ACTION_MAP["close"]].command, launcher)
+    add_agent_cmd = expand_command(KEYMAP[ACTION_MAP["add-agent"]].command, launcher)
+    help_cmd = expand_command(KEYMAP[ACTION_MAP["help"]].command, launcher)
+
+    def q(s: str) -> str:
+        return f'"{_dq(s)}"'
+
+    items = [
+        f'{q("Focus this pane")} f {q("select-pane -t =")}',
+        f'{q("#{?pane_dead,,-}Restart agent")} r {q(run_shell(launcher, "restart"))}',
+        f'{q("Close agent…")} w {q(close_cmd)}',
+        '""',
+        f'{q("New agent")} n {q(add_agent_cmd)}',
+        f'{q("Status")} s {q(run_shell(launcher, "focus status"))}',
+        f'{q("Queries")} q {q(run_shell(launcher, "focus queries"))}',
+        f'{q("Resize mode")} z {q(f"switch-client -T {RESIZE_TABLE}")}',
+        f'{q("Help")} h {q(help_cmd)}',
+    ]
+    menu = "display-menu -O -T tandem -t = -x M -y M " + " ".join(items)
+    return f"select-pane -t = ; {menu}"
+
+
+def mouse_commands(python: str, workspace: str | None = None,
+                   platform: str = sys.platform) -> list[list[str]]:
+    """Bind/unbind argv lists for clickable status-bar hints and the right-click pane context menu."""
+    launcher = launcher_for(python, workspace)
+
+    click1_status: list[str] = [
+        "bind-key", "-n", "MouseDown1Status",
+        f'run-shell -b "{_dq(launcher)} click #{{q:mouse_status_range}}"',
+    ]
+
+    click3_pane: list[str] = [
+        "bind-key", "-n", "MouseDown3Pane",
+        _mouse3_menu_cmd(launcher),
+    ]
+
+    border_sub = "click-tab #{q:pane_id} #{mouse_x} #{pane_left}"
+    click1_border: list[str] = [
+        "bind-key", "-n", "MouseDown1Border",
+        f"select-pane -t = ; {run_shell(launcher, border_sub)}",
+    ]
+
+    return [
+        click1_status,
+        click3_pane,
+        click1_border,
+        ["unbind-key", "-q", "-n", "MouseDown3Status"],
+        ["unbind-key", "-q", "-n", "MouseDown3StatusLeft"],
+        ["unbind-key", "-q", "-n", "M-MouseDown3Pane"],
+    ]
 
 
 def _global_help_lines(platform: str) -> list[str]:
@@ -374,7 +460,11 @@ def help_lines(platform: str = sys.platform) -> list[str]:
         f"            {d(WIZARD_DELETE):<12} delete the highlighted agent",
         "            Shift+L      launch all configured agents",
         "            Esc          back or cancel", "",
-        "  Mouse     click a pane to focus it; drag a border to resize; scroll wheel scrolls",
+        "Mouse",
+        "            click a status-bar hint = press its key",
+        "            click a tab in a column title to switch to that agent",
+        "            right-click a pane = context menu (focus, restart, close, new agent, …)",
+        "            click a pane to focus it; drag a border to resize; scroll wheel scrolls",
         f"  Resize    {resize_k} then arrows (←→ {RESIZE_STEP_COLS} columns, ↑↓ {RESIZE_STEP_ROWS} rows) on the focused pane; = resets; Enter exits",
         f"  Custom    set TANDEM_KEYS=\"help={d('Ctrl+Alt+h')},quit={d('Ctrl+Alt+q')}\" (each needs at least one modifier)",
         "  Detach    your agents keep running; run `tandem` again to re-attach",

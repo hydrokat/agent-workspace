@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from textual.pilot import Pilot
-from textual.widgets import OptionList, Static, TabbedContent, TextArea
+from textual.widgets import Button, OptionList, Static, TabbedContent, TextArea
 
 from tandem.coordination.schema import Query
 from tandem.coordination.store import CoordStore
@@ -312,5 +312,173 @@ def test_goto_asking_agent_pane(tmp_path: Path) -> None:
         tab(app).query_one("#q-list", OptionList).focus()
         await p.press("down", "alt+g")
         assert ("select-pane", "-t", "%4") in tmux.calls
+
+    run_app(app, script)
+
+
+# Clickable buttons and numbered options
+
+
+def test_buttons_disabled_when_no_question_selected(tmp_path: Path) -> None:
+    app, _ = make(tmp_path)
+
+    async def script(p: Pilot[None]) -> None:
+        assert tab(app).query_one("#q-btn-send", Button).disabled is True
+        assert tab(app).query_one("#q-btn-withdraw", Button).disabled is True
+        assert tab(app).query_one("#q-btn-goto", Button).disabled is True
+        assert tab(app).query_one("#q-btn-cancel", Button).disabled is True
+
+    run_app(app, script)
+
+
+def test_buttons_enabled_when_open_question_and_draft(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root)
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down", "enter")
+        await p.press(*keys("my answer"))
+        await p.pause()
+        assert tab(app).query_one("#q-btn-send", Button).disabled is False
+        assert tab(app).query_one("#q-btn-withdraw", Button).disabled is False
+        assert tab(app).query_one("#q-btn-goto", Button).disabled is False
+        assert tab(app).query_one("#q-btn-cancel", Button).disabled is False
+
+    run_app(app, script)
+
+
+def test_send_button_disabled_when_draft_empty(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root)
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down")
+        await p.pause()
+        assert tab(app).query_one("#q-btn-send", Button).disabled is True
+        assert tab(app).query_one("#q-btn-withdraw", Button).disabled is False
+
+    run_app(app, script)
+
+
+def test_send_button_click_sends_answer(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    qid = ask(root)
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down", "enter")
+        await p.press(*keys("button answer"))
+        await p.pause()
+        await p.click("#q-btn-send")
+        await p.pause()
+        [stored] = CoordStore(root).queries()
+        assert stored.id == qid and stored.answer == "button answer"
+
+    run_app(app, script)
+
+
+def test_cancel_button_clears_draft_and_refocuses_list(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root)
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down", "enter")
+        await p.press(*keys("draft"))
+        await p.pause()
+        await p.click("#q-btn-cancel")
+        await p.pause()
+        assert tab(app).query_one("#q-answer", TextArea).text == ""
+        assert app.focused == tab(app).query_one("#q-list")
+
+    run_app(app, script)
+
+
+def test_withdraw_button_marks_question_withdrawn(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root)
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down")
+        await p.pause()
+        await p.click("#q-btn-withdraw")
+        await p.pause()
+        assert CoordStore(root).queries()[0].status == "withdrawn"
+
+    run_app(app, script)
+
+
+def test_goto_button_selects_agent_pane(tmp_path: Path) -> None:
+    tmux = FakeTmux()
+    app, root = make(tmp_path, tmux=tmux)
+    ask(root)
+    (root / "sessions").mkdir(exist_ok=True)
+    (root / "sessions" / "implementer-1.json").write_text(json.dumps(
+        {"id": "implementer-1", "cli": "claude", "role": "implementer", "pane": "%5", "heartbeat": time.time()}))
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down")
+        await p.pause()
+        await p.click("#q-btn-goto")
+        await p.pause()
+        assert ("select-pane", "-t", "%5") in tmux.calls
+
+    run_app(app, script)
+
+
+def test_option_click_fills_answer_box(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root, "TTL?", "--option", "5 min", "--option", "10 min", "--option", "30 min")
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down")
+        await p.pause()
+        opts = tab(app).query_one("#q-options", OptionList)
+        assert opts.option_count == 3
+        opts.focus()
+        await p.press("down")
+        await p.press("enter")
+        await p.pause()
+        assert tab(app).query_one("#q-answer", TextArea).text == "5 min"
+
+    run_app(app, script)
+
+
+def test_q_options_hidden_when_no_options(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root, "Simple yes or no?")
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down")
+        await p.pause()
+        assert tab(app).query_one("#q-options", OptionList).display is False
+
+    run_app(app, script)
+
+
+def test_q_options_visible_when_options_present(tmp_path: Path) -> None:
+    app, root = make(tmp_path)
+    ask(root, "Which?", "--option", "alpha", "--option", "beta")
+
+    async def script(p: Pilot[None]) -> None:
+        await refresh(app, p)
+        tab(app).query_one("#q-list", OptionList).focus()
+        await p.press("down")
+        await p.pause()
+        assert tab(app).query_one("#q-options", OptionList).display is True
 
     run_app(app, script)

@@ -26,6 +26,8 @@ MODE=""
 ANSWERS=""
 ANSWERS_SET=0
 CHECK_ONLY=0
+NO_UPDATE=0
+ORIG_ARGS=()
 PASSTHRU=()
 MIN_DATA=""
 PM=""
@@ -44,7 +46,12 @@ Options:
   --yes            Answer yes to every prompt.
   --no             Answer no to every prompt.
   --answers y,n,.. Answer prompts in order from a list (automation); missing answers mean no.
+  --no-update      Skip the launch-time workspace self-update check.
   -h, --help       Show this help.
+
+Environment:
+  TANDEM_AUTO_UPDATE=0   Disable launch-time auto-update permanently.
+  TANDEM_UPDATE_SPEC     npm package spec to update from (default: hydrokat/agent-workspace).
 
 Any other arguments are passed to tandem.
 USAGE
@@ -63,6 +70,7 @@ parse_args() {
       --check) CHECK_ONLY=1 ;;
       --yes) MODE="yes" ;;
       --no) MODE="no" ;;
+      --no-update) NO_UPDATE=1 ;;
       --answers)
         [ "$#" -ge 2 ] || die 4 "--answers needs a value"
         ANSWERS="$2"
@@ -443,8 +451,128 @@ act() {
   [ "$have_ai" -eq 1 ] || die 2 "No AI CLI (claude or agy) is installed. Exiting."
 }
 
+read_manifest_version() {
+  grep -m1 '"version"' "$1" | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+}
+
+valid_spec() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+(#[A-Za-z0-9._/-]+)?$ ]]
+}
+
+write_notice() {
+  local from_v="$1" to_v="$2"
+  local notice="$ROOT_DIR/.agent-workspace/update-notice.env"
+  printf 'TANDEM_UPDATE_FROM=%s\nTANDEM_UPDATE_TO=%s\nTANDEM_UPDATE_AT=%s\n' \
+    "$from_v" "$to_v" "$(date +%s)" > "$notice.tmp"
+  mv "$notice.tmp" "$notice"
+}
+
+print_whats_new() {
+  local from_v="$1" to_v="$2"
+  local changelog="$ROOT_DIR/.agent-workspace/tandem/CHANGELOG.md"
+  [ -f "$changelog" ] || return 0
+
+  local bullets="" count=0 collecting=0 line ver bullet
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '## ['*)
+        ver="$(printf '%s\n' "$line" | grep -oE '[0-9]+(\.[0-9]+)*[a-z]?' | head -n1)"
+        if [ -n "$ver" ] && ! version_ge "$from_v" "$ver" && version_ge "$to_v" "$ver"; then
+          collecting=1
+        else
+          collecting=0
+        fi ;;
+      '- '*|'* '*)
+        if [ "$collecting" -eq 1 ] && [ "$count" -lt 8 ]; then
+          bullet="${line#- }"
+          bullet="${bullet#\* }"
+          case "$bullet" in
+            '**'*'**'*) bullet="${bullet#\*\*}"; bullet="${bullet%%\*\**}" ;;
+          esac
+          bullet="${bullet%:}"
+          bullet="${bullet//\`/}"
+          bullets="${bullets}${bullet}"$'\n'
+          count=$((count + 1))
+        fi ;;
+    esac
+  done < "$changelog"
+
+  printf '┌ agent-workspace updated %s → %s ──────────────────────────────────┐\n' "$from_v" "$to_v"
+  printf '│ %-68s │\n' "What's new"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    [ "${#line}" -le 64 ] || line="${line:0:63}…"
+    printf '│  • %-64s │\n' "$line"
+  done <<< "$bullets"
+  printf '│ %-68s │\n' "Full notes: .agent-workspace/tandem/CHANGELOG.md"
+  printf '│ %-68s │\n' "Turn off: ./run.sh --no-update or TANDEM_AUTO_UPDATE=0"
+  printf '└──────────────────────────────────────────────────────────────────────┘\n'
+}
+
+maybe_update() {
+  [ "${TANDEM_SKIP_UPDATE:-0}" = "1" ] && return
+  [ "$NO_UPDATE" -eq 1 ] && return
+  if [ "${TANDEM_AUTO_UPDATE:-1}" = "0" ]; then
+    printf 'Auto-update off (TANDEM_AUTO_UPDATE=0)\n'
+    return
+  fi
+
+  local manifest="$ROOT_DIR/.agent-workspace/manifest.json"
+  [ -f "$manifest" ] || return 0
+
+  command -v npx >/dev/null 2>&1 || { printf 'Skipping update check (npx not found).\n'; return 0; }
+
+  local SPEC="${TANDEM_UPDATE_SPEC:-hydrokat/agent-workspace}"
+  if ! valid_spec "$SPEC"; then
+    printf '⚠ Invalid TANDEM_UPDATE_SPEC; skipping update.\n'
+    return
+  fi
+
+  local local_ver rc=0 remote_ver
+  local_ver="$(read_manifest_version "$manifest")"
+  [ -n "$local_ver" ] || return 0
+
+  printf 'Checking for agent-workspace updates… '
+  capture 15 npx --yes "$SPEC" --version || rc=$?
+  remote_ver="$(extract_version "$CAP_OUT")"
+
+  if [ "$rc" -ne 0 ] || [ -z "$remote_ver" ]; then
+    printf 'Could not check for updates (offline?); continuing with %s\n' "$local_ver"
+    return
+  fi
+
+  if version_ge "$local_ver" "$remote_ver"; then
+    printf 'agent-workspace %s is up to date\n' "$local_ver"
+    return
+  fi
+
+  printf '%s installed, %s available\n' "$local_ver" "$remote_ver"
+
+  if [ "$CHECK_ONLY" -eq 1 ]; then
+    printf '↑ agent-workspace %s → %s available (applied on next launch)\n' "$local_ver" "$remote_ver"
+    return
+  fi
+
+  printf 'Updating agent-workspace %s → %s …\n' "$local_ver" "$remote_ver"
+  rc=0
+  npx --yes "$SPEC" update --yes --no-link --no-update-clis --no-commit || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '⚠ Update failed (exit %s); continuing with %s. Run ./run.sh again or npx %s update\n' \
+      "$rc" "$local_ver" "$SPEC"
+    return
+  fi
+
+  write_notice "$local_ver" "$remote_ver"
+  print_whats_new "$local_ver" "$remote_ver"
+
+  export TANDEM_SKIP_UPDATE=1
+  exec "$ROOT_DIR/run.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+}
+
 main() {
+  ORIG_ARGS=("$@")
   parse_args "$@"
+  maybe_update
   load_min_versions
   detect_platform
   local tool

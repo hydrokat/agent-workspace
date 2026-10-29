@@ -2,11 +2,12 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from textual.pilot import Pilot
-from textual.widgets import OptionList
+from textual.widgets import Footer, OptionList
 
 from tandem.adapters.base import AgentSpec, Model, ModelListError
 from tandem.tmux import keys
 from tandem.wizard.app import WizardApp
+from tandem.wizard.flow import Step
 
 
 def loader(cli: str) -> list[Model]:
@@ -111,10 +112,12 @@ def test_launch_disabled_without_agents() -> None:
     assert drive(app(), script) is None
 
 
-def test_hint_bar_lists_keys() -> None:
+def test_footer_replaces_hint_bar() -> None:
     async def script(p: Pilot[list[AgentSpec] | None]) -> None:
-        text = str(p.app.query_one("#hints").render())
-        assert "Enter" in text and "Esc" in text
+        assert len(p.app.query(Footer)) == 1
+        assert isinstance(p.app, WizardApp)
+        assert p.app.check_action("go_back", ()) is True
+        assert p.app.check_action("help", ()) is True
         await p.press("escape")
 
     drive(app(), script)
@@ -126,8 +129,10 @@ def test_model_step_alt_f_focuses_filter() -> None:
         await p.press("enter")  # role: planner
         await p.app.workers.wait_for_complete()
         await p.pause()
-        hints = str(p.app.query_one("#hints").render())
-        assert f"{keys.alt_name()}+f" in hints
+        assert isinstance(p.app, WizardApp)
+        assert p.app.flow.step is Step.MODEL
+        assert p.app.check_action("focus_input", ()) is True
+        assert p.app.check_action("add", ()) is False
         await p.press("alt+f")
         assert p.app.focused == p.app.query_one("#input")
         await p.press("escape")
@@ -142,11 +147,13 @@ def test_summary_step_actions_use_modifier_keys() -> None:
         await p.app.workers.wait_for_complete()
         await p.pause()
         await p.press("enter")  # model
-        hints = str(p.app.query_one("#hints").render())
-        alt = keys.alt_name()
-        assert f"{alt}+a" in hints and f"{alt}+d" in hints and "Shift+L" in hints
-        await p.press("alt+a")
         assert isinstance(p.app, WizardApp)
+        assert p.app.flow.step is Step.SUMMARY
+        assert p.app.check_action("add", ()) is True
+        assert p.app.check_action("delete", ()) is True
+        assert p.app.check_action("launch", ()) is True
+        assert p.app.check_action("focus_input", ()) is False
+        await p.press("alt+a")
         assert p.app.flow.step.name == "CLI"
         await p.press("escape")
 
@@ -159,4 +166,55 @@ def test_wizard_help_key_shows_notification() -> None:
         assert any(n.title == "Keys" for n in p.app._notifications)
 
     drive(app(), script)
+
+
+def test_check_action_filter_only_at_model_step() -> None:
+    async def script(p: Pilot[list[AgentSpec] | None]) -> None:
+        assert isinstance(p.app, WizardApp)
+        assert p.app.check_action("focus_input", ()) is False
+        await p.press("enter")
+        await p.press("enter")
+        await p.app.workers.wait_for_complete()
+        await p.pause()
+        assert p.app.flow.step is Step.MODEL
+        assert p.app.check_action("focus_input", ()) is True
+        assert p.app.check_action("add", ()) is False
+        await p.press("escape")
+
+    drive(app(), script)
+
+
+def test_check_action_add_delete_launch_only_at_summary() -> None:
+    async def script(p: Pilot[list[AgentSpec] | None]) -> None:
+        await p.press("enter", "enter")
+        await p.app.workers.wait_for_complete()
+        await p.pause()
+        await p.press("enter")
+        assert isinstance(p.app, WizardApp)
+        assert p.app.flow.step is Step.SUMMARY
+        assert p.app.check_action("add", ()) is True
+        assert p.app.check_action("delete", ()) is True
+        assert p.app.check_action("launch", ()) is True
+        assert p.app.check_action("focus_input", ()) is False
+        await p.press("escape")
+
+    drive(app(), script)
+
+
+def test_wizard_key_display_is_os_aware() -> None:
+    import sys
+    from textual.binding import Binding as TextualBinding
+    from tandem.tmux.keys import display_shortcut, WIZARD_ADD, WIZARD_FILTER
+
+    wizard = app()
+
+    async def script(p: Pilot[list[AgentSpec] | None]) -> None:
+        tb_bindings = [b for b in wizard.BINDINGS if isinstance(b, TextualBinding)]
+        add_binding = next(b for b in tb_bindings if b.action == "add")
+        filter_binding = next(b for b in tb_bindings if b.action == "focus_input")
+        assert add_binding.key_display == display_shortcut(WIZARD_ADD, sys.platform)
+        assert filter_binding.key_display == display_shortcut(WIZARD_FILTER, sys.platform)
+        await p.press("escape")
+
+    drive(wizard, script)
 

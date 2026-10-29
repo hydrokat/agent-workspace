@@ -29,10 +29,17 @@ def build_parser() -> argparse.ArgumentParser:
                        ("refresh", "redraw tab titles"), ("reflow", "re-stack columns for the terminal size"),
                        ("reset-layout", "reset pane sizes to the defaults"),
                        ("quit", "detach or quit"), ("help", "show the key help"),
-                       ("first-run", "open help once on first attach"), ("status", "run the status window")):
+                       ("first-run", "open help once on first attach"), ("status", "run the status window"),
+                       ("whats-new", "show what changed in the last update")):
         sub.add_parser(name, help=text)
     update = sub.add_parser("update", help="update tandem and the workspace; agents keep running (F10 menu)")
     update.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    click = sub.add_parser("click", help="dispatch a status-bar or pane-menu click action")
+    click.add_argument("action", nargs="?", default="", help="action name from the hint bar")
+    click_tab_p = sub.add_parser("click-tab", help="switch to the agent tab at a border click position")
+    click_tab_p.add_argument("pane", help="pane id (%%N format)")
+    click_tab_p.add_argument("x", type=int, help="absolute tmux client x coordinate of the click")
+    click_tab_p.add_argument("left", type=int, help="pane left edge (#{pane_left})")
     sub.add_parser("quota-feed", help="Claude Code statusline hook: record quota, then run your own statusline")
     sub.add_parser("quota-line", help="print the quota line shown under the window")
     sub.add_parser("save-exit", help="save the session state and end the session")
@@ -51,6 +58,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _launch(workspace, config, resume=args.resume, fresh=args.fresh)
     elif command == "help":
         commands.show_help()
+    elif command == "whats-new":
+        commands.show_whats_new(workspace)
     elif command == "placeholder":
         commands.placeholder(args.role)
     elif command == "status":
@@ -78,6 +87,10 @@ def _launch(workspace: Path, config: Config, resume: bool = False, fresh: bool =
 
     layout = commands.make_layout(workspace, config)
     if layout.exists():
+        from tandem.notice import read_notice
+        notice = read_notice(workspace)
+        if notice is not None and not notice.seen:
+            commands._reload_in_fresh_process(workspace, layout)
         commands.attach(workspace)
     _note_legacy_session()
     saved = None if fresh else state.load(state.state_path(workspace))
@@ -164,5 +177,9 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
         commands.discard_exit(layout, workspace)
     elif command == "reload":
         commands.reload_ui(layout, workspace, config)
+    elif command == "click":
+        commands.click(layout, config, args.action)
+    elif command == "click-tab":
+        commands.click_tab(layout, config, args.pane, args.x, args.left)
     elif command == "first-run":
         commands.first_run(layout, config)

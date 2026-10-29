@@ -405,6 +405,87 @@ def test_conf_text_unsets_tmux_pane() -> None:
     assert "set-environment -g -u TMUX_PANE" in text
 
 
+def test_mouse_bindings_applied_after_apply_chrome(layout: Layout) -> None:
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert "MouseDown1Status" in out
+    assert "MouseDown3Pane" in out
+
+
+def test_unsafe_mouse_defaults_unbound_after_apply_chrome(layout: Layout) -> None:
+    import re
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    # Check exact key token: surrounded by whitespace so "MouseDown3Status" does not
+    # false-match inside "M-MouseDown3Status" (a different, unrelated key).
+    for unsafe in ("MouseDown3Status", "MouseDown3StatusLeft", "M-MouseDown3Pane"):
+        pattern = rf"(?<!\S){re.escape(unsafe)}(?!\S)"
+        matches = re.findall(pattern, out)
+        assert not matches, f"{unsafe} should have been unbound; still present in list-keys"
+
+
+def test_safe_tmux_mouse_defaults_still_present(layout: Layout) -> None:
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    for safe in ("MouseDrag1Border", "MouseDown1Pane", "WheelUpPane"):
+        assert safe in out, f"{safe} default should still be bound"
+
+
+def test_border_click_binding_added_after_apply_chrome(layout: Layout) -> None:
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert "MouseDown1Border" in out
+
+
+def test_drag_resize_still_bound_after_border_click_binding(layout: Layout) -> None:
+    built(layout)
+    out = subprocess.run(
+        ["tmux", "-L", str(layout.client.socket), "list-keys", "-T", "root"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert "MouseDrag1Border" in out
+
+
+def test_click_tab_switches_visible_agent(layout: Layout) -> None:
+    from tandem import commands
+    from tandem.config import Config
+    from tandem.tmux.tabs import title_spans, visible_pane
+
+    ids = built(layout)
+    layout.add_agent(sleeper("planner", 2))
+
+    panes = layout.panes()
+    current = visible_pane(panes, "planner")
+    assert current is not None and current.index == 2
+
+    out = layout.client.run_checked(
+        "display-message", "-p", "-t", current.id, "#{pane_left}\t#{pane_active}"
+    )
+    parts = out.strip().split("\t")
+    pane_left, is_active = int(parts[0]), parts[1] == "1"
+
+    spans = title_spans(panes, "planner", is_active)
+    # Find span for planner 1 (in the stash window)
+    target_span = next(s for s in spans if s.pane_id == ids["left"])
+
+    config = Config.from_env(env={})
+    commands.click_tab(layout, config, current.id, target_span.start + pane_left, pane_left)
+
+    assert visible_pane(layout.panes(), "planner").index == 1  # type: ignore[union-attr]
+
+
 def test_restart_fallback_uses_active_pane_when_env_pane_empty(layout: Layout) -> None:
     import json
     import time

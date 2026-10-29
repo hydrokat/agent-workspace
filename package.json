@@ -1,6 +1,6 @@
 {
   "name": "agent-workspace",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Initialize and maintain an AI agent workspace with multi-provider support.",
   "type": "module",
   "bin": {
@@ -11,12 +11,14 @@
     "src",
     "templates",
     "run.sh",
+    "CHANGELOG.md",
     "tandem/pyproject.toml",
     "tandem/uv.lock",
     "tandem/min-versions.env",
     "tandem/README.md",
     "tandem/src",
-    "!tandem/**/__pycache__"
+    "!tandem/**/__pycache__",
+    "!templates/**/__pycache__"
   ],
   "engines": {
     "node": ">=18"

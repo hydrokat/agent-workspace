@@ -264,7 +264,17 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 ./run.sh            # check dependencies, ask before installing/updating, then launch
 ./run.sh --check    # report only; change nothing
 ./run.sh --yes      # answer yes to every prompt (--no answers no)
+./run.sh --no-update  # skip the launch-time update check this time
 ```
+
+**Auto-update on launch.** Before checking dependencies, `run.sh` checks whether a newer agent-workspace release exists. When one is found, it applies the update (`npx --yes hydrokat/agent-workspace update --yes --no-link --no-update-clis --no-commit`), prints the old → new version and what changed, then re-execs the updated `run.sh`. If the workspace has no `manifest.json` (a dev checkout), if `npx` is not on `PATH`, or if the update fails, launch continues with the installed version.
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `TANDEM_AUTO_UPDATE` | `1` | Set to `0` to disable the launch-time update check permanently. |
+| `TANDEM_UPDATE_SPEC` | `hydrokat/agent-workspace` | npm package spec to update from; set to `owner/repo` or `owner/repo#ref` when running from a fork. |
+
+The version check waits at most 15 seconds, so an offline or slow network delays launch by that long at worst; set `TANDEM_AUTO_UPDATE=0` to skip it entirely. Pass `--no-update` for a single-launch opt-out. `--check` reports an available update without applying it. See `tandem/README.md` for the in-session update check that runs while tandem is open.
 
 `run.sh` needs `git`, `tmux`, `uv`, and at least one of `claude` / `agy`. Rules:
 

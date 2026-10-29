@@ -259,12 +259,21 @@ def resume_specs(saved: state.SavedState, workspace: Path,
 
 
 def quit_menu(layout: Layout, workspace: str | None = None) -> None:
+    from tandem.update_check import installed_version_from_manifest, read_state, should_offer
+
     launcher = keys.launcher_for(sys.executable, workspace)
+    update_label = "Update tandem and workspace"
+    if workspace is not None:
+        ws_path = Path(workspace)
+        check_state = read_state(ws_path)
+        installed = installed_version_from_manifest(ws_path)
+        if should_offer(installed, check_state.latest, check_state.skip):
+            update_label = f"Update tandem and workspace  ({check_state.latest} available)"
     layout.client.run_checked(
         "display-menu", "-T", "tandem",
         "Save state and exit (resume later)", "s", keys.run_shell(launcher, "save-exit"),
         "Detach (agents keep running)", "d", "detach-client",
-        "Update tandem and workspace", "u", keys.popup(launcher, "update", "80%", "70%"),
+        update_label, "u", keys.popup(launcher, "update", "80%", "70%"),
         "Quit and discard saved state (next launch is fresh)", "k", keys.run_shell(launcher, "discard-exit"),
         "Cancel", "c", "")
 
@@ -303,6 +312,9 @@ def run_update(workspace: Path, config: Config, assume_yes: bool) -> int:
             print(f"(state not saved: {error})")
     result = updater.run_update(workspace, config.update_spec, lambda: _reload_in_fresh_process(workspace, layout))
     print(f"\n{'OK' if result.ok else 'FAILED'}: {result.message}")
+    if result.ok and result.old_version and result.new_version and result.old_version != result.new_version:
+        from tandem.notice import write_notice
+        write_notice(workspace, result.old_version, result.new_version)
     if result.ok and layout.exists():
         try:
             offer_restarts(layout, workspace, config, sys.stdin.isatty())
@@ -374,12 +386,139 @@ def offer_restarts(layout: Layout, workspace: Path, config: Config, interactive:
 
 
 def first_run(layout: Layout, config: Config) -> None:
+    launcher = keys.launcher_for(sys.executable, str(config.workspace) if config.workspace else None)
+
+    if config.workspace is not None:
+        from tandem.notice import read_notice
+        notice = read_notice(config.workspace)
+        if notice is not None and not notice.seen:
+            layout.client.run_checked(
+                "display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} whats-new"
+            )
+
     marker = config.state_dir / "first-run-done"
     if marker.exists():
         return
     config.state_dir.mkdir(parents=True, exist_ok=True)
     marker.write_text(str(time.time()))
-    layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", keys.launcher_for(sys.executable, str(config.workspace) if config.workspace else None) + " help")
+    layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} help")
+
+
+def show_whats_new(workspace: Path) -> None:
+    """Print a What's New summary for the most recent update notice and mark it seen."""
+    from tandem.notice import mark_seen, read_notice, whats_new
+
+    notice = read_notice(workspace)
+    if notice is None:
+        print("No update notice found.")
+        return
+
+    changelog_path = workspace / ".agent-workspace" / "tandem" / "CHANGELOG.md"
+    try:
+        changelog = changelog_path.read_text()
+    except OSError:
+        changelog = ""
+
+    print(f"What's new in tandem {notice.to_version} (updated from {notice.from_version})")
+    bullets = whats_new(changelog, notice.from_version, notice.to_version)
+    if bullets:
+        print()
+        for b in bullets:
+            print(f" • {b}")
+    else:
+        print("\n (release notes unavailable)")
+
+    print(f"\nFull notes: {changelog_path}")
+    print("Press Enter to close.")
+    try:
+        input()
+    except EOFError:
+        pass
+
+    mark_seen(workspace)
+
+
+def click(layout: Layout, config: Config, action: str) -> None:
+    """Dispatch a status-bar or menu click; no-op for unknown or empty actions."""
+    from tandem.tmux.keys import CLICK_ACTIONS, RESIZE_TABLE, launcher_for, run_shell
+
+    if action not in frozenset(CLICK_ACTIONS):
+        return
+
+    launcher = launcher_for(sys.executable, layout.workspace)
+
+    if action == "help":
+        layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} help")
+    elif action == "add-agent":
+        layout.client.run_checked("display-popup", "-E", "-w", "90%", "-h", "90%", f"{launcher} add-agent")
+    elif action == "prev":
+        tab(layout, config, "prev")
+    elif action == "next":
+        tab(layout, config, "next")
+    elif action == "status":
+        focus(layout, config, "status")
+    elif action == "queries":
+        focus(layout, config, "queries")
+    elif action == "planner":
+        focus(layout, config, "planner")
+    elif action == "implementer":
+        focus(layout, config, "implementer")
+    elif action == "close-agent":
+        layout.client.run_checked(
+            "confirm-before", "-p", "Close this agent? (y/n)",
+            run_shell(launcher, "close-agent"),
+        )
+    elif action == "quit":
+        quit_menu(layout, layout.workspace)
+    elif action == "restart":
+        pane = config.tmux_pane or layout.client.run_checked("display-message", "-p", "#{pane_id}").strip()
+        if pane:
+            restart(layout, pane, Path(layout.workspace) if layout.workspace else Path.cwd(), config)
+    elif action == "resize":
+        layout.client.run_checked("switch-client", "-T", RESIZE_TABLE)
+
+
+def click_tab(layout: Layout, config: Config, pane_id: str, x: int, left: int) -> None:
+    """Switch to the agent tab at display column x-left on pane pane_id's border.
+
+    Opens the add-agent wizard when the column has no agents. Silently ignores invalid
+    pane ids, non-column panes, and clicks on the head or gap between tabs.
+    """
+    from tandem.tmux.tabs import agents_in, tab_at, title_spans
+
+    if not re.match(r"^%\d+$", pane_id):
+        return
+    result = layout.client.run("display-message", "-p", "-t", pane_id,
+                               "#{@tandem_role}\t#{pane_active}")
+    if result.code != 0:
+        return
+    parts = result.out.strip().split("\t")
+    if len(parts) != 2:
+        return
+    role, active_flag = parts
+    if role not in ROLES:
+        return
+
+    is_active = active_flag == "1"
+    panes = layout.panes()
+    spans = title_spans(panes, role, is_active)
+    column = x - left
+
+    if not spans:
+        launcher = keys.launcher_for(sys.executable, layout.workspace)
+        layout.client.run_checked("display-popup", "-E", "-w", "90%", "-h", "90%",
+                                  f"{launcher} add-agent")
+        return
+
+    clicked_id = tab_at(spans, column)
+    if clicked_id is None:
+        return
+
+    target = next((p for p in agents_in(panes, role) if p.id == clicked_id), None)
+    if target is None:
+        return
+
+    layout.select(role, target.index)
 
 
 def show_help() -> None:

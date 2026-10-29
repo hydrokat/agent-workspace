@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { makeTmp, cleanup } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head'];
+const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv'];
 const MIN = [
   '# test minimums', 'TANDEM_MIN_PYTHON=3.11', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
   'TANDEM_MIN_UV=0.5', 'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
@@ -44,6 +44,19 @@ case "$name" in
     esac;;
   claude|agy)
     if [ "$1" = update ]; then [ -f "$STATE/$name.noupdate" ] || bump "$name"; exit 0; fi;;
+  npx)
+    [ "$1" = "--yes" ] && shift
+    shift
+    case "$1" in
+      --version)
+        [ -f "$STATE/npx.offline" ] && exit 1
+        if [ -f "$STATE/npx.version" ]; then cat "$STATE/npx.version"; else echo "1.3.0"; fi
+        exit 0;;
+      update)
+        [ -f "$STATE/npx.updatefail" ] && { echo "npx update failed" >&2; exit 1; }
+        exit 0;;
+    esac
+    exit 0;;
 esac
 case "$1" in --version|-V) cat "$STATE/$name.version"; exit 0;; esac
 exit 0
@@ -374,6 +387,182 @@ describe('run.sh healthy Python selection', () => {
     const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: join(env.base, 'nowhere/python3') } });
     assert.equal(r.code, 0, r.out);
     assert.equal(pythonOf(r), '');
+  });
+});
+
+function setupManifest(env, version = '1.2.0') {
+  const dir = join(env.pkg, '.agent-workspace');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ version, managedFiles: [] }, null, 2) + '\n');
+}
+
+function setupNpx(env, remoteVersion = '1.3.0') {
+  symlinkSync(join(env.state, 'tool.sh'), join(env.bin, 'npx'));
+  writeFileSync(join(env.state, 'npx.version'), remoteVersion + '\n');
+}
+
+function setupChangelog(env, fromV, toV, extraBullet) {
+  const dir = join(env.pkg, '.agent-workspace', 'tandem');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'CHANGELOG.md'), [
+    '# Changelog', '',
+    `## [${toV}] - 2026-10-01`, '',
+    '### Added',
+    '- Clickable status-bar buttons',
+    '- run.sh updates the workspace on launch',
+    ...(extraBullet ? [`- ${extraBullet}`] : []),
+    '',
+    `## [${fromV}] - 2026-09-01`, '',
+    '### Added',
+    '- Initial release', '',
+  ].join('\n'));
+  const srcMin = join(env.pkg, 'tandem', 'min-versions.env');
+  writeFileSync(join(dir, 'min-versions.env'), readFileSync(srcMin, 'utf8'));
+}
+
+function readNotice(env) {
+  const p = join(env.pkg, '.agent-workspace', 'update-notice.env');
+  return existsSync(p) ? readFileSync(p, 'utf8') : null;
+}
+
+describe('run.sh auto-update', () => {
+  it('prints "up to date" when local version matches remote', async () => {
+    const env = setup();
+    setupManifest(env, '1.3.0');
+    setupNpx(env, '1.3.0');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /agent-workspace 1\.3\.0 is up to date/);
+    assert.ok(!r.calls.includes('update --yes'));
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('applies the update with exact args, writes notice, prints what\'s new, re-execs once', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    setupChangelog(env, '1.2.0', '1.3.0');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.calls, /npx --yes \S+ update --yes --no-link --no-update-clis --no-commit/);
+    assert.equal((r.calls.match(/npx .* update --yes/g) || []).length, 1, 're-exec does not repeat the update');
+    const notice = readNotice(env);
+    assert.ok(notice !== null, 'update-notice.env written');
+    assert.match(notice, /TANDEM_UPDATE_FROM=1\.2\.0/);
+    assert.match(notice, /TANDEM_UPDATE_TO=1\.3\.0/);
+    assert.match(notice, /TANDEM_UPDATE_AT=\d+/);
+    assert.ok(!existsSync(join(env.pkg, '.agent-workspace', 'update-notice.env.tmp')), 'notice written atomically, no temp file left');
+    assert.match(r.out, /What's new/);
+    assert.match(r.out, /Clickable status-bar buttons/);
+    assert.ok(r.stdout.includes('TANDEM-RAN'), 're-exec ran tandem');
+  });
+
+  it('shows only the bold label of a changelog bullet, without markdown', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    setupChangelog(env, '1.2.0', '1.3.0', '**Auto-update on launch (`run.sh`):** checks for a newer release before doing anything else');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /• Auto-update on launch \(run\.sh\)\s+│/);
+    assert.ok(!r.out.includes('**'), 'bold markers are removed');
+    assert.ok(!r.out.includes('before doing anything else'), 'description is dropped');
+  });
+
+  it('truncates long what\'s-new headlines so the box stays aligned', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    setupChangelog(env, '1.2.0', '1.3.0', 'x'.repeat(120));
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!r.out.includes('x'.repeat(65)), 'headline is cut to the box width');
+    assert.match(r.out, /x{63}…/);
+  });
+
+  it('prints "offline" message and continues on version check failure', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    env.mark('npx.offline');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Could not check for updates.*offline/);
+    assert.ok(!r.calls.includes('update --yes'));
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('warns and continues when the update command fails', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    env.mark('npx.updatefail');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Update failed/);
+    assert.ok(readNotice(env) === null, 'notice not written on failure');
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('skips the update when --no-update is passed', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    const r = await run(env, ['--no-update']);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!r.calls.includes('npx'));
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('skips the update and prints a notice when TANDEM_AUTO_UPDATE=0', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    const r = await run(env, [], { extraEnv: { TANDEM_AUTO_UPDATE: '0' } });
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Auto-update off/);
+    assert.ok(!r.calls.includes('npx'));
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('skips silently when manifest.json is missing (dev checkout)', async () => {
+    const env = setup();
+    setupNpx(env, '1.3.0');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!r.calls.includes('npx'));
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('prints "npx not found" and continues when npx is not on PATH', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    const r = await run(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /npx not found/);
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('rejects an invalid TANDEM_UPDATE_SPEC without passing it to npx', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    const r = await run(env, [], { extraEnv: { TANDEM_UPDATE_SPEC: '; touch pwned' } });
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!r.calls.includes('npx'), 'npx never called for invalid spec');
+    assert.ok(!existsSync(join(env.work, 'pwned')), 'command injection prevented');
+    assert.ok(r.stdout.includes('TANDEM-RAN'));
+  });
+
+  it('--check reports update available without applying it or writing a notice', async () => {
+    const env = setup();
+    setupManifest(env, '1.2.0');
+    setupNpx(env, '1.3.0');
+    const r = await run(env, ['--check']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /↑ agent-workspace 1\.2\.0 .* 1\.3\.0 available/);
+    assert.ok(!r.calls.includes('update --yes'), 'no update run during --check');
+    assert.ok(readNotice(env) === null, 'notice not written during --check');
   });
 });
 
