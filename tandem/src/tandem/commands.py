@@ -505,7 +505,6 @@ def click_tab(layout: Layout, config: Config, pane_id: str, select: str = "") ->
             layout.select(role, target.index)
         return
 
-    add_agent = keys.popup(launcher, "add-agent", "90%", "90%")
     if not agents:
         layout.client.run_checked("display-popup", "-E", "-w", "90%", "-h", "90%", f"{launcher} add-agent")
         return
@@ -517,7 +516,7 @@ def click_tab(layout: Layout, config: Config, pane_id: str, select: str = "") ->
         shortcut = str(p.index) if p.index < 10 else ""
         items += [marker + tab_text(p), shortcut,
                   keys.run_shell(launcher, f"click-tab {p.id} --select {p.id}")]
-    items += ["", "New agent", "n", add_agent]
+    items += ["", "New agent", "n", keys.popup(launcher, "add-agent", "90%", "90%")]
     layout.client.run_checked("display-menu", "-T", "tandem", "-t", pane_id,
                               "-x", "#{pane_left}", "-y", "#{pane_top}", *items)
 
