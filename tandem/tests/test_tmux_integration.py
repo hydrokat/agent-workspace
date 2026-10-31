@@ -519,6 +519,7 @@ def test_click_tab_menu_renders_on_an_attached_client(layout: Layout) -> None:
     import select
     import struct
     import termios
+    import threading
     import time
 
     from tandem import commands
@@ -546,13 +547,18 @@ def test_click_tab_menu_renders_on_an_attached_client(layout: Layout) -> None:
                 break
             time.sleep(0.1)
         assert listed.stdout.strip(), "tmux client did not attach"
-        commands.click_tab(layout, Config.from_env(env={}), current.id)
+        opener = threading.Thread(
+            target=commands.click_tab, args=(layout, Config.from_env(env={}), current.id), daemon=True)
+        opener.start()
         seen = b""
         end = time.time() + 1.5
         while time.time() < end:
             ready, _, _ = select.select([master], [], [], 0.2)
             if ready:
                 seen += os.read(master, 65536)
+        os.write(master, b"\x1b")
+        opener.join(timeout=10)
+        assert not opener.is_alive(), "display-menu did not return after the menu was dismissed"
     finally:
         proc.terminate()
         proc.wait(timeout=5)
