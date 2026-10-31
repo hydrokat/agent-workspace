@@ -28,7 +28,7 @@ Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this tab
 Mouse works everywhere:
 
 - **Click a status-bar hint** to press its keyboard shortcut.
-- **Click an agent tab** in a column title to switch to that agent. Clicking "No planners yet…" opens the add-agent wizard.
+- **Click a column title** to open a menu of that column's agents (the visible one is marked `▶`) and switch to the one you pick, or choose **New agent**. Clicking "No planners yet…" opens the add-agent wizard. tmux cannot report which tab text was clicked on a pane border, so the menu replaces per-tab clicks.
 - **Right-click any pane** to open a context menu: focus, restart (if exited), close, new agent, status/queries, resize, help.
 - **Click a pane** to focus it; **drag a border** to resize; **scroll** to scroll.
 - **Click the update banner** in the Status window to open the "What's new" popup; click **[×]** to dismiss it.

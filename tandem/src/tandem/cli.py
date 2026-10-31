@@ -36,10 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     click = sub.add_parser("click", help="dispatch a status-bar or pane-menu click action")
     click.add_argument("action", nargs="?", default="", help="action name from the hint bar")
-    click_tab_p = sub.add_parser("click-tab", help="switch to the agent tab at a border click position")
+    click_tab_p = sub.add_parser("click-tab", help="open the agent menu for a clicked column title")
     click_tab_p.add_argument("pane", help="pane id (%%N format)")
-    click_tab_p.add_argument("x", type=int, help="absolute tmux client x coordinate of the click")
-    click_tab_p.add_argument("left", type=int, help="pane left edge (#{pane_left})")
+    click_tab_p.add_argument("--select", default="", help="pane id of the agent to switch to")
     sub.add_parser("quota-feed", help="Claude Code statusline hook: record quota, then run your own statusline")
     sub.add_parser("quota-line", help="print the quota line shown under the window")
     sub.add_parser("save-exit", help="save the session state and end the session")
@@ -180,6 +179,6 @@ def _tmux_command(command: str, args: argparse.Namespace, workspace: Path, confi
     elif command == "click":
         commands.click(layout, config, args.action)
     elif command == "click-tab":
-        commands.click_tab(layout, config, args.pane, args.x, args.left)
+        commands.click_tab(layout, config, args.pane, args.select)
     elif command == "first-run":
         commands.first_run(layout, config)
