@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-10-31
+
+### tandem
+
+- **Fixed agent tab switching:** Clicking a column title no longer fails with `click-tab ... returned 2`. tmux reports no click column on a pane border, so clicking a column title now opens a menu of that column's agents (the visible one is marked `▶`, plus **New agent**) and switches to the one you pick. Keyboard tab switching, drag-to-resize, and the other mouse actions are unchanged.
+
 ## [1.3.0] — 2026-10-29
 
 ### CLI Package

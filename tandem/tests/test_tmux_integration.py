@@ -458,32 +458,40 @@ def test_drag_resize_still_bound_after_border_click_binding(layout: Layout) -> N
     assert "MouseDrag1Border" in out
 
 
-def test_click_tab_switches_visible_agent(layout: Layout) -> None:
+def test_click_tab_select_switches_visible_agent(layout: Layout) -> None:
     from tandem import commands
     from tandem.config import Config
-    from tandem.tmux.tabs import title_spans, visible_pane
+    from tandem.tmux.tabs import visible_pane
 
     ids = built(layout)
     layout.add_agent(sleeper("planner", 2))
-
-    panes = layout.panes()
-    current = visible_pane(panes, "planner")
+    current = visible_pane(layout.panes(), "planner")
     assert current is not None and current.index == 2
 
-    out = layout.client.run_checked(
-        "display-message", "-p", "-t", current.id, "#{pane_left}\t#{pane_active}"
-    )
-    parts = out.strip().split("\t")
-    pane_left, is_active = int(parts[0]), parts[1] == "1"
+    commands.click_tab(layout, Config.from_env(env={}), current.id, ids["left"])
 
-    spans = title_spans(panes, "planner", is_active)
-    # Find span for planner 1 (in the stash window)
-    target_span = next(s for s in spans if s.pane_id == ids["left"])
+    shown = visible_pane(layout.panes(), "planner")
+    assert shown is not None and shown.index == 1
 
-    config = Config.from_env(env={})
-    commands.click_tab(layout, config, current.id, target_span.start + pane_left, pane_left)
 
-    assert visible_pane(layout.panes(), "planner").index == 1  # type: ignore[union-attr]
+def test_bound_border_click_command_line_is_accepted_by_the_cli(layout: Layout, tmp_path: Path) -> None:
+    import re
+    import sys
+
+    from tandem.tmux import keys
+
+    built(layout)
+    launcher = keys.launcher_for(sys.executable, str(tmp_path))
+    bound = next(c for c in keys.mouse_commands(sys.executable, str(tmp_path))
+                 if c[:3] == ["bind-key", "-n", "MouseDown1Border"])[3]
+    template = re.search(r"click-tab (.*?)\"$", bound)
+    assert template is not None
+    pane = layout.panes()[0].id
+    expanded = layout.client.run_checked("display-message", "-p", "-t", pane, template.group(1)).strip()
+
+    result = subprocess.run(f"{launcher} click-tab {expanded}", shell=True, capture_output=True, text=True)
+
+    assert result.returncode != 2 and "usage:" not in result.stderr, result.stderr
 
 
 def test_restart_fallback_uses_active_pane_when_env_pane_empty(layout: Layout) -> None:
@@ -503,3 +511,106 @@ def test_restart_fallback_uses_active_pane_when_env_pane_empty(layout: Layout) -
     pane_id = cfg.tmux_pane or layout.client.run_checked("display-message", "-p", "#{pane_id}").strip()
     assert pane_id == new
 
+
+
+def test_click_tab_menu_renders_on_an_attached_client(layout: Layout) -> None:
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    import threading
+    import time
+
+    from tandem import commands
+    from tandem.config import Config
+    from tandem.tmux.tabs import visible_pane
+
+    built(layout)
+    layout.add_agent(sleeper("planner", 2))
+    current = visible_pane(layout.panes(), "planner")
+    assert current is not None
+
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 160, 0, 0))
+    proc = subprocess.Popen(
+        ["tmux", "-L", str(layout.client.socket), "attach", "-t", SESSION],
+        stdin=slave, stdout=slave, stderr=slave, env={**os.environ, "TERM": "xterm-256color"},
+    )
+    os.close(slave)
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            listed = subprocess.run(["tmux", "-L", str(layout.client.socket), "list-clients"],
+                                    capture_output=True, text=True)
+            if listed.stdout.strip():
+                break
+            time.sleep(0.1)
+        assert listed.stdout.strip(), "tmux client did not attach"
+        opener = threading.Thread(
+            target=commands.click_tab, args=(layout, Config.from_env(env={}), current.id), daemon=True)
+        opener.start()
+        seen = b""
+        end = time.time() + 1.5
+        while time.time() < end:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                seen += os.read(master, 65536)
+        os.write(master, b"\x1b")
+        opener.join(timeout=10)
+        assert not opener.is_alive(), "display-menu did not return after the menu was dismissed"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        os.close(master)
+
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Z0-9]|\x1b[=>]", "", seen.decode("utf-8", "replace"))
+    menu_start = text.rfind("tandem")
+    assert menu_start != -1, text[-800:]
+    menu = text[menu_start:]
+    assert "▶ 2" in menu and "1" in menu and "New agent" in menu, menu[-800:]
+
+
+def test_click_tab_menu_item_commands_are_valid_tmux_commands(
+    layout: Layout, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from tandem import commands
+    from tandem.config import Config
+    from tandem.tmux.tabs import visible_pane
+
+    ids = built(layout)
+    layout.add_agent(sleeper("planner", 2))
+    current = visible_pane(layout.panes(), "planner")
+    assert current is not None
+
+    record = tmp_path / "item args.txt"
+    monkeypatch.setattr(keys, "launcher_for", lambda python, workspace: f"sh -c 'echo \"$@\" >> \"{record}\"' --")
+    captured: list[tuple[str, ...]] = []
+    real_run_checked = layout.client.run_checked
+
+    def spy(*args: str) -> str:
+        if args[0] != "display-menu":
+            return real_run_checked(*args)
+        captured.append(args)
+        return ""
+
+    monkeypatch.setattr(layout.client, "run_checked", spy)
+
+    commands.click_tab(layout, Config.from_env(env={}), current.id)
+
+    menu = next(a for a in captured if a[0] == "display-menu")
+    item_commands = [c for c in menu[menu.index("#{pane_top}") + 1:][2::3] if c.startswith("run-shell")]
+    assert len(item_commands) == 2
+    for cmd in item_commands:
+        done = subprocess.run(["tmux", "-L", str(layout.client.socket), "if-shell", "-F", "1", cmd],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+    deadline = time.time() + 5
+    while time.time() < deadline and (not record.exists() or len(record.read_text().splitlines()) < 2):
+        time.sleep(0.1)
+    assert sorted(record.read_text().splitlines()) == sorted(
+        f"click-tab {pid} --select {pid}" for pid in (ids["left"], current.id))

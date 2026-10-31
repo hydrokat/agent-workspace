@@ -379,8 +379,15 @@ def test_mouse_commands_mousedown1border_runs_click_tab() -> None:
     assert "run-shell" in cmd_str
     assert "click-tab" in cmd_str
     assert "pane_id" in cmd_str
-    assert "mouse_x" in cmd_str
-    assert "pane_left" in cmd_str
+
+
+def test_mouse_commands_mousedown1border_needs_no_mouse_coordinates() -> None:
+    cmds = keys.mouse_commands("/py", "/ws")
+    border = next(c for c in cmds if c[:3] == ["bind-key", "-n", "MouseDown1Border"])
+    cmd_str = border[3]
+    assert "mouse_x" not in cmd_str and "mouse_absolute" not in cmd_str and "pane_left" not in cmd_str
+    after = cmd_str.split("click-tab", 1)[1].split('"')[0].split()
+    assert after == ["#{q:pane_id}"], "click-tab takes exactly one tmux-supplied argument"
 
 
 def test_mouse_commands_mousedown1border_is_one_compound_string() -> None:
@@ -393,4 +400,4 @@ def test_mouse_commands_mousedown1border_is_one_compound_string() -> None:
 def test_help_lines_mention_tab_clicks() -> None:
     for platform in ("linux", "darwin"):
         text = "\n".join(keys.help_lines(platform))
-        assert "tab" in text.lower() and "column" in text.lower()
+        assert "column title" in text.lower() and "menu" in text.lower()
