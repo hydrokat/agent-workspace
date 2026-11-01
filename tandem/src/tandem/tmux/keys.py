@@ -2,8 +2,10 @@ import os
 import re
 import shlex
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+
+from tandem.selfexec import self_argv, self_command
 
 MODIFIERS: tuple[str, ...] = ("Ctrl", "Alt", "Shift")
 
@@ -386,10 +388,10 @@ def _mouse3_menu_cmd(launcher: str) -> str:
     return f"select-pane -t = ; {menu}"
 
 
-def mouse_commands(python: str, workspace: str | None = None,
-                   platform: str = sys.platform) -> list[list[str]]:
+def mouse_commands(self_cmd: Sequence[str] | str | None = None, workspace: str | None = None,
+                   platform: str = sys.platform, python: str | None = None) -> list[list[str]]:
     """Bind/unbind argv lists for clickable status-bar hints and the right-click pane context menu."""
-    launcher = launcher_for(python, workspace)
+    launcher = launcher_for(self_cmd, workspace, python=python)
 
     click1_status: list[str] = [
         "bind-key", "-n", "MouseDown1Status",
@@ -471,15 +473,25 @@ def help_lines(platform: str = sys.platform) -> list[str]:
     ]
 
 
-def launcher_for(python: str, workspace: str | None = None, module: str = "tandem") -> str:
+def launcher_for(self_cmd: Sequence[str] | str | None = None, workspace: str | None = None,
+                 module: str = "tandem", python: str | None = None) -> str:
     """Shell snippet that runs tandem; pins the workspace so panes in other worktrees still agree."""
-    base = f"{shlex.quote(python)} -m {module}"
+    if self_cmd is not None:
+        if isinstance(self_cmd, str):
+            base = self_command(self_argv(python=self_cmd))
+        else:
+            base = self_command(self_cmd)
+    elif python is not None:
+        base = self_command(self_argv(python=python))
+    else:
+        base = self_command()
     return f"env TANDEM_WORKSPACE={shlex.quote(workspace)} {base}" if workspace else base
 
 
-def bind_commands(python: str, workspace: str | None = None, platform: str = sys.platform) -> list[list[str]]:
+def bind_commands(self_cmd: Sequence[str] | str | None = None, workspace: str | None = None,
+                  platform: str = sys.platform, python: str | None = None) -> list[list[str]]:
     """tmux ``bind-key`` argv lists (root table) for every binding, plus macOS Option characters on macOS."""
-    launcher = launcher_for(python, workspace)
+    launcher = launcher_for(self_cmd, workspace, python=python)
     result: list[list[str]] = []
     for b in KEYMAP:
         command = expand_command(b.command, launcher)
@@ -490,13 +502,15 @@ def bind_commands(python: str, workspace: str | None = None, platform: str = sys
     return result
 
 
-def resize_commands(python: str, workspace: str | None = None) -> list[list[str]]:
+def resize_commands(self_cmd: Sequence[str] | str | None = None, workspace: str | None = None,
+                    python: str | None = None) -> list[list[str]]:
     """``bind-key`` argv lists for the resize key table; every arrow stays in the table until Enter/Esc."""
     stay = f"switch-client -T {RESIZE_TABLE}"
+    launcher = launcher_for(self_cmd, workspace, python=python)
     bindings = {
         "Left": f"resize-pane -L {RESIZE_STEP_COLS} ; {stay}", "Right": f"resize-pane -R {RESIZE_STEP_COLS} ; {stay}",
         "Up": f"resize-pane -U {RESIZE_STEP_ROWS} ; {stay}", "Down": f"resize-pane -D {RESIZE_STEP_ROWS} ; {stay}",
-        "=": f"{run_shell(launcher_for(python, workspace), 'reset-layout')} ; {stay}",
+        "=": f"{run_shell(launcher, 'reset-layout')} ; {stay}",
         "Enter": "switch-client -T root", "Escape": "switch-client -T root", "q": "switch-client -T root",
     }
     return [["bind-key", "-T", RESIZE_TABLE, key, command] for key, command in bindings.items()]

@@ -5,7 +5,7 @@ import signal
 import sys
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from tandem.coordination.store import CoordStore
 import re
 
 from tandem import conversations, quota, state, updater, versions
+from tandem.selfexec import self_argv
 from tandem.tmux import keys
 from tandem.tmux.client import TmuxClient, TmuxError, socket_for
 from tandem.tmux.layout import SESSION, Launch, Layout, ROLES
@@ -53,13 +54,17 @@ def _own_env(workspace: Path | None) -> dict[str, str]:
     return {"TANDEM_WORKSPACE": str(workspace)} if workspace else {}
 
 
-def placeholder_launch(role: str, python: str = sys.executable, workspace: Path | None = None) -> Launch:
-    return Launch([python, "-m", "tandem", "placeholder", role], role, 0, "placeholder", kind="own",
+def placeholder_launch(role: str, python: str | None = None, workspace: Path | None = None,
+                       self_cmd: Sequence[str] | None = None) -> Launch:
+    cmd = list(self_cmd) if self_cmd is not None else self_argv(python=python)
+    return Launch([*cmd, "placeholder", role], role, 0, "placeholder", kind="own",
                   env=_own_env(workspace))
 
 
-def status_launch(python: str = sys.executable, workspace: Path | None = None) -> Launch:
-    return Launch([python, "-m", "tandem", "status"], "status", 0, "status", kind="own", env=_own_env(workspace))
+def status_launch(python: str | None = None, workspace: Path | None = None,
+                  self_cmd: Sequence[str] | None = None) -> Launch:
+    cmd = list(self_cmd) if self_cmd is not None else self_argv(python=python)
+    return Launch([*cmd, "status"], "status", 0, "status", kind="own", env=_own_env(workspace))
 
 
 def coord_dir_for(workspace: Path, config: Config) -> Path:
@@ -261,7 +266,8 @@ def resume_specs(saved: state.SavedState, workspace: Path,
 def quit_menu(layout: Layout, workspace: str | None = None) -> None:
     from tandem.update_check import installed_version_from_manifest, read_state, should_offer
 
-    launcher = keys.launcher_for(sys.executable, workspace)
+    launcher = keys.launcher_for(getattr(layout, "self_cmd", None) or getattr(layout, "python", None),
+                                 workspace or getattr(layout, "workspace", None))
     update_label = "Update tandem and workspace"
     if workspace is not None:
         ws_path = Path(workspace)
@@ -289,7 +295,7 @@ def reload_ui(layout: Layout, workspace: Path, config: Config) -> None:
 def _reload_in_fresh_process(workspace: Path, layout: Layout) -> bool:
     if not layout.exists():
         return False
-    argv = ["env", f"TANDEM_WORKSPACE={workspace}", sys.executable, "-m", "tandem", "reload"]
+    argv = ["env", f"TANDEM_WORKSPACE={workspace}", *self_argv(), "reload"]
     return subprocess.run(argv, cwd=workspace, stdin=subprocess.DEVNULL, capture_output=True).returncode == 0
 
 
@@ -386,7 +392,8 @@ def offer_restarts(layout: Layout, workspace: Path, config: Config, interactive:
 
 
 def first_run(layout: Layout, config: Config) -> None:
-    launcher = keys.launcher_for(sys.executable, str(config.workspace) if config.workspace else None)
+    launcher = keys.launcher_for(getattr(layout, "self_cmd", None) or getattr(layout, "python", None),
+                                 str(config.workspace) if config.workspace else None)
 
     if config.workspace is not None:
         from tandem.notice import read_notice
@@ -445,7 +452,8 @@ def click(layout: Layout, config: Config, action: str) -> None:
     if action not in frozenset(CLICK_ACTIONS):
         return
 
-    launcher = launcher_for(sys.executable, layout.workspace)
+    launcher = launcher_for(getattr(layout, "self_cmd", None) or getattr(layout, "python", None),
+                            getattr(layout, "workspace", None))
 
     if action == "help":
         layout.client.run_checked("display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} help")
@@ -497,7 +505,8 @@ def click_tab(layout: Layout, config: Config, pane_id: str, select: str = "") ->
 
     panes = layout.panes()
     agents = agents_in(panes, role)
-    launcher = keys.launcher_for(sys.executable, layout.workspace)
+    launcher = keys.launcher_for(getattr(layout, "self_cmd", None) or getattr(layout, "python", None),
+                                 getattr(layout, "workspace", None))
 
     if select:
         target = next((p for p in agents if p.id == select), None)
