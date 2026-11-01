@@ -123,6 +123,13 @@ detect_platform() {
         die 5 "Unsupported Linux package manager. Install git, tmux, uv, claude, and agy manually, then re-run."
       fi
       ;;
+    MINGW* | MSYS* | CYGWIN*)
+      if command -v pacman >/dev/null 2>&1; then
+        PM="pacman"
+      else
+        die 5 "Install MSYS2 and run from its shell, or use WSL."
+      fi
+      ;;
     *)
       die 5 "Unsupported platform: $(uname -s). Install git, tmux, uv, claude, and agy manually, then re-run."
       ;;
@@ -270,6 +277,12 @@ check_latest() {
           capture 30 dnf check-update -q "$tool" || rc=$?
           case "$rc" in 100) state="available" ;; 0) state="current" ;; esac
           ;;
+        pacman)
+          capture 15 pacman -Qu "$tool" || rc=$?
+          if [ "$rc" -eq 0 ] && [ -n "$CAP_OUT" ]; then
+            if printf '%s\n' "$CAP_OUT" | grep -q "^$tool "; then state="available"; else state="current"; fi
+          fi
+          ;;
       esac
       ;;
   esac
@@ -293,6 +306,7 @@ install_cmd() {
         brew) CMD=(brew install "$1") ;;
         apt) CMD=(sudo apt-get install -y "$1") ;;
         dnf) CMD=(sudo dnf install -y "$1") ;;
+        pacman) CMD=(pacman -S --noconfirm "$1") ;;
       esac
       ;;
   esac
@@ -308,6 +322,7 @@ update_cmd() {
         brew) CMD=(brew upgrade "$1") ;;
         apt) CMD=(sudo apt-get install -y --only-upgrade "$1") ;;
         dnf) CMD=(sudo dnf upgrade -y "$1") ;;
+        pacman) CMD=(pacman -Syu --noconfirm "$1") ;;
       esac
       ;;
   esac
@@ -375,6 +390,7 @@ platform_slug() {
   case "$os" in
     darwin) os="darwin" ;;
     linux) os="linux" ;;
+    mingw* | msys* | cygwin*) os="windows" ;;
     *) return 1 ;;
   esac
   case "$arch" in
@@ -383,6 +399,14 @@ platform_slug() {
     *) return 1 ;;
   esac
   printf '%s-%s' "$os" "$arch"
+}
+
+binary_exe_name() {
+  local slug="$1"
+  case "$slug" in
+    windows-*) printf 'tandem.exe' ;;
+    *) printf 'tandem' ;;
+  esac
 }
 
 binary_dir() {
@@ -413,7 +437,11 @@ verify_archive_checksum() {
 fetch_binary() {
   local ver="$1" slug="$2"
   local base="${TANDEM_RELEASE_BASE:-https://github.com/hydrokat/agent-workspace/releases/download}/v${ver}"
-  local asset_name="tandem-${ver}-${slug}.tar.gz"
+  local archive_ext="tar.gz"
+  case "$slug" in
+    windows-*) archive_ext="zip" ;;
+  esac
+  local asset_name="tandem-${ver}-${slug}.${archive_ext}"
   local staging
   staging="$(mktemp -d)"
 
@@ -449,14 +477,27 @@ fetch_binary() {
     return 1
   fi
 
-  if ! tar -xzf "$staging/${asset_name}" -C "$staging"; then
-    rm -rf "$staging"
-    RUNTIME_REASON="archive extraction failed"
-    return 1
+  if [ "$archive_ext" = "zip" ]; then
+    if ! command -v unzip >/dev/null 2>&1; then
+      rm -rf "$staging"
+      RUNTIME_REASON="unzip utility missing"
+      return 1
+    fi
+    if ! unzip -q "$staging/${asset_name}" -d "$staging"; then
+      rm -rf "$staging"
+      RUNTIME_REASON="archive extraction failed"
+      return 1
+    fi
+  else
+    if ! tar -xzf "$staging/${asset_name}" -C "$staging"; then
+      rm -rf "$staging"
+      RUNTIME_REASON="archive extraction failed"
+      return 1
+    fi
   fi
 
   rm -f "$staging/${asset_name}" "$staging/SHA256SUMS"
-  touch "$staging/.managed"
+  : > "$staging/.managed"
 
   local target_dir
   target_dir="$(binary_dir "$ver" "$slug")"
@@ -536,9 +577,10 @@ select_runtime() {
     return 0
   fi
 
-  local bdir
+  local bdir exe_name bin
   bdir="$(binary_dir "$EXP_VER" "$SLUG")"
-  local bin="$bdir/tandem/tandem"
+  exe_name="$(binary_exe_name "$SLUG")"
+  bin="$bdir/tandem/$exe_name"
 
   if [ -x "$bin" ] && binary_healthy "$bin" "$EXP_VER"; then
     mkdir -p "$TANDEM_STATE_DIR/bin"
@@ -818,9 +860,10 @@ main() {
     if ! SLUG="$(platform_slug)" || [ -z "$SLUG" ]; then
       die 4 "Cannot determine platform slug"
     fi
-    local bdir
+    local bdir exe_name bin
     bdir="$(binary_dir "$EXP_VER" "$SLUG")"
-    local bin="$bdir/tandem/tandem"
+    exe_name="$(binary_exe_name "$SLUG")"
+    bin="$bdir/tandem/$exe_name"
     if ! { [ -x "$bin" ] && binary_healthy "$bin" "$EXP_VER"; }; then
       fetch_binary "$EXP_VER" "$SLUG" || die 4 "Failed to fetch binary: $RUNTIME_REASON"
       binary_healthy "$bin" "$EXP_VER" || die 4 "Binary unhealthy"
@@ -828,7 +871,7 @@ main() {
     mkdir -p "$TANDEM_STATE_DIR/bin"
     (cd "$TANDEM_STATE_DIR/bin" && ln -sfn "$EXP_VER-$SLUG" current)
     prune_binaries
-    printf 'TANDEM_SELF=%s/bin/current/tandem/tandem\n' "$TANDEM_STATE_DIR"
+    printf 'TANDEM_SELF=%s/bin/current/tandem/%s\n' "$TANDEM_STATE_DIR" "$exe_name"
     exit 0
   fi
 
@@ -850,7 +893,7 @@ main() {
   fi
   act
   if [ "$RUNTIME" = "binary" ]; then
-    export TANDEM_SELF="$TANDEM_STATE_DIR/bin/current/tandem/tandem"
+    export TANDEM_SELF="$TANDEM_STATE_DIR/bin/current/tandem/$(binary_exe_name "$SLUG")"
     exec "$TANDEM_SELF" ${PASSTHRU[@]+"${PASSTHRU[@]}"}
   fi
   select_python || true
