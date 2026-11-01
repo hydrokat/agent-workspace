@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { makeTmp, cleanup } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv'];
+const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp'];
 const MIN = [
   '# test minimums', 'TANDEM_MIN_PYTHON=3.11', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
   'TANDEM_MIN_UV=0.5', 'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
@@ -28,13 +28,46 @@ case "$name" in
   sudo) exec "$@";;
   apt-get|dnf) if [ "$1" = install ] || [ "$2" = install ]; then for last; do :; done; install_pkg "$last"; fi; exit 0;;
   curl)
-    for last; do :; done
-    case "$last" in
-      *claude.ai*) n=claude;; *antigravity*) n=agy;; *astral*) n=uv;; *) exit 22;;
-    esac
-    [ -f "$STATE/$n.installfail" ] && exit 22
-    echo "ln -sf \\"$STATE/tool.sh\\" \\"$BIN/$n\\"; echo \\"$n 9.9.9\\" > \\"$STATE/$n.version\\""
-    exit 0;;
+    out_file=""
+    url=""
+    for arg in "$@"; do
+      case "$arg" in
+        http*) url="$arg" ;;
+      esac
+    done
+    prev=""
+    for arg in "$@"; do
+      if [ "$prev" = "-o" ]; then out_file="$arg"; fi
+      prev="$arg"
+    done
+    if [ -n "$url" ]; then
+      case "$url" in
+        *claude.ai*) n=claude ;;
+        *antigravity*) n=agy ;;
+        *astral*) n=uv ;;
+        *releases/download*SHA256SUMS*)
+          [ -f "$STATE/curl.404" ] && exit 22
+          if [ -f "$STATE/SHA256SUMS" ]; then
+            if [ -n "$out_file" ]; then cp "$STATE/SHA256SUMS" "$out_file"; else cat "$STATE/SHA256SUMS"; fi
+            exit 0
+          fi
+          exit 22
+          ;;
+        *releases/download*.tar.gz*)
+          [ -f "$STATE/curl.404" ] && exit 22
+          if [ -f "$STATE/tandem-asset.tar.gz" ]; then
+            if [ -n "$out_file" ]; then cp "$STATE/tandem-asset.tar.gz" "$out_file"; else cat "$STATE/tandem-asset.tar.gz"; fi
+            exit 0
+          fi
+          exit 22
+          ;;
+        *) exit 22 ;;
+      esac
+      [ -f "$STATE/$n.installfail" ] && exit 22
+      echo "ln -sf \\"$STATE/tool.sh\\" \\"$BIN/$n\\"; echo \\"$n 9.9.9\\" > \\"$STATE/$n.version\\""
+      exit 0
+    fi
+    exit 22 ;;
   uv)
     case "$*" in
       "self update --dry-run") [ -f "$STATE/uv.dryrun.fail" ] && { echo "network down" >&2; exit 1; }; [ -f "$STATE/uv.dryrun" ] && cat "$STATE/uv.dryrun"; exit 0;;
@@ -77,9 +110,17 @@ function setup({ versions = ok(), os = 'Darwin', managers = ['brew'], min = MIN 
   writeFileSync(join(pkg, 'tandem/min-versions.env'), min);
   writeFileSync(join(state, 'tool.sh'), TOOL_SH);
   chmodSync(join(state, 'tool.sh'), 0o755);
+  mkdirSync(join(pkg, 'tandem/src/tandem'), { recursive: true });
+  writeFileSync(join(pkg, 'tandem/src/tandem/__init__.py'), '__version__ = "1.4.0"\n');
   for (const c of CORE) symlinkSync(execFileSync('/usr/bin/which', [c]).toString().trim(), join(bin, c));
+  for (const c of ['shasum', 'sha256sum']) {
+    try {
+      const p = execFileSync('/usr/bin/which', [c]).toString().trim();
+      if (p) symlinkSync(p, join(bin, c));
+    } catch {}
+  }
   symlinkSync(execFileSync('/usr/bin/which', ['bash']).toString().trim(), join(bin, 'bash'));
-  writeFileSync(join(bin, 'uname'), `#!/bin/sh\necho ${os}\n`);
+  writeFileSync(join(bin, 'uname'), `#!/bin/sh\ncase "$1" in -m) echo "arm64";; *) echo "${os}";; esac\n`);
   chmodSync(join(bin, 'uname'), 0o755);
   const link = (n) => symlinkSync(join(state, 'tool.sh'), join(bin, n));
   for (const [n, banner] of Object.entries(versions)) {
@@ -327,7 +368,7 @@ describe('run.sh security', () => {
   it('does not pipe an installer without showing it first (no auto-yes)', async () => {
     const env = setup({ versions: ok({ claude: null }) });
     const r = await run(env, ['--answers', 'n']);
-    assert.ok(!r.calls.includes('curl'));
+    assert.ok(!r.calls.includes('claude.ai'));
   });
 
   it('sets HOMEBREW_NO_AUTO_UPDATE for its own checks', () => {
@@ -609,5 +650,127 @@ describe('run.sh broken virtualenv recovery', () => {
     makeVenv(venvOf(env), BROKEN_PY);
     await run(env, ['--check']);
     assert.ok(existsSync(venvOf(env)));
+  });
+});
+
+describe('run.sh binary runtime selection', () => {
+  function makeBinaryAsset(stateDir, version = '1.4.0', banner = `tandem ${version}`) {
+    const tmp = makeTmp();
+    dirs.push(tmp);
+    const tdir = join(tmp, 'tandem');
+    mkdirSync(tdir, { recursive: true });
+    const bin = join(tdir, 'tandem');
+    writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
+    chmodSync(bin, 0o755);
+    const tarPath = join(stateDir, 'tandem-asset.tar.gz');
+    execFileSync('tar', ['-czf', tarPath, '-C', tmp, 'tandem']);
+    let sha = '';
+    try {
+      sha = execFileSync('shasum', ['-a', '256', tarPath]).toString().split(' ')[0];
+    } catch {
+      sha = execFileSync('sha256sum', [tarPath]).toString().split(' ')[0];
+    }
+    const slug = 'darwin-arm64';
+    const assetName = `tandem-${version}-${slug}.tar.gz`;
+    writeFileSync(join(stateDir, 'SHA256SUMS'), `${sha}  ${assetName}\n`);
+  }
+
+  function makeCachedBinary(env, version = '1.4.0', slug = 'darwin-arm64', banner = `tandem ${version}`) {
+    const bdir = join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, 'tandem');
+    mkdirSync(bdir, { recursive: true });
+    const bin = join(bdir, 'tandem');
+    writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
+    chmodSync(bin, 0o755);
+    writeFileSync(join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, '.managed'), '');
+  }
+
+  it('launches cached healthy binary without requiring uv', async () => {
+    const env = setup({ versions: ok({ uv: null }) });
+    makeCachedBinary(env);
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: binary 1\.4\.0/);
+    assert.match(res.stdout, /TANDEM-BINARY-RAN/);
+    assert.doesNotMatch(res.stdout, /uv/);
+  });
+
+  it('downloads and verifies binary when not cached', async () => {
+    const env = setup({ versions: ok({ uv: null }) });
+    makeBinaryAsset(env.state);
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: binary 1\.4\.0/);
+    assert.match(res.stdout, /TANDEM-BINARY-RAN/);
+  });
+
+  it('falls back to python when binary download 404s', async () => {
+    const env = setup();
+    env.mark('curl.404', '1');
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: python/);
+    assert.match(res.stdout, /TANDEM-RAN/);
+  });
+
+  it('falls back to python on checksum mismatch', async () => {
+    const env = setup();
+    makeBinaryAsset(env.state);
+    writeFileSync(join(env.state, 'SHA256SUMS'), '0000000000000000000000000000000000000000000000000000000000000000  tandem-1.4.0-darwin-arm64.tar.gz\n');
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: python/);
+    assert.match(res.stdout, /TANDEM-RAN/);
+  });
+
+  it('falls back to python on unhealthy binary', async () => {
+    const env = setup();
+    makeCachedBinary(env, '1.4.0', 'darwin-arm64', 'tandem 9.9.9');
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: python/);
+    assert.match(res.stdout, /TANDEM-RAN/);
+  });
+
+  it('fails with code 4 when TANDEM_RUNTIME=binary and binary is unavailable', async () => {
+    const env = setup();
+    env.mark('curl.404', '1');
+    const res = await run(env, [], { extraEnv: { TANDEM_RUNTIME: 'binary' } });
+    assert.equal(res.code, 4);
+    assert.match(res.stderr, /Binary runtime unavailable/);
+  });
+
+  it('uses python when TANDEM_RUNTIME=python even if binary cached', async () => {
+    const env = setup();
+    makeCachedBinary(env);
+    const res = await run(env, [], { extraEnv: { TANDEM_RUNTIME: 'python' } });
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: python/);
+    assert.match(res.stdout, /TANDEM-RAN/);
+  });
+
+  it('--check never downloads even if binary not cached', async () => {
+    const env = setup();
+    makeBinaryAsset(env.state);
+    const res = await run(env, ['--check']);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: python \(binary not cached\)/);
+    const calls = existsSync(join(env.state, 'calls.log')) ? readFileSync(join(env.state, 'calls.log'), 'utf8') : '';
+    assert.doesNotMatch(calls, /releases\/download/);
+  });
+
+  it('--fetch-runtime fetches binary and prints TANDEM_SELF without launching', async () => {
+    const env = setup();
+    makeBinaryAsset(env.state);
+    const res = await run(env, ['--fetch-runtime']);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /TANDEM_SELF=/);
+    assert.doesNotMatch(res.stdout, /TANDEM-BINARY-RAN/);
+  });
+
+  it('--fetch-runtime exits 4 on failure', async () => {
+    const env = setup();
+    env.mark('curl.404', '1');
+    const res = await run(env, ['--fetch-runtime']);
+    assert.equal(res.code, 4);
   });
 });
