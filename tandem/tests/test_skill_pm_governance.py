@@ -89,9 +89,7 @@ def test_governance_lifecycle_flow(workspace: Path) -> None:
     ))
     assert unlock_res["status"] == "open"
 
-    # 5. Re-lock
     out(run(workspace, "lock", "s-001-gov-flow", "--reason", "Re-locked after adjustment"))
 
-    # 6. Close with carry-over
     close_res = out(run(workspace, "close", "s-001-gov-flow", "--carry-over"))
     assert close_res["status"] == "closed"
