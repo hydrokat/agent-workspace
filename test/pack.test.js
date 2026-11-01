@@ -45,6 +45,43 @@ describe('npm pack contents', () => {
     }
   });
 
+  it('ships the sprint management skills, project-manager agent, and sprints scaffolding', () => {
+    const required = [
+      'templates/sprints/README.md',
+      'templates/agents/project-manager/AGENT.md',
+      'templates/knowledgebase/best-practices/sprint-planning-and-governance.md',
+      'templates/skills/pm-new-sprint/SKILL.md',
+      'templates/skills/pm-new-sprint/agents/openai.yaml',
+      'templates/skills/pm-new-sprint/scripts/sprints.py',
+      'templates/skills/pm-new-sprint/assets/sprint.md',
+      'templates/skills/pm-new-sprint/assets/business-requirements-document.html',
+      'templates/skills/pm-new-sprint/assets/functional-requirements-document.html',
+      'templates/skills/pm-new-sprint/assets/functional-specification-document.html',
+      'templates/skills/pm-sprint-lock/SKILL.md',
+      'templates/skills/pm-sprint-lock/agents/openai.yaml',
+      'templates/skills/pm-sprint-lock/assets/lock-summary.md',
+      'templates/skills/pm-sprint-unlock/SKILL.md',
+      'templates/skills/pm-sprint-unlock/agents/openai.yaml',
+      'templates/skills/pm-sprint-unlock/assets/unlock-warning.md',
+      'templates/skills/pm-sprint-close/SKILL.md',
+      'templates/skills/pm-sprint-close/agents/openai.yaml',
+      'templates/skills/pm-sprint-close/assets/close-report.md',
+      'templates/skills/pm-sprint-implement/SKILL.md',
+      'templates/skills/pm-sprint-implement/agents/openai.yaml',
+      'templates/skills/pm-sprint-implement/assets/execution-plan.md',
+      'templates/skills/pm-sprint-status/SKILL.md',
+      'templates/skills/pm-sprint-status/agents/openai.yaml',
+      'templates/skills/pm-sprint-status/assets/status.md',
+      'templates/skills/pm-sprint-list/SKILL.md',
+      'templates/skills/pm-sprint-list/agents/openai.yaml',
+      'templates/skills/pm-sprint-list/assets/list.md',
+      'templates/skills/pm-commands/SKILL.md',
+      'templates/skills/pm-commands/agents/openai.yaml',
+      'templates/skills/pm-commands/assets/commands.md',
+    ];
+    for (const p of required) assert.ok(files.includes(p), `${p} packed`);
+  });
+
   it('ships no bytecode or test fixtures inside the skills', () => {
     assert.deepEqual(files.filter((f) => f.startsWith('templates/') && /(__pycache__|\.pyc$|\.pytest_cache)/.test(f)), []);
   });
