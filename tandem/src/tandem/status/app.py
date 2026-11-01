@@ -69,7 +69,7 @@ class UpdateBanner(Horizontal):
             self.remove()
         elif widget_id == "banner-text":
             if self._tmux is not None:
-                launcher = keys.launcher_for(sys.executable, str(self._workspace))
+                launcher = keys.launcher_for(workspace=str(self._workspace))
                 self._tmux.run_checked(
                     "display-popup", "-E", "-w", "70%", "-h", "70%", f"{launcher} whats-new"
                 )
@@ -119,7 +119,7 @@ class OfferBanner(Horizontal):
 
     def run_update_popup(self) -> None:
         if self._tmux is not None:
-            launcher = keys.launcher_for(sys.executable, str(self._workspace))
+            launcher = keys.launcher_for(workspace=str(self._workspace))
             self._tmux.run_checked(
                 "display-popup", "-E", "-w", "80%", "-h", "70%", f"{launcher} update --yes"
             )

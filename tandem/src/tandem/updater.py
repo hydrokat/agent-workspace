@@ -3,11 +3,12 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import tandem
+from tandem.selfexec import self_argv
 from tandem.tmux.tabs import PaneInfo
 
 Runner = Callable[[list[str], Path, float], tuple[int, str]]
@@ -78,9 +79,10 @@ def plan(workspace: Path, spec: str) -> list[str]:
     return lines
 
 
-def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: str = sys.executable,
+def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: str | None = None,
                runner: Runner = run_streaming, quiet_runner: Runner = run_capturing,
-               which: Callable[[str], str | None] = shutil.which) -> UpdateResult:
+               which: Callable[[str], str | None] = shutil.which,
+               self_cmd: Sequence[str] | None = None) -> UpdateResult:
     """Update the workspace and tandem without touching running agents; ``reload`` restarts tandem's own panes."""
     result = UpdateResult(False, "", old_version=tandem.__version__)
     if which("npx") is None:
@@ -109,7 +111,8 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
         result.message = f"uv sync failed (exit {code}). tandem keeps running the old code; run ./run.sh to repair."
         return result
     result.steps.append("environment synced")
-    _, version = quiet_runner([python, "-m", "tandem", "--version"], workspace, 30.0)
+    probe = list(self_cmd) if self_cmd is not None else self_argv(python=python)
+    _, version = quiet_runner([*probe, "--version"], workspace, 30.0)
     result.new_version = version.removeprefix("tandem ").strip()
     result.reloaded = reload()
     result.steps.append("tandem windows restarted" if result.reloaded else "no running session to restart")

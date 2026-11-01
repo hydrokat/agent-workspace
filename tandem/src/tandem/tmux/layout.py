@@ -1,5 +1,6 @@
 import json
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,10 +65,11 @@ def _spawn_args(launch: Launch) -> list[str]:
 class Layout:
     """Builds and mutates the tandem tmux session: two columns, a status pane, hidden stash windows."""
 
-    def __init__(self, client: TmuxClient, python: str = sys.executable, coord: CoordStore | None = None,
-                 workspace: str | None = None) -> None:
+    def __init__(self, client: TmuxClient, python: str | None = None, coord: CoordStore | None = None,
+                 workspace: str | None = None, self_cmd: Sequence[str] | None = None) -> None:
         self.client = client
         self.python = python
+        self.self_cmd = self_cmd
         self.coord = coord
         self.workspace = workspace
 
@@ -103,17 +105,17 @@ class Layout:
         c.run_checked("set-option", "-g", "status-left-length", "400")
         c.run_checked("set-option", "-g", "status-left", keys.status_left())
         c.run_checked("set-option", "-g", "status-right", "")
-        launcher_for_quota = keys.launcher_for(self.python, self.workspace)
+        launcher_for_quota = keys.launcher_for(self.self_cmd or self.python, self.workspace)
         c.run_checked("set-option", "-g", "status", "2")
         c.run_checked("set-option", "-g", "status-interval", "10")
         c.run_checked("set-option", "-g", "status-format[1]", f" #({launcher_for_quota} quota-line)")
         c.run_checked("set-option", "-g", "window-status-format", "")
         c.run_checked("set-option", "-g", "window-status-current-format", "")
-        for argv in [*keys.bind_commands(self.python, self.workspace),
-                     *keys.resize_commands(self.python, self.workspace),
-                     *keys.mouse_commands(self.python, self.workspace)]:
+        for argv in [*keys.bind_commands(self.self_cmd or self.python, self.workspace),
+                     *keys.resize_commands(self.self_cmd or self.python, self.workspace),
+                     *keys.mouse_commands(self.self_cmd or self.python, self.workspace)]:
             c.run_checked(*argv)
-        launcher = keys.launcher_for(self.python, self.workspace)
+        launcher = keys.launcher_for(self.self_cmd or self.python, self.workspace)
         c.run_checked("set-hook", "-g", "client-resized", keys.run_shell(launcher, "reflow"))
         c.run_checked("set-hook", "-g", "client-attached", keys.run_shell(launcher, "first-run"))
         c.run_checked("set-hook", "-g", "pane-died", keys.run_shell(launcher, "refresh"))
