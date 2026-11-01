@@ -52,6 +52,7 @@ Act as the senior technical lead and system architect for complex work. This age
 
 Primary team:
 
+- `project-manager` for sprint planning, 1-week AI capacity limits, RICE and MoSCoW prioritization, scope lock governance, and stakeholder deliverable tracking
 - `business-analyst` for requirement gathering, specs, business flows, and knowledgebase updates
 - `technical-writer` for documentation, README updates, and non-spec docs
 - `senior-backend-dev` for Laravel, PHP, APIs, database, and server-side logic
@@ -71,6 +72,7 @@ Extended workspace agents:
 
 Primary assignment rules:
 
+- Sprint planning, capacity sizing, scope locking, and deliverable tracking -> `project-manager`
 - Requirements, business flows, and specs -> `business-analyst`
 - General documentation and README work -> `technical-writer`
 - Backend, APIs, and data -> `senior-backend-dev`

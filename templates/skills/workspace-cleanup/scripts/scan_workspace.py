@@ -8,12 +8,12 @@ Stdlib only. JSON on stdout. Exit codes: 0 ok, 1 refused/nothing to delete from,
        needs_review, modified, size}]}
       Categories: os-editor-cruft, stale-backup, empty-directory, orphaned-generated-output,
       stale-scratch, unrecognized-file. The scan is saved to .agent-workspace/cleanup-scan.json.
-      Never listed: tracked unmodified files, specs/, knowledgebase/business-flows/,
+      Never listed: tracked unmodified files, specs/, sprints/, knowledgebase/business-flows/,
       knowledgebase/context-history/, dependency and git directories, symlinked directories.
 
   scan_workspace.py [--root DIR] --delete PATH...
       Deletes only the given paths, and only if each is in the saved scan, unchanged since the scan,
-      inside the root, and not protected (specs/, knowledgebase/ except *.bak files, .git, AGENTS.md).
+      inside the root, and not protected (specs/, sprints/, knowledgebase/ except *.bak files, .git, AGENTS.md).
       Never follows symlinks. {"deleted": [...], "refused": [{path, reason}]}; exit 1 if any refused.
 """
 from __future__ import annotations
@@ -37,8 +37,8 @@ STATE_FILE = "cleanup-scan.json"
 DEFAULT_STALE_DAYS = 14
 MAX_STATE_BYTES = 20_000_000
 SKIP_DIRS = {".git", "node_modules", "codebase-symlinks", STATE_DIR, ".venv", "venv", "__pycache__", ".tox"}
-USER_OWNED = ("specs", "knowledgebase/business-flows", "knowledgebase/context-history")
-MANAGED_DIRS = {"specs", "knowledgebase", ".agents", ".claude", ".gemini", ".codex", ".tmp", "codebase-symlinks", STATE_DIR}
+USER_OWNED = ("specs", "sprints", "knowledgebase/business-flows", "knowledgebase/context-history")
+MANAGED_DIRS = {"specs", "sprints", "knowledgebase", ".agents", ".claude", ".gemini", ".codex", ".tmp", "codebase-symlinks", STATE_DIR}
 KNOWN_ROOT = {
     "AGENTS.md", "CLAUDE.md", "GEMINI.md", "WORKFLOW.md", ".gitignore", ".gitattributes", ".editorconfig",
     ".git", ".github", "src", "run.sh",
@@ -316,7 +316,7 @@ def refusal(rel: str, entry: dict[str, Any] | None, root: Path) -> str | None:
         return "path escapes the workspace"
     if parts[0] in (".git", STATE_DIR) or rel in ("AGENTS.md", "CLAUDE.md", "GEMINI.md"):
         return "protected path"
-    if protected_from_scan(rel) or under(rel, "specs"):
+    if protected_from_scan(rel) or under(rel, "specs") or under(rel, "sprints"):
         return "protected: user-owned content"
     if under(rel, "knowledgebase") and not (rel.endswith(".bak") and entry.get("kind") == "file"):
         return "protected: only *.bak files may be deleted under knowledgebase/"

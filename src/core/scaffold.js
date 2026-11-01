@@ -22,6 +22,7 @@ export function ensureDirs(target) {
     'knowledgebase/coding-standards',
     'knowledgebase/db-schema',
     'specs',
+    'sprints',
     '.agent-workspace',
     '.tmp',
   ];
@@ -57,6 +58,7 @@ export function initStarterFiles(target, dryRun = false) {
     ['knowledgebase/db-schema/README.md', readTemplate('knowledgebase', 'db-schema', 'README.md')],
     ['specs/README.md', readTemplate('specs', 'README.md')],
     ['specs/in-progress.md', readTemplate('specs', 'in-progress.md')],
+    ['sprints/README.md', readTemplate('sprints', 'README.md')],
     ['.agent-workspace/.gitignore', 'tandem-session.json\ncoordination/\n*.bak\n'],
   ];
   for (const [rel, content] of starters) {

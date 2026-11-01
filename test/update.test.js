@@ -204,4 +204,15 @@ describe('update cleans up stale skills and agents', () => {
     // clean up
     cleanup(join(dir, '.agents/skills/dry-stale'));
   });
+
+  it('preserves user sprint content and installs sprints starter on update', async () => {
+    const userSprint = '# Sprint s-001: User Sprint\n\n- **Status**: open\n';
+    writeFile(dir, 'sprints/s-001-user/sprint.md', userSprint);
+
+    const { code } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0);
+    assert.ok(fileExists(dir, 'sprints/README.md'), 'sprints/README.md present');
+    assert.equal(readFile(dir, 'sprints/s-001-user/sprint.md'), userSprint, 'user sprint untouched');
+    assert.ok(fileExists(dir, '.agents/agents/project-manager/AGENT.md'), 'project-manager installed on update');
+  });
 });

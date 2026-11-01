@@ -17,6 +17,7 @@ n/a
 - **[`/codebase-symlinks`](./codebase-symlinks/)**: **Linked Codebases.** Symlinked sibling repositories for adjacent project context.
 - **[`/knowledgebase`](./knowledgebase/)**: **Reference Material.** Contains guidelines, best practices, and historical context.
 - **[`/specs`](./specs/)**: **Active Task Tracking.** Implementation plans (`impl.md`), task-specific breakdowns, and `in-progress.md` tracking all work currently underway.
+- **[`/sprints`](./sprints/)**: **Sprint Planning & Governance.** Active and historical 1-week sprint directories (`s-###-<slug>/`) with BRD, FRD, FSD deliverables.
 - **[`/.tmp`](./.tmp/)**: **Agent Working Files.** Scratch space for in-progress agent output. Safe to delete at any time.
 - **`src/`**: (Optional) Application or library source code.
 
@@ -128,6 +129,7 @@ For Codex/OpenAI, prefer `gpt-5.5` for orchestration and reasoning-heavy work, `
 | `frontend-dev` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Component + UI work; hands-on coding in Codex |
 | `qa-engineer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Test generation, debugging, and validation workflows |
 | `business-analyst` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Requirements, specs, and structured documentation |
+| `project-manager` | Sonnet 4.6 | 2.5 Pro | `gpt-5.4` | Sprint governance, 1-week capacity planning, RICE/MoSCoW |
 | `generalist` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4-mini` | Batch/broad tasks; speed matters |
 | `technical-writer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Writing quality; balanced polish and cost |
 | `terminal-agent` | Haiku 4.5 | 2.0 Flash Lite | `gpt-5.4-mini` | Fast shell execution; lightweight subagent fit |
