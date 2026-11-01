@@ -44,6 +44,11 @@
     "antigravity": "gemini-2.0-flash",
     "codex": "gpt-5.4"
   },
+  "project-manager": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.4"
+  },
   "generalist": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",

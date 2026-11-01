@@ -16,12 +16,14 @@ describe('init', () => {
     assert.ok(fileExists(dir, '.agents/skills'), '.agents/skills exists');
     assert.ok(fileExists(dir, 'knowledgebase'), 'knowledgebase exists');
     assert.ok(fileExists(dir, 'specs'), 'specs exists');
+    assert.ok(fileExists(dir, 'sprints'), 'sprints exists');
     assert.ok(fileExists(dir, '.tmp'), '.tmp exists');
 
     // Starter files
     assert.ok(fileExists(dir, 'AGENTS.md'), 'AGENTS.md created');
     assert.ok(fileExists(dir, 'WORKFLOW.md'), 'WORKFLOW.md created');
     assert.ok(fileExists(dir, 'specs/in-progress.md'), 'specs/in-progress.md created');
+    assert.ok(fileExists(dir, 'sprints/README.md'), 'sprints/README.md created');
     assert.ok(
       fileExists(dir, 'knowledgebase/guidelines/release-versioning.md'),
       'release versioning guideline created'
@@ -29,10 +31,12 @@ describe('init', () => {
 
     // Canonical agents installed
     assert.ok(fileExists(dir, '.agents/agents/tech-lead-orchestrator/AGENT.md'), 'canonical agent installed');
+    assert.ok(fileExists(dir, '.agents/agents/project-manager/AGENT.md'), 'project-manager agent installed');
     assert.ok(fileExists(dir, '.agents/skills/code-review-remediation/SKILL.md'), 'code review remediation skill installed');
 
     // Claude provider output
     assert.ok(fileExists(dir, '.claude/agents/tech-lead-orchestrator.md'), 'claude agent generated');
+    assert.ok(fileExists(dir, '.claude/agents/project-manager.md'), 'claude project-manager agent generated');
 
     // Manifest
     assert.ok(fileExists(dir, '.agent-workspace/manifest.json'), 'manifest written');
