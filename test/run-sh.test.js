@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { makeTmp, cleanup } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp'];
+const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip'];
 const MIN = [
   '# test minimums', 'TANDEM_MIN_PYTHON=3.11', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
   'TANDEM_MIN_UV=0.5', 'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
@@ -26,6 +26,17 @@ case "$name" in
       outdated) [ -f "$STATE/outdated" ] && cat "$STATE/outdated"; exit 0;;
     esac;;
   sudo) exec "$@";;
+  pacman)
+    case "$1" in
+      -S) shift; if [ "$1" = "--noconfirm" ]; then shift; fi; install_pkg "$1"; exit 0;;
+      -Syu) shift; if [ "$1" = "--noconfirm" ]; then shift; fi; bump "$1"; exit 0;;
+      -Qu)
+        if [ -f "$STATE/outdated" ] && grep -q "^$2 " "$STATE/outdated"; then
+          grep "^$2 " "$STATE/outdated"
+          exit 0
+        fi
+        exit 1;;
+    esac;;
   apt-get|dnf) if [ "$1" = install ] || [ "$2" = install ]; then for last; do :; done; install_pkg "$last"; fi; exit 0;;
   curl)
     out_file=""
@@ -57,6 +68,14 @@ case "$name" in
           [ -f "$STATE/curl.404" ] && exit 22
           if [ -f "$STATE/tandem-asset.tar.gz" ]; then
             if [ -n "$out_file" ]; then cp "$STATE/tandem-asset.tar.gz" "$out_file"; else cat "$STATE/tandem-asset.tar.gz"; fi
+            exit 0
+          fi
+          exit 22
+          ;;
+        *releases/download*.zip*)
+          [ -f "$STATE/curl.404" ] && exit 22
+          if [ -f "$STATE/tandem-asset.zip" ]; then
+            if [ -n "$out_file" ]; then cp "$STATE/tandem-asset.zip" "$out_file"; else cat "$STATE/tandem-asset.zip"; fi
             exit 0
           fi
           exit 22
@@ -101,7 +120,7 @@ const ok = (v) => ({ git: 'git version 2.54.0 (Apple Git-157)', tmux: 'tmux 3.3a
 let dirs = [];
 afterEach(() => { dirs.forEach(cleanup); dirs = []; });
 
-function setup({ versions = ok(), os = 'Darwin', managers = ['brew'], min = MIN } = {}) {
+function setup({ versions = ok(), os = 'Darwin', arch = 'arm64', managers = ['brew'], min = MIN } = {}) {
   const base = makeTmp();
   dirs.push(base);
   const pkg = join(base, 'pkg'), state = join(base, 'state'), bin = join(base, 'bin'), work = join(base, 'work');
@@ -120,7 +139,7 @@ function setup({ versions = ok(), os = 'Darwin', managers = ['brew'], min = MIN 
     } catch {}
   }
   symlinkSync(execFileSync('/usr/bin/which', ['bash']).toString().trim(), join(bin, 'bash'));
-  writeFileSync(join(bin, 'uname'), `#!/bin/sh\ncase "$1" in -m) echo "arm64";; *) echo "${os}";; esac\n`);
+  writeFileSync(join(bin, 'uname'), `#!/bin/sh\ncase "$1" in -m) echo "${arch}";; *) echo "${os}";; esac\n`);
   chmodSync(join(bin, 'uname'), 0o755);
   const link = (n) => symlinkSync(join(state, 'tool.sh'), join(bin, n));
   for (const [n, banner] of Object.entries(versions)) {
@@ -653,36 +672,43 @@ describe('run.sh broken virtualenv recovery', () => {
   });
 });
 
-describe('run.sh binary runtime selection', () => {
-  function makeBinaryAsset(stateDir, version = '1.4.0', banner = `tandem ${version}`) {
-    const tmp = makeTmp();
-    dirs.push(tmp);
-    const tdir = join(tmp, 'tandem');
-    mkdirSync(tdir, { recursive: true });
-    const bin = join(tdir, 'tandem');
-    writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
-    chmodSync(bin, 0o755);
-    const tarPath = join(stateDir, 'tandem-asset.tar.gz');
-    execFileSync('tar', ['-czf', tarPath, '-C', tmp, 'tandem']);
-    let sha = '';
-    try {
-      sha = execFileSync('shasum', ['-a', '256', tarPath]).toString().split(' ')[0];
-    } catch {
-      sha = execFileSync('sha256sum', [tarPath]).toString().split(' ')[0];
-    }
-    const slug = 'darwin-arm64';
-    const assetName = `tandem-${version}-${slug}.tar.gz`;
-    writeFileSync(join(stateDir, 'SHA256SUMS'), `${sha}  ${assetName}\n`);
+function makeBinaryAsset(stateDir, version = '1.4.0', banner = `tandem ${version}`, slug = 'darwin-arm64') {
+  const tmp = makeTmp();
+  dirs.push(tmp);
+  const tdir = join(tmp, 'tandem');
+  mkdirSync(tdir, { recursive: true });
+  const isWindows = slug.startsWith('windows');
+  const binName = isWindows ? 'tandem.exe' : 'tandem';
+  const bin = join(tdir, binName);
+  writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
+  chmodSync(bin, 0o755);
+  const ext = isWindows ? 'zip' : 'tar.gz';
+  const assetPath = join(stateDir, `tandem-asset.${ext}`);
+  if (isWindows) {
+    execFileSync('zip', ['-q', '-r', assetPath, 'tandem'], { cwd: tmp });
+  } else {
+    execFileSync('tar', ['-czf', assetPath, '-C', tmp, 'tandem']);
   }
+  let sha = '';
+  try {
+    sha = execFileSync('shasum', ['-a', '256', assetPath]).toString().split(' ')[0];
+  } catch {
+    sha = execFileSync('sha256sum', [assetPath]).toString().split(' ')[0];
+  }
+  const assetName = `tandem-${version}-${slug}.${ext}`;
+  writeFileSync(join(stateDir, 'SHA256SUMS'), `${sha}  ${assetName}\n`);
+}
 
-  function makeCachedBinary(env, version = '1.4.0', slug = 'darwin-arm64', banner = `tandem ${version}`) {
-    const bdir = join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, 'tandem');
-    mkdirSync(bdir, { recursive: true });
-    const bin = join(bdir, 'tandem');
-    writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
-    chmodSync(bin, 0o755);
-    writeFileSync(join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, '.managed'), '');
-  }
+function makeCachedBinary(env, version = '1.4.0', slug = 'darwin-arm64', banner = `tandem ${version}`) {
+  const bdir = join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, 'tandem');
+  mkdirSync(bdir, { recursive: true });
+  const bin = join(bdir, 'tandem');
+  writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
+  chmodSync(bin, 0o755);
+  writeFileSync(join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, '.managed'), '');
+}
+
+describe('run.sh binary runtime selection', () => {
 
   it('launches cached healthy binary without requiring uv', async () => {
     const env = setup({ versions: ok({ uv: null }) });
@@ -772,5 +798,53 @@ describe('run.sh binary runtime selection', () => {
     env.mark('curl.404', '1');
     const res = await run(env, ['--fetch-runtime']);
     assert.equal(res.code, 4);
+  });
+});
+
+describe('run.sh Windows (MSYS2/Git Bash) support', () => {
+  it('detects MSYS2 with pacman and reports bootstrap banner', async () => {
+    const env = setup({ os: 'MINGW64_NT-10.0', arch: 'x86_64', managers: ['pacman'] });
+    const res = await run(env, ['--check']);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /tandem bootstrap · MINGW64_NT-10\.0 \(pacman\)/);
+  });
+
+  it('exits 5 when pacman is missing with guidance to install MSYS2 or use WSL', async () => {
+    const env = setup({ os: 'MINGW64_NT-10.0', arch: 'x86_64', managers: [] });
+    const res = await run(env, ['--check']);
+    assert.equal(res.code, 5);
+    assert.match(res.stderr, /Install MSYS2 and run from its shell, or use WSL/);
+  });
+
+  it('installs tools using pacman -S --noconfirm', async () => {
+    const env = setup({ os: 'MSYS_NT-10.0', arch: 'x86_64', managers: ['pacman'], versions: ok({ tmux: null }) });
+    const res = await run(env, ['--yes']);
+    assert.equal(res.code, 0);
+    assert.match(res.calls, /pacman -S --noconfirm tmux/);
+  });
+
+  it('updates tools using pacman -Syu --noconfirm', async () => {
+    const env = setup({ os: 'CYGWIN_NT-10.0', arch: 'x86_64', managers: ['pacman'], versions: ok({ tmux: 'tmux 1.0' }) });
+    const res = await run(env, ['--yes']);
+    assert.equal(res.code, 0);
+    assert.match(res.calls, /pacman -Syu --noconfirm tmux/);
+  });
+
+  it('downloads, verifies, and launches windows-x86_64 zip binary (tandem.exe)', async () => {
+    const env = setup({ os: 'MINGW64_NT-10.0', arch: 'x86_64', managers: ['pacman'], versions: ok({ uv: null }) });
+    makeBinaryAsset(env.state, '1.4.0', 'tandem 1.4.0', 'windows-x86_64');
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: binary 1\.4\.0 \(windows-x86_64\)/);
+    assert.match(res.stdout, /TANDEM-BINARY-RAN/);
+  });
+
+  it('WSL reports Linux and uses Linux binary without regressing', async () => {
+    const env = setup({ os: 'Linux', arch: 'x86_64', managers: ['apt-get'], versions: ok({ uv: null }) });
+    makeBinaryAsset(env.state, '1.4.0', 'tandem 1.4.0', 'linux-x86_64');
+    const res = await run(env);
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: binary 1\.4\.0 \(linux-x86_64\)/);
+    assert.match(res.stdout, /TANDEM-BINARY-RAN/);
   });
 });
