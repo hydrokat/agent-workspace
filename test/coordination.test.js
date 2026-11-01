@@ -116,6 +116,21 @@ describe('coordination skills', () => {
     assert.ok(readFile(dir, 'AGENTS.md').includes('keep me'));
   });
 
+  it('spec-planner integrates sprint sizing, split, and add-phase rules', () => {
+    const planner = readFile(dir, '.agents/skills/spec-planner/SKILL.md');
+    assert.ok(planner.includes('/spec-planning'), 'recognizes /spec-planning in description');
+    assert.ok(planner.includes('/pm-new-sprint'), 'mentions splitting oversized spec into /pm-new-sprint');
+    assert.ok(planner.includes('sprints.py add-phase'), 'mentions sprints.py add-phase');
+    assert.ok(planner.includes('--hotfix'), 'mentions --hotfix bypass for locked sprint');
+  });
+
+  it('spec-implement integrates sprint next-work selection for no-arg scope', () => {
+    const implement = readFile(dir, '.agents/skills/spec-implement/SKILL.md');
+    assert.ok(implement.includes('sprints.py next-work'), 'mentions sprints.py next-work in scope');
+    assert.ok(implement.includes('not currently in development'), 'selects pending task not currently in development');
+    assert.ok(implement.includes('specs.py resolve'), 'falls back to specs.py resolve when no active sprint');
+  });
+
   it('coord.py starts silently when importing hashlib would print to stderr', () => {
     const poison = makeTmp();
     writeFile(poison, 'hashlib.py', "import sys\nsys.stderr.write('hashlib imported\\n')\n");
