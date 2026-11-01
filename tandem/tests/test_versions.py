@@ -10,6 +10,7 @@ from tandem.versions import (
     is_at_least,
     parse_min_versions,
     parse_version,
+    verify_release_versions,
 )
 
 
@@ -99,3 +100,26 @@ def test_package_json_version_matches_tandem_version() -> None:
     assert pkg_version == __version__, (
         f"package.json version ({pkg_version}) must equal tandem.__version__ ({__version__})"
     )
+
+
+def test_pyproject_version_matches_tandem_version() -> None:
+    import tomllib
+
+    pyproject = Path(__file__).parent.parent / "pyproject.toml"
+    py_version = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert py_version == __version__, (
+        f"pyproject.toml version ({py_version}) must equal tandem.__version__ ({__version__})"
+    )
+
+
+def test_verify_release_versions() -> None:
+    repo_root = Path(__file__).parent.parent.parent
+
+    ok, msg = verify_release_versions(f"v{__version__}", repo_root)
+    assert ok, msg
+
+    bad_tag, _ = verify_release_versions(f"v999.999.999", repo_root)
+    assert not bad_tag
+
+    no_v, _ = verify_release_versions(__version__, repo_root)
+    assert not no_v

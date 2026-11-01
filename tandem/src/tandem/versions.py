@@ -75,3 +75,38 @@ def installed_version(cli: str, which: Callable[[str], str | None] = shutil.whic
     code, out = runner([path, "--version"])
     parsed = parse_version(out) if code == 0 else None
     return parsed.text if parsed else ""
+
+
+def verify_release_versions(tag: str, repo_root: Path) -> tuple[bool, str]:
+    import json
+    import tomllib
+    import tandem
+
+    if not tag.startswith("v"):
+        return False, f"tag '{tag}' does not start with 'v'"
+    expected = tag[1:]
+
+    pkg_json = repo_root / "package.json"
+    if not pkg_json.is_file():
+        return False, f"package.json not found at {pkg_json}"
+    try:
+        node_version = json.loads(pkg_json.read_text())["version"]
+    except (json.JSONDecodeError, KeyError) as e:
+        return False, f"failed to read package.json version: {e}"
+    if node_version != expected:
+        return False, f"package.json version '{node_version}' != tag version '{expected}'"
+
+    pyproject = repo_root / "tandem" / "pyproject.toml"
+    if not pyproject.is_file():
+        return False, f"pyproject.toml not found at {pyproject}"
+    try:
+        py_version = tomllib.loads(pyproject.read_text())["project"]["version"]
+    except (tomllib.TOMLDecodeError, KeyError) as e:
+        return False, f"failed to read pyproject.toml version: {e}"
+    if py_version != expected:
+        return False, f"pyproject.toml version '{py_version}' != tag version '{expected}'"
+
+    if tandem.__version__ != expected:
+        return False, f"tandem.__version__ '{tandem.__version__}' != tag version '{expected}'"
+
+    return True, f"all versions match {expected}"
