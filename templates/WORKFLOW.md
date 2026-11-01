@@ -5,9 +5,12 @@
 - If prompt explicitly calls another agent, use called agent instead.
 - If multiple agents are explicitly called, follow prompt.
 
-## Linked Codebases
+## Linked Codebases & Project Boundaries
+- The agent workspace belongs to a specific project only. Agents running in this workspace must NOT cross into other projects unless linked in `codebase-symlinks/`.
 - If `codebase-symlinks/` exists, read `knowledgebase/context-history/codebase-map.md` before exploring sibling repos.
 - Use the map to pick the correct codebase instead of guessing from directory names.
+- Never traverse into parent directories (`..`) or search outside the project root to find other repositories or projects.
+- Never push branches or open PRs against repositories from other projects.
 
 ## Coding Agent Optimization Guidelines (Caveman Mode)
 

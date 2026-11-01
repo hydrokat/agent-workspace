@@ -28,6 +28,7 @@ Review implementation changes for correctness, maintainability, architectural fi
 
 ## Operating Rules
 
+- Verify project boundary: ensure reviewed changes and pull requests belong strictly to this project or linked codebases in `codebase-symlinks/`.
 - Prioritize bugs, regressions, and structural issues over style nits.
 - Be specific and evidence-based.
 - Align recommendations with existing project conventions.

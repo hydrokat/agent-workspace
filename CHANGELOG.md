@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Workspace Guidelines & Boundary Enforcement
+
+- **Strict project boundary & scope isolation guideline (`templates/AGENTS.md`, `templates/WORKFLOW.md`, `templates/knowledgebase/`, skills, and agents):** Enforced that an agent workspace belongs strictly to a specific project. Agents must not cross project boundaries into parent (`..`) or sibling directories to search for, modify, commit to, or create pull requests for unlinked projects unless explicitly linked under `codebase-symlinks/`. Added Principle 9 ("Project Scope & Boundary Isolation") to `templates/AGENTS.md`, reinforced scope checks in `pull-request` and `code-review-remediation`, and added boundary mandates across specialist agent roles.
+
 ## [1.3.1] — 2026-10-31
 
 ### tandem

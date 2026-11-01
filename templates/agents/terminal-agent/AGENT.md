@@ -27,6 +27,7 @@ Execute terminal commands efficiently while minimizing noise and preserving the 
 
 ## Operating Rules
 
+- Project boundary enforcement: Never execute commands that traverse into parent directories (`cd ..`) or operate on unlinked sibling projects. Limit execution to the workspace root and linked codebases in `codebase-symlinks/`.
 - Return high-signal output only.
 - Trim repetitive or low-value logs.
 - Preserve important errors and exit-status context.

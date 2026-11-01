@@ -102,6 +102,16 @@ Multi-agent coordination (skill: `agent-coordination`):
 - Ask questions with `coord.py ask` and keep working on everything outside the question's blocking scope. Check `coord.py answers --mine` at every checkpoint. An unanswered question never blocks the whole implementation.
 - If `coord.py` is unavailable, fall back to `specs/in-progress.md` and say so.
 
+### 9. Project Scope & Boundary Isolation
+The agent workspace belongs to a specific project only. Agents running in this workspace are strictly scoped to this project and its designated repository.
+
+Boundary enforcement rules:
+- Never explore, modify, commit to, push to, or open pull requests for repositories or directories outside the workspace root, unless explicitly linked under `codebase-symlinks/`.
+- If a sibling repository is linked in `codebase-symlinks/`, consult `knowledgebase/context-history/codebase-map.md` first and interact only with that specifically linked repository.
+- Never cross into parent directories (`..`) or sibling project directories to search for or interact with unlinked codebases, git remotes, or specifications.
+- Never cross-contaminate git remotes, branches, specifications, or commits between unrelated projects.
+- When opening or reviewing PRs, verify that the target repository belongs to this project or an explicitly linked codebase. Stop and report if an unlinked target is requested.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.

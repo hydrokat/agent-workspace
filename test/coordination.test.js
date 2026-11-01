@@ -24,6 +24,22 @@ describe('coordination skills', () => {
     assert.ok(agents.includes('coord.py whoami'), 'session-start whoami rule');
   });
 
+  it('AGENTS.md managed block strictly enforces project scope and boundary isolation', () => {
+    const agents = readFile(dir, 'AGENTS.md');
+    assert.ok(agents.includes('Project Scope & Boundary Isolation'), 'carries principle 9');
+    assert.ok(agents.includes('belongs to a specific project only'), 'scope isolation statement');
+    assert.ok(agents.includes('codebase-symlinks'), 'boundary rule mentions codebase-symlinks');
+  });
+
+  it('skills enforce project boundary isolation', () => {
+    const prSkill = readFile(dir, '.agents/skills/pull-request/SKILL.md');
+    assert.ok(prSkill.includes('Verify project boundary'), 'pull-request verifies project boundary');
+    const crSkill = readFile(dir, '.agents/skills/code-review-remediation/SKILL.md');
+    assert.ok(crSkill.includes('Strictly enforce project boundaries'), 'code-review-remediation enforces boundary');
+    const planner = readFile(dir, '.agents/skills/spec-planner/SKILL.md');
+    assert.ok(planner.includes('Strictly enforce project boundaries'), 'spec-planner enforces boundary');
+  });
+
   it('spec-planner checks active work and templates record paths and dependencies', () => {
     const skill = readFile(dir, '.agents/skills/spec-planner/SKILL.md');
     assert.ok(skill.includes('Check Active & Planned Work'));

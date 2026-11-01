@@ -197,4 +197,5 @@ Use these status terms consistently:
 - Never leave unnecessary code comments. Keep documentation-generator comments only when they add value, such as PHPDoc, JSDoc, Swagger/OpenAPI, or equivalent.
 - Always claim a task through `agent-coordination` before implementing it when coordination is available, and release it afterwards.
 - Never let an unanswered question stop unrelated work.
+- Never cross project boundaries. The workspace belongs to a specific project only; work strictly within this workspace repository and explicitly linked `codebase-symlinks/`.
 - Keep changes surgical and scoped to the selected task.

@@ -41,7 +41,8 @@ Before creating or changing a phase, determine which repositories are involved a
 2. For single-repository work, name the phase directory `p-###-[name-of-repo]`, where `[name-of-repo]` is a lowercase repo slug derived from the repository name.
 3. For multi-repository work, name the phase directory `p-###-multi`.
 4. Record all involved repositories in `impl.md` under **Repository Scope**, including each repo's role in the phase.
-5. Do not use legacy `phase-XXX` directory names for new phases. Existing legacy directories may be read for context only.
+5. Strictly enforce project boundaries: the workspace belongs to a specific project only. Only include the current repository and repositories explicitly linked under `codebase-symlinks/`. Never include unlinked sibling or parent projects in phase scopes or tasks.
+6. Do not use legacy `phase-XXX` directory names for new phases. Existing legacy directories may be read for context only.
 
 ### 3. Classify Requirements
 Classify every implementation requirement before tasking it:

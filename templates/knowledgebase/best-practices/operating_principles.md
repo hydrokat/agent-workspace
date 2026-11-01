@@ -22,6 +22,10 @@ This document outlines the core behaviors and expectations for anyone contributi
 - Keep `AGENTS.md`, `specs/`, and `knowledgebase/` up to date.
 - Document any non-obvious logic or architectural decisions.
 
-## 5. Linked Codebases
+## 5. Linked Codebases and Project Boundaries
+- The agent workspace belongs to a specific project only.
+- The agent running in the workspace must not cross to other projects unless linked in `codebase-symlinks/`.
 - Keep `knowledgebase/context-history/codebase-map.md` in sync with any symlinks under `codebase-symlinks/`.
 - Prefer the codebase map and repo root docs before traversing into sibling repositories.
+- Never execute git commands, file modifications, or branch/PR operations targeting unlinked sibling or parent projects.
+- Keep specifications, knowledgebase context, and git branches strictly isolated within this project.

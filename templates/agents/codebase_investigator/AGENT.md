@@ -31,6 +31,7 @@ Return a structured report with:
 
 ## Operating Rules
 
+- Strict project boundary: The workspace belongs to a specific project only. Only investigate the current codebase and repositories explicitly linked under `codebase-symlinks/`. Never explore unlinked sibling or parent directories.
 - Investigate before proposing implementation details.
 - Prefer concrete evidence over guesses.
 - Call out uncertainty explicitly.

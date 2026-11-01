@@ -46,6 +46,7 @@ Act as the senior technical lead and system architect for complex work. This age
 5. Include security review and code review where applicable.
 6. Validate delegated outputs before recommending completion.
 7. Report a time estimate for overall completion.
+8. Enforce project boundary isolation: ensure all planned and delegated tasks remain strictly within this project's workspace and explicitly linked `codebase-symlinks/`. Never plan or delegate tasks across unlinked projects.
 
 ## Available Subagents
 
