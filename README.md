@@ -279,6 +279,7 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 ./run.sh --check    # report only; change nothing
 ./run.sh --yes      # answer yes to every prompt (--no answers no)
 ./run.sh --no-update  # skip the launch-time update check this time
+./run.sh --fetch-runtime  # pre-fetch and verify binary runtime non-interactively
 ```
 
 **Auto-update on launch.** Before checking dependencies, `run.sh` checks whether a newer agent-workspace release exists. When one is found, it applies the update (`npx --yes hydrokat/agent-workspace update --yes --no-link --no-update-clis --no-commit`), prints the old → new version and what changed, then re-execs the updated `run.sh`. If the workspace has no `manifest.json` (a dev checkout), if `npx` is not on `PATH`, or if the update fails, launch continues with the installed version.
@@ -287,10 +288,34 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 |---|---|---|
 | `TANDEM_AUTO_UPDATE` | `1` | Set to `0` to disable the launch-time update check permanently. |
 | `TANDEM_UPDATE_SPEC` | `hydrokat/agent-workspace` | npm package spec to update from; set to `owner/repo` or `owner/repo#ref` when running from a fork. |
+| `TANDEM_RUNTIME` | `auto` | Runtime mode: `auto` (binary first, fall back to Python), `binary` (strict binary, exit 4 on failure), or `python` (skip binary, use uv/Python). |
+| `TANDEM_RELEASE_BASE` | `https://github.com/hydrokat/agent-workspace/releases/download` | Base download URL for release binaries and checksums. |
 
 The version check waits at most 15 seconds, so an offline or slow network delays launch by that long at worst; set `TANDEM_AUTO_UPDATE=0` to skip it entirely. Pass `--no-update` for a single-launch opt-out. `--check` reports an available update without applying it. See `tandem/README.md` for the in-session update check that runs while tandem is open.
 
-`run.sh` needs `git`, `tmux`, `uv`, and at least one of `claude` / `agy`. Rules:
+### Runtime: compiled binary and Python fallback
+
+tandem ships as a compiled PyInstaller onedir binary with zero Python dependencies at runtime, providing instant startup (~75ms warm launch). `./run.sh` automatically fetches and verifies the binary for your platform, falling back to Python with `uv` if the binary is unavailable.
+
+**Supported platforms:**
+- `linux-x86_64` (glibc >= 2.31, Ubuntu 20.04+)
+- `linux-arm64` (glibc >= 2.31, Ubuntu 20.04+)
+- `darwin-arm64` (macOS 13+ Apple Silicon)
+- `darwin-x86_64` (macOS 13+ Intel)
+- `windows-x86_64` (experimental support under MSYS2 / Git Bash with tmux, or native Linux binary inside WSL)
+
+**Binary cache & verification:**
+Binaries are fetched from GitHub Releases, verified against cryptographic `SHA256SUMS`, and cached under `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>/` with the active version pointed to by `tandem/bin/current`. Stale binary versions are automatically pruned.
+
+**Flags and variables:**
+- `./run.sh --fetch-runtime`: Pre-fetches and verifies the binary runtime non-interactively without launching tandem (exit 0 on success, exit 4 on failure).
+- `TANDEM_RUNTIME=auto|binary|python`:
+  - `auto` (default): tries the compiled binary first; seamlessly falls back to Python if unavailable.
+  - `binary`: requires the binary; fails with exit code 4 if unavailable or checksum fails.
+  - `python`: bypasses the binary and runs tandem directly through `uv run`.
+- `TANDEM_RELEASE_BASE`: Base URL for fetching binary release archives and `SHA256SUMS`.
+
+`run.sh` needs `git`, `tmux`, at least one of `claude` / `agy`, and `uv` (only when using the Python runtime fallback or developing from source). Rules:
 
 - Missing dependency: asks to install it. Declining stops (exit 2), except that declining one AI CLI is fine while the other is installed.
 - Installed but outdated (where a check exists): asks to update; declining continues with what you have.
