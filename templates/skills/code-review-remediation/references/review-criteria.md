@@ -11,7 +11,7 @@ Rubric for the review pass. Review as a Staff Engineer, Software Architect, Secu
 
 ## Checklist
 
-1. **Context**: PR title, description, linked issues, commits, changed files, base branch, CI status, existing review comments, project docs and knowledgebase entries.
+1. **Context**: PR title, description, linked issues, commits, changed files, base branch, CI status, existing review comments, project docs and knowledgebase entries. Verify that the PR target repository belongs strictly to this workspace's project or an explicitly linked codebase in `codebase-symlinks/`. Reject cross-project PRs.
 2. **Intent**: business problem, intended outcome, affected flows and services, data model and API changes, backward-compatibility expectations.
 3. **Change inventory**: categorize changed files by area (API, Database, Frontend, Tests, Infra) and risk.
 4. **Correctness**: business rules, state transitions, validation, authorization, transactions, rollback, concurrency, idempotency, failure handling, edge cases (null/empty, time boundaries, pagination, retries, partial failures, duplicates, stale data), backward compatibility.

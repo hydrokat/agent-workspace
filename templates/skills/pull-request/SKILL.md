@@ -9,7 +9,7 @@ Use this skill to turn completed implementation work into a high-quality pull re
 
 ## Workflow
 
-1. Inspect repository state with `git status --short`, `git branch --show-current`, remotes, and targeted diffs.
+1. Inspect repository state with `git status --short`, `git branch --show-current`, remotes, and targeted diffs. **Verify project boundary**: confirm the repository remote belongs to this workspace's project or an explicitly linked codebase in `codebase-symlinks/`. Never push or create pull requests against unlinked external repositories.
 2. Determine the target branch, preferring `main`, then `master`, then `trunk`, then the repository default branch.
 3. Protect unrelated work. If unrelated changes are present, do not include them. Ask whether to leave them alone, commit them separately, stash them, or split exact paths or hunks.
 4. Do not commit directly to `main`, `master`, or `trunk`. Create or switch to a descriptive branch using `<type>/<short-description>`, where type is `feature`, `bugfix`, `hotfix`, `refactor`, `chore`, `docs`, or `test`.
@@ -60,6 +60,7 @@ Use the structure in `assets/pr-body.md`. Copy its sections, omit optional secti
 
 Before submitting, verify:
 
+- Project boundary respected: PR target repository belongs strictly to this project or a linked codebase in `codebase-symlinks/`.
 - Feature branch exists and protected branches were not committed to directly.
 - Unrelated changes are excluded.
 - Commits are atomic, logically grouped, and conventionally named.

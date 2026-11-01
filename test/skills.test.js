@@ -55,7 +55,28 @@ describe('script-first skills ship their scripts and templates', () => {
     'code-cleanup': { command: '/code-cleanup', files: ['scripts/comments.py', 'assets/candidates.md'] },
   };
 
-  for (const [name, spec] of Object.entries(NEW_SKILLS)) {
+  const PM_SKILLS = {
+    'pm-new-sprint': {
+      command: '/pm-new-sprint',
+      files: [
+        'scripts/sprints.py',
+        'assets/sprint.md',
+        'assets/business-requirements-document.html',
+        'assets/functional-requirements-document.html',
+        'assets/functional-specification-document.html',
+      ],
+    },
+    'pm-sprint-explain': { command: '/pm-sprint-explain', files: ['assets/explanation.md'] },
+    'pm-sprint-lock': { command: '/pm-sprint-lock', files: ['assets/lock-summary.md'] },
+    'pm-sprint-unlock': { command: '/pm-sprint-unlock', files: ['assets/unlock-warning.md'] },
+    'pm-sprint-close': { command: '/pm-sprint-close', files: ['assets/close-report.md'] },
+    'pm-sprint-implement': { command: '/pm-sprint-implement', files: ['assets/execution-plan.md'] },
+    'pm-sprint-status': { command: '/pm-sprint-status', files: ['assets/status.md'] },
+    'pm-sprint-list': { command: '/pm-sprint-list', files: ['assets/list.md'] },
+    'pm-commands': { command: '/pm-commands', files: ['assets/commands.md'] },
+  };
+
+  for (const [name, spec] of Object.entries({ ...NEW_SKILLS, ...PM_SKILLS })) {
     it(`installs ${name} with its interface, scripts, and templates`, () => {
       has(`${name}/SKILL.md`);
       has(`${name}/agents/openai.yaml`);
@@ -91,5 +112,8 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.deepEqual([task.task, task.delivery], ['t-001', 't-002']);
     assert.deepEqual(run('spec-planner/scripts/specs.py', 'waves', 'p-001').waves, [['t-001'], ['t-002']]);
     assert.equal(run('workspace-cleanup/scripts/scan_workspace.py').root.length > 0, true);
+    assert.equal(run('pm-new-sprint/scripts/sprints.py', 'next-sprint').next, '001');
+    const catalog = run('pm-new-sprint/scripts/sprints.py', 'commands');
+    assert.ok(Array.isArray(catalog.commands) && catalog.commands.length >= 9);
   });
 });

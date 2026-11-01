@@ -15,12 +15,17 @@ Determine the requested implementation scope before editing files.
 
 | Invocation | Scope |
 |---|---|
-| `/spec-implement` | Active or latest incomplete phase |
+| `/spec-implement` | Active sprint pending task via `sprints.py next-work`, or latest incomplete phase |
 | `/spec-implement p-002-agent-workspace` | All incomplete tasks in `specs/p-002-agent-workspace/` |
 | `/spec-implement p-002-agent-workspace t-003` | Only `specs/p-002-agent-workspace/t-003.md` |
 | `/spec-implement t-003` | `t-003.md` in the active or latest incomplete phase |
 
-Resolve the phase argument with `python3 .agents/skills/spec-planner/scripts/specs.py resolve [<phase>]` (it accepts `p-002`, `002`, `2`, the full directory name, or nothing for the latest phase with an incomplete task). If scope is ambiguous, inspect `specs/` and choose the latest `p-###-*` phase with incomplete tasks. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create new legacy spec paths. Tell the user which scope was selected.
+When invoked with **no phase or task argument** (`/spec-implement`):
+1. Query active sprint work first with `python3 .agents/skills/pm-new-sprint/scripts/sprints.py next-work`.
+2. If an active sprint (`open` or `locked`) exists, select the highest-priority pending spec phase and task in that sprint that is **not currently in development** (`coord.py` claims, `In Progress` status, or `specs/in-progress.md`). If every remaining task in the current sprint is already in development by peer agents, report who holds the active claims and stop without colliding.
+3. If no active sprint exists or `sprints.py` is unavailable, fall back to `specs.py resolve` (it resolves to the latest incomplete phase in `specs/`).
+
+When invoked with an explicit phase argument, resolve the phase argument with `python3 .agents/skills/spec-planner/scripts/specs.py resolve [<phase>]` (it accepts `p-002`, `002`, `2`, the full directory name, or nothing for the latest phase with an incomplete task). If scope is ambiguous, inspect `specs/` and choose the latest `p-###-*` phase with incomplete tasks. Legacy `phase-XXX/task-YYY.md` specs may be read when they already exist, but do not create new legacy spec paths. Tell the user which scope was selected.
 
 ## Step 1: Prepare The Branch
 
@@ -197,4 +202,6 @@ Use these status terms consistently:
 - Never leave unnecessary code comments. Keep documentation-generator comments only when they add value, such as PHPDoc, JSDoc, Swagger/OpenAPI, or equivalent.
 - Always claim a task through `agent-coordination` before implementing it when coordination is available, and release it afterwards.
 - Never let an unanswered question stop unrelated work.
+- Never cross project boundaries. The workspace belongs to a specific project only; work strictly within this workspace repository and explicitly linked `codebase-symlinks/`.
+- For no-argument invocations, query `sprints.py next-work` first to implement the highest-priority pending task in the active sprint not currently in development, falling back to `specs.py resolve` when no active sprint exists.
 - Keep changes surgical and scoped to the selected task.

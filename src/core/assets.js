@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -23,7 +23,10 @@ export function listAgents() {
 
 export function listSkills() {
   const dir = templatePath('skills');
-  return readdirSync(dir).filter(name => statSync(join(dir, name)).isDirectory());
+  return readdirSync(dir).filter(name => {
+    const full = join(dir, name);
+    return statSync(full).isDirectory() && existsSync(join(full, 'SKILL.md'));
+  });
 }
 
 export function listGuidelineFiles() {

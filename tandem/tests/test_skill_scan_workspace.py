@@ -243,3 +243,22 @@ def test_delete_rejects_a_corrupt_scan_file(ws: Path) -> None:
 
 def test_root_must_be_a_directory(tmp_path: Path) -> None:
     err(run(tmp_path / "missing"), 2)
+
+
+def test_sprints_directory_is_protected_from_scan_and_delete(ws: Path) -> None:
+    put(ws, "sprints/s-001-setup/sprint.md")
+    put(ws, "sprints/s-001-setup/business-requirements-document.html")
+    put(ws, "sprints/s-001-setup/sprint.md.bak")
+    res = out(run(ws))
+    paths = {c["path"] for c in res["candidates"]}
+    assert not any(p.startswith("sprints") for p in paths)
+
+    scan_file = ws / ".agent-workspace/cleanup-scan.json"
+    data = json.loads(scan_file.read_text())
+    stat = (ws / "sprints/s-001-setup/sprint.md").lstat()
+    data["candidates"].append({"path": "sprints/s-001-setup/sprint.md", "kind": "file", "category": "unrecognized-file",
+                               "mtime_ns": stat.st_mtime_ns, "size": stat.st_size})
+    scan_file.write_text(json.dumps(data))
+    err(delete(ws, "sprints/s-001-setup/sprint.md"), 1)
+    assert (ws / "sprints/s-001-setup/sprint.md").exists()
+

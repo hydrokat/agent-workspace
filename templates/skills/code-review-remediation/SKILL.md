@@ -17,6 +17,7 @@ Use `gh` for GitHub and `glab` for GitLab, detected from the remote URL.
 
 - If the user gives a PR number or URL, target only that PR.
 - Otherwise target **every open PR in every relevant repository**: the current repo plus each repo linked in `codebase-symlinks/` (resolve symlinks; read `knowledgebase/context-history/codebase-map.md` first when present). Skip drafts and PRs authored by bots unless the user says otherwise.
+- Strictly enforce project boundaries: the agent workspace belongs to a specific project only. Never discover, traverse, review, or remediate pull requests in unlinked sibling or parent repositories.
 - Stop and report clearly if no PRs are found or the CLI is unauthenticated.
 
 For each target collect: repo, number, title, author, base and head branches, linked issues, CI status, review state, and mergeability. Process PRs independently; for multiple targets use parallel subagents only when they touch separate repos or worktrees.
@@ -102,6 +103,7 @@ If a merge fails, tell the user why in one or two lines (branch protection, requ
 
 ## Operating Rules
 
+- Strictly enforce project boundaries: the agent workspace belongs to a specific project only. Never cross into other projects unless linked in `codebase-symlinks/`.
 - Validate reviewer feedback against the codebase before implementing; prefer the smallest correct fix.
 - Preserve business logic unless the review intentionally changes it.
 - Respect user-owned working tree changes and other agents' branches; coordinate through `specs/in-progress.md` when present.

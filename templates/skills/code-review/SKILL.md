@@ -20,7 +20,7 @@ Use this skill to review a pull request, branch diff, commit range, or local cha
 
 Retrieve or inspect the available review inputs:
 
-- PR title, description, linked issues, commits, changed files, target branch, CI status, and existing review comments when reviewing a remote PR.
+- PR title, description, linked issues, commits, changed files, target branch, CI status, and existing review comments when reviewing a remote PR. Verify that the target repository belongs strictly to this workspace's project or an explicitly linked codebase in `codebase-symlinks/`. Stop and flag cross-project PR contamination.
 - `git status --short`, target branch, merge base, and diffs when reviewing local changes.
 - Project documentation, architecture notes, coding standards, and relevant knowledgebase entries when present.
 

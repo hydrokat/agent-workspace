@@ -17,6 +17,7 @@ n/a
 - **[`/codebase-symlinks`](./codebase-symlinks/)**: **Linked Codebases.** Symlinked sibling repositories for adjacent project context.
 - **[`/knowledgebase`](./knowledgebase/)**: **Reference Material.** Contains guidelines, best practices, and historical context.
 - **[`/specs`](./specs/)**: **Active Task Tracking.** Implementation plans (`impl.md`), task-specific breakdowns, and `in-progress.md` tracking all work currently underway.
+- **[`/sprints`](./sprints/)**: **Sprint Planning & Governance.** Active and historical 1-week sprint directories (`s-###-<slug>/`) with BRD, FRD, FSD deliverables.
 - **[`/.tmp`](./.tmp/)**: **Agent Working Files.** Scratch space for in-progress agent output. Safe to delete at any time.
 - **`src/`**: (Optional) Application or library source code.
 
@@ -102,6 +103,16 @@ Multi-agent coordination (skill: `agent-coordination`):
 - Ask questions with `coord.py ask` and keep working on everything outside the question's blocking scope. Check `coord.py answers --mine` at every checkpoint. An unanswered question never blocks the whole implementation.
 - If `coord.py` is unavailable, fall back to `specs/in-progress.md` and say so.
 
+### 9. Project Scope & Boundary Isolation
+The agent workspace belongs to a specific project only. Agents running in this workspace are strictly scoped to this project and its designated repository.
+
+Boundary enforcement rules:
+- Never explore, modify, commit to, push to, or open pull requests for repositories or directories outside the workspace root, unless explicitly linked under `codebase-symlinks/`.
+- If a sibling repository is linked in `codebase-symlinks/`, consult `knowledgebase/context-history/codebase-map.md` first and interact only with that specifically linked repository.
+- Never cross into parent directories (`..`) or sibling project directories to search for or interact with unlinked codebases, git remotes, or specifications.
+- Never cross-contaminate git remotes, branches, specifications, or commits between unrelated projects.
+- When opening or reviewing PRs, verify that the target repository belongs to this project or an explicitly linked codebase. Stop and report if an unlinked target is requested.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.
@@ -118,6 +129,7 @@ For Codex/OpenAI, prefer `gpt-5.5` for orchestration and reasoning-heavy work, `
 | `frontend-dev` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Component + UI work; hands-on coding in Codex |
 | `qa-engineer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Test generation, debugging, and validation workflows |
 | `business-analyst` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Requirements, specs, and structured documentation |
+| `project-manager` | Sonnet 4.6 | 2.5 Pro | `gpt-5.4` | Sprint governance, 1-week capacity planning, RICE/MoSCoW |
 | `generalist` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4-mini` | Batch/broad tasks; speed matters |
 | `technical-writer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Writing quality; balanced polish and cost |
 | `terminal-agent` | Haiku 4.5 | 2.0 Flash Lite | `gpt-5.4-mini` | Fast shell execution; lightweight subagent fit |

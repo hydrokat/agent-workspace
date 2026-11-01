@@ -1,6 +1,6 @@
 ---
 name: specs-planner
-description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan, /spec-planner, or /specs-planner. Captures branch strategy, repo-scoped p-### phase directories, t-### task files, involved repositories, requirement type, codebase structure, UI mockups for frontend/UI work, existing implementation patterns, regression gates, task files, delivery gates, PR review loops, pipeline loops, cleanup, and merge readiness.
+description: Use when the user asks to create implementation plans, start a new phase, break down work into /specs/ tasks, or invoke /spec-plan, /spec-planner, /spec-planning, or /specs-planner. Captures branch strategy, repo-scoped p-### phase directories, t-### task files, involved repositories, requirement type, codebase structure, UI mockups for frontend/UI work, existing implementation patterns, regression gates, task files, delivery gates, PR review loops, pipeline loops, cleanup, and merge readiness.
 ---
 
 # Specs Planner
@@ -41,7 +41,8 @@ Before creating or changing a phase, determine which repositories are involved a
 2. For single-repository work, name the phase directory `p-###-[name-of-repo]`, where `[name-of-repo]` is a lowercase repo slug derived from the repository name.
 3. For multi-repository work, name the phase directory `p-###-multi`.
 4. Record all involved repositories in `impl.md` under **Repository Scope**, including each repo's role in the phase.
-5. Do not use legacy `phase-XXX` directory names for new phases. Existing legacy directories may be read for context only.
+5. Strictly enforce project boundaries: the workspace belongs to a specific project only. Only include the current repository and repositories explicitly linked under `codebase-symlinks/`. Never include unlinked sibling or parent projects in phase scopes or tasks.
+6. Do not use legacy `phase-XXX` directory names for new phases. Existing legacy directories may be read for context only.
 
 ### 3. Classify Requirements
 Classify every implementation requirement before tasking it:
@@ -70,6 +71,14 @@ Before breaking work into tasks, make sure the plan does not conflict with work 
 3. Compare each new task's **Affected Paths** with the paths of claimed and planned tasks. On overlap, either sequence the tasks with **Depends On** or ask the user.
 4. If `coord.py` is unavailable or fails, say so and rely on `in-progress.md` and the specs only.
 
+### 4c. Sprint Sizing & Sprint Integration
+Before finalizing a new phase, evaluate sprint sizing and alignment with active sprints:
+1. **Capacity Sizing**: Check whether the requested work exceeds realistic 1-week AI-assisted human capacity (`> 5.0` effort-days or `> 12` implementation tasks, evaluated with `sprints.py discover` rules). When a spec is big enough to be its own sprint, split the work into multiple cohesive `p-###-*` spec phases and invoke `/pm-new-sprint` to package them into a new sprint (with RICE, MoSCoW, `sprint.md`, and BRD/FRD/FSD HTML deliverables).
+2. **Active Sprint Assignment**: When the work is sized appropriately for a single phase, check for an active sprint via `python3 .agents/skills/pm-new-sprint/scripts/sprints.py resolve`:
+   - If an active sprint is `open`, ask the user whether to add the new spec phase to the sprint using `sprints.py add-phase` (with RICE and MoSCoW priority, subject to 1-week capacity overload checks) or keep it in the product backlog.
+   - If an active sprint is `locked`, inform the user that no new phase can be added until the next sprint opens unless this phase is an emergency `hotfix` (`sprints.py add-phase --hotfix --reason "<reason>"`).
+3. If `sprints.py` is unavailable or no `sprints/` directory exists, proceed with normal standalone spec planning.
+
 ### 5. Creating a New Phase
 When a user asks to "create a plan" for a new milestone:
 1. Identify the next phase number: `python3 .agents/skills/spec-planner/scripts/specs.py next-phase` (it counts `p-###-*` and legacy `phase-XXX` directories).
@@ -79,6 +88,7 @@ When a user asks to "create a plan" for a new milestone:
 5. Complete **Classify Requirements**.
 6. Complete **Add UI Mockups For Frontend/UI Work**.
 6b. Complete **Check Active & Planned Work**.
+6c. Complete **Sprint Sizing & Sprint Integration**: if oversized, split into multiple cohesive phases and invoke `/pm-new-sprint`. If fitting into an active open sprint, run `sprints.py add-phase`. If active sprint is locked, require `--hotfix` and reason or defer to next sprint.
 7. Break the milestone into implementation tasks.
 8. Create the phase and its final delivery task from the templates:
    `python3 .agents/skills/spec-planner/scripts/specs.py new-phase (--repo <repo-slug> | --multi) --title "<phase title>" --branch <working-branch> --target <merge-branch> [--pattern "<branch pattern>"] [--pattern-source "<source>"]`
@@ -140,3 +150,4 @@ Every task file includes `## Affected Paths` and `## Depends On` so overlapping 
 - **Security Gate**: A task involving code changes MUST be security audited, with the audit passing, before it can be marked complete. Use the `security-auditor` agent or `security-review` skill for the audit.
 - **Knowledge Loop**: Every task MUST record which `knowledgebase/` references were consulted going in, and what (if anything) should be added back to `knowledgebase/best-practices/` coming out.
 - **Review Cleanup**: The final delivery task's code review phase MUST include a cleanup pass (`/code-cleanup --diff <merge-target>`) that removes unnecessary comments, favors self-documenting code, and permits documentation-generator comments when they add value.
+- **Sprint Sizing & Governance**: When a planned spec exceeds 1-week capacity (> 5.0 effort-days or > 12 implementation tasks), split into multiple cohesive phases and package with `/pm-new-sprint`. Integrate phases into active sprints with `sprints.py add-phase`, respecting locked sprint gates unless an emergency `--hotfix` is justified.
