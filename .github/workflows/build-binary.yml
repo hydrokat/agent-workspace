@@ -1,0 +1,52 @@
+name: build-binary
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: binary / ${{ matrix.slug }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            slug: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            slug: linux-arm64
+          - runner: macos-14
+            slug: darwin-arm64
+          - runner: macos-15-intel
+            slug: darwin-x86_64
+          - runner: windows-latest
+            slug: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: tandem
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked --group build
+      - name: Build binary
+        run: uv run --group build python packaging/build.py
+      - name: Extra clean smoke test (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          env -i PATH=/usr/bin:/bin dist/tandem/tandem --version
+          env -i PATH=/usr/bin:/bin dist/tandem/tandem --help
+      - name: Extra clean smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          dist/tandem/tandem.exe --version
+          dist/tandem/tandem.exe --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-binary-${{ matrix.slug }}
+          path: |
+            tandem/dist/tandem-*
+          retention-days: 7
