@@ -49,6 +49,30 @@ Terminals narrower than 100 columns stack the columns vertically, and the status
 
 The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `Ctrl+Alt+r` restarts them and reopens their conversation when the CLI has one to reopen.
 
+## Runtime
+
+tandem runs as a compiled PyInstaller onedir binary with zero external Python runtime dependencies, delivering an instant warm launch (~75ms). `./run.sh` automatically checks for and downloads the verified release binary for your platform, falling back to Python via `uv` if unavailable.
+
+### Supported platforms
+- `linux-x86_64` (glibc >= 2.31, Ubuntu 20.04+)
+- `linux-arm64` (glibc >= 2.31, Ubuntu 20.04+)
+- `darwin-arm64` (macOS 13+ Apple Silicon)
+- `darwin-x86_64` (macOS 13+ Intel)
+- `windows-x86_64` (experimental support under MSYS2 with tmux, or WSL running the Linux binary)
+
+### Binary cache and verification
+Binaries are fetched from GitHub Releases, verified against cryptographic `SHA256SUMS`, and cached under `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>/` with the active version pointed to by `tandem/bin/current`. Stale binary versions are automatically pruned.
+
+### Environment variables and flags
+- `TANDEM_RUNTIME=auto|binary|python`:
+  - `auto` (default): tries the compiled binary first; falls back to Python if unavailable.
+  - `binary`: requires the binary; fails with exit code 4 if unavailable or checksum fails.
+  - `python`: skips binary runtime check and executes via `uv run` directly.
+- `TANDEM_RELEASE_BASE`: Base URL for binary archives and `SHA256SUMS` (default: `https://github.com/hydrokat/agent-workspace/releases/download`).
+- `./run.sh --fetch-runtime`: Downloads and verifies the binary runtime non-interactively without launching tandem (exit 0 on success, exit 4 on failure).
+
+`uv` is only required when running the Python runtime fallback or when developing from source; the compiled binary runs completely standalone.
+
 ## Save, resume and update
 
 tandem keeps `.agent-workspace/tandem-session.json` (owner-only JSON) up to date while it runs. The file holds each agent's CLI, role, model, tab number, working folder and **conversation ID**, plus the tab showing in each column and the pane proportions. tandem autosaves it on start, whenever an agent is added or closed, and every 15 seconds from the status window. After a crash, a reboot or a closed terminal window, the next launch can pick up where you were.
