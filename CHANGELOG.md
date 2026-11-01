@@ -1,10 +1,26 @@
 # Changelog
 
-## [Unreleased]
+## [1.4.0] — 2026-11-01
 
-### Workspace Guidelines & Boundary Enforcement
+### CLI Package
 
-- **Strict project boundary & scope isolation guideline (`templates/AGENTS.md`, `templates/WORKFLOW.md`, `templates/knowledgebase/`, skills, and agents):** Enforced that an agent workspace belongs strictly to a specific project. Agents must not cross project boundaries into parent (`..`) or sibling directories to search for, modify, commit to, or create pull requests for unlinked projects unless explicitly linked under `codebase-symlinks/`. Added Principle 9 ("Project Scope & Boundary Isolation") to `templates/AGENTS.md`, reinforced scope checks in `pull-request` and `code-review-remediation`, and added boundary mandates across specialist agent roles.
+- **BA and PM Sprint Management Skills (`/pm-*`):** Added nine first-class sprint planning and governance skills:
+  - `/pm-new-sprint`: Scaffolds a complete 1-week sprint deliverable directory (`sprints/s-###-<slug>/`) with dual RICE (`Reach`, `Impact`, `Confidence`, `Effort`) and MoSCoW prioritization, capacity analysis (`sprints.py discover`), `sprint.md`, and three self-contained stakeholder documents (BRD, FRD, and FSD) rendered in semantic HTML.
+  - `/pm-sprint-explain`: Provides clear, non-technical explanations of sprint value, business goals, scope, and MoSCoW deliverables.
+  - `/pm-sprint-lock`: Locks active sprint scope to enforce commitment discipline; prevents ad-hoc scope creep.
+  - `/pm-sprint-unlock`: Unlocks a sprint with mandatory user confirmation and rationale logging.
+  - `/pm-sprint-close`: Formally closes a completed sprint, evaluates deliverables, and optionally carries incomplete work over to the product backlog.
+  - `/pm-sprint-implement`: Coordinates autonomous multi-agent sprint execution across phases in MoSCoW priority order without collisions using atomic `coord.py claim` locking, worktree isolation, and single-writer plan safety.
+  - `/pm-sprint-status`: Real-time sprint progress dashboard tracking live agent claims, completed deliverables, remaining tasks, and sequential vs parallel-wave ETAs.
+  - `/pm-sprint-list`: Lists all historical, active, and planned sprints with capacity and status.
+  - `/pm-commands`: Catalogs all available PM and sprint commands with contextual availability.
+- **Deterministic Python Sprints Engine (`sprints.py`):** Shipped stdlib-only, zero-`hashlib` CLI engine (`templates/skills/pm-new-sprint/scripts/sprints.py`) powering all sprint lifecycle operations, RICE/MoSCoW calculations, collision-free work selection (`next-work`), and deliverable linting.
+- **`project-manager` Specialist Agent:** Added the canonical 13th specialist agent role (`templates/agents/project-manager/AGENT.md`) with provider model mappings in `src/data/models.json` (`claude`: `claude-sonnet-4-6`, `antigravity`: `gemini-2.5-pro`, `codex`: `gpt-5.4`). Updated `business-analyst` and `tech-lead-orchestrator` with realistic, non-optimistic sprint routing.
+- **First-Class Workspace Sprints Directory (`sprints/`):** Workspace initialization and updates now scaffold `sprints/` with `sprints/README.md`. Sprints are protected from workspace cleanup in `scan_workspace.py`.
+- **Sprint-Aware Spec Workflows:**
+  - `/spec-planner`: Supports `/spec-planning` alias, evaluates 1-week AI capacity (`> 5.0` days or `> 12` tasks triggers splitting into `/pm-new-sprint`), and integrates spec phases into active sprints via `sprints.py add-phase` (with locked sprint hotfix protection).
+  - `/spec-implement`: Default no-argument invocation queries `sprints.py next-work` to automatically claim and implement the highest-priority pending task in the active sprint not currently in development, falling back to `specs.py resolve` when no active sprint exists.
+- **Strict Project Boundary & Scope Isolation Guideline (`templates/AGENTS.md`, `templates/WORKFLOW.md`, `templates/knowledgebase/`, skills, and agents):** Enforced that an agent workspace belongs strictly to a specific project. Agents must not cross project boundaries into parent (`..`) or sibling directories to search for, modify, commit to, or create pull requests for unlinked projects unless explicitly linked under `codebase-symlinks/`. Added Principle 9 ("Project Scope & Boundary Isolation") to `templates/AGENTS.md`, reinforced scope checks in `pull-request` and `code-review-remediation`, and added boundary mandates across specialist agent roles.
 
 ## [1.3.1] — 2026-10-31
 

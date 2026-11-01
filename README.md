@@ -171,13 +171,16 @@ your-project-agent-workspace/
 ├── .agents/
 │   ├── agents/
 │   │   ├── tech-lead-orchestrator/
+│   │   ├── project-manager/
 │   │   ├── senior-backend-dev/
 │   │   ├── frontend-dev/
 │   │   ├── qa-engineer/
 │   │   ├── security-auditor/
-│   │   └── ...                        # 12 agents total
+│   │   └── ...                        # 13 agents total
 │   └── skills/
 │       ├── spec-planner/
+│       ├── pm-new-sprint/
+│       ├── pm-sprint-implement/
 │       ├── workspace-init/
 │       ├── workspace-sync/
 │       └── ...
@@ -191,6 +194,8 @@ your-project-agent-workspace/
 │   ├── best-practices/                # Operating principles
 │   ├── business-flows/                # Your project-specific flows (never touched by update)
 │   └── context-history/
+├── sprints/                           # 1-week sprints (s-###-<slug>/ with sprint.md, BRD, FRD, FSD)
+│   └── README.md
 ├── specs/                             # Your implementation plans (never touched by update)
 │   └── in-progress.md                 # Live list of active tasks/specs, per-task next steps
 └── .tmp/                              # Agent working files — safe to delete anytime
@@ -239,8 +244,17 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, a
 
 | Command | What it does |
 |---|---|
-| `/spec-plan` | Plan a phase: branches, scope, tasks with Affected Paths and Depends On, a generated Parallel Waves section, and a final delivery task |
-| `/spec-implement [phase] [task]` | Implement a phase: plans parallel waves, claims tasks, keeps `t-###.md` and `impl.md` in sync, runs `/code-cleanup --diff` before review |
+| `/pm-new-sprint` | Plan a 1-week sprint with RICE + MoSCoW prioritization, capacity check, and HTML stakeholder docs (BRD, FRD, FSD) |
+| `/pm-sprint-explain [sprint]` | Explain sprint value, business goals, scope, and MoSCoW deliverables in plain language |
+| `/pm-sprint-lock [sprint]` | Lock sprint scope to prevent ad-hoc additions; freeze commitments |
+| `/pm-sprint-unlock [sprint]` | Unlock a locked sprint with user confirmation and logged rationale |
+| `/pm-sprint-close [sprint]` | Close completed sprint, evaluate deliverables, and handle carry-over |
+| `/pm-sprint-implement [sprint]` | Implement sprint phases in MoSCoW order with multi-agent collision prevention and wave isolation |
+| `/pm-sprint-status [sprint]` | Live sprint dashboard with active agent claims, deliverables, and sequential/parallel ETAs |
+| `/pm-sprint-list` | List all historical, active, and planned sprints |
+| `/pm-commands` | Catalog of all PM and sprint management commands |
+| `/spec-plan` | Plan a phase: branches, scope, tasks with Affected Paths and Depends On, sprint sizing (splits oversized work into `/pm-new-sprint`), and delivery task |
+| `/spec-implement [phase] [task]` | Implement a phase or active sprint task: queries `sprints.py next-work` by default, plans parallel waves, claims tasks, keeps progress in sync, runs `/code-cleanup --diff` |
 | `/spec-compile [all\|completed\|incomplete\|NNN\|NNN-NNN]` | Compile completed and incomplete specs into `specs/compiled/` |
 | `/spec-explain [phase]` | Explain a phase: what it fixes, what it develops, why, where, and its state |
 | `/explain <module or feature> [--non-technical]` | Explain how part of the codebase works, technically by default or in plain language |
