@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { makeTmp, cleanup } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip'];
+const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip', 'gzip'];
 const MIN = [
   '# test minimums', 'TANDEM_MIN_PYTHON=3.11', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
   'TANDEM_MIN_UV=0.5', 'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
