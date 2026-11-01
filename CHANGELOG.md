@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0] — 2026-11-01
+
+### CLI Package & tandem
+
+- **Compiled Binary Runtime via PyInstaller onedir:** Shipped standalone, compiled binary distribution of tandem across five platforms (`linux-x86_64`, `linux-arm64`, `darwin-arm64`, `darwin-x86_64`, `windows-x86_64`) delivering ~75ms warm launches with zero external Python runtime requirements.
+- **Verified Download and Atomic Installation (`run.sh`):** Added automatic release archive downloading from GitHub Releases, cryptographic `SHA256SUMS` verification, atomic extraction to `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>/`, symlinked `current` management, and automatic pruning of obsolete binary versions.
+- **Seamless Python and uv Fallback (`run.sh`):** Gracefully falls back to Python execution via `uv run` if precompiled binaries are unavailable, checksum verification fails, or execution fails smoke tests. `uv` is only required when using the Python runtime fallback or developing from source.
+- **Runtime Configuration and Non-Interactive Fetch (`run.sh`):** Added `TANDEM_RUNTIME` (`auto|binary|python`), `TANDEM_RELEASE_BASE` override, and `./run.sh --fetch-runtime` for pre-fetching and verifying the binary runtime without launching tmux.
+- **Frozen-Aware Self-Execution (`tandem/src/tandem/selfexec.py`):** Added `is_frozen()`, `self_argv()`, and `self_command()` to dynamically resolve entry point commands, ensuring child processes, statusline quota feeds, status panes, and reload handlers launch directly from the frozen binary executable.
+- **Portable Cross-Platform File Locking (`tandem/src/tandem/coordination/filelock.py`):** Replaced POSIX-only `fcntl` in coordination storage with portable file locking supporting Windows `msvcrt.locking` alongside POSIX `fcntl`.
+- **Windows Platform Support via MSYS2 / Git Bash (`run.sh`):** Added support for Windows shells (`MINGW*|MSYS*|CYGWIN*`) with MSYS2 `pacman` dependency resolution (`tmux`), `.zip` archive extraction, `tandem.exe` execution, and WSL Linux binary path compatibility.
+- **In-App Updater Binary Refresh (`tandem/src/tandem/updater.py`):** In frozen mode, F10 / in-app updates invoke `./run.sh --fetch-runtime`, validate the downloaded binary path, set `TANDEM_SELF`, skip unnecessary `uv sync` calls, and reload panes seamlessly.
+- **CI Build Matrix and Automated Release Workflows:** Added reusable GitHub Actions binary build workflow (`build-binary.yml`), CI matrix smoke testing across all 5 operating systems and architectures, and automated tag-triggered release workflow (`release.yml`) generating verified `SHA256SUMS`.
+
 ## [1.4.0] — 2026-11-01
 
 ### CLI Package

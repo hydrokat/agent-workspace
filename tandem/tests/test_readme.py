@@ -24,3 +24,16 @@ def test_readme_documents_update_interval_env() -> None:
 
 def test_readme_documents_no_update_flag() -> None:
     assert "--no-update" in README
+
+
+def test_readme_documents_tandem_runtime() -> None:
+    assert "TANDEM_RUNTIME" in README
+
+
+def test_readme_documents_fetch_runtime() -> None:
+    assert "--fetch-runtime" in README
+
+
+def test_readme_documents_binary_platforms() -> None:
+    for slug in ("linux-x86_64", "linux-arm64", "darwin-arm64", "darwin-x86_64", "windows-x86_64"):
+        assert slug in README

@@ -1,4 +1,3 @@
-import fcntl
 import json
 import os
 import re
@@ -6,6 +5,8 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+from tandem.coordination.filelock import exclusive_lock
 
 from tandem.coordination.schema import (
     STALE_SECONDS,
@@ -77,8 +78,7 @@ class CoordStore:
         if not _QUERY_ID.match(query_id):
             raise ValueError("invalid query id")
         path = self.root / "queries" / f"{query_id}.md"
-        with open(self.root / ".lock", "a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(self.root / ".lock", "a") as lock, exclusive_lock(lock):
             fields = decode_query_fields(path.read_text())
             if fields is None:
                 raise ValueError("unreadable query")

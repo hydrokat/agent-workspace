@@ -31,3 +31,7 @@ Thumbs.db
 __pycache__/
 .mypy_cache/
 .pytest_cache/
+dist/
+build/
+tandem/dist/
+tandem/build/

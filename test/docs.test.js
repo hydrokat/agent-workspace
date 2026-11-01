@@ -24,6 +24,45 @@ describe('README auto-update documentation', () => {
   });
 });
 
+describe('README runtime documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem', 'README.md'), 'utf8');
+
+  it('documents TANDEM_RUNTIME env var', () => {
+    assert.ok(readme.includes('TANDEM_RUNTIME'), 'TANDEM_RUNTIME in root README');
+    assert.ok(tandemReadme.includes('TANDEM_RUNTIME'), 'TANDEM_RUNTIME in tandem README');
+  });
+
+  it('documents TANDEM_RELEASE_BASE env var', () => {
+    assert.ok(readme.includes('TANDEM_RELEASE_BASE'), 'TANDEM_RELEASE_BASE in root README');
+    assert.ok(tandemReadme.includes('TANDEM_RELEASE_BASE'), 'TANDEM_RELEASE_BASE in tandem README');
+  });
+
+  it('documents --fetch-runtime flag', () => {
+    assert.ok(readme.includes('--fetch-runtime'), '--fetch-runtime in root README');
+    assert.ok(tandemReadme.includes('--fetch-runtime'), '--fetch-runtime in tandem README');
+  });
+
+  it('documents state bin cache directory', () => {
+    assert.ok(readme.includes('tandem/bin'), 'cache path in root README');
+    assert.ok(tandemReadme.includes('tandem/bin'), 'cache path in tandem README');
+  });
+
+  it('documents supported platforms and experimental Windows MSYS2 support', () => {
+    for (const p of ['linux-x86_64', 'linux-arm64', 'darwin-arm64', 'darwin-x86_64', 'windows-x86_64']) {
+      assert.ok(readme.includes(p), `${p} in root README`);
+      assert.ok(tandemReadme.includes(p), `${p} in tandem README`);
+    }
+    assert.ok(readme.includes('MSYS2'), 'MSYS2 in root README');
+    assert.ok(tandemReadme.includes('MSYS2'), 'MSYS2 in tandem README');
+  });
+
+  it('documents conditional uv requirement', () => {
+    assert.ok(readme.includes('uv'), 'uv documented in root README');
+    assert.ok(tandemReadme.includes('uv'), 'uv documented in tandem README');
+  });
+});
+
 describe('README screenshots', () => {
   const svgs = existsSync(IMAGES) ? readdirSync(IMAGES).filter((f) => f.endsWith('.svg')) : [];
 

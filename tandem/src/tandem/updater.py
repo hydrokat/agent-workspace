@@ -3,11 +3,12 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import tandem
+from tandem.selfexec import is_frozen, self_argv
 from tandem.tmux.tabs import PaneInfo
 
 Runner = Callable[[list[str], Path, float], tuple[int, str]]
@@ -18,12 +19,20 @@ SYNC_TIMEOUT = 600.0
 def run_streaming(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
     """Run an argv list showing its output live (the update popup); stdin is closed so nothing can prompt."""
     try:
-        done = subprocess.run(argv, cwd=cwd, timeout=timeout, stdin=subprocess.DEVNULL)
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        lines: list[str] = []
+        if proc.stdout:
+            for line in proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                lines.append(line)
+        proc.wait(timeout=timeout)
+        return proc.returncode, "".join(lines).strip()
     except subprocess.TimeoutExpired:
         return 124, "timed out"
     except OSError as error:
         return 127, str(error)
-    return done.returncode, ""
 
 
 def run_capturing(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
@@ -67,9 +76,14 @@ def _content(path: Path) -> bytes | None:
         return None
 
 
-def plan(workspace: Path, spec: str) -> list[str]:
+def plan(workspace: Path, spec: str, frozen: bool | None = None) -> list[str]:
+    if frozen is None:
+        frozen = is_frozen()
     lines = [f"1. npx --yes {spec} update --yes --no-link   (refreshes skills, agents, run.sh and tandem, and updates the installed AI CLIs: claude update, agy update, codex through its package manager)"]
-    if running_from_workspace(workspace):
+    if frozen:
+        lines += ["2. run.sh --fetch-runtime   (refreshes the tandem binary runtime)",
+                  "3. restart tandem's own windows (status, placeholders) on the new code"]
+    elif running_from_workspace(workspace):
         lines += ["2. uv sync   (refreshes tandem's Python environment)",
                   "3. restart tandem's own windows (status, placeholders) on the new code"]
     else:
@@ -78,15 +92,18 @@ def plan(workspace: Path, spec: str) -> list[str]:
     return lines
 
 
-def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: str = sys.executable,
+def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: str | None = None,
                runner: Runner = run_streaming, quiet_runner: Runner = run_capturing,
-               which: Callable[[str], str | None] = shutil.which) -> UpdateResult:
+               which: Callable[[str], str | None] = shutil.which,
+               self_cmd: Sequence[str] | None = None,
+               frozen: bool | None = None) -> UpdateResult:
     """Update the workspace and tandem without touching running agents; ``reload`` restarts tandem's own panes."""
+    if frozen is None:
+        frozen = is_frozen()
     result = UpdateResult(False, "", old_version=tandem.__version__)
     if which("npx") is None:
         result.message = "npx not found. Install Node.js (>= 18) to update, or run `npx " + spec + " update` yourself."
         return result
-    from_workspace = running_from_workspace(workspace)
     min_file = installed_dir(workspace) / "min-versions.env"
     before = _content(min_file)
     code, note = runner(["npx", "--yes", spec, "update", "--yes", "--no-link"], workspace, UPDATE_TIMEOUT)
@@ -94,6 +111,61 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
         result.message = f"agent-workspace update failed (exit {code}{': ' + note if note else ''}). Nothing was restarted."
         return result
     result.steps.append("workspace updated")
+
+    if frozen:
+        run_sh = str(workspace / "run.sh")
+        code, out = runner([run_sh, "--fetch-runtime"], workspace, UPDATE_TIMEOUT)
+        if code != 0:
+            reason = out or f"exit {code}"
+            result.message = (
+                f"Workspace updated, but the new tandem binary could not be fetched ({reason}). "
+                "Quit and run ./run.sh to finish (it will fall back to Python if needed)."
+            )
+            return result
+
+        new_self = ""
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("TANDEM_SELF="):
+                new_self = line.removeprefix("TANDEM_SELF=").strip()
+                break
+
+        if not new_self:
+            result.message = (
+                "Workspace updated, but the new tandem binary could not be fetched (TANDEM_SELF not reported). "
+                "Quit and run ./run.sh to finish (it will fall back to Python if needed)."
+            )
+            return result
+
+        self_path = Path(new_self).resolve()
+        state_dir = Path(os.environ.get("TANDEM_STATE_DIR") or (Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "tandem")).resolve()
+        expected_base = state_dir / "bin"
+        if expected_base not in self_path.parents or not (self_path.is_file() and os.access(self_path, os.X_OK)):
+            result.message = (
+                "Workspace updated, but the new tandem binary could not be fetched (invalid binary path). "
+                "Quit and run ./run.sh to finish (it will fall back to Python if needed)."
+            )
+            return result
+
+        probe = [new_self]
+        _, version = quiet_runner([*probe, "--version"], workspace, 30.0)
+        result.new_version = version.removeprefix("tandem ").strip()
+        if result.new_version and result.old_version and result.new_version != result.old_version:
+            result.steps.append(f"binary runtime fetched ({result.old_version} → {result.new_version})")
+        else:
+            result.steps.append("binary runtime fetched")
+
+        os.environ["TANDEM_SELF"] = new_self
+        result.reloaded = reload()
+        result.steps.append("tandem windows restarted" if result.reloaded else "no running session to restart")
+        changed = _content(min_file) != before
+        result.ok = True
+        result.message = ("Updated " + (f"tandem {result.old_version} → {result.new_version}" if result.new_version else "tandem") + ".")
+        if changed:
+            result.message += " Minimum dependency versions changed: quit and start with ./run.sh to re-check them."
+        return result
+
+    from_workspace = running_from_workspace(workspace)
     if not from_workspace:
         result.ok = True
         result.message = "Workspace updated. tandem runs from a checkout, so update that copy with git."
@@ -109,7 +181,8 @@ def run_update(workspace: Path, spec: str, reload: Callable[[], bool], python: s
         result.message = f"uv sync failed (exit {code}). tandem keeps running the old code; run ./run.sh to repair."
         return result
     result.steps.append("environment synced")
-    _, version = quiet_runner([python, "-m", "tandem", "--version"], workspace, 30.0)
+    probe = list(self_cmd) if self_cmd is not None else self_argv(python=python)
+    _, version = quiet_runner([*probe, "--version"], workspace, 30.0)
     result.new_version = version.removeprefix("tandem ").strip()
     result.reloaded = reload()
     result.steps.append("tandem windows restarted" if result.reloaded else "no running session to restart")
