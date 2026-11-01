@@ -153,3 +153,81 @@ def test_sync_leaves_the_environment_alone_outside_a_virtualenv(tmp_path: Path, 
     rec = EnvRecorder()
     updater.run_update(ws, "o/r", reloader([]), "py", rec, Recorder(), have("npx", "uv"))
     assert rec.sync_env is None
+
+
+def test_frozen_plan_mentions_fetch_runtime(tmp_path: Path) -> None:
+    text = "\n".join(updater.plan(tmp_path, "o/r", frozen=True))
+    assert "run.sh --fetch-runtime" in text
+    assert "uv sync" not in text
+
+
+def test_frozen_updater_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = installed_workspace(tmp_path, monkeypatch)
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("TANDEM_STATE_DIR", str(state_dir))
+    bin_dir = state_dir / "bin" / "1.5.0-darwin-arm64" / "tandem"
+    bin_dir.mkdir(parents=True)
+    fake_bin = bin_dir / "tandem"
+    fake_bin.write_text("#!/bin/sh\n")
+    fake_bin.chmod(0o755)
+
+    reloads: list[int] = []
+
+    def fake_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        if "--fetch-runtime" in argv:
+            return 0, f"TANDEM_SELF={fake_bin}\n"
+        return 0, ""
+
+    def fake_quiet(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        if "--version" in argv:
+            return 0, "tandem 1.5.0\n"
+        return 0, ""
+
+    result = updater.run_update(ws, "o/r", reloader(reloads), "py", runner=fake_runner,
+                                quiet_runner=fake_quiet, which=have("npx"), frozen=True)
+    assert result.ok
+    assert result.reloaded and reloads == [1]
+    assert any("binary runtime fetched" in s for s in result.steps)
+    assert os.environ.get("TANDEM_SELF") == str(fake_bin)
+    assert "1.5.0" in result.message
+
+
+def test_frozen_updater_fetch_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = installed_workspace(tmp_path, monkeypatch)
+    reloads: list[int] = []
+
+    def fake_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        if "--fetch-runtime" in argv:
+            return 4, "checksum mismatch"
+        return 0, ""
+
+    result = updater.run_update(ws, "o/r", reloader(reloads), "py", runner=fake_runner,
+                                quiet_runner=Recorder(), which=have("npx"), frozen=True)
+    assert not result.ok
+    assert reloads == []
+    assert "could not be fetched" in result.message
+    assert "checksum mismatch" in result.message
+
+
+def test_frozen_updater_no_uv_needed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = installed_workspace(tmp_path, monkeypatch)
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("TANDEM_STATE_DIR", str(state_dir))
+    bin_dir = state_dir / "bin" / "current" / "tandem"
+    bin_dir.mkdir(parents=True)
+    fake_bin = bin_dir / "tandem"
+    fake_bin.write_text("#!/bin/sh\n")
+    fake_bin.chmod(0o755)
+
+    def fake_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        if "--fetch-runtime" in argv:
+            return 0, f"TANDEM_SELF={fake_bin}\n"
+        return 0, ""
+
+    def fake_quiet(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        return 0, "tandem 1.5.0"
+
+    result = updater.run_update(ws, "o/r", lambda: True, "py", runner=fake_runner,
+                                quiet_runner=fake_quiet, which=have("npx"), frozen=True)
+    assert result.ok
+
