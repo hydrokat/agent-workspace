@@ -399,7 +399,8 @@ def render_sprint_markdown(
         )
     scope_table = "\n".join(rows) if rows else "| None | - | - | - | - | - | - | - | - |"
 
-    return f"""# Sprint {sprint_id.partition("-")[0]}: {title}
+    num_str = sprint_id.partition("-")[0] if not sprint_id.startswith("s-") else f"s-{sprint_id[2:].partition('-')[0]}"
+    return f"""# Sprint {num_str}: {title}
 
 ## Metadata
 - **Sprint**: {sprint_id}
@@ -548,9 +549,16 @@ def cmd_create(args: argparse.Namespace) -> None:
 
     assets_dir = Path(__file__).resolve().parents[1] / "assets"
     sprint_template = assets_dir / "sprint.md"
-    if sprint_template.is_file():
+    if phases:
+        text = render_sprint_markdown(
+            sprint_id, title, status, start_date, end_date, capacity_days, phases, audit_entry
+        )
+        write_atomic(sprint_dir / "sprint.md", text)
+    elif sprint_template.is_file():
         text = sprint_template.read_text(encoding="utf-8")
+        num_str = f"s-{sprint_id[2:].partition('-')[0]}"
         text = text.replace("{{sprint_id}}", sprint_id)
+        text = text.replace("{{sprint_num}}", num_str)
         text = text.replace("{{title}}", title)
         text = text.replace("{{status}}", status)
         text = text.replace("{{start_date}}", start_date)
