@@ -18,11 +18,15 @@ use crate::status::banners::{BannerAction, OfferBanner, UpdateBanner};
 use crate::status::notify::Notifier;
 use crate::status::queries_tab::QueriesTab;
 use crate::status::render;
+use crate::status::spec_tab;
+use crate::status::sprint_tab;
+use crate::status::task_tab;
 use crate::tmux::client::TmuxClient;
 use crate::tmux::keys::{GO_TO_AGENT, STATUS_REFRESH, crossterm_key, display_shortcut};
 use crate::ui::collapsible::Collapsible;
 use crate::ui::footer::{Footer, FooterItem};
 use crate::ui::option_list::{OptionItem, OptionList, OptionListState};
+use crate::ui::scroll::ScrollView;
 use crate::ui::tabs::TabBar;
 use crate::update_check::{
     Runner as UpdateRunner, due, installed_version_from_manifest, latest_version, read_state,
@@ -33,6 +37,82 @@ pub const COMPACT_BELOW_ROWS: u16 = 8;
 pub const AUTOSAVE_SECONDS: f64 = 15.0;
 pub const CHECK_INTERVAL_SECONDS: f64 = 600.0;
 pub const UPDATE_NOW_KEY: &str = "Alt+u";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusTab {
+    Status,
+    Sprint,
+    Spec,
+    Task,
+    Queries,
+}
+
+impl StatusTab {
+    pub const ALL: [StatusTab; 5] = [
+        StatusTab::Status,
+        StatusTab::Sprint,
+        StatusTab::Spec,
+        StatusTab::Task,
+        StatusTab::Queries,
+    ];
+
+    pub fn index(&self) -> usize {
+        match self {
+            StatusTab::Status => 0,
+            StatusTab::Sprint => 1,
+            StatusTab::Spec => 2,
+            StatusTab::Task => 3,
+            StatusTab::Queries => 4,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(StatusTab::Status),
+            1 => Some(StatusTab::Sprint),
+            2 => Some(StatusTab::Spec),
+            3 => Some(StatusTab::Task),
+            4 => Some(StatusTab::Queries),
+            _ => None,
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            StatusTab::Status => StatusTab::Sprint,
+            StatusTab::Sprint => StatusTab::Spec,
+            StatusTab::Spec => StatusTab::Task,
+            StatusTab::Task => StatusTab::Queries,
+            StatusTab::Queries => StatusTab::Status,
+        }
+    }
+
+    pub fn prev(&self) -> Self {
+        match self {
+            StatusTab::Status => StatusTab::Queries,
+            StatusTab::Sprint => StatusTab::Status,
+            StatusTab::Spec => StatusTab::Sprint,
+            StatusTab::Task => StatusTab::Spec,
+            StatusTab::Queries => StatusTab::Task,
+        }
+    }
+
+    pub fn title(&self, open_queries: usize) -> String {
+        match self {
+            StatusTab::Status => "Status".to_string(),
+            StatusTab::Sprint => "Sprint".to_string(),
+            StatusTab::Spec => "Spec".to_string(),
+            StatusTab::Task => "Task".to_string(),
+            StatusTab::Queries => {
+                if open_queries > 0 {
+                    format!("Queries ({open_queries})")
+                } else {
+                    "Queries".to_string()
+                }
+            }
+        }
+    }
+}
 
 pub struct StatusApp {
     pub workspace: PathBuf,
@@ -52,14 +132,16 @@ pub struct StatusApp {
     pub update_banner: Option<UpdateBanner>,
     pub offer_banner: Option<OfferBanner>,
 
-    pub tab_idx: usize,
+    pub tab: StatusTab,
     pub tab_bar: TabBar,
     pub sessions_state: OptionListState,
     pub session_items: Vec<OptionItem>,
 
-    pub collapsible_sprint: Collapsible,
+    pub sprint_scroll: ScrollView,
+    pub spec_scroll: ScrollView,
+    pub task_scroll: ScrollView,
+
     pub collapsible_repos: Collapsible,
-    pub collapsible_phases: Collapsible,
     pub collapsible_conflicts: Collapsible,
 
     pub queries_tab: QueriesTab,
@@ -71,10 +153,9 @@ pub struct StatusApp {
 
     pub banner_area: Rect,
     pub tabs_area: Rect,
+    pub body_area: Rect,
     pub sessions_area: Rect,
-    pub sprint_header_y: u16,
     pub repos_header_y: u16,
-    pub phases_header_y: u16,
     pub conflicts_header_y: u16,
 }
 
@@ -94,7 +175,7 @@ impl StatusApp {
         let queries_tab = QueriesTab::new(store_arc.clone(), tmux.clone());
         let notifier = Notifier::new(tmux.clone());
 
-        let tab_bar = TabBar::new(vec!["Status".to_string(), "Queries".to_string()], 0);
+        let tab_bar = TabBar::from_tabs(&StatusTab::ALL, 0, StatusTab::Status);
 
         let mut app = Self {
             workspace,
@@ -114,17 +195,19 @@ impl StatusApp {
             update_banner,
             offer_banner: None,
 
-            tab_idx: 0,
+            tab: StatusTab::Status,
             tab_bar,
             sessions_state: OptionListState::default(),
             session_items: Vec::new(),
 
-            collapsible_sprint: Collapsible::new("Sprint", true),
+            sprint_scroll: ScrollView::new(),
+            spec_scroll: ScrollView::new(),
+            task_scroll: ScrollView::new(),
+
             collapsible_repos: Collapsible::new(
                 "Repositories · * main checkout · → linked worktree",
                 true,
             ),
-            collapsible_phases: Collapsible::new("Phases", true),
             collapsible_conflicts: Collapsible::new("Conflicts", false),
 
             queries_tab,
@@ -136,10 +219,9 @@ impl StatusApp {
 
             banner_area: Rect::default(),
             tabs_area: Rect::default(),
+            body_area: Rect::default(),
             sessions_area: Rect::default(),
-            sprint_header_y: 0,
             repos_header_y: 0,
-            phases_header_y: 0,
             conflicts_header_y: 0,
         };
         app.action_refresh_now();
@@ -208,13 +290,7 @@ impl StatusApp {
             self.snapshot.sessions.clone(),
         );
 
-        let open_count = self.snapshot.open_queries();
-        let label = if open_count > 0 {
-            format!("Queries ({open_count})")
-        } else {
-            "Queries".to_string()
-        };
-        self.tab_bar.titles = vec!["Status".to_string(), label];
+        self.tab_bar = TabBar::from_tabs(&StatusTab::ALL, self.snapshot.open_queries(), self.tab);
 
         self.notifier.notify(&self.snapshot.queries);
     }
@@ -280,14 +356,17 @@ impl StatusApp {
         }
     }
 
+    pub fn set_tab(&mut self, tab: StatusTab) {
+        self.tab = tab;
+        self.tab_bar.selected = tab.index();
+    }
+
     pub fn action_show_status(&mut self) {
-        self.tab_idx = 0;
-        self.tab_bar.selected = 0;
+        self.set_tab(StatusTab::Status);
     }
 
     pub fn action_show_queries(&mut self) {
-        self.tab_idx = 1;
-        self.tab_bar.selected = 1;
+        self.set_tab(StatusTab::Queries);
     }
 
     pub fn action_update_now(&mut self) {
@@ -297,7 +376,7 @@ impl StatusApp {
     }
 
     pub fn action_goto(&mut self) {
-        if self.tab_idx == 0
+        if self.tab == StatusTab::Status
             && let Some(idx) = self.sessions_state.selected
             && let Some(sess) = self.snapshot.sessions.get(idx)
         {
@@ -368,96 +447,195 @@ impl StatusApp {
             return;
         }
 
-        if self.tab_idx == 1 {
+        let is_shift_tab = event.code == KeyCode::BackTab
+            || (event.code == KeyCode::Tab
+                && event
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::SHIFT));
+
+        if is_shift_tab {
+            self.set_tab(self.tab.prev());
+            return;
+        }
+
+        if event.modifiers.is_empty() {
+            match event.code {
+                KeyCode::Char('1') => {
+                    self.set_tab(StatusTab::Status);
+                    return;
+                }
+                KeyCode::Char('2') => {
+                    self.set_tab(StatusTab::Sprint);
+                    return;
+                }
+                KeyCode::Char('3') => {
+                    self.set_tab(StatusTab::Spec);
+                    return;
+                }
+                KeyCode::Char('4') => {
+                    self.set_tab(StatusTab::Task);
+                    return;
+                }
+                KeyCode::Char('5') => {
+                    self.set_tab(StatusTab::Queries);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        if self.tab == StatusTab::Queries {
             if self.queries_tab.handle_key(event) {
                 self.action_refresh_now();
             }
             return;
         }
 
-        match event.code {
-            KeyCode::Tab => {
-                self.action_show_queries();
+        if event.code == KeyCode::Tab {
+            self.set_tab(self.tab.next());
+            return;
+        }
+
+        let view_h = if self.body_area.height > 0 {
+            self.body_area.height as usize
+        } else {
+            20
+        };
+        let view_w = if self.body_area.width > 0 {
+            self.body_area.width
+        } else {
+            80
+        };
+
+        match self.tab {
+            StatusTab::Status => match event.code {
+                KeyCode::Up => {
+                    self.sessions_state.select_prev(&self.session_items);
+                }
+                KeyCode::Down => {
+                    self.sessions_state.select_next(&self.session_items);
+                }
+                KeyCode::Enter => {
+                    self.action_goto();
+                }
+                _ => {}
+            },
+            StatusTab::Sprint => {
+                let lines = sprint_tab::lines(&self.snapshot, view_w);
+                self.sprint_scroll
+                    .handle_key(event.code, lines.len(), view_h);
             }
-            KeyCode::Up => {
-                self.sessions_state.select_prev(&self.session_items);
+            StatusTab::Spec => {
+                let lines = spec_tab::lines(&self.snapshot, view_w);
+                self.spec_scroll.handle_key(event.code, lines.len(), view_h);
             }
-            KeyCode::Down => {
-                self.sessions_state.select_next(&self.session_items);
+            StatusTab::Task => {
+                let lines = task_tab::lines(&self.snapshot, view_w);
+                self.task_scroll.handle_key(event.code, lines.len(), view_h);
             }
-            KeyCode::Enter => {
-                self.action_goto();
-            }
-            _ => {}
+            StatusTab::Queries => {}
         }
     }
 
     pub fn handle_mouse(&mut self, event: &MouseEvent) {
-        if event.kind == MouseEventKind::Down(MouseButton::Left) {
-            let col = event.column;
-            let row = event.row;
+        let col = event.column;
+        let row = event.row;
 
-            if let Some(ref banner) = self.update_banner {
-                let action = banner.click_at(col, row, self.banner_area);
-                if action == BannerAction::DismissUpdate {
-                    self.update_banner = None;
-                    return;
-                }
-            }
-
-            if let Some(ref banner) = self.offer_banner {
-                let action = banner.click_at(col, row, self.banner_area);
-                match action {
-                    BannerAction::Later | BannerAction::SkipVersion(_) => {
-                        self.offer_banner = None;
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(ref banner) = self.update_banner {
+                    let action = banner.click_at(col, row, self.banner_area);
+                    if action == BannerAction::DismissUpdate {
+                        self.update_banner = None;
                         return;
                     }
-                    BannerAction::RunUpdate => {
-                        return;
+                }
+
+                if let Some(ref banner) = self.offer_banner {
+                    let action = banner.click_at(col, row, self.banner_area);
+                    match action {
+                        BannerAction::Later | BannerAction::SkipVersion(_) => {
+                            self.offer_banner = None;
+                            return;
+                        }
+                        BannerAction::RunUpdate => {
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if row == self.tabs_area.y
+                    && let Some(new_idx) =
+                        self.tab_bar
+                            .click_at(col, self.tabs_area.x, self.tabs_area.width)
+                {
+                    if let Some(tab) = StatusTab::from_index(new_idx) {
+                        self.set_tab(tab);
+                    }
+                    return;
+                }
+
+                match self.tab {
+                    StatusTab::Status => {
+                        if self.collapsible_repos.click_at(row, self.repos_header_y) {
+                            return;
+                        }
+                        if self
+                            .collapsible_conflicts
+                            .click_at(row, self.conflicts_header_y)
+                        {
+                            return;
+                        }
+                        if let Some(_idx) = self.sessions_state.click_at(
+                            col,
+                            row,
+                            self.sessions_area.y,
+                            self.sessions_area.height,
+                            &self.session_items,
+                        ) {
+                            self.action_goto();
+                        }
+                    }
+                    StatusTab::Queries
+                        if self.queries_tab.handle_mouse(event, self.sessions_area) =>
+                    {
+                        self.action_refresh_now();
                     }
                     _ => {}
                 }
             }
-
-            if row == self.tabs_area.y
-                && let Some(new_tab) =
-                    self.tab_bar
-                        .click_at(col, self.tabs_area.x, self.tabs_area.width)
-            {
-                self.tab_idx = new_tab;
-                return;
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let view_h = if self.body_area.height > 0 {
+                    self.body_area.height as usize
+                } else {
+                    20
+                };
+                let view_w = if self.body_area.width > 0 {
+                    self.body_area.width
+                } else {
+                    80
+                };
+                match self.tab {
+                    StatusTab::Sprint => {
+                        let lines = sprint_tab::lines(&self.snapshot, view_w);
+                        self.sprint_scroll
+                            .handle_mouse(event.kind, lines.len(), view_h);
+                    }
+                    StatusTab::Spec => {
+                        let lines = spec_tab::lines(&self.snapshot, view_w);
+                        self.spec_scroll
+                            .handle_mouse(event.kind, lines.len(), view_h);
+                    }
+                    StatusTab::Task => {
+                        let lines = task_tab::lines(&self.snapshot, view_w);
+                        self.task_scroll
+                            .handle_mouse(event.kind, lines.len(), view_h);
+                    }
+                    _ => {}
+                }
             }
-
-            if self.tab_idx == 0 {
-                if self.snapshot.sprint.is_some()
-                    && self.collapsible_sprint.click_at(row, self.sprint_header_y)
-                {
-                    return;
-                }
-                if self.collapsible_repos.click_at(row, self.repos_header_y) {
-                    return;
-                }
-                if self.collapsible_phases.click_at(row, self.phases_header_y) {
-                    return;
-                }
-                if self
-                    .collapsible_conflicts
-                    .click_at(row, self.conflicts_header_y)
-                {
-                    return;
-                }
-                if let Some(_idx) = self.sessions_state.click_at(
-                    col,
-                    row,
-                    self.sessions_area.y,
-                    self.sessions_area.height,
-                    &self.session_items,
-                ) {
-                    self.action_goto();
-                }
-            } else if self.queries_tab.handle_mouse(event, self.sessions_area) {
-                self.action_refresh_now();
-            }
+            _ => {}
         }
     }
 
@@ -511,11 +689,27 @@ impl StatusApp {
             summary_style,
         );
 
+        self.body_area = chunks[3];
         if !compact {
-            if self.tab_idx == 0 {
-                self.render_status_tab(chunks[3], buf);
-            } else {
-                self.queries_tab.render(chunks[3], buf);
+            match self.tab {
+                StatusTab::Status => {
+                    self.render_status_tab(chunks[3], buf);
+                }
+                StatusTab::Sprint => {
+                    let lines = sprint_tab::lines(&self.snapshot, chunks[3].width);
+                    self.sprint_scroll.render_lines(&lines, chunks[3], buf);
+                }
+                StatusTab::Spec => {
+                    let lines = spec_tab::lines(&self.snapshot, chunks[3].width);
+                    self.spec_scroll.render_lines(&lines, chunks[3], buf);
+                }
+                StatusTab::Task => {
+                    let lines = task_tab::lines(&self.snapshot, chunks[3].width);
+                    self.task_scroll.render_lines(&lines, chunks[3], buf);
+                }
+                StatusTab::Queries => {
+                    self.queries_tab.render(chunks[3], buf);
+                }
             }
         }
 
@@ -573,29 +767,15 @@ impl StatusApp {
             y += 1;
         }
 
-        if self.snapshot.sprint.is_some() && y < bottom {
-            self.sprint_header_y = y;
-            self.collapsible_sprint.render_header(
-                Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
-                buf,
+        if y < bottom {
+            buf.set_stringn(
+                area.x + 1,
+                y,
+                "Sprint, Spec and Task have their own tabs",
+                (area.width as usize).saturating_sub(2),
+                Style::default().fg(Color::DarkGray),
             );
             y += 1;
-            if self.collapsible_sprint.expanded && y < bottom {
-                let sprint_text = render::sprint_text(&self.snapshot);
-                for line in sprint_text.lines() {
-                    if y >= bottom {
-                        break;
-                    }
-                    buf.set_stringn(
-                        area.x + 3,
-                        y,
-                        line,
-                        (area.width as usize).saturating_sub(4),
-                        Style::default().fg(Color::White),
-                    );
-                    y += 1;
-                }
-            }
         }
 
         if y < bottom {
@@ -609,31 +789,6 @@ impl StatusApp {
                 let repos_w = (area.width.saturating_sub(6) as usize).max(render::MIN_WIDTH);
                 let repos_text = render::repos_text(&self.snapshot, repos_w);
                 for line in repos_text.lines() {
-                    if y >= bottom {
-                        break;
-                    }
-                    buf.set_stringn(
-                        area.x + 3,
-                        y,
-                        line,
-                        area.width as usize - 4,
-                        Style::default().fg(Color::White),
-                    );
-                    y += 1;
-                }
-            }
-        }
-
-        if y < bottom {
-            self.phases_header_y = y;
-            self.collapsible_phases.render_header(
-                Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
-                buf,
-            );
-            y += 1;
-            if self.collapsible_phases.expanded && y < bottom {
-                let phases_text = render::phases_text(&self.snapshot);
-                for line in phases_text.lines() {
                     if y >= bottom {
                         break;
                     }
@@ -677,14 +832,35 @@ impl StatusApp {
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
         let d = |k: &str| display_shortcut(k, &self.platform).unwrap_or_else(|_| k.to_string());
-        let mut items = vec![
-            FooterItem::new("Tab", "Switch tabs"),
-            FooterItem::new("↑↓", "Move"),
-            FooterItem::new(d(GO_TO_AGENT), "Go to agent"),
-            FooterItem::new(d(STATUS_REFRESH), "Refresh"),
-            FooterItem::new(d("Alt+s"), "Status"),
-            FooterItem::new(d("Alt+q"), "Queries"),
-        ];
+        let mut items = Vec::new();
+        match self.tab {
+            StatusTab::Status => {
+                items.push(FooterItem::new("Tab", "Switch tabs"));
+                items.push(FooterItem::new("1-5", "Jump"));
+                items.push(FooterItem::new("↑↓", "Move"));
+                items.push(FooterItem::new(d(GO_TO_AGENT), "Go to agent"));
+                items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
+                items.push(FooterItem::new(d("Alt+s"), "Status"));
+                items.push(FooterItem::new(d("Alt+q"), "Queries"));
+            }
+            StatusTab::Sprint | StatusTab::Spec | StatusTab::Task => {
+                items.push(FooterItem::new("Tab", "Switch tabs"));
+                items.push(FooterItem::new("1-5", "Jump"));
+                items.push(FooterItem::new("↑↓", "Scroll"));
+                items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
+                items.push(FooterItem::new(d("Alt+s"), "Status"));
+                items.push(FooterItem::new(d("Alt+q"), "Queries"));
+            }
+            StatusTab::Queries => {
+                items.push(FooterItem::new("Tab", "Next element"));
+                items.push(FooterItem::new("Shift+Tab", "Prev tab"));
+                items.push(FooterItem::new("1-5", "Jump"));
+                items.push(FooterItem::new("↑↓", "Move"));
+                items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
+                items.push(FooterItem::new(d("Alt+s"), "Status"));
+                items.push(FooterItem::new(d("Alt+q"), "Queries"));
+            }
+        }
         if self.offer_banner.is_some() {
             items.push(FooterItem::new(d(UPDATE_NOW_KEY), "Update now"));
         }

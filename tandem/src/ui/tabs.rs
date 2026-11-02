@@ -14,6 +14,18 @@ impl TabBar {
         Self { titles, selected }
     }
 
+    pub fn from_tabs(
+        tabs: &[crate::status::app::StatusTab],
+        open_queries: usize,
+        selected: crate::status::app::StatusTab,
+    ) -> Self {
+        let titles = tabs.iter().map(|t| t.title(open_queries)).collect();
+        Self {
+            titles,
+            selected: selected.index(),
+        }
+    }
+
     pub fn select_next(&mut self) {
         if !self.titles.is_empty() {
             self.selected = (self.selected + 1) % self.titles.len();
