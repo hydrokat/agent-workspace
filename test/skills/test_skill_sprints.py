@@ -533,3 +533,125 @@ def test_backlog_scopes_and_determinism(workspace: Path) -> None:
     proc2 = run(workspace, "backlog", "--scope", "all")
     assert proc1.stdout == proc2.stdout
 
+
+def test_subset_byte_identical_when_no_subsets(workspace: Path) -> None:
+    # A sprint without subsets should never have a Tasks column
+    out(run(workspace, "create", "--title", "Golden Sprint", "--slug", "golden", "--phase", "p-002-sample"))
+    sprint_file = workspace / "sprints" / "s-001-golden" / "sprint.md"
+    content_before = sprint_file.read_text(encoding="utf-8")
+    assert "| Tasks |" not in content_before
+
+    # Re-reading and rendering should maintain no Tasks column
+    sprint_dir = workspace / "sprints" / "s-001-golden"
+    model = out(run(workspace, "show", "s-001-golden"))
+    assert "| Tasks |" not in sprint_file.read_text(encoding="utf-8")
+
+
+def test_add_phase_unknown_and_done_tasks_exit_2(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "Subset Test", "--slug", "subset-test"))
+    # Unknown task exits 2
+    err(run(workspace, "add-phase", "s-001-subset-test", "p-002-sample", "--tasks", "t-999"), code=2)
+    # Done task (t-001 in p-002-sample) exits 2
+    err(run(workspace, "add-phase", "s-001-subset-test", "p-002-sample", "--tasks", "t-001"), code=2)
+
+
+def test_add_phase_dependencies_and_with_deps(workspace: Path) -> None:
+    # Add a task t-004 depending on t-002
+    (workspace / "specs" / "p-002-sample" / "t-004.md").write_text(
+        "# t-004: Dependent\n\n## Depends On\n- t-002\n\n## Status\n- [ ] Pending\n",
+        encoding="utf-8",
+    )
+    out(run(workspace, "create", "--title", "Dep Test", "--slug", "dep-test"))
+
+    # Without --with-deps, adding t-004 fails with code 1 naming t-002
+    res_err = err(run(workspace, "add-phase", "s-001-dep-test", "p-002-sample", "--tasks", "t-004"), code=1)
+    assert "t-002" in res_err["error"]
+
+    # With --with-deps, t-002 is auto-added
+    res_ok = out(run(workspace, "add-phase", "s-001-dep-test", "p-002-sample", "--tasks", "t-004", "--with-deps"))
+    assert "t-002" in res_ok["tasks"]
+    assert "t-004" in res_ok["tasks"]
+    assert res_ok["auto_added"] == ["t-002"]
+    assert res_ok["delivery_excluded"] is False  # t-004 is last task in p-002-sample
+
+
+def test_add_phase_merge_and_delivery_excluded(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "Merge Test", "--slug", "merge-test"))
+    # Add only t-002: delivery task t-003 excluded
+    res1 = out(run(workspace, "add-phase", "s-001-merge-test", "p-002-sample", "--tasks", "t-002"))
+    assert res1["tasks"] == ["t-002"]
+    assert res1["delivery_excluded"] is True
+    assert res1["effort"] == 0.5
+
+    # Merge t-003 into existing subset: now delivery included
+    res2 = out(run(workspace, "add-phase", "s-001-merge-test", "p-002-sample", "--tasks", "t-003"))
+    assert res2["tasks"] == ["t-002", "t-003"]
+    assert res2["delivery_excluded"] is False
+    assert res2["effort"] == 1.0
+
+    # Adding a whole phase twice is rejected
+    out(run(workspace, "add-phase", "s-001-merge-test", "phase-001"))
+    err(run(workspace, "add-phase", "s-001-merge-test", "phase-001"), code=1)
+
+
+def test_hand_written_sections_preserved(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "Preserve Test", "--slug", "preserve-test"))
+    sprint_file = workspace / "sprints" / "s-001-preserve-test" / "sprint.md"
+    orig_text = sprint_file.read_text(encoding="utf-8")
+
+    # Inject custom section
+    custom_section = "\n## Business Objectives & Context\nImportant business background.\n"
+    sprint_file.write_text(orig_text.replace("## Deliverables", custom_section + "\n## Deliverables"), encoding="utf-8")
+
+    # Add phase
+    out(run(workspace, "add-phase", "s-001-preserve-test", "p-002-sample"))
+
+    # Verify custom section survived
+    updated_text = sprint_file.read_text(encoding="utf-8")
+    assert "## Business Objectives & Context" in updated_text
+    assert "Important business background." in updated_text
+
+
+def test_subset_aware_commands(workspace: Path) -> None:
+    # In p-002-sample, t-001 is Done, t-002 is In Progress, t-003 is Pending
+    out(run(workspace, "create", "--title", "Subset Commands", "--slug", "subset-cmds"))
+    out(run(workspace, "add-phase", "s-001-subset-cmds", "p-002-sample", "--tasks", "t-003"))
+
+    # status: only subset tasks are counted (t-002 in progress is outside subset)
+    status_res = out(run(workspace, "status", "s-001-subset-cmds"))
+    assert status_res["total_remaining_tasks"] == 1
+    assert len(status_res["in_development"]) == 0
+    assert len(status_res["remaining_by_moscow"]["Must Have"]) == 1
+    assert status_res["remaining_by_moscow"]["Must Have"][0]["task"] == "t-003"
+
+    # lint: valid subset passes
+    lint_res = out(run(workspace, "lint", "s-001-subset-cmds"))
+    assert lint_res["ok"] is True
+
+    # next-work must not offer t-002 because t-002 is outside the subset
+    next_res = out(run(workspace, "next-work", "s-001-subset-cmds"))
+    assert next_res["next_task"] == "t-003"
+
+    # close should fail while t-003 is Pending
+    err(run(workspace, "close", "s-001-subset-cmds"), code=1)
+
+    # close with --carry-over should carry over ONLY t-003, not t-002
+    close_carry = out(run(workspace, "close", "s-001-subset-cmds", "--carry-over"))
+    assert close_carry["status"] == "closed"
+    assert len(close_carry["carried_over"]) == 1
+    assert close_carry["carried_over"][0]["task"] == "t-003"
+
+
+def test_lint_detects_unknown_subset_task(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "Lint Subset", "--slug", "lint-subset"))
+    out(run(workspace, "add-phase", "s-001-lint-subset", "p-002-sample", "--tasks", "t-003"))
+
+    sprint_file = workspace / "sprints" / "s-001-lint-subset" / "sprint.md"
+    orig_content = sprint_file.read_text(encoding="utf-8")
+    sprint_file.write_text(orig_content.replace("t-003", "t-999"), encoding="utf-8")
+
+    err_lint = err(run(workspace, "lint", "s-001-lint-subset"), code=1)
+    assert any(p["code"] == "subset-unknown-task" for p in err_lint["problems"])
+
+
+

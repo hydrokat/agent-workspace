@@ -133,6 +133,14 @@ class PhaseScope:
     effort: float
     rice_score: float
     spec_link: str
+    tasks: list[str] = field(default_factory=list)
+
+
+def scoped_tasks(phase: PhaseScope, show_tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not phase.tasks:
+        return show_tasks
+    task_set = set(phase.tasks)
+    return [t for t in show_tasks if t.get("id") in task_set]
 
 
 @dataclass
@@ -150,6 +158,7 @@ class SprintModel:
     deliverables: list[str]
     audit_log: list[str]
     path: Path
+    custom_sections: dict[str, str] = field(default_factory=dict)
 
 
 def parse_sprint_md(sprint_dir: Path) -> SprintModel:
@@ -181,23 +190,40 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
     audit_log: list[str] = []
     phases: list[PhaseScope] = []
 
+    custom_sections: dict[str, str] = {}
+    current_custom_heading: str | None = None
+    current_custom_lines: list[str] = []
+
+    MANAGED_SECTIONS = {
+        "metadata",
+        "prioritized scope (moscow & rice)",
+        "prioritized scope",
+        "scope",
+        "deliverables",
+        "mandatory & auto-included items",
+        "deferred backlog (won't have)",
+        "lock & audit log",
+        "audit log",
+    }
+
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("## Metadata"):
-            in_audit = False
-            in_scope_table = False
+        if stripped.startswith("## "):
+            heading = stripped[3:].strip()
+            if current_custom_heading and current_custom_lines:
+                custom_sections[current_custom_heading] = "\n".join(current_custom_lines).strip()
+            current_custom_heading = None
+            current_custom_lines = []
+
+            in_audit = heading.lower() in ("lock & audit log", "audit log")
+            in_scope_table = heading.lower() in ("prioritized scope (moscow & rice)", "prioritized scope", "scope")
+
+            if heading.lower() not in MANAGED_SECTIONS:
+                current_custom_heading = heading
             continue
-        elif stripped.startswith("## Prioritized Scope") or stripped.startswith("## Scope"):
-            in_audit = False
-            in_scope_table = True
-            continue
-        elif stripped.startswith("## Lock & Audit Log") or stripped.startswith("## Audit Log"):
-            in_audit = True
-            in_scope_table = False
-            continue
-        elif stripped.startswith("## "):
-            in_audit = False
-            in_scope_table = False
+
+        if current_custom_heading is not None:
+            current_custom_lines.append(line)
 
         if in_audit:
             if stripped.startswith("- "):
@@ -220,6 +246,10 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
                     except ValueError:
                         p_reach, p_impact, p_conf, p_effort, p_rice = 100.0, 1.0, 0.8, 1.0, 80.0
                     p_link = cols[8] if len(cols) > 8 else f"../../specs/{p_name}/impl.md"
+                    p_tasks: list[str] = []
+                    if len(cols) >= 10:
+                        tasks_str = cols[9].strip()
+                        p_tasks = [t.strip() for t in tasks_str.split(",") if t.strip() and t.strip() not in ("-", "all")]
                     phases.append(PhaseScope(
                         phase=p_name,
                         title=p_title,
@@ -230,6 +260,7 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
                         effort=p_effort,
                         rice_score=p_rice,
                         spec_link=p_link,
+                        tasks=p_tasks,
                     ))
             continue
 
@@ -252,6 +283,9 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
             except ValueError:
                 pass
 
+    if current_custom_heading and current_custom_lines:
+        custom_sections[current_custom_heading] = "\n".join(current_custom_lines).strip()
+
     if phases:
         committed_effort = sum(p.effort for p in phases if p.moscow != "Won't Have")
     elif declared_effort is not None:
@@ -273,6 +307,7 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
         deliverables=deliverables,
         audit_log=audit_log,
         path=sprint_dir,
+        custom_sections=custom_sections,
     )
 
 
@@ -391,17 +426,54 @@ def render_sprint_markdown(
     end_date: str,
     capacity_days: float,
     phases: list[PhaseScope],
-    audit_entry: str,
+    audit_entry: list[str] | str,
+    custom_sections: dict[str, str] | None = None,
 ) -> str:
     committed = sum(p.effort for p in phases if p.moscow != "Won't Have")
     overloaded = "Yes" if committed > capacity_days or len(phases) > 3 else "No"
 
+    has_subsets = any(bool(p.tasks) for p in phases)
+
     rows: list[str] = []
     for p in phases:
-        rows.append(
-            f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | [{p.phase}](../../specs/{p.phase}/impl.md) |"
+        if has_subsets:
+            tasks_str = ", ".join(p.tasks) if p.tasks else ""
+            rows.append(
+                f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | [{p.phase}](../../specs/{p.phase}/impl.md) | {tasks_str} |"
+            )
+        else:
+            rows.append(
+                f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | [{p.phase}](../../specs/{p.phase}/impl.md) |"
+            )
+
+    if has_subsets:
+        header_table = (
+            "| Phase | Title | MoSCoW | Reach | Impact | Confidence | Effort | RICE Score | Spec Link | Tasks |\n"
+            "|---|---|---|---|---|---|---|---|---|---|"
         )
-    scope_table = "\n".join(rows) if rows else "| None | - | - | - | - | - | - | - | - |"
+        empty_row = "| None | - | - | - | - | - | - | - | - | - |"
+    else:
+        header_table = (
+            "| Phase | Title | MoSCoW | Reach | Impact | Confidence | Effort | RICE Score | Spec Link |\n"
+            "|---|---|---|---|---|---|---|---|---|"
+        )
+        empty_row = "| None | - | - | - | - | - | - | - | - |"
+
+    scope_table = f"{header_table}\n" + ("\n".join(rows) if rows else empty_row)
+
+    if isinstance(audit_entry, list):
+        audit_log_str = "\n".join(f"- {e}" for e in audit_entry)
+    else:
+        audit_log_str = audit_entry if audit_entry.startswith("- ") else f"- {audit_entry}"
+
+    custom_pre_deliverables = ""
+    custom_post_scope = ""
+    if custom_sections:
+        for heading, body in custom_sections.items():
+            if heading.lower() in ("business objectives & context", "context", "objectives"):
+                custom_pre_deliverables += f"\n## {heading}\n{body}\n"
+            else:
+                custom_post_scope += f"\n## {heading}\n{body}\n"
 
     num_str = sprint_id.partition("-")[0] if not sprint_id.startswith("s-") else f"s-{sprint_id[2:].partition('-')[0]}"
     return f"""# Sprint {num_str}: {title}
@@ -417,7 +489,7 @@ def render_sprint_markdown(
 - **Total Phases**: {len(phases)}
 - **Total Tasks**: {len(phases) * 3}
 - **Overloaded**: {overloaded}
-
+{custom_pre_deliverables}
 ## Deliverables
 - [Business Requirements Document (BRD)](./business-requirements-document.html)
 - [Functional Requirements Document (FRD)](./functional-requirements-document.html)
@@ -425,8 +497,6 @@ def render_sprint_markdown(
 
 ## Prioritized Scope (MoSCoW & RICE)
 
-| Phase | Title | MoSCoW | Reach | Impact | Confidence | Effort | RICE Score | Spec Link |
-|---|---|---|---|---|---|---|---|---|
 {scope_table}
 
 ## Mandatory & Auto-Included Items
@@ -434,9 +504,9 @@ def render_sprint_markdown(
 
 ## Deferred Backlog (Won't Have)
 - None
-
+{custom_post_scope}
 ## Lock & Audit Log
-- {audit_entry}
+{audit_log_str}
 """
 
 
@@ -617,6 +687,81 @@ def cmd_add_phase(args: argparse.Namespace) -> None:
                 1,
             )
 
+    specs_script = get_specs_script(root)
+    show_tasks: list[dict[str, Any]] = []
+    if specs_script:
+        try:
+            proc_show = subprocess.run(
+                [sys.executable, str(specs_script), "--root", str(root), "show", args.phase],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if proc_show.returncode == 0:
+                show_tasks = json.loads(proc_show.stdout).get("tasks", [])
+        except Exception:
+            pass
+
+    task_map = {t["id"]: t for t in show_tasks}
+    last_task_id = show_tasks[-1]["id"] if show_tasks else ""
+
+    requested_tasks: list[str] = args.tasks or []
+    auto_added: list[str] = []
+
+    if requested_tasks:
+        for t_id in requested_tasks:
+            if t_id not in task_map:
+                fail(f"unknown task: {t_id}", 2)
+            if task_map[t_id].get("status") == "Done":
+                fail(f"task already Done: {t_id}", 2)
+
+        selected_set = set(requested_tasks)
+        while True:
+            added_in_pass: list[str] = []
+            for t_id in list(selected_set):
+                t_obj = task_map.get(t_id, {})
+                for dep in (t_obj.get("depends_on") or []):
+                    for dep_id in re.findall(r"\b(t-\d{3})\b", dep):
+                        if dep_id in task_map and task_map[dep_id].get("status") != "Done":
+                            if dep_id not in selected_set:
+                                if getattr(args, "with_deps", False):
+                                    selected_set.add(dep_id)
+                                    added_in_pass.append(dep_id)
+                                    if dep_id not in auto_added:
+                                        auto_added.append(dep_id)
+                                else:
+                                    fail(
+                                        f"task {t_id} depends on {dep_id} which is not in the sprint; pass --with-deps to include it",
+                                        1,
+                                    )
+            if not added_in_pass:
+                break
+        final_tasks = sorted(selected_set)
+    else:
+        final_tasks = []
+
+    existing_idx: int | None = None
+    for idx, p in enumerate(model.phases):
+        if p.phase == args.phase:
+            existing_idx = idx
+            break
+
+    if existing_idx is not None:
+        existing_phase = model.phases[existing_idx]
+        if not existing_phase.tasks:
+            if not requested_tasks:
+                fail(f"phase {args.phase} already in sprint", 1)
+            final_tasks = []
+        else:
+            if not requested_tasks:
+                final_tasks = []
+            else:
+                final_tasks = sorted(set(existing_phase.tasks) | set(final_tasks))
+
+    delivery_excluded = False
+    if final_tasks:
+        delivery_excluded = (last_task_id not in final_tasks)
+
     moscow = args.moscow or "Must Have"
     if moscow not in VALID_MOSCOW:
         fail(f"invalid MoSCoW: {moscow}", 2)
@@ -633,7 +778,13 @@ def cmd_add_phase(args: argparse.Namespace) -> None:
     if confidence not in VALID_CONFIDENCE:
         fail(f"Confidence must be one of {VALID_CONFIDENCE}", 2)
 
-    effort = float(args.effort) if args.effort is not None else 1.0
+    if args.effort is not None:
+        effort = float(args.effort)
+    elif final_tasks:
+        effort = round(len(final_tasks) * 0.5, 1)
+    else:
+        effort = 1.0
+
     if effort <= 0:
         fail("Effort must be > 0", 2)
 
@@ -649,14 +800,20 @@ def cmd_add_phase(args: argparse.Namespace) -> None:
         effort=effort,
         rice_score=score,
         spec_link=f"../../specs/{args.phase}/impl.md",
+        tasks=final_tasks,
     )
-    all_phases = [*model.phases, new_phase]
+    if existing_idx is not None:
+        all_phases = list(model.phases)
+        all_phases[existing_idx] = new_phase
+    else:
+        all_phases = [*model.phases, new_phase]
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    tasks_note = f" tasks: {', '.join(final_tasks)}" if final_tasks else ""
     log_entry = (
-        f"{now_str}: Added phase {args.phase} ({moscow}, RICE: {score:.2f})"
+        f"{now_str}: Added phase {args.phase}{tasks_note} ({moscow}, RICE: {score:.2f})"
         if not args.hotfix
-        else f"{now_str}: HOTFIX BYPASS added phase {args.phase}. Reason: {args.reason}"
+        else f"{now_str}: HOTFIX BYPASS added phase {args.phase}{tasks_note}. Reason: {args.reason}"
     )
 
     new_content = render_sprint_markdown(
@@ -667,16 +824,24 @@ def cmd_add_phase(args: argparse.Namespace) -> None:
         model.end_date,
         model.capacity_days,
         all_phases,
-        "\n- ".join([*model.audit_log, log_entry]),
+        [*model.audit_log, log_entry],
+        model.custom_sections,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
-    emit({
+    out_dict: dict[str, Any] = {
         "sprint": model.sprint_id,
         "added": args.phase,
         "status": model.status,
         "phases": [p.phase for p in all_phases],
-    })
+    }
+    if final_tasks or requested_tasks:
+        out_dict["tasks"] = final_tasks
+        out_dict["auto_added"] = auto_added
+        out_dict["delivery_excluded"] = delivery_excluded
+        out_dict["effort"] = effort
+
+    emit(out_dict)
 
 
 def cmd_lock(args: argparse.Namespace) -> None:
@@ -704,7 +869,8 @@ def cmd_lock(args: argparse.Namespace) -> None:
         model.end_date,
         model.capacity_days,
         model.phases,
-        "\n- ".join([*model.audit_log, audit_entry]),
+        [*model.audit_log, audit_entry],
+        model.custom_sections,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -737,7 +903,8 @@ def cmd_unlock(args: argparse.Namespace) -> None:
         model.end_date,
         model.capacity_days,
         model.phases,
-        "\n- ".join([*model.audit_log, audit_entry]),
+        [*model.audit_log, audit_entry],
+        model.custom_sections,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -765,7 +932,7 @@ def cmd_close(args: argparse.Namespace) -> None:
                     check=True,
                 )
                 phase_data = json.loads(proc.stdout)
-                tasks = phase_data.get("tasks", [])
+                tasks = scoped_tasks(p, phase_data.get("tasks", []))
                 p_incomplete = [t for t in tasks if t.get("status") != "Done"]
                 if p_incomplete:
                     incomplete_phases.append(p.phase)
@@ -805,7 +972,8 @@ def cmd_close(args: argparse.Namespace) -> None:
         model.end_date,
         model.capacity_days,
         model.phases,
-        "\n- ".join([*model.audit_log, audit_entry]),
+        [*model.audit_log, audit_entry],
+        model.custom_sections,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -1249,7 +1417,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 check=True,
             )
             p_data = json.loads(proc.stdout)
-            for t in p_data.get("tasks", []):
+            for t in scoped_tasks(p, p_data.get("tasks", [])):
                 t_id = t.get("id")
                 t_status = t.get("status")
                 is_claimed = any(c.get("phase") == p.phase and c.get("task") == t_id for c in claims)
@@ -1350,7 +1518,7 @@ def cmd_next_work(args: argparse.Namespace) -> None:
                 check=True,
             )
             p_data = json.loads(proc.stdout)
-            t_list = p_data.get("tasks", [])
+            t_list = scoped_tasks(p, p_data.get("tasks", []))
             tasks_by_phase[p.phase] = t_list
             for t in t_list:
                 key = f"{p.phase}::{t.get('id')}"
@@ -1416,6 +1584,39 @@ def cmd_lint(args: argparse.Namespace) -> None:
                 problems.append({"file": "sprint.md", "code": "missing-section", "message": f"missing section: {sec}"})
         for m in FIELD_RE.finditer(content):
             problems.append({"file": "sprint.md", "code": "unrendered-field", "message": f"unrendered token: {m.group(0)}"})
+
+        try:
+            model = parse_sprint_md(sprint_dir)
+            specs_script = get_specs_script(root)
+            for p in model.phases:
+                if not p.tasks:
+                    continue
+                known_task_ids: set[str] = set()
+                if specs_script:
+                    try:
+                        proc = subprocess.run(
+                            [sys.executable, str(specs_script), "--root", str(root), "show", p.phase],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                            check=True,
+                        )
+                        known_task_ids = {t["id"] for t in json.loads(proc.stdout).get("tasks", [])}
+                    except Exception:
+                        pass
+                if not known_task_ids:
+                    phase_dir = root / "specs" / p.phase
+                    if phase_dir.is_dir():
+                        known_task_ids = {f.stem for f in phase_dir.glob("t-*.md")}
+                for tid in p.tasks:
+                    if tid not in known_task_ids:
+                        problems.append({
+                            "file": "sprint.md",
+                            "code": "subset-unknown-task",
+                            "message": f"task {tid} does not exist in phase {p.phase}",
+                        })
+        except Exception:
+            pass
 
     for doc in HTML_DOCS:
         doc_path = sprint_dir / doc
@@ -1552,6 +1753,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_phase = sub.add_parser("add-phase")
     add_phase.add_argument("sprint")
     add_phase.add_argument("phase")
+    add_phase.add_argument("--tasks", nargs="+")
+    add_phase.add_argument("--with-deps", action="store_true")
     add_phase.add_argument("--moscow")
     add_phase.add_argument("--reach", type=float)
     add_phase.add_argument("--impact", type=float)
