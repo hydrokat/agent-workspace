@@ -1,9 +1,13 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::versions::{is_at_least, parse_version};
+
+pub type Runner =
+    Arc<dyn Fn(&[&str], &Path, Duration) -> Result<(i32, String), std::io::Error> + Send + Sync>;
 
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DEFAULT_INTERVAL: i64 = 14400;

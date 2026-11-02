@@ -49,8 +49,8 @@ fn test_all_13_fixtures_exist_and_load_as_json() {
 fn test_typed_fixture_loader() {
     let versions: VersionsFixture = load_fixture("versions");
     assert!(versions.is_at_least.contains_key("1.5.0>=1.4.0"));
-    assert_eq!(versions.is_at_least["1.5.0>=1.4.0"], true);
-    assert_eq!(versions.is_at_least["1.4.9>=1.5.0"], false);
+    assert!(versions.is_at_least["1.5.0>=1.4.0"]);
+    assert!(!versions.is_at_least["1.4.9>=1.5.0"]);
 
     let v150 = versions.parse_version["1.5.0"]
         .as_ref()

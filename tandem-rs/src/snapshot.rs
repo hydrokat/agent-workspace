@@ -1,4 +1,4 @@
-use crate::coordination::schema::{Claim, Query, STALE_SECONDS, Session};
+pub use crate::coordination::schema::{Claim, Query, STALE_SECONDS, Session};
 use crate::coordination::store::CoordStore;
 use crate::sources::codebases::{Codebase, list_codebases};
 use crate::sources::conflicts::{Conflict, find_conflicts};
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StatusSnapshot {
     #[serde(default)]
     pub phases: Vec<Phase>,

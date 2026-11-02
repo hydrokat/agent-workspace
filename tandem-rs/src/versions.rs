@@ -291,7 +291,7 @@ mod tests {
             }
         };
         let runner = |argv: &[&str]| {
-            if argv == &["/usr/bin/claude", "--version"] {
+            if argv == ["/usr/bin/claude", "--version"] {
                 (0, "claude 1.2.3".to_string())
             } else {
                 (1, String::new())

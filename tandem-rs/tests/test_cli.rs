@@ -1,5 +1,5 @@
 use std::path::Path;
-use tandem::cli::{CliError, Command, FocusTarget, TabDirection, build_parser, parse_from};
+use tandem::cli::{Command, FocusTarget, TabDirection, build_parser, parse_from};
 
 #[test]
 fn test_version_matches_package_json() {
@@ -50,6 +50,7 @@ fn test_fresh_flag_alone() {
 }
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn test_all_subcommands_accepted() {
     let cases: Vec<(&[&str], Box<dyn Fn(&Command) -> bool>)> = vec![
         (
@@ -238,41 +239,206 @@ fn test_subcommand_invalid_arguments_rejected() {
     assert!(parse_from(["tandem", "--nope"]).is_err());
 }
 
-#[test]
-fn test_dispatch_returns_not_implemented() {
-    let subcommands = [
-        vec!["tandem", "add-agent"],
-        vec!["tandem", "tab", "prev"],
-        vec!["tandem", "focus", "planner"],
-        vec!["tandem", "close-agent"],
-        vec!["tandem", "restart"],
-        vec!["tandem", "refresh"],
-        vec!["tandem", "reflow"],
-        vec!["tandem", "reset-layout"],
-        vec!["tandem", "quit"],
-        vec!["tandem", "help"],
-        vec!["tandem", "first-run"],
-        vec!["tandem", "status"],
-        vec!["tandem", "whats-new"],
-        vec!["tandem", "update"],
-        vec!["tandem", "click"],
-        vec!["tandem", "click-tab", "%1"],
-        vec!["tandem", "quota-feed"],
-        vec!["tandem", "quota-line"],
-        vec!["tandem", "save-exit"],
-        vec!["tandem", "discard-exit"],
-        vec!["tandem", "reload"],
-        vec!["tandem", "placeholder", "planner"],
-    ];
+use std::sync::{Arc, Mutex};
+use tandem::commands::{click, click_tab};
+use tandem::config::Config;
+use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
+use tandem::tmux::keys::CLICK_ACTIONS;
+use tandem::tmux::layout::Layout;
 
-    for argv in subcommands {
-        let cli = parse_from(&argv).expect("parse subcommand");
-        let result = tandem::cli::dispatch(&cli);
-        match result {
-            Err(CliError::NotImplemented) => {}
-            other => panic!("Expected NotImplemented for {:?}, got {:?}", argv, other),
+struct MockCliRunner {
+    calls: Mutex<Vec<Vec<String>>>,
+    role: String,
+    panes_output: String,
+}
+
+impl MockCliRunner {
+    fn new(role: &str, panes_output: &str) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            role: role.to_string(),
+            panes_output: panes_output.to_string(),
         }
     }
+
+    fn calls(&self) -> Vec<Vec<String>> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl TmuxRunner for MockCliRunner {
+    fn run(&self, argv: &[String]) -> TmuxResult {
+        self.calls.lock().unwrap().push(argv.to_vec());
+        let mut out = String::new();
+        if argv.contains(&"list-panes".to_string()) {
+            out = self.panes_output.clone();
+        } else if argv.contains(&"#{@tandem_role}".to_string()) {
+            out = format!("{}\n", self.role);
+        }
+        TmuxResult {
+            code: 0,
+            out,
+            err: String::new(),
+        }
+    }
+}
+
+fn sample_panes_tsv() -> String {
+    [
+        "%1\tmain\tagent\tplanner\t1\tclaude\t0\t\t\t{\"cli\":\"claude\",\"model\":\"opus\"}\t1.0",
+        "%2\tstash\tagent\tplanner\t2\tagy\t1\t3\t\t{\"cli\":\"agy\",\"model\":\"m\"}\t1.0",
+        "%9\tmain\tagent\timplementer\t1\tcodex\t0\t\t\t{\"cli\":\"codex\",\"model\":\"m\"}\t1.0",
+    ]
+    .join("\n")
+}
+
+#[test]
+fn test_click_unknown_action_is_no_op() {
+    let runner = Arc::new(MockCliRunner::new("planner", ""));
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut layout = Layout::new(&client);
+    let config = Config::from_env().unwrap();
+
+    click(&mut layout, &config, "");
+    click(&mut layout, &config, "BADACTION");
+    click(&mut layout, &config, "send-keys");
+
+    assert!(runner.calls().is_empty());
+}
+
+#[test]
+fn test_click_allow_list_matches_click_actions() {
+    assert!(CLICK_ACTIONS.contains(&"help"));
+    assert!(CLICK_ACTIONS.contains(&"add-agent"));
+    assert!(CLICK_ACTIONS.contains(&"quit"));
+    assert!(!CLICK_ACTIONS.contains(&"send-keys"));
+    assert!(!CLICK_ACTIONS.contains(&"capture-pane"));
+    assert!(!CLICK_ACTIONS.contains(&""));
+}
+
+#[test]
+fn test_click_tab_opens_a_menu_of_the_columns_agents() {
+    let runner = Arc::new(MockCliRunner::new("planner", &sample_panes_tsv()));
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut layout = Layout::new(&client);
+    layout.self_cmd = Some(vec!["/bin/tandem".to_string()]);
+    let config = Config::from_env().unwrap();
+
+    click_tab(&mut layout, &config, "%1", "");
+
+    let calls = runner.calls();
+    let display_menu_calls: Vec<&Vec<String>> = calls
+        .iter()
+        .filter(|c| c.contains(&"display-menu".to_string()))
+        .collect();
+    assert_eq!(display_menu_calls.len(), 1);
+
+    let flat = display_menu_calls[0].join(" ");
+    assert!(flat.contains("-t %1"));
+    assert!(flat.contains("#{pane_left}"));
+    assert!(flat.contains("#{pane_top}"));
+    assert!(flat.contains("▶ 1 claude"));
+    assert!(flat.contains("click-tab %1 --select %1"));
+    assert!(flat.contains("⚠2 agy(exited 3)"));
+    assert!(flat.contains("click-tab %2 --select %2"));
+    assert!(!flat.contains("codex"));
+    assert!(flat.contains("New agent"));
+    assert!(flat.contains("add-agent"));
+}
+
+#[test]
+fn test_click_tab_empty_column_opens_add_agent() {
+    let runner = Arc::new(MockCliRunner::new("planner", ""));
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut layout = Layout::new(&client);
+    layout.self_cmd = Some(vec!["/bin/tandem".to_string()]);
+    let config = Config::from_env().unwrap();
+
+    click_tab(&mut layout, &config, "%1", "");
+
+    let calls = runner.calls();
+    let popups: Vec<&Vec<String>> = calls
+        .iter()
+        .filter(|c| c.contains(&"display-popup".to_string()))
+        .collect();
+    assert_eq!(popups.len(), 1);
+    assert!(popups[0].iter().any(|arg| arg.contains("add-agent")));
+}
+
+#[test]
+fn test_click_tab_select_switches_to_that_agent() {
+    let runner = Arc::new(MockCliRunner::new("planner", &sample_panes_tsv()));
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut layout = Layout::new(&client);
+    let config = Config::from_env().unwrap();
+
+    click_tab(&mut layout, &config, "%1", "%2");
+
+    let calls = runner.calls();
+    assert!(calls.iter().any(|c| c.contains(&"swap-pane".to_string())));
+}
+
+#[test]
+fn test_click_tab_select_ignores_other_columns_and_unknown_panes() {
+    for bad in ["%9", "%77", "2", "%2; kill-server", "$(id)"] {
+        let runner = Arc::new(MockCliRunner::new("planner", &sample_panes_tsv()));
+        let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+        let mut layout = Layout::new(&client);
+        let config = Config::from_env().unwrap();
+
+        click_tab(&mut layout, &config, "%1", bad);
+
+        let calls = runner.calls();
+        assert!(!calls.iter().any(|c| c.contains(&"swap-pane".to_string())));
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.contains(&"display-menu".to_string()))
+        );
+    }
+}
+
+#[test]
+fn test_click_tab_ignores_invalid_pane_ids_and_non_column_panes() {
+    for bad in ["", "1", "%x", "%1; kill-server", "\\%1"] {
+        let runner = Arc::new(MockCliRunner::new("planner", &sample_panes_tsv()));
+        let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+        let mut layout = Layout::new(&client);
+        let config = Config::from_env().unwrap();
+
+        click_tab(&mut layout, &config, bad, "");
+
+        let calls = runner.calls();
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.contains(&"display-menu".to_string()))
+        );
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.contains(&"display-popup".to_string()))
+        );
+    }
+
+    let runner_status = Arc::new(MockCliRunner::new("status", &sample_panes_tsv()));
+    let client_status = TmuxClient::with_runner("tandem-test", None, runner_status.clone());
+    let mut layout_status = Layout::new(&client_status);
+    let config = Config::from_env().unwrap();
+
+    click_tab(&mut layout_status, &config, "%3", "");
+
+    let calls = runner_status.calls();
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c.contains(&"display-menu".to_string()))
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c.contains(&"display-popup".to_string()))
+    );
 }
 
 #[test]
