@@ -134,6 +134,15 @@ describe('Status window documentation', () => {
   });
 });
 
+describe('README spec compilation and phase pruning documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+
+  it('documents spec compile and guarded phase pruning workflow', () => {
+    assert.ok(readme.includes('/spec-compile'), '/spec-compile in README');
+    assert.ok(readme.includes('specs.py prune') || readme.includes('guarded phase pruning'), 'guarded phase pruning in README');
+  });
+});
+
 describe('README screenshots', () => {
   const svgs = existsSync(IMAGES) ? readdirSync(IMAGES).filter((f) => f.endsWith('.svg')) : [];
 

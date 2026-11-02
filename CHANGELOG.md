@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.8.0] — 2026-11-02
+
+### Spec Compile Archiving & Guarded Phase Pruning (Phase p-015)
+
+- **Spec Compile Archiving (`specs.py compile`):** Preserves historical archived phase sections in `specs/compiled/completed.md` when compiling, eliminating compile-wipes-archive data loss and ensuring pruned completed phases remain documented.
+- **Guarded Phase Pruning (`specs.py prune`):** Provides a guarded command to clean up on-disk completed phase directories once archived in `completed.md`.
+  - Dry run by default with explicit candidate and path summaries.
+  - Requires explicit `--phases <names...>` and `--apply` flags to execute deletion.
+  - Fail-closed safety guards: blocks if the git working tree is dirty, if any target phase is missing or incomplete in `completed.md`, if active agent coordination claims exist (`coord.py`), if active `in-progress.md` entries exist, or if uncompleted specs or active sprints reference the target phase.
+- **Sprint Tooling Archived Phase Support:**
+  - `sprints.py` (`close`, `status`, `next-work`) treats archived phases as complete with 0 remaining tasks, allowing sprint close and tracking without on-disk phase directories.
+  - Missing or unreadable phases that are neither on disk nor archived block `sprints.py close` with an `unreadable_phases` error.
+  - Sprint markdown rendering rewrites `Spec Link` to `../../specs/compiled/completed.md` for pruned phases.
+  - `sprints.py lint` flags broken spec links pointing to phases that are neither on disk nor archived (`broken-spec-link`).
+- **tandem Archived Phase Visibility:** Parses `specs/compiled/completed.md` alongside on-disk specs (with on-disk specs taking precedence on collision) and displays `(archived)` markers on phase rows in the Sprint tab and text summary.
+- **`pm-sprint-implement` Step 4 Integration:** Automated compilation (`specs.py compile all`) followed by dry-run pruning (`specs.py prune --phases ...`) and a single interactive confirmation prompt (defaulting to keeping phases) before applying prune.
+
 ## [1.7.0] — 2026-11-02
 
 ### Sprint & Backlog Tooling (Phase p-016)
