@@ -113,7 +113,8 @@ fn test_missing_oversized_malformed_archive_does_not_panic() {
     let phases2 = load_phases(ws);
     assert!(phases2.is_empty());
 
-    let oversized = "## p-001-big: Big\n\n| Task | Title |\n|---|---|\n| t-001 | A |\n".repeat(50_000);
+    let oversized =
+        "## p-001-big: Big\n\n| Task | Title |\n|---|---|\n| t-001 | A |\n".repeat(50_000);
     fs::write(compiled_dir.join("completed.md"), oversized).unwrap();
     let phases3 = load_phases(ws);
     assert!(!phases3.is_empty());
@@ -138,11 +139,13 @@ fn test_escape_sequences_in_archive_cleaned() {
 
 #[test]
 fn test_old_serialized_snapshot_without_archived_field_loads() {
-    let phase_json = r#"{"name":"p-001-old","title":"Old","branch":"","target":"","tasks":[],"warning":""}"#;
+    let phase_json =
+        r#"{"name":"p-001-old","title":"Old","branch":"","target":"","tasks":[],"warning":""}"#;
     let phase: Phase = serde_json::from_str(phase_json).unwrap();
     assert!(!phase.archived);
 
-    let sprint_phase_json = r#"{"name":"p-001-old","moscow":"Must Have","effort":2.0,"done":1,"total":1}"#;
+    let sprint_phase_json =
+        r#"{"name":"p-001-old","moscow":"Must Have","effort":2.0,"done":1,"total":1}"#;
     let sprint_phase: SprintPhaseView = serde_json::from_str(sprint_phase_json).unwrap();
     assert!(!sprint_phase.archived);
 }
