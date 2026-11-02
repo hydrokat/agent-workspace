@@ -607,6 +607,10 @@ display_ver() {
   if [ -n "$v" ]; then printf '%s' "$v"; else printf 'unknown version'; fi
 }
 
+cargo_optional_for_now() {
+  [ "$CHECK_ONLY" -eq 1 ] && [ "$RUNTIME_REASON" = "binary not cached" ]
+}
+
 report() {
   local tool min
   printf 'tandem bootstrap · %s (%s)\n' "$(uname -s)" "$PM"
@@ -619,6 +623,8 @@ report() {
         else
           printf '  ✖ %-7s not installed (at least one AI CLI is required)\n' "$tool"
         fi
+      elif [ "$tool" = "cargo" ] && cargo_optional_for_now; then
+        printf '  ✖ %-7s not installed (only needed if the binary download fails)\n' "$tool"
       else
         printf '  ✖ %-7s not installed (required)\n' "$tool"
       fi
@@ -651,6 +657,7 @@ check_status_code() {
   local tool have_ai=0 code=0
   for tool in $TOOLS; do
     if [ "$(get_var "INST_$tool")" -eq 0 ]; then
+      if [ "$tool" = "cargo" ] && cargo_optional_for_now; then continue; fi
       is_ai_tool "$tool" || code=2
     else
       is_ai_tool "$tool" && have_ai=1

@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$target" in *windows*) exe=tandem.exe;; *) exe=tandem;; esac
-outdir="$CRATE_ROOT/target/$target/release"
+outdir="${CARGO_TARGET_DIR:-$CRATE_ROOT/target}/$target/release"
 mkdir -p "$outdir"
 ver="\${STUB_BINARY_VERSION:-${VERSION}}"
 printf '#!/bin/sh\\ncase "$1" in --version) echo "tandem %s";; *) echo "tandem help";; esac\\n' "$ver" > "$outdir/$exe"
@@ -134,6 +134,21 @@ describe('build.sh cargo invocation', () => {
     const env = setup();
     build(env, ['--target', 'aarch64-apple-darwin'], { RUSTFLAGS: '-D warnings' });
     assert.match(readFileSync(join(env.stub, 'cargo.env'), 'utf8'), /RUSTFLAGS=-D warnings -C link-arg=-mmacosx-version-min=13\.0/);
+  });
+});
+
+describe('build.sh target directory', () => {
+  it('resolves a relative CARGO_TARGET_DIR from the caller, not the crate folder', () => {
+    const env = setup();
+    const callerDir = join(env.tmp, 'caller');
+    mkdirSync(callerDir, { recursive: true });
+    const res = spawnSync('bash', [env.script, '--target', 'aarch64-apple-darwin'], {
+      cwd: callerDir,
+      env: { PATH: `${env.stub}:${SYSTEM_PATH}`, HOME: env.tmp, STUB_DIR: env.stub, CRATE_ROOT: env.crate, CARGO_TARGET_DIR: 'out-target' },
+      encoding: 'utf8',
+    });
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(existsSync(join(env.out, `tandem-${VERSION}-darwin-arm64.tar.gz`)));
   });
 });
 

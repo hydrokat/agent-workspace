@@ -487,11 +487,19 @@ describe('run.sh source fallback', () => {
     assert.doesNotMatch(r.stdout, /cargo/);
   });
 
-  it('--check reports cargo as required when the binary is not cached', async () => {
+  it('--check treats a missing cargo as optional while the binary is simply not cached yet', async () => {
     const env = setup({ versions: ok({ cargo: null, rustup: null }) });
     const r = await run(env, ['--check']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.stdout, /cargo.*only needed if the binary download fails/);
+    assert.match(r.stdout, /runtime: source \(binary not cached\)/);
+  });
+
+  it('--check still requires cargo when the source runtime was chosen explicitly', async () => {
+    const env = setup({ versions: ok({ cargo: null, rustup: null }) });
+    const r = await run(env, ['--check'], { extraEnv: { TANDEM_RUNTIME: 'source' } });
     assert.equal(r.code, 2);
-    assert.match(r.stdout, /cargo.*not installed/);
+    assert.match(r.stdout, /cargo.*not installed \(required\)/);
   });
 
   describe('legacy virtualenv cleanup', () => {

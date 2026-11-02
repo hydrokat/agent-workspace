@@ -143,11 +143,17 @@ main() {
     *-apple-darwin) export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-mmacosx-version-min=13.0" ;;
   esac
 
+  local exe built target_dir dist stage archive
+  target_dir="${CARGO_TARGET_DIR:-$crate_root/target}"
+  case "$target_dir" in
+    /* | [A-Za-z]:*) ;;
+    *) target_dir="$PWD/$target_dir" ;;
+  esac
+  export CARGO_TARGET_DIR="$target_dir"
+
   (cd "$crate_root" && cargo build --release --locked --target "$target") || die "cargo build failed for $target"
 
-  local exe built target_dir dist stage archive
   exe="$(exe_name "$slug")"
-  target_dir="${CARGO_TARGET_DIR:-$crate_root/target}"
   built="$target_dir/$target/release/$exe"
   [ -f "$built" ] || die "built binary not found: $built"
 
