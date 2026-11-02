@@ -9,18 +9,23 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TANDEM_DIR="$ROOT_DIR/.agent-workspace/tandem"
 [ -d "$TANDEM_DIR" ] || TANDEM_DIR="$ROOT_DIR/tandem"
 MIN_FILE="$TANDEM_DIR/min-versions.env"
-TOOLS="git tmux uv claude agy"
+TOOLS="git tmux claude agy"
 AI_TOOLS="claude agy"
 CLAUDE_INSTALL_URL="https://claude.ai/install.sh"
 AGY_INSTALL_URL="https://antigravity.google/cli/install.sh"
-UV_INSTALL_URL="https://astral.sh/uv/install.sh"
+RUSTUP_INSTALL_URL="https://sh.rustup.rs"
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_ENV_HINTS=1
 TANDEM_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tandem"
-VENV_SLUG="$(printf '%s' "$TANDEM_DIR" | tr -c 'A-Za-z0-9' '-')"
-VENV_SLUG="${VENV_SLUG#-}"
-export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$TANDEM_STATE_DIR/venv-$VENV_SLUG}"
+BUILD_SLUG="$(printf '%s' "$TANDEM_DIR" | tr -c 'A-Za-z0-9' '-')"
+BUILD_SLUG="${BUILD_SLUG#-}"
+
+add_cargo_bin_to_path() {
+  case ":$PATH:" in *":$HOME/.cargo/bin:"*) return 0 ;; esac
+  [ ! -d "$HOME/.cargo/bin" ] || PATH="$HOME/.cargo/bin:$PATH"
+}
+add_cargo_bin_to_path
 
 FETCH_RUNTIME=0
 RUNTIME=""
@@ -43,8 +48,8 @@ usage() {
   cat <<'USAGE'
 Usage: ./run.sh [options] [-- tandem-args...]
 
-Checks git, tmux, uv, claude, and agy, asks before installing or updating anything,
-then launches tandem from the current directory.
+Checks git, tmux, claude, and agy (plus cargo when tandem has to be built from source),
+asks before installing or updating anything, then launches tandem from the current directory.
 
 Options:
   --check          Report status only; change nothing, launch nothing.
@@ -55,6 +60,7 @@ Options:
   -h, --help       Show this help.
 
 Environment:
+  TANDEM_RUNTIME         auto (default), binary, or source (build with cargo; "python" is a deprecated alias).
   TANDEM_AUTO_UPDATE=0   Disable launch-time auto-update permanently.
   TANDEM_UPDATE_SPEC     npm package spec to update from (default: hydrokat/agent-workspace).
 
@@ -120,7 +126,7 @@ detect_platform() {
       elif command -v dnf >/dev/null 2>&1; then
         PM="dnf"
       else
-        die 5 "Unsupported Linux package manager. Install git, tmux, uv, claude, and agy manually, then re-run."
+        die 5 "Unsupported Linux package manager. Install git, tmux, claude, and agy manually, then re-run."
       fi
       ;;
     MINGW* | MSYS* | CYGWIN*)
@@ -131,7 +137,7 @@ detect_platform() {
       fi
       ;;
     *)
-      die 5 "Unsupported platform: $(uname -s). Install git, tmux, uv, claude, and agy manually, then re-run."
+      die 5 "Unsupported platform: $(uname -s). Install git, tmux, claude, and agy manually, then re-run."
       ;;
   esac
 }
@@ -181,42 +187,6 @@ version_ge() {
   [[ "$sa" > "$sb" || "$sa" == "$sb" ]]
 }
 
-# A Python is healthy when it meets the minimum version and imports hashlib (with blake2) without printing anything:
-# builds against a limited OpenSSL log tracebacks on import, which would then appear in every tandem pane.
-python_healthy() {
-  local min
-  min="$(min_for PYTHON)"
-  capture 10 "$1" -c 'import hashlib, sys; hashlib.blake2b(); hashlib.blake2s(); hashlib.sha256(); print("%d.%d" % sys.version_info[:2])' || return 1
-  [[ "$CAP_OUT" =~ ^[0-9]+\.[0-9]+$ ]] || return 1
-  [ -z "$min" ] || version_ge "$CAP_OUT" "$min"
-}
-
-select_python() {
-  local candidate resolved
-  if [ -n "${UV_PYTHON:-}" ] && python_healthy "$UV_PYTHON"; then
-    return 0
-  fi
-  for candidate in python3 python ${TANDEM_PYTHON_FALLBACKS:-/opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3}; do
-    resolved="$(command -v "$candidate" 2>/dev/null)" || continue
-    if python_healthy "$resolved"; then
-      export UV_PYTHON="$resolved"
-      return 0
-    fi
-    printf 'Skipping %s: too old or broken hashlib.\n' "$resolved" >&2
-  done
-  unset UV_PYTHON
-  return 1
-}
-
-# Only ever deletes a real virtualenv (pyvenv.cfg present) whose interpreter no longer works.
-remove_broken_venv() {
-  local venv="$1"
-  [ -f "$venv/pyvenv.cfg" ] && [ -e "$venv/bin/python" ] || return 0
-  python_healthy "$venv/bin/python" && return 0
-  printf 'Removing broken virtualenv %s; uv will rebuild it.\n' "$venv" >&2
-  rm -rf "$venv"
-}
-
 set_var() {
   printf -v "$1" '%s' "$2"
 }
@@ -228,6 +198,7 @@ get_var() {
 detect_tool() {
   local tool="$1" flag="--version"
   [ "$tool" = "tmux" ] && flag="-V"
+  add_cargo_bin_to_path
   hash -r
   if ! command -v "$tool" >/dev/null 2>&1; then
     set_var "INST_$tool" 0
@@ -253,12 +224,7 @@ check_latest() {
   local tool="$1" rc=0 state="unknown"
   case "$tool" in
     claude | agy) state="unknown" ;;
-    uv)
-      capture 15 uv self update --dry-run || rc=$?
-      if [ "$rc" -eq 0 ]; then
-        if printf '%s' "$CAP_OUT" | grep -q "Would update"; then state="available"; else state="current"; fi
-      fi
-      ;;
+    cargo) state="unknown" ;;
     *)
       case "$PM" in
         brew)
@@ -293,14 +259,16 @@ run_installer() {
   curl -fsSL "$1" | bash
 }
 
+run_rustup_installer() {
+  curl --proto '=https' --tlsv1.2 -sSf "$RUSTUP_INSTALL_URL" | sh -s -- -y --profile minimal
+}
+
 # Fills CMD with the install command for $1.
 install_cmd() {
   case "$1" in
     claude) CMD=(run_installer "$CLAUDE_INSTALL_URL") ;;
     agy) CMD=(run_installer "$AGY_INSTALL_URL") ;;
-    uv)
-      if [ "$PM" = "brew" ]; then CMD=(brew install uv); else CMD=(run_installer "$UV_INSTALL_URL"); fi
-      ;;
+    cargo) CMD=(run_rustup_installer) ;;
     *)
       case "$PM" in
         brew) CMD=(brew install "$1") ;;
@@ -316,7 +284,7 @@ update_cmd() {
   case "$1" in
     claude) CMD=(claude update) ;;
     agy) CMD=(agy update) ;;
-    uv) CMD=(uv self update) ;;
+    cargo) CMD=(rustup update) ;;
     *)
       case "$PM" in
         brew) CMD=(brew upgrade "$1") ;;
@@ -331,6 +299,8 @@ update_cmd() {
 describe_cmd() {
   if [ "${CMD[0]}" = "run_installer" ]; then
     printf 'curl -fsSL %s | bash' "${CMD[1]}"
+  elif [ "${CMD[0]}" = "run_rustup_installer" ]; then
+    printf "curl --proto '=https' --tlsv1.2 -sSf %s | sh -s -- -y --profile minimal" "$RUSTUP_INSTALL_URL"
   else
     printf '%q ' "${CMD[@]}" | sed 's/ $//'
   fi
@@ -369,11 +339,18 @@ other_ai_installed() {
   return 1
 }
 
+cargo_manifest_version() {
+  sed -n '/^\[package\]/,/^\[/{s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p;}' "$1" | head -n 1
+}
+
 expected_version() {
-  local init_file="$TANDEM_DIR/src/tandem/__init__.py"
-  if [ -f "$init_file" ]; then
-    grep -m1 '__version__' "$init_file" | sed -E 's/.*__version__[[:space:]]*=[[:space:]]*["'"'"']([^"'"'"']+)["'"'"'].*/\1/'
-    return 0
+  local cargo_toml="$TANDEM_DIR/Cargo.toml" ver=""
+  if [ -f "$cargo_toml" ]; then
+    ver="$(cargo_manifest_version "$cargo_toml")"
+    if [ -n "$ver" ]; then
+      printf '%s\n' "$ver"
+      return 0
+    fi
   fi
   local manifest="$ROOT_DIR/package.json"
   if [ -f "$manifest" ]; then
@@ -543,17 +520,33 @@ prune_binaries() {
   done
 }
 
+use_source_runtime() {
+  RUNTIME="source"
+  TOOLS="git tmux cargo claude agy"
+}
+
+use_binary_runtime() {
+  mkdir -p "$TANDEM_STATE_DIR/bin"
+  (cd "$TANDEM_STATE_DIR/bin" && ln -sfn "$EXP_VER-$SLUG" current)
+  RUNTIME="binary"
+  RUNTIME_REASON=""
+  TOOLS="git tmux claude agy"
+}
+
 select_runtime() {
   local target_runtime="${TANDEM_RUNTIME:-auto}"
   case "$target_runtime" in
-    auto | binary | python) ;;
-    *) die 4 "Invalid TANDEM_RUNTIME: $target_runtime (must be auto, binary, or python)" ;;
+    auto | binary | source) ;;
+    python)
+      printf 'TANDEM_RUNTIME=python is deprecated; tandem is now built from source with cargo. Use TANDEM_RUNTIME=source.\n' >&2
+      target_runtime="source"
+      ;;
+    *) die 4 "Invalid TANDEM_RUNTIME: $target_runtime (must be auto, binary, or source)" ;;
   esac
 
-  if [ "$target_runtime" = "python" ]; then
-    RUNTIME="python"
-    RUNTIME_REASON=""
-    TOOLS="git tmux uv claude agy"
+  if [ "$target_runtime" = "source" ]; then
+    EXP_VER="$(expected_version || true)"
+    use_source_runtime
     return 0
   fi
 
@@ -562,8 +555,7 @@ select_runtime() {
     if [ "$target_runtime" = "binary" ]; then
       die 4 "Binary runtime unavailable: $RUNTIME_REASON"
     fi
-    RUNTIME="python"
-    TOOLS="git tmux uv claude agy"
+    use_source_runtime
     return 0
   fi
 
@@ -572,8 +564,7 @@ select_runtime() {
     if [ "$target_runtime" = "binary" ]; then
       die 4 "Binary runtime unavailable: $RUNTIME_REASON"
     fi
-    RUNTIME="python"
-    TOOLS="git tmux uv claude agy"
+    use_source_runtime
     return 0
   fi
 
@@ -583,41 +574,30 @@ select_runtime() {
   bin="$bdir/tandem/$exe_name"
 
   if [ -x "$bin" ] && binary_healthy "$bin" "$EXP_VER"; then
-    mkdir -p "$TANDEM_STATE_DIR/bin"
-    (cd "$TANDEM_STATE_DIR/bin" && ln -sfn "$EXP_VER-$SLUG" current)
-    RUNTIME="binary"
-    RUNTIME_REASON=""
-    TOOLS="git tmux claude agy"
+    use_binary_runtime
     return 0
   fi
 
   if [ "$CHECK_ONLY" -eq 1 ]; then
-    RUNTIME="python"
     RUNTIME_REASON="binary not cached"
-    TOOLS="git tmux uv claude agy"
+    use_source_runtime
     return 0
   fi
 
   if fetch_binary "$EXP_VER" "$SLUG"; then
     if binary_healthy "$bin" "$EXP_VER"; then
-      mkdir -p "$TANDEM_STATE_DIR/bin"
-      (cd "$TANDEM_STATE_DIR/bin" && ln -sfn "$EXP_VER-$SLUG" current)
+      use_binary_runtime
       prune_binaries
-      RUNTIME="binary"
-      RUNTIME_REASON=""
-      TOOLS="git tmux claude agy"
       return 0
-    else
-      RUNTIME_REASON="smoke test failed"
     fi
+    RUNTIME_REASON="smoke test failed"
   fi
 
   if [ "$target_runtime" = "binary" ]; then
     die 4 "Binary runtime unavailable: $RUNTIME_REASON"
   fi
 
-  RUNTIME="python"
-  TOOLS="git tmux uv claude agy"
+  use_source_runtime
   return 0
 }
 
@@ -661,9 +641,9 @@ report() {
   if [ "$RUNTIME" = "binary" ]; then
     printf '  runtime: binary %s (%s)\n' "$EXP_VER" "$SLUG"
   elif [ "$CHECK_ONLY" -eq 1 ] && [ "$RUNTIME_REASON" = "binary not cached" ]; then
-    printf '  runtime: python (binary not cached)\n'
+    printf '  runtime: source (binary not cached)\n'
   else
-    printf '  runtime: python\n'
+    printf '  runtime: source\n'
   fi
 }
 
@@ -849,6 +829,38 @@ maybe_update() {
   exec "$ROOT_DIR/run.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
 }
 
+remove_legacy_venvs() {
+  local venv
+  for venv in "$TANDEM_STATE_DIR"/venv "$TANDEM_STATE_DIR"/venv-*; do
+    [ -f "$venv/pyvenv.cfg" ] && rm -rf "$venv"
+  done
+  return 0
+}
+
+source_exe_name() {
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) printf 'tandem.exe' ;;
+    *) printf 'tandem' ;;
+  esac
+}
+
+run_source() {
+  [ -f "$TANDEM_DIR/Cargo.toml" ] || die 4 "tandem sources not found at $TANDEM_DIR/Cargo.toml (run \`npx hydrokat/agent-workspace update\`)"
+  local target_dir="$TANDEM_STATE_DIR/build-$BUILD_SLUG" bin
+  printf 'Building tandem from source with cargo (first build takes a few minutes)…\n'
+  cargo build --release --locked --manifest-path "$TANDEM_DIR/Cargo.toml" --target-dir "$target_dir" \
+    || die 4 "cargo build failed. See the output above."
+  bin="$target_dir/release/$(source_exe_name)"
+  [ -x "$bin" ] || die 4 "cargo build produced no binary at $bin"
+  capture 10 "$bin" --version || die 4 "The freshly built tandem failed its --version smoke test."
+  case "$CAP_OUT" in
+    "tandem ${EXP_VER:-}"*) ;;
+    *) die 4 "Unexpected --version output from the built tandem: $CAP_OUT" ;;
+  esac
+  export TANDEM_SELF="$bin"
+  exec "$bin" ${PASSTHRU[@]+"${PASSTHRU[@]}"}
+}
+
 main() {
   ORIG_ARGS=("$@")
   parse_args "$@"
@@ -892,15 +904,12 @@ main() {
     exit "$code"
   fi
   act
+  remove_legacy_venvs
   if [ "$RUNTIME" = "binary" ]; then
     export TANDEM_SELF="$TANDEM_STATE_DIR/bin/current/tandem/$(binary_exe_name "$SLUG")"
     exec "$TANDEM_SELF" ${PASSTHRU[@]+"${PASSTHRU[@]}"}
   fi
-  select_python || true
-  remove_broken_venv "$UV_PROJECT_ENVIRONMENT"
-  remove_broken_venv "$TANDEM_STATE_DIR/venv"
-  uv sync --project "$TANDEM_DIR" --frozen || die 4 "uv sync failed. See the output above."
-  exec uv run --project "$TANDEM_DIR" tandem ${PASSTHRU[@]+"${PASSTHRU[@]}"}
+  run_source
 }
 
 main "$@"
