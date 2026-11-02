@@ -9,3 +9,6 @@ The Python implementation and its `dump_parity.py` generator were removed in the
 Recover the generator from git history (the commit before the cutover) only for an authorized, justified behavior change.
 
 Any modification to these files must be accompanied by an explicit rationale documented in the task or pull request.
+
+## Host-independent socket paths
+`tmux.json` `socket_for` keys are the paths exactly as the Python tandem hashed them after `Path.resolve()` on macOS (`/private/tmp/...`, `/private/var/...`, `/System/Volumes/Data/home/...`). They do not exist on Linux, so they resolve to themselves on every host and the expected sockets match everywhere.
