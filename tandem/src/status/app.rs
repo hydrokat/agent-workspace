@@ -386,6 +386,13 @@ impl StatusApp {
             {
                 let _ = tmux.run_checked(&["select-pane", "-t", pane]);
             }
+        } else if self.tab == StatusTab::Task
+            && let Some(first_task) = self.snapshot.ongoing_tasks.first()
+            && let Some(ref pane) = first_task.session_pane
+            && pane.starts_with('%')
+            && let Some(ref tmux) = self.tmux
+        {
+            let _ = tmux.run_checked(&["select-pane", "-t", pane]);
         }
     }
 
