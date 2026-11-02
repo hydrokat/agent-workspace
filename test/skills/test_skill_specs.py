@@ -1152,3 +1152,93 @@ def test_compile_unparseable_archived_section_kept_verbatim_with_warning(tmp_pat
     assert "Custom unformatted text without task table." in done_text
 
 
+def test_prune_requires_phases_argument(tmp_path: Path) -> None:
+    root = sample_copy(tmp_path)
+    # Calling without --phases exits 2
+    err(run(root, "prune"), 2)
+    # Malformed or path traversal phase exits 2
+    err(run(root, "prune", "--phases", "../escape"), 2)
+    err(run(root, "prune", "--phases", "p-1"), 2)
+
+
+def test_prune_dry_run_guards_and_apply(tmp_path: Path) -> None:
+    root = sample_copy(tmp_path)
+    # Initialize git repo in tmp_path
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True, capture_output=True)
+
+    # Make p-002 fully complete
+    t1_text = (root / "specs/p-002-sample/t-001.md").read_text()
+    (root / "specs/p-002-sample/t-002.md").write_text(t1_text.replace("t-001", "t-002"))
+    (root / "specs/p-002-sample/t-003.md").write_text(t1_text.replace("t-001", "t-003"))
+
+    # Compile so p-002 is in completed.md
+    out(run(root, "compile", "--date", "2026-11-01"))
+
+    # Commit all git changes so p-002 is clean in git
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=root, check=True, capture_output=True)
+
+    # 1. p-002 is clean and in completed.md -> eligible in dry run
+    dry_res = out(run(root, "prune", "--phases", "p-002-sample"))
+    assert dry_res["mode"] == "dry-run"
+    assert len(dry_res["eligible"]) == 1
+    assert dry_res["eligible"][0]["phase"] == "p-002-sample"
+    assert "deleted" not in dry_res
+    # Directory still exists after dry-run
+    assert (root / "specs/p-002-sample").is_dir()
+
+    # 2. Guard: task In Review blocks
+    (root / "specs/p-002-sample/t-002.md").write_text(t1_text.replace("[x] Done", "[ ] In Review"))
+    blocked_review = out(run(root, "prune", "--phases", "p-002-sample"))
+    assert len(blocked_review["blocked"]) == 1
+    assert any("In Review" in r for r in blocked_review["blocked"][0]["reasons"])
+    (root / "specs/p-002-sample/t-002.md").write_text(t1_text.replace("t-001", "t-002"))
+
+    # 3. Guard: uncommitted changes block
+    (root / "specs/p-002-sample/uncommitted.txt").write_text("dirty")
+    blocked_git = out(run(root, "prune", "--phases", "p-002-sample"))
+    assert len(blocked_git["blocked"]) == 1
+    assert any("uncommitted" in r or "untracked" in r for r in blocked_git["blocked"][0]["reasons"])
+    (root / "specs/p-002-sample/uncommitted.txt").unlink()
+
+    # 4. Guard: in-progress.md mention blocks
+    (root / "specs/in-progress.md").write_text("## Active Work\n- Spec: `p-002-sample`\n")
+    blocked_inprogress = out(run(root, "prune", "--phases", "p-002-sample"))
+    assert len(blocked_inprogress["blocked"]) == 1
+    assert any("in-progress.md" in r for r in blocked_inprogress["blocked"][0]["reasons"])
+    (root / "specs/in-progress.md").write_text("## Active Work\nNone.\n")
+
+    # 5. Guard: surviving phase Depends On blocks
+    (root / "specs/p-003-broken/impl.md").write_text("# p-003\n\n## Depends On\n- p-002-sample\n")
+    blocked_depends = out(run(root, "prune", "--phases", "p-002-sample"))
+    assert len(blocked_depends["blocked"]) == 1
+    assert any("Depends On" in r or "depended on" in r for r in blocked_depends["blocked"][0]["reasons"])
+    (root / "specs/p-003-broken/impl.md").write_text("# p-003\n\n## Depends On\n- None\n")
+
+    # Re-commit any clean state so git is clean
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "clean before apply"], cwd=root, check=True, capture_output=True)
+
+    # 6. Apply deletes p-002-sample and writes Archived line in completed.md
+    apply_res = out(run(root, "prune", "--phases", "p-002-sample", "--apply", "--date", "2026-11-02"))
+    assert apply_res["mode"] == "apply"
+    assert apply_res["deleted"] == ["p-002-sample"]
+    assert not (root / "specs/p-002-sample").exists()
+
+    completed_text = (root / "specs/compiled/completed.md").read_text()
+    assert "**Archived:** removed from specs/ on 2026-11-02; restore with git" in completed_text
+    assert "## p-002-sample:" in completed_text
+
+    # Re-running prune on already pruned phase reports it as non-existent / not on disk
+    rerun_res = out(run(root, "prune", "--phases", "p-002-sample"))
+    assert len(rerun_res["eligible"]) == 0
+
+    # show still answers for p-002-sample
+    show_res = out(run(root, "show", "p-002-sample"))
+    assert show_res["archived"] is True
+    assert show_res["dir"] == "p-002-sample"
+
+
+
