@@ -57,9 +57,12 @@ describe('README runtime documentation', () => {
     assert.ok(tandemReadme.includes('MSYS2'), 'MSYS2 in tandem README');
   });
 
-  it('documents conditional uv requirement', () => {
-    assert.ok(readme.includes('uv'), 'uv documented in root README');
-    assert.ok(tandemReadme.includes('uv'), 'uv documented in tandem README');
+  it('documents the cargo source fallback and no longer requires uv', () => {
+    for (const text of [readme, tandemReadme]) {
+      assert.ok(text.includes('cargo'), 'cargo documented');
+      assert.ok(!/PyInstaller|uv run|uv sync|\buv\b/.test(text), 'no uv or PyInstaller');
+      assert.ok(text.includes('TANDEM_RUNTIME=auto|binary|source'), 'runtime modes documented');
+    }
   });
 });
 

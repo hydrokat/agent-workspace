@@ -288,34 +288,32 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 |---|---|---|
 | `TANDEM_AUTO_UPDATE` | `1` | Set to `0` to disable the launch-time update check permanently. |
 | `TANDEM_UPDATE_SPEC` | `hydrokat/agent-workspace` | npm package spec to update from; set to `owner/repo` or `owner/repo#ref` when running from a fork. |
-| `TANDEM_RUNTIME` | `auto` | Runtime mode: `auto` (binary first, fall back to Python), `binary` (strict binary, exit 4 on failure), or `python` (skip binary, use uv/Python). |
+| `TANDEM_RUNTIME` | `auto` | Runtime mode: `auto` (binary first, then build from source with cargo), `binary` (strict binary, exit 4 on failure), or `source` (skip the binary and build with cargo). `python` still works as a deprecated alias of `source`. |
 | `TANDEM_RELEASE_BASE` | `https://github.com/hydrokat/agent-workspace/releases/download` | Base download URL for release binaries and checksums. |
 
 The version check waits at most 15 seconds, so an offline or slow network delays launch by that long at worst; set `TANDEM_AUTO_UPDATE=0` to skip it entirely. Pass `--no-update` for a single-launch opt-out. `--check` reports an available update without applying it. See `tandem/README.md` for the in-session update check that runs while tandem is open.
 
-### Runtime: compiled binary and Python fallback
+### Runtime: native binary and source fallback
 
-tandem ships as a compiled PyInstaller onedir binary with zero Python dependencies at runtime, providing instant startup (~75ms warm launch). `./run.sh` automatically fetches and verifies the binary for your platform, falling back to Python with `uv` if the binary is unavailable.
+tandem is a native Rust binary, so it starts instantly and needs no Python. `./run.sh` fetches and verifies the binary for your platform from GitHub Releases. If the binary is unavailable (offline, checksum mismatch, blocked by Gatekeeper or `noexec`), it builds tandem from the shipped sources with `cargo build --release --locked` instead.
 
 **Supported platforms:**
-- `linux-x86_64` (glibc >= 2.31, Ubuntu 20.04+)
-- `linux-arm64` (glibc >= 2.31, Ubuntu 20.04+)
-- `darwin-arm64` (macOS 13+ Apple Silicon)
-- `darwin-x86_64` (macOS 13+ Intel)
-- `windows-x86_64` (experimental support under MSYS2 / Git Bash with tmux, or native Linux binary inside WSL)
+- `linux-x86_64` and `linux-arm64` (static musl binaries; no glibc requirement)
+- `darwin-arm64` and `darwin-x86_64` (macOS 13+)
+- `windows-x86_64` (experimental support under MSYS2 / Git Bash with tmux, or the Linux binary inside WSL)
 
 **Binary cache & verification:**
-Binaries are fetched from GitHub Releases, verified against cryptographic `SHA256SUMS`, and cached under `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>/` with the active version pointed to by `tandem/bin/current`. Stale binary versions are automatically pruned.
+Binaries are verified against `SHA256SUMS` and cached under `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>-<platform>/` with the active version pointed to by `tandem/bin/current`. Stale versions are pruned. Source builds go to `${XDG_STATE_HOME:-~/.local/state}/tandem/build-<workspace>/`, outside the package directory.
 
 **Flags and variables:**
-- `./run.sh --fetch-runtime`: Pre-fetches and verifies the binary runtime non-interactively without launching tandem (exit 0 on success, exit 4 on failure).
-- `TANDEM_RUNTIME=auto|binary|python`:
-  - `auto` (default): tries the compiled binary first; seamlessly falls back to Python if unavailable.
-  - `binary`: requires the binary; fails with exit code 4 if unavailable or checksum fails.
-  - `python`: bypasses the binary and runs tandem directly through `uv run`.
-- `TANDEM_RELEASE_BASE`: Base URL for fetching binary release archives and `SHA256SUMS`.
+- `./run.sh --fetch-runtime`: pre-fetches and verifies the binary non-interactively without launching tandem (exit 0 on success, exit 4 on failure).
+- `TANDEM_RUNTIME=auto|binary|source`:
+  - `auto` (default): tries the binary first; builds from source if it is unavailable.
+  - `binary`: requires the binary; fails with exit code 4 if unavailable or the checksum fails.
+  - `source`: skips the binary and builds with cargo. `python` is a deprecated alias that prints a notice.
+- `TANDEM_RELEASE_BASE`: base URL for binary release archives and `SHA256SUMS`.
 
-`run.sh` needs `git`, `tmux`, at least one of `claude` / `agy`, and `uv` (only when using the Python runtime fallback or developing from source). Rules:
+`run.sh` needs `git`, `tmux`, at least one of `claude` / `agy`, and, only when tandem has to be built from source, `cargo` (run.sh offers to install it through rustup). Rules:
 
 - Missing dependency: asks to install it. Declining stops (exit 2), except that declining one AI CLI is fine while the other is installed.
 - Installed but outdated (where a check exists): asks to update; declining continues with what you have.
@@ -333,7 +331,7 @@ The window shows planners on the left, implementers on the right, and the status
 
 <p align="center"><img src="docs/images/help.svg" alt="Alt+h help popup listing tandem's keys" width="70%"></p>
 
-<sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `cargo build --release --manifest-path tandem/Cargo.toml && python3 docs/screenshots/make_screenshots.py` (needs tmux; no uv or Python tandem); a test fails if a screenshot contains a home-directory path.</sub>
+<sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `cargo build --release --manifest-path tandem/Cargo.toml && python3 docs/screenshots/make_screenshots.py` (needs tmux and python3); a test fails if a screenshot contains a home-directory path.</sub>
 
 **Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning.
 

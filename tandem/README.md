@@ -8,7 +8,7 @@ To resume conversations, tandem reads only two things the CLIs produce: the log 
 
 ## Keys
 
-Single source: `src/tandem/tmux/keys.py` (the hint bar, help popup, and this table are generated from it). tmux's prefix is disabled, so tandem consumes no other keys. Every shortcut requires **at least 1 modifier key** (`Ctrl`, `Alt`, `Shift`) and supports multi-modifier chords. Shortcuts are OS-aware: they display with `Opt` on macOS (`Opt+h`, `Ctrl+Opt+n`, etc.) and `Alt` on Linux. On macOS terminals where Option does not send Meta, tandem also binds native macOS Option character keystrokes (`˙`, `ß`, `œ`, etc.) automatically. Custom shortcuts can be set via `TANDEM_KEYS="action=Shortcut,..."` (e.g. `TANDEM_KEYS="help=Opt+F1,quit=Ctrl+Opt+q"`).
+Single source: `src/tmux/keys.rs` (the hint bar, help popup, and this table are generated from it). tmux's prefix is disabled, so tandem consumes no other keys. Every shortcut requires **at least 1 modifier key** (`Ctrl`, `Alt`, `Shift`) and supports multi-modifier chords. Shortcuts are OS-aware: they display with `Opt` on macOS (`Opt+h`, `Ctrl+Opt+n`, etc.) and `Alt` on Linux. On macOS terminals where Option does not send Meta, tandem also binds native macOS Option character keystrokes (`˙`, `ß`, `œ`, etc.) automatically. Custom shortcuts can be set via `TANDEM_KEYS="action=Shortcut,..."` (e.g. `TANDEM_KEYS="help=Opt+F1,quit=Ctrl+Opt+q"`).
 
 | Key | Action |
 |---|---|
@@ -41,7 +41,7 @@ Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the
 ```text
 tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side by side; your ~/.tmux.conf is not loaded)
 ├── window "main":  planner column | implementer column
-│                   status window (Textual): Status tab, Queries tab
+│                   status window (ratatui): Status tab, Queries tab
 └── hidden windows "stash-<role>-<n>": background agents, swapped into a column when you switch tabs
 ```
 
@@ -51,27 +51,28 @@ The Status tab's **Repositories** section lists the workspace and every codebase
 
 ## Runtime
 
-tandem runs as a compiled PyInstaller onedir binary with zero external Python runtime dependencies, delivering an instant warm launch (~75ms). `./run.sh` automatically checks for and downloads the verified release binary for your platform, falling back to Python via `uv` if unavailable.
+tandem is a native Rust binary (ratatui + crossterm) with no Python or other runtime dependency, so launches are instant. `./run.sh` checks for and downloads the verified release binary for your platform; if it is unavailable it builds from the shipped sources with cargo.
 
 ### Supported platforms
-- `linux-x86_64` (glibc >= 2.31, Ubuntu 20.04+)
-- `linux-arm64` (glibc >= 2.31, Ubuntu 20.04+)
-- `darwin-arm64` (macOS 13+ Apple Silicon)
-- `darwin-x86_64` (macOS 13+ Intel)
+- `linux-x86_64` and `linux-arm64` (static musl binaries, no glibc requirement)
+- `darwin-arm64` and `darwin-x86_64` (macOS 13+)
 - `windows-x86_64` (experimental support under MSYS2 with tmux, or WSL running the Linux binary)
 
 ### Binary cache and verification
-Binaries are fetched from GitHub Releases, verified against cryptographic `SHA256SUMS`, and cached under `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>/` with the active version pointed to by `tandem/bin/current`. Stale binary versions are automatically pruned.
+Binaries are fetched from GitHub Releases, verified against `SHA256SUMS`, and cached under `${XDG_STATE_HOME:-~/.local/state}/tandem/bin/<version>-<platform>/` with the active version pointed to by `tandem/bin/current`. Stale versions are pruned.
+
+### Source fallback
+When the binary is unavailable (not downloadable, checksum mismatch, blocked by Gatekeeper or `noexec`, wrong version), `run.sh` needs `cargo` >= `TANDEM_MIN_CARGO` (it offers to install it through rustup, showing the command first) and runs `cargo build --release --locked --manifest-path <crate>/Cargo.toml` with its target directory under `${XDG_STATE_HOME:-~/.local/state}/tandem/build-<workspace>/`. The result must pass the same `--version` check before it is launched. Each workspace builds in its own directory, so parallel workspaces never clobber each other.
 
 ### Environment variables and flags
-- `TANDEM_RUNTIME=auto|binary|python`:
-  - `auto` (default): tries the compiled binary first; falls back to Python if unavailable.
+- `TANDEM_RUNTIME=auto|binary|source`:
+  - `auto` (default): tries the binary first; builds from source if unavailable.
   - `binary`: requires the binary; fails with exit code 4 if unavailable or checksum fails.
-  - `python`: skips binary runtime check and executes via `uv run` directly.
+  - `source`: skips the binary and builds with cargo. `python` is a deprecated alias that prints a notice.
 - `TANDEM_RELEASE_BASE`: Base URL for binary archives and `SHA256SUMS` (default: `https://github.com/hydrokat/agent-workspace/releases/download`).
 - `./run.sh --fetch-runtime`: Downloads and verifies the binary runtime non-interactively without launching tandem (exit 0 on success, exit 4 on failure).
 
-`uv` is only required when running the Python runtime fallback or when developing from source; the compiled binary runs completely standalone.
+`cargo` is only required for the source fallback and for development; the binary runs standalone.
 
 ## Save, resume and update
 
@@ -86,7 +87,7 @@ tandem keeps `.agent-workspace/tandem-session.json` (owner-only JSON) up to date
 
 The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank (new conversations) / [q]uit** (Enter resumes). If the last save was an autosave, the prompt says tandem did not exit cleanly. Non-interactive: `./run.sh -- --resume` or `--fresh`. A blank start replaces the saved file once the new session autosaves. An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
 
-**Per-workspace environment isolation and Python health:** `./run.sh` automatically tests and selects a healthy Python interpreter across `PATH` and system locations (`/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, `/usr/bin/python3`) that supports `blake2b`/`blake2s`/`sha256` in `hashlib`, passing it to `uv` via `UV_PYTHON`. Tandem isolates each workspace's editable virtualenv under `${XDG_STATE_HOME:-~/.local/state}/tandem/venv-<slug>`, so parallel workspaces never clobber each other's environments, and automatically removes and rebuilds broken virtualenvs.
+**Per-workspace builds:** source builds live under `${XDG_STATE_HOME:-~/.local/state}/tandem/build-<slug>`, one per workspace, so parallel workspaces never clobber each other. Leftover `venv` and `venv-*` folders from the Python tandem are removed on the first normal launch.
 
 **AI state (conversations).** Resuming relaunches each agent with its model and folder and reopens its own conversation, using only documented CLI flags:
 
@@ -97,7 +98,7 @@ The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / star
 
 The conversations themselves stay in each CLI's own history; tandem stores only the IDs (in `tandem-session.json` and `<coordination>/conversations/`). Claude is only asked to `--resume` when its transcript exists (`$CLAUDE_CONFIG_DIR` or `~/.claude`, `projects/*/<uuid>.jsonl`); a session that never got a message starts fresh under the same ID. A Claude agent whose folder was deleted starts a new conversation, because Claude keeps conversations per folder. `Ctrl+Alt+r` on an exited agent reopens its conversation the same way.
 
-**Update without quitting (`Ctrl+Alt+x` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), `uv sync`s tandem's environment, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. The same `update` also updates the installed AI CLIs (`claude update`, `agy update`, codex through its package manager) without asking, because you confirmed the update. Agents are not restarted automatically. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
+**Update without quitting (`Ctrl+Alt+x` → Update, or `tandem update [--yes]`):** after you confirm, it saves the state, runs `npx --yes hydrokat/agent-workspace update --yes --no-link` (the same refresh as `agent-workspace update`: skills, agents, `run.sh`, tandem), refreshes the binary runtime with `./run.sh --fetch-runtime`, and restarts only tandem's own windows (status, empty-column placeholders) and key bindings on the new code. The same `update` also updates the installed AI CLIs (`claude update`, `agy update`, codex through its package manager) without asking, because you confirmed the update. Agents are not restarted automatically. If a step fails, nothing is restarted and tandem keeps running the old code. If the minimum dependency versions changed, it tells you to restart via `./run.sh`. Set `TANDEM_UPDATE_SPEC=owner/repo[#ref]` to update from a fork.
 
 **What's new popup and banner.** After `./run.sh` applies a launch-time update, and after an in-app update, tandem reads `.agent-workspace/update-notice.env` and shows a "What's new in tandem X.Y.Z" popup the next time you attach, plus a dismissible `⬆ Updated to tandem X.Y.Z` banner at the top of the Status window. Clicking the banner text opens the popup; clicking `[×]` dismisses it. The notice is shown once, then marked as seen.
 
@@ -144,13 +145,13 @@ Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_
 
 ```bash
 cd tandem
-uv sync
-uv run pytest        # needs tmux for the integration tests (skipped when absent)
-uv run mypy          # strict
-uv run tandem --help
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test           # needs tmux for the integration tests (skipped when absent)
+cargo run -- --help
 ```
 
-Minimum tool versions live in `min-versions.env` (read by `../run.sh` as data, never sourced, and by `tandem.versions`). Python modules:
+Minimum tool versions live in `min-versions.env` (read by `../run.sh` as data, never sourced, and by `src/versions.rs`). The pytest suites for the template skill scripts live in `../test/skills`. Rust modules:
 
 | Module | Role |
 |---|---|
@@ -158,6 +159,10 @@ Minimum tool versions live in `min-versions.env` (read by `../run.sh` as data, n
 | `wizard/` | Launch and add-agent screens |
 | `tmux/` | Allow-listed tmux client, layout, tabs, keymap |
 | `coordination/` | Typed reader/answer-writer for the protocol files |
-| `sources/`, `snapshot.py`, `status/` | Status data sources and the Textual UI |
+| `sources/`, `snapshot.rs`, `status/` | Status data sources and the ratatui UI |
+| `state.rs`, `conversations.rs`, `quota.rs` | Saved sessions, conversation IDs, quota feed |
+| `updater.rs`, `update_check.rs`, `notice.rs` | In-session update, version check, what's-new notice |
 
-`tests/test_tos_guard.py` fails the build if code could send keys to or capture output from an AI pane.
+The golden fixtures in `tests/fixtures/parity/` were captured from the Python tandem 1.5.0 and are frozen.
+
+`tests/tos_guard.rs` fails the build if code could send keys to or capture output from an AI pane.
