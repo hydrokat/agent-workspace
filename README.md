@@ -295,7 +295,7 @@ The version check waits at most 15 seconds, so an offline or slow network delays
 
 ### Runtime: native binary and source fallback
 
-tandem is a native Rust binary, so it starts instantly and needs no Python. `./run.sh` fetches and verifies the binary for your platform from GitHub Releases. If the binary is unavailable (offline, checksum mismatch, blocked by Gatekeeper or `noexec`), it builds tandem from the shipped sources with `cargo build --release --locked` instead.
+tandem is a native Rust binary, so it starts instantly and needs no Python. `./run.sh` fetches and verifies the binary for your platform from GitHub Releases. If the binary is unavailable (offline, checksum mismatch, blocked by Gatekeeper or `noexec`, or no prebuilt binary for your platform), `run.sh` offers to build tandem on your machine from the shipped sources with `cargo build --release --locked`. It never compiles without your yes (`--yes` answers it for you); declining exits with code 2, and non-interactive runs without `--yes` exit with code 6.
 
 **Supported platforms:**
 - `linux-x86_64` and `linux-arm64` (static musl binaries; no glibc requirement)

@@ -30,6 +30,8 @@ add_cargo_bin_to_path
 FETCH_RUNTIME=0
 RUNTIME=""
 RUNTIME_REASON=""
+SOURCE_EXPLICIT=0
+SOURCE_REUSE=0
 EXP_VER=""
 SLUG=""
 MODE=""
@@ -61,6 +63,7 @@ Options:
 
 Environment:
   TANDEM_RUNTIME         auto (default), binary, or source (build with cargo; "python" is a deprecated alias).
+                         In auto mode a build on this machine only happens after you say yes.
   TANDEM_AUTO_UPDATE=0   Disable launch-time auto-update permanently.
   TANDEM_UPDATE_SPEC     npm package spec to update from (default: hydrokat/agent-workspace).
 
@@ -520,9 +523,21 @@ prune_binaries() {
   done
 }
 
+source_build_dir() {
+  printf '%s/build-%s' "$TANDEM_STATE_DIR" "$BUILD_SLUG"
+}
+
 use_source_runtime() {
   RUNTIME="source"
   TOOLS="git tmux cargo claude agy"
+  if [ "$SOURCE_EXPLICIT" -eq 0 ] && [ -n "$EXP_VER" ]; then
+    local bin
+    bin="$(source_build_dir)/release/$(source_exe_name)"
+    if [ -x "$bin" ] && binary_healthy "$bin" "$EXP_VER"; then
+      SOURCE_REUSE=1
+      TOOLS="git tmux claude agy"
+    fi
+  fi
 }
 
 use_binary_runtime() {
@@ -545,6 +560,7 @@ select_runtime() {
   esac
 
   if [ "$target_runtime" = "source" ]; then
+    SOURCE_EXPLICIT=1
     EXP_VER="$(expected_version || true)"
     use_source_runtime
     return 0
@@ -560,7 +576,7 @@ select_runtime() {
   fi
 
   if ! SLUG="$(platform_slug)" || [ -z "$SLUG" ]; then
-    RUNTIME_REASON="unsupported platform"
+    RUNTIME_REASON="no prebuilt binary for this platform"
     if [ "$target_runtime" = "binary" ]; then
       die 4 "Binary runtime unavailable: $RUNTIME_REASON"
     fi
@@ -851,12 +867,24 @@ source_exe_name() {
   esac
 }
 
+confirm_source_build() {
+  [ "$RUNTIME" = "source" ] || return 0
+  [ "$SOURCE_EXPLICIT" -eq 0 ] || return 0
+  [ "$SOURCE_REUSE" -eq 0 ] || return 0
+  local why="${RUNTIME_REASON:-no usable prebuilt binary}"
+  ask "Build tandem from source? No usable prebuilt binary ($why). This compiles it on this machine with \`cargo build --release --locked\` into $(source_build_dir) and can take a few minutes." \
+    || die 2 "Declined building tandem on this machine. Re-run ./run.sh and answer y (or pass --yes), or install a release binary for your platform."
+}
+
 run_source() {
   [ -f "$TANDEM_DIR/Cargo.toml" ] || die 4 "tandem sources not found at $TANDEM_DIR/Cargo.toml (run \`npx hydrokat/agent-workspace update\`)"
-  local target_dir="$TANDEM_STATE_DIR/build-$BUILD_SLUG" bin
-  printf 'Building tandem from source with cargo (first build takes a few minutes)…\n'
-  cargo build --release --locked --manifest-path "$TANDEM_DIR/Cargo.toml" --target-dir "$target_dir" \
-    || die 4 "cargo build failed. See the output above."
+  local target_dir bin
+  target_dir="$(source_build_dir)"
+  if [ "$SOURCE_REUSE" -eq 0 ]; then
+    printf 'Building tandem from source with cargo (first build takes a few minutes)…\n'
+    cargo build --release --locked --manifest-path "$TANDEM_DIR/Cargo.toml" --target-dir "$target_dir" \
+      || die 4 "cargo build failed. See the output above."
+  fi
   bin="$target_dir/release/$(source_exe_name)"
   [ -x "$bin" ] || die 4 "cargo build produced no binary at $bin"
   capture 10 "$bin" --version || die 4 "The freshly built tandem failed its --version smoke test."
@@ -910,6 +938,7 @@ main() {
     check_status_code || code=$?
     exit "$code"
   fi
+  confirm_source_build
   act
   remove_legacy_venvs
   if [ "$RUNTIME" = "binary" ]; then
