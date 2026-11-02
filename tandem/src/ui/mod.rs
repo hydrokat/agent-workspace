@@ -3,6 +3,7 @@ pub mod collapsible;
 pub mod footer;
 pub mod input;
 pub mod option_list;
+pub mod scroll;
 pub mod tabs;
 pub mod textarea;
 
@@ -11,5 +12,6 @@ pub use collapsible::Collapsible;
 pub use footer::{Footer, FooterItem};
 pub use input::TextInput;
 pub use option_list::{OptionItem, OptionList, OptionListState};
+pub use scroll::ScrollView;
 pub use tabs::TabBar;
 pub use textarea::TextArea;

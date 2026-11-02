@@ -9,6 +9,7 @@ use tandem::ui::collapsible::Collapsible;
 use tandem::ui::footer::{Footer, FooterItem};
 use tandem::ui::input::TextInput;
 use tandem::ui::option_list::{OptionItem, OptionList, OptionListState};
+use tandem::ui::scroll::ScrollView;
 use tandem::ui::tabs::TabBar;
 use tandem::ui::textarea::TextArea;
 
@@ -252,4 +253,46 @@ fn test_footer_render() {
             footer.render(f.area(), f.buffer_mut());
         })
         .unwrap();
+}
+
+#[test]
+fn test_scroll_view_navigation_and_clamping() {
+    let mut scroll = ScrollView::new();
+    assert_eq!(scroll.offset, 0);
+
+    let total = 20;
+    let height = 5;
+
+    scroll.handle_key(KeyCode::Down, total, height);
+    assert_eq!(scroll.offset, 1);
+
+    scroll.handle_key(KeyCode::PageDown, total, height);
+    assert_eq!(scroll.offset, 6);
+
+    scroll.handle_key(KeyCode::End, total, height);
+    assert_eq!(scroll.offset, 15);
+
+    scroll.handle_key(KeyCode::Down, total, height);
+    assert_eq!(scroll.offset, 15);
+
+    scroll.handle_key(KeyCode::Up, total, height);
+    assert_eq!(scroll.offset, 14);
+
+    scroll.handle_key(KeyCode::PageUp, total, height);
+    assert_eq!(scroll.offset, 9);
+
+    scroll.handle_key(KeyCode::Home, total, height);
+    assert_eq!(scroll.offset, 0);
+
+    scroll.handle_mouse(crossterm::event::MouseEventKind::ScrollDown, total, height);
+    assert_eq!(scroll.offset, 3);
+
+    scroll.handle_mouse(crossterm::event::MouseEventKind::ScrollUp, total, height);
+    assert_eq!(scroll.offset, 0);
+
+    scroll.scroll_to_bottom(total, height);
+    assert_eq!(scroll.offset, 15);
+
+    scroll.clamp(10, height);
+    assert_eq!(scroll.offset, 5);
 }

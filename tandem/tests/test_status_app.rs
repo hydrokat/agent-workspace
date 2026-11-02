@@ -15,7 +15,7 @@ use tandem::config::Config;
 use tandem::coordination::schema::Query;
 use tandem::coordination::store::CoordStore;
 use tandem::notice::{mark_seen, write_notice};
-use tandem::status::app::StatusApp;
+use tandem::status::app::{StatusApp, StatusTab};
 use tandem::status::notify::{Notifier, order_queries};
 use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
 use tandem::update_check::{CheckState, Runner as UpdateRunner, write_state};
@@ -144,8 +144,7 @@ fn test_shows_summary_phases_and_sessions() {
 
     assert!(text.contains("1/2 tasks"));
     assert!(text.contains("1 agent"));
-    assert!(text.contains("p-001-thing"));
-    assert!(text.contains("t-002"));
+    assert!(text.contains("Sprint, Spec and Task have their own tabs"));
     assert_eq!(app.session_items.len(), 1);
 }
 
@@ -191,7 +190,7 @@ fn test_empty_workspace_shows_helpful_states() {
     let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("none")), None, None);
     let (_, text) = render_app(&mut app, 120, 40);
 
-    assert!(text.contains("No specs yet"));
+    assert!(text.contains("Sprint, Spec and Task have their own tabs"));
     assert!(text.contains("Coordination folder not found"));
     assert!(text.contains("workspace · not a git repository"));
 }
@@ -202,11 +201,11 @@ fn test_malformed_spec_does_not_break_the_rest() {
     let ws = setup_workspace(tmp.path());
     fs::create_dir_all(ws.join("specs").join("p-009-bad")).unwrap();
 
-    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
-    let (_, text) = render_app(&mut app, 120, 40);
+    let app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+    let phases_text = tandem::status::render::phases_text(&app.snapshot);
 
-    assert!(text.contains("WARNING"));
-    assert!(text.contains("p-001-thing"));
+    assert!(phases_text.contains("WARNING"));
+    assert!(phases_text.contains("p-001-thing"));
 }
 
 #[test]
@@ -294,18 +293,19 @@ fn test_queries_tab_exists_and_keys_switch() {
     let ws = setup_workspace(tmp.path());
 
     let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
-    assert_eq!(app.tab_idx, 0);
+    assert_eq!(app.tab, StatusTab::Status);
 
     app.handle_key(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT));
-    assert_eq!(app.tab_idx, 1);
+    assert_eq!(app.tab, StatusTab::Queries);
 
     app.handle_key(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT));
-    assert_eq!(app.tab_idx, 0);
+    assert_eq!(app.tab, StatusTab::Status);
 
     app.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(app.tab_idx, 1);
+    assert_eq!(app.tab, StatusTab::Sprint);
+
     app.handle_key(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT));
-    assert_eq!(app.tab_idx, 0);
+    assert_eq!(app.tab, StatusTab::Status);
 }
 
 #[test]
@@ -318,10 +318,10 @@ fn test_markup_in_untrusted_titles_is_shown_literally() {
     )
     .unwrap();
 
-    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
-    let (_, text) = render_app(&mut app, 120, 40);
+    let app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+    let phases_text = tandem::status::render::phases_text(&app.snapshot);
 
-    assert!(text.contains("[bold]loud[/bold]"));
+    assert!(phases_text.contains("[bold]loud[/bold]"));
 }
 
 #[test]
@@ -1020,4 +1020,205 @@ fn test_notifier_uses_non_focus_stealing_message_and_escapes() {
     assert!(text.contains("impl##1"));
     assert!(!text.contains("#{evil}"));
     assert!(!text.contains("\x1b"));
+}
+
+#[test]
+fn test_five_tab_titles_in_order_and_dynamic_queries_count() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+
+    assert_eq!(StatusTab::ALL.len(), 5);
+    assert_eq!(
+        app.tab_bar.titles,
+        vec![
+            "Status".to_string(),
+            "Sprint".to_string(),
+            "Spec".to_string(),
+            "Task".to_string(),
+            "Queries".to_string(),
+        ]
+    );
+
+    let mut snap = app.snapshot.clone();
+    snap.queries.push(make_query("q-1", "open", 1.0));
+    app.apply(snap);
+
+    assert_eq!(app.tab_bar.titles[4], "Queries (1)");
+}
+
+#[test]
+fn test_tab_and_backtab_wrap_around() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+
+    assert_eq!(app.tab, StatusTab::Status);
+    app.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Sprint);
+    app.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Spec);
+    app.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Task);
+    app.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Queries);
+
+    app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+    assert_eq!(app.tab, StatusTab::Task);
+    app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Spec);
+    app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Sprint);
+    app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Status);
+    app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Queries);
+}
+
+#[test]
+fn test_one_to_five_direct_jump() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Sprint);
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Spec);
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Task);
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Queries);
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Status);
+}
+
+#[test]
+fn test_click_each_tab_label() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+    render_app(&mut app, 120, 30);
+
+    let tabs_y = app.tabs_area.y;
+
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 14,
+        row: tabs_y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.tab, StatusTab::Sprint);
+
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 24,
+        row: tabs_y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.tab, StatusTab::Spec);
+
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 32,
+        row: tabs_y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.tab, StatusTab::Task);
+
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 40,
+        row: tabs_y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.tab, StatusTab::Queries);
+
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 4,
+        row: tabs_y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.tab, StatusTab::Status);
+}
+
+#[test]
+fn test_status_tab_pointer_line_and_no_collapsibles() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+    let (_, text) = render_app(&mut app, 120, 40);
+
+    assert!(text.contains("Sprint, Spec and Task have their own tabs"));
+    assert!(!text.contains("▼ Sprint"));
+    assert!(!text.contains("▶ Sprint"));
+    assert!(!text.contains("▼ Phases"));
+    assert!(!text.contains("▶ Phases"));
+    assert!(text.contains("Repositories"));
+}
+
+#[test]
+fn test_footer_shows_tab_specific_keys() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+
+    app.set_tab(StatusTab::Status);
+    let (_, status_text) = render_app(&mut app, 120, 30);
+    assert!(status_text.contains("Move"));
+    assert!(status_text.contains("Go to agent"));
+
+    app.set_tab(StatusTab::Sprint);
+    let (_, sprint_text) = render_app(&mut app, 120, 30);
+    assert!(sprint_text.contains("Scroll"));
+    assert!(!sprint_text.contains("Go to agent"));
+
+    app.set_tab(StatusTab::Spec);
+    let (_, spec_text) = render_app(&mut app, 120, 30);
+    assert!(spec_text.contains("Scroll"));
+
+    app.set_tab(StatusTab::Task);
+    let (_, task_text) = render_app(&mut app, 120, 30);
+    assert!(task_text.contains("Scroll"));
+
+    app.set_tab(StatusTab::Queries);
+    let (_, queries_text) = render_app(&mut app, 120, 30);
+    assert!(queries_text.contains("Next element"));
+}
+
+#[test]
+fn test_scroll_keys_and_mouse_wheel_on_tabs() {
+    let tmp = TempDir::new();
+    let ws = setup_workspace(tmp.path());
+    let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
+
+    app.set_tab(StatusTab::Sprint);
+    render_app(&mut app, 120, 30);
+
+    app.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    app.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    app.handle_key(&KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+    app.handle_key(&KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+    app.handle_key(&KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    app.handle_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: 20,
+        row: 10,
+        modifiers: KeyModifiers::NONE,
+    });
+    app.handle_mouse(&MouseEvent {
+        kind: MouseEventKind::ScrollUp,
+        column: 20,
+        row: 10,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(app.sprint_scroll.offset, 0);
 }

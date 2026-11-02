@@ -430,7 +430,7 @@ fn status_tab_shows_the_sprint_only_when_one_is_active() {
     let ws = tmp.path();
     write_phase(ws, "p-001-a", &[("t-001", true), ("t-002", false)]);
     assert!(
-        !screen(ws, 120, 40).contains("Sprint"),
+        !screen(ws, 120, 40).contains("s-003-demo"),
         "nothing without a sprint"
     );
 
@@ -446,7 +446,6 @@ fn status_tab_shows_the_sprint_only_when_one_is_active() {
     );
     let shown = screen(ws, 120, 40);
     assert!(shown.contains("s-003-demo"), "headline: {shown}");
-    assert!(shown.contains("Sprint"), "collapsible: {shown}");
     let rows: Vec<&str> = shown.lines().collect();
     let headline = rows.iter().position(|r| r.contains("s-003-demo")).unwrap();
     let in_progress = rows.iter().position(|r| r.contains("In progress")).unwrap();
