@@ -12,11 +12,33 @@ pub struct Task {
     pub id: String,
     pub title: String,
     pub status: String,
+    #[serde(default)]
+    pub objectives_done: usize,
+    #[serde(default)]
+    pub objectives_total: usize,
+}
+
+impl Task {
+    pub fn new(id: impl Into<String>, title: impl Into<String>, status: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            status: status.into(),
+            objectives_done: 0,
+            objectives_total: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Phase {
     pub name: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub target: String,
     #[serde(default)]
     pub tasks: Vec<Task>,
     #[serde(default)]
@@ -27,6 +49,9 @@ impl Phase {
     pub fn new(name: impl Into<String>, tasks: Vec<Task>) -> Self {
         Self {
             name: name.into(),
+            title: String::new(),
+            branch: String::new(),
+            target: String::new(),
             tasks,
             warning: String::new(),
         }
@@ -35,6 +60,9 @@ impl Phase {
     pub fn with_warning(name: impl Into<String>, warning: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            title: String::new(),
+            branch: String::new(),
+            target: String::new(),
             tasks: Vec::new(),
             warning: warning.into(),
         }
@@ -158,6 +186,29 @@ pub fn is_phase_dir(name: &str) -> bool {
     false
 }
 
+fn extract_task_objectives(text: Option<&str>) -> (usize, usize) {
+    let Some(text) = text else {
+        return (0, 0);
+    };
+    let mut in_objectives = false;
+    let mut done = 0;
+    let mut total = 0;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") {
+            in_objectives = trimmed == "## Objectives";
+        } else if in_objectives {
+            if trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
+                done += 1;
+                total += 1;
+            } else if trimmed.starts_with("- [ ] ") {
+                total += 1;
+            }
+        }
+    }
+    (done, total)
+}
+
 fn load_phase_dir(directory: &Path) -> Phase {
     let dir_name = directory
         .file_name()
@@ -174,8 +225,34 @@ fn load_phase_dir(directory: &Path) -> Phase {
         }
     };
 
+    let mut phase_title = String::new();
+    let mut branch = String::new();
+    let mut target = String::new();
+    let mut in_branch_strategy = false;
+
     let mut timeline = HashMap::new();
     for line in impl_text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("# Implementation Plan:") {
+            phase_title = clean(rest).trim().to_string();
+        } else if trimmed.starts_with("## Branch Strategy") {
+            in_branch_strategy = true;
+        } else if trimmed.starts_with("## ") {
+            in_branch_strategy = false;
+        } else if in_branch_strategy {
+            if let Some(rest) = trimmed
+                .strip_prefix("- **Working Branch**:")
+                .or_else(|| trimmed.strip_prefix("- Working Branch:"))
+            {
+                branch = clean(rest).trim().to_string();
+            } else if let Some(rest) = trimmed
+                .strip_prefix("- **Merge Target**:")
+                .or_else(|| trimmed.strip_prefix("- Merge Target:"))
+            {
+                target = clean(rest).trim().to_string();
+            }
+        }
+
         if let Some((task_id, status)) = parse_timeline_line(line) {
             timeline.insert(task_id, status);
         }
@@ -189,7 +266,8 @@ fn load_phase_dir(directory: &Path) -> Phase {
         };
 
         let task_file = directory.join(format!("{task_id}.md"));
-        let status = extract_task_status(read_file_capped(&task_file).as_deref())
+        let task_content = read_file_capped(&task_file);
+        let status = extract_task_status(task_content.as_deref())
             .or_else(|| timeline.get(&task_id).cloned())
             .unwrap_or_else(|| {
                 if checked {
@@ -199,14 +277,25 @@ fn load_phase_dir(directory: &Path) -> Phase {
                 }
             });
 
+        let (objectives_done, objectives_total) = extract_task_objectives(task_content.as_deref());
+
         tasks.push(Task {
             id: task_id,
             title: clean(&title).trim().to_string(),
             status,
+            objectives_done,
+            objectives_total,
         });
     }
 
-    Phase::new(dir_name, tasks)
+    Phase {
+        name: dir_name,
+        title: phase_title,
+        branch,
+        target,
+        tasks,
+        warning: String::new(),
+    }
 }
 
 pub fn load_phases(workspace: &Path) -> Vec<Phase> {

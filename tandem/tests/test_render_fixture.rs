@@ -47,6 +47,8 @@ fn test_render_parity_fixture() {
         coord_exists: true,
         now: 10_000.0,
         sprint: None,
+        ongoing_specs: Vec::new(),
+        ongoing_tasks: Vec::new(),
     };
 
     let summary_cases = fixture["summary_line"].as_object().unwrap();
@@ -59,16 +61,8 @@ fn test_render_parity_fixture() {
         phases: vec![Phase::new(
             "p-001-core",
             vec![
-                Task {
-                    id: "t-001".to_string(),
-                    title: "Initial setup".to_string(),
-                    status: "Done".to_string(),
-                },
-                Task {
-                    id: "t-002".to_string(),
-                    title: "Core logic".to_string(),
-                    status: "In Progress".to_string(),
-                },
+                Task::new("t-001", "Initial setup", "Done"),
+                Task::new("t-002", "Core logic", "In Progress"),
             ],
         )],
         entries: Vec::new(),
@@ -101,6 +95,8 @@ fn test_render_parity_fixture() {
         coord_exists: true,
         now: 10_000.0,
         sprint: None,
+        ongoing_specs: Vec::new(),
+        ongoing_tasks: Vec::new(),
     };
 
     assert_eq!(
