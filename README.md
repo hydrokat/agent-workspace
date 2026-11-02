@@ -258,7 +258,7 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, a
 | `/pm-backlogs [specs|tasks|all] [sprint]` | Scan unscheduled backlog specs and tasks, folding chosen items or task subsets into active sprint or planning next sprint |
 | `/spec-plan` | Plan a phase: branches, scope, tasks with Affected Paths and Depends On, sprint sizing (splits oversized work into `/pm-new-sprint`), and delivery task |
 | `/spec-implement [phase] [task]` | Implement a phase or active sprint task: queries `sprints.py next-work` by default, plans parallel waves, claims tasks, keeps progress in sync, runs `/code-cleanup --diff` |
-| `/spec-compile [all\|completed\|incomplete\|NNN\|NNN-NNN]` | Compile completed and incomplete specs into `specs/compiled/` |
+| `/spec-compile [all\|completed\|incomplete\|NNN\|NNN-NNN]` | Compile completed and incomplete specs into `specs/compiled/`; preserves archived phases from guarded phase pruning |
 | `/spec-explain [phase]` | Explain a phase: what it fixes, what it develops, why, where, and its state |
 | `/explain <module or feature> [--non-technical]` | Explain how part of the codebase works, technically by default or in plain language |
 | `/feasibility <feature>` | Decide whether a feature can be built here and how: verdict, effort, options, risks, unknowns |
@@ -266,7 +266,7 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, a
 | `/workspace-cleanup` | List files that may not belong in the workspace and delete the ones you approve |
 | `test-failures` (used automatically) | Agents run tests through `run_tests.py`, so only the failing tests reach their context; the full log is saved under `.agent-workspace/test-runs/` |
 
-`/spec-explain`, `/explain`, and `/feasibility` never change files unless you ask them to save. `/code-cleanup` and `/workspace-cleanup` delete nothing without your explicit answer.
+`/spec-explain`, `/explain`, and `/feasibility` never change files unless you ask them to save. `/code-cleanup`, `/workspace-cleanup`, and guarded phase pruning (`specs.py prune`) delete nothing without your explicit answer.
 
 ### Script-first skills
 
