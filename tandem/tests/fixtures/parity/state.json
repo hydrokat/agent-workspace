@@ -1,0 +1,98 @@
+{
+  "describe": {
+    "clean_16min": "Saved session (16 min ago)\n  planners: claude\u00b7opus (conversation)\n  implementers: agy\u00b7gemini-2.5-pro\n  (conversation) = resuming reopens that agent's chat",
+    "unclean_120min": "tandem did not exit cleanly (crash, reboot or closed terminal). Last autosave (2 h ago)\n  planners: claude\u00b7opus (conversation)\n  implementers: agy\u00b7gemini-2.5-pro\n  (conversation) = resuming reopens that agent's chat",
+    "zero_saved_at": "Saved session\n  planners: claude\u00b7opus (conversation)\n  implementers: agy\u00b7gemini-2.5-pro\n  (conversation) = resuming reopens that agent's chat"
+  },
+  "parse": {
+    "bad_no_agents": true,
+    "bad_version": true,
+    "good": {
+      "active": {
+        "implementer": 1,
+        "planner": 1
+      },
+      "agents": [
+        {
+          "cli": "claude",
+          "conversation": "c0a80101-0000-0000-0000-000000000001",
+          "cwd": "/w",
+          "index": 1,
+          "model": "opus",
+          "role": "planner",
+          "skip_permissions": false
+        },
+        {
+          "cli": "agy",
+          "conversation": null,
+          "cwd": "/w",
+          "index": 1,
+          "model": "gemini-2.5-pro",
+          "role": "implementer",
+          "skip_permissions": true
+        }
+      ],
+      "clean": true,
+      "layout": {
+        "columns_percent": 50,
+        "status_rows": 10
+      },
+      "saved_at": 1700000000.0,
+      "version": 2
+    },
+    "partial": {
+      "active": {},
+      "agents": [
+        {
+          "cli": "claude",
+          "conversation": "c0a80101-0000-0000-0000-000000000001",
+          "cwd": null,
+          "index": 1,
+          "model": "opus",
+          "role": "planner",
+          "skip_permissions": false
+        }
+      ],
+      "clean": true,
+      "layout": {
+        "columns_percent": null,
+        "status_rows": null
+      },
+      "saved_at": 1700000000.0,
+      "version": 2
+    }
+  },
+  "to_json": {
+    "active": {
+      "implementer": 1,
+      "planner": 1
+    },
+    "agents": [
+      {
+        "cli": "claude",
+        "conversation": "c0a80101-0000-0000-0000-000000000001",
+        "cwd": "/w",
+        "index": 1,
+        "model": "opus",
+        "role": "planner",
+        "skip_permissions": false
+      },
+      {
+        "cli": "agy",
+        "conversation": null,
+        "cwd": "/w",
+        "index": 1,
+        "model": "gemini-2.5-pro",
+        "role": "implementer",
+        "skip_permissions": true
+      }
+    ],
+    "clean": true,
+    "layout": {
+      "columns_percent": 50,
+      "status_rows": 10
+    },
+    "saved_at": 1700000000.0,
+    "version": 2
+  }
+}

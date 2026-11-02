@@ -1,0 +1,74 @@
+{
+  "is_at_least": {
+    "1.4.9>=1.5.0": false,
+    "1.5.0>=1.4.0": true,
+    "1.5.0>=1.5.0": true,
+    "1.5.0a>=1.5.0b": false,
+    "2.0.0>=1.99.9": true
+  },
+  "parse_min_versions": {
+    "TANDEM_MIN_NODE": "18.0.0",
+    "TANDEM_MIN_PYTHON": "3.10.0",
+    "TANDEM_MIN_TMUX": "3.2"
+  },
+  "parse_version": {
+    "": null,
+    "1.2.3.4": {
+      "parts": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "suffix": ""
+    },
+    "1.5": {
+      "parts": [
+        1,
+        5
+      ],
+      "suffix": ""
+    },
+    "1.5.0": {
+      "parts": [
+        1,
+        5,
+        0
+      ],
+      "suffix": ""
+    },
+    "2.0.0-beta.1": {
+      "parts": [
+        2,
+        0,
+        0
+      ],
+      "suffix": ""
+    },
+    "invalid": null,
+    "tandem 1.5.0 (c24e10642)": {
+      "parts": [
+        1,
+        5,
+        0
+      ],
+      "suffix": ""
+    },
+    "v0.9.12-pre": {
+      "parts": [
+        0,
+        9,
+        12
+      ],
+      "suffix": ""
+    },
+    "v1.5.0": {
+      "parts": [
+        1,
+        5,
+        0
+      ],
+      "suffix": ""
+    }
+  }
+}

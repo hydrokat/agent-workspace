@@ -1,0 +1,48 @@
+{
+  "age": {
+    "12s": "12s",
+    "7200s": "2h",
+    "840s": "14m"
+  },
+  "bar": {
+    "0_of_0_w4": "\u2591\u2591\u2591\u2591",
+    "1_of_2_w4": "\u2588\u2588\u2591\u2591",
+    "3_of_3_w6": "\u2588\u2588\u2588\u2588\u2588\u2588"
+  },
+  "conflicts_text": {
+    "active": "WARNING t-002 and t-003 both touch src/core.rs",
+    "empty": "No overlapping Affected Paths between claimed tasks."
+  },
+  "fit": {
+    "exact-width-40-characters-padded-here!": {
+      "120": "exact-width-40-characters-padded-here!",
+      "40": "exact-width-40-characters-padded-here!",
+      "80": "exact-width-40-characters-padded-here!"
+    },
+    "short": {
+      "120": "short",
+      "40": "short",
+      "80": "short"
+    },
+    "this is a much longer line that might need truncation depending on width": {
+      "120": "this is a much longer line that might need truncation depending on width",
+      "40": "this is a much longer line that might n\u2026",
+      "80": "this is a much longer line that might need truncation depending on width"
+    }
+  },
+  "in_progress_text": {
+    "active": "claim p-001-core t-002 by implementer-1",
+    "empty": "Nothing in progress."
+  },
+  "phases_text": {
+    "active": "p-001-core  \u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591  1/2\n    t-001  Done        Initial setup\n    t-002  In Progress Core logic",
+    "empty": "No specs yet. A planner can create one."
+  },
+  "session_row": {
+    "active": "implementer-1  claude\u00b7sonnet  p-001 t-002  branch feat/core  heartbeat 15s ago"
+  },
+  "summary_line": {
+    "active": "1/2 tasks \u00b7 1 agent \u00b7 1 claim \u00b7 WARNING 1 conflicts \u00b7 0 open queries",
+    "empty": "0/0 tasks \u00b7 0 agents \u00b7 0 claims \u00b7 0 open queries"
+  }
+}

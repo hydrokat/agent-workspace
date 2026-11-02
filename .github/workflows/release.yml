@@ -14,8 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify versions match tag
-        run: |
-          python3 -c "import sys; from pathlib import Path; sys.path.insert(0, 'tandem/src'); from tandem.versions import verify_release_versions; ok, msg = verify_release_versions(sys.argv[1], Path('.')); print(msg); sys.exit(0 if ok else 1)" "${{ github.ref_name }}"
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash tandem/packaging/verify-versions.sh "$TAG"
 
   build:
     needs: verify

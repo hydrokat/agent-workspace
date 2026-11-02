@@ -1,0 +1,31 @@
+[package]
+name = "tandem"
+version = "1.6.0"
+edition = "2024"
+authors = []
+description = "Launch planner and implementer AI CLIs side-by-side in tmux."
+license = "MIT"
+
+[lib]
+name = "tandem"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tandem"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+uuid = { version = "1.10", features = ["v4"] }
+sha2 = "0.10"
+unicode-width = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+ratatui = "0.29"
+crossterm = "0.28"
+
+[lints.rust]
+unsafe_code = "forbid"

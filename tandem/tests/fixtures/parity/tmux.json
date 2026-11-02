@@ -1,0 +1,21 @@
+{
+  "conf_text": {
+    "default": "set-option -g mouse on\nset-option -g extended-keys on\nset-environment -g -u TMUX_PANE\nset-option -g prefix None\nset-option -g prefix2 None\nset-option -g escape-time 10\nset-option -g history-limit 50000\nset-option -g pane-border-status top\nset-option -g status on\nset-option -g status-position bottom\nset-window-option -g remain-on-exit on\n",
+    "history_10000": "set-option -g mouse on\nset-option -g extended-keys on\nset-environment -g -u TMUX_PANE\nset-option -g prefix None\nset-option -g prefix2 None\nset-option -g escape-time 10\nset-option -g history-limit 10000\nset-option -g pane-border-status top\nset-option -g status on\nset-option -g status-position bottom\nset-window-option -g remain-on-exit on\n"
+  },
+  "socket_for": {
+    "/System/Volumes/Data/home/bob/dev/my-app": "tandem-5f94bd3105",
+    "/Users/alice/Projects/workspace": "tandem-297a7e72d8",
+    "/private/tmp/project": "tandem-84ace05725",
+    "/private/var/repo/deep/nested/path": "tandem-1cd6d63c8d"
+  },
+  "tabs": {
+    "render_title_implementer": "─ #{?pane_active,▶ ,}IMPLEMENTERS ─ 1 claude·sonnet",
+    "render_title_planner": "─ #{?pane_active,▶ ,}PLANNERS ─ 1 claude·opus  ⚠2 agy·sonnet(exited 0)",
+    "tab_text": [
+      "1 claude·opus",
+      "⚠2 agy·sonnet(exited 0)",
+      "1 claude·sonnet"
+    ]
+  }
+}

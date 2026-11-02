@@ -1,0 +1,135 @@
+{
+  "conflicts": [
+    {
+      "first": "t-001",
+      "path": "src/main.rs",
+      "second": "t-002"
+    }
+  ],
+  "inprogress": [
+    {
+      "fields": {
+        "Agent": "@senior-backend-dev` (ID: `sess-1`)",
+        "Location": "Branch `feat/x",
+        "Next step": "Test.",
+        "Ongoing": "Writing code."
+      },
+      "spec": "p-001-thing",
+      "title": "t-002: Real work"
+    }
+  ],
+  "phases": [
+    {
+      "done": 10,
+      "name": "p-001-agent-workspace-package",
+      "tasks": [
+        {
+          "id": "t-001",
+          "status": "Done",
+          "title": "[New Feature] Scaffold the `tandem` Python project and min-version table"
+        },
+        {
+          "id": "t-002",
+          "status": "Done",
+          "title": "[New Feature] `run.sh` bootstrap: dependency, update, and min-version gate"
+        },
+        {
+          "id": "t-003",
+          "status": "Done",
+          "title": "[New Feature] Coordination protocol + `agent-coordination` skill + `coord.py`"
+        },
+        {
+          "id": "t-004",
+          "status": "Done",
+          "title": "[Enhancement] Coordination-aware `spec-planner`, `spec-implement`, AGENTS.md, in-progress template"
+        },
+        {
+          "id": "t-005",
+          "status": "Done",
+          "title": "[New Feature] AI CLI adapters + launch / add-agent wizard"
+        },
+        {
+          "id": "t-006",
+          "status": "Done",
+          "title": "[New Feature] tmux layout engine: columns, per-column tabs, keymap, hint bar, ToS guard"
+        },
+        {
+          "id": "t-007",
+          "status": "Done",
+          "title": "[New Feature] Status tab: progress, sessions/claims, codebases, worktrees, branches"
+        },
+        {
+          "id": "t-008",
+          "status": "Done",
+          "title": "[New Feature] Queries tab: answer queue with live sync"
+        },
+        {
+          "id": "t-009",
+          "status": "Done",
+          "title": "[Enhancement] Docs, packaging, and knowledgebase"
+        },
+        {
+          "id": "t-010",
+          "status": "Done",
+          "title": "Delivery: Commit, PR, Review, CI, Merge"
+        },
+        {
+          "id": "t-011",
+          "status": "Pending",
+          "title": "[Enhancement] Save AI state: resume each agent's conversation and recover from crashes (PR #13, awaiting merge)"
+        }
+      ],
+      "total": 11,
+      "warning": ""
+    },
+    {
+      "done": 1,
+      "name": "p-002-sample",
+      "tasks": [
+        {
+          "id": "t-001",
+          "status": "Done",
+          "title": "[New Feature] Add the thing"
+        },
+        {
+          "id": "t-002",
+          "status": "In Progress",
+          "title": "[Bug Fix] Fix the other thing"
+        },
+        {
+          "id": "t-003",
+          "status": "Pending",
+          "title": "Delivery: Commit, PR, Review, CI, Merge"
+        }
+      ],
+      "total": 3,
+      "warning": ""
+    },
+    {
+      "done": 0,
+      "name": "p-003-broken",
+      "tasks": [
+        {
+          "id": "t-001",
+          "status": "Pending",
+          "title": "Missing everything"
+        }
+      ],
+      "total": 1,
+      "warning": ""
+    },
+    {
+      "done": 1,
+      "name": "phase-001",
+      "tasks": [
+        {
+          "id": "task-001",
+          "status": "Done",
+          "title": "[Enhancement] Old work"
+        }
+      ],
+      "total": 1,
+      "warning": ""
+    }
+  ]
+}

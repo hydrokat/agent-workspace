@@ -1,0 +1,54 @@
+{
+  "due": [
+    {
+      "expected": true,
+      "interval": 14400,
+      "last": 0.0,
+      "now": 100000.0
+    },
+    {
+      "expected": false,
+      "interval": 14400,
+      "last": 96400.0,
+      "now": 100000.0
+    },
+    {
+      "expected": true,
+      "interval": 14400,
+      "last": 80000.0,
+      "now": 100000.0
+    },
+    {
+      "expected": false,
+      "interval": 14400,
+      "last": 101000.0,
+      "now": 100000.0
+    }
+  ],
+  "should_offer": [
+    {
+      "expected": true,
+      "installed": "1.4.0",
+      "latest": "1.5.0",
+      "skip": ""
+    },
+    {
+      "expected": false,
+      "installed": "1.5.0",
+      "latest": "1.5.0",
+      "skip": ""
+    },
+    {
+      "expected": false,
+      "installed": "1.4.0",
+      "latest": "1.5.0",
+      "skip": "1.5.0"
+    },
+    {
+      "expected": true,
+      "installed": "1.4.0",
+      "latest": "1.6.0",
+      "skip": "1.5.0"
+    }
+  ]
+}

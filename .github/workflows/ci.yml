@@ -22,6 +22,17 @@ jobs:
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: npm test
 
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: git config --global user.email ci@example.com && git config --global user.name ci
+      - run: pip install pytest
+      - run: pytest test/skills
+
   tandem:
     runs-on: ubuntu-latest
     defaults:
@@ -29,12 +40,20 @@ jobs:
         working-directory: tandem
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tandem
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: git config --global user.email ci@example.com && git config --global user.name ci
-      - run: uv sync --locked
-      - run: uv run mypy
-      - run: uv run pytest -q
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --locked
 
   binary:
     uses: ./.github/workflows/build-binary.yml

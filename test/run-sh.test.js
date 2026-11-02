@@ -1,16 +1,16 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, existsSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, existsSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeTmp, cleanup } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip', 'gzip'];
+const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip', 'gzip', 'chmod'];
 const MIN = [
-  '# test minimums', 'TANDEM_MIN_PYTHON=3.11', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
-  'TANDEM_MIN_UV=0.5', 'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
+  '# test minimums', 'TANDEM_MIN_CARGO=1.89', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
+  'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
 ].join('\n');
 
 const TOOL_SH = `#!/bin/sh
@@ -23,7 +23,7 @@ case "$name" in
     case "$1" in
       install) install_pkg "$2"; exit 0;;
       upgrade) bump "$2"; exit 0;;
-      outdated) [ -f "$STATE/outdated" ] && cat "$STATE/outdated"; exit 0;;
+      outdated) [ -f "$STATE/brew.outdated.fail" ] && exit 1; [ -f "$STATE/outdated" ] && cat "$STATE/outdated"; exit 0;;
     esac;;
   sudo) exec "$@";;
   pacman)
@@ -55,7 +55,7 @@ case "$name" in
       case "$url" in
         *claude.ai*) n=claude ;;
         *antigravity*) n=agy ;;
-        *astral*) n=uv ;;
+        *rustup*) n=cargo ;;
         *releases/download*SHA256SUMS*)
           [ -f "$STATE/curl.404" ] && exit 22
           if [ -f "$STATE/SHA256SUMS" ]; then
@@ -87,12 +87,20 @@ case "$name" in
       exit 0
     fi
     exit 22 ;;
-  uv)
-    case "$*" in
-      "self update --dry-run") [ -f "$STATE/uv.dryrun.fail" ] && { echo "network down" >&2; exit 1; }; [ -f "$STATE/uv.dryrun" ] && cat "$STATE/uv.dryrun"; exit 0;;
-      "self update") [ -f "$STATE/uv.noupdate" ] || bump uv; exit 0;;
-      sync*) echo "sync-python=$UV_PYTHON" >> "$STATE/calls.log"; exit 0;;
-      run*) echo "TANDEM-RAN cwd=$PWD args=$* venv=$UV_PROJECT_ENVIRONMENT python=$UV_PYTHON"; exit 0;;
+  rustup)
+    if [ "$1" = update ]; then [ -f "$STATE/rustup.noupdate" ] || bump cargo; exit 0; fi;;
+  cargo)
+    case "$1" in
+      build)
+        [ -f "$STATE/cargo.buildfail" ] && { echo "error: could not compile tandem" >&2; exit 101; }
+        td=""; prev=""
+        for arg in "$@"; do [ "$prev" = "--target-dir" ] && td="$arg"; prev="$arg"; done
+        mkdir -p "$td/release"
+        ver="1.4.0"; [ -f "$STATE/cargo.builtversion" ] && ver=$(cat "$STATE/cargo.builtversion")
+        printf '#!/bin/sh\\ncase "$1" in --version) echo "tandem %s";; *) echo "TANDEM-SOURCE-RAN cwd=$PWD args=$* self=$TANDEM_SELF";; esac\\n' "$ver" > "$td/release/tandem"
+        chmod +x "$td/release/tandem"
+        cp "$td/release/tandem" "$td/release/tandem.exe"
+        exit 0;;
     esac;;
   claude|agy)
     if [ "$1" = update ]; then [ -f "$STATE/$name.noupdate" ] || bump "$name"; exit 0; fi;;
@@ -114,13 +122,21 @@ case "$1" in --version|-V) cat "$STATE/$name.version"; exit 0;; esac
 exit 0
 `;
 
-const ok = (v) => ({ git: 'git version 2.54.0 (Apple Git-157)', tmux: 'tmux 3.3a', uv: 'uv 0.10.4 (079e3fd05 2026-02-17)',
+const ok = (v) => ({ git: 'git version 2.54.0 (Apple Git-157)', tmux: 'tmux 3.3a', cargo: 'cargo 1.89.0 (abc123def 2026-08-07)', rustup: 'rustup 1.28.2',
   claude: '2.1.301 (Claude Code)', agy: '1.3.6', ...v });
 
 let dirs = [];
 afterEach(() => { dirs.forEach(cleanup); dirs = []; });
 
-function setup({ versions = ok(), os = 'Darwin', arch = 'arm64', managers = ['brew'], min = MIN } = {}) {
+const CARGO_TOML = (v) => `[package]\nname = "tandem"\nversion = "${v}"\nedition = "2024"\n\n[dependencies]\nserde = { version = "9.9.9" }\n`;
+
+const slugFor = (os, arch) => {
+  const family = os.startsWith('Darwin') ? 'darwin' : os.startsWith('Linux') ? 'linux' : /^(MINGW|MSYS|CYGWIN)/.test(os) ? 'windows' : null;
+  const cpu = arch === 'arm64' || arch === 'aarch64' ? 'arm64' : arch === 'x86_64' ? 'x86_64' : null;
+  return family && cpu ? `${family}-${cpu}` : null;
+};
+
+function setup({ versions = ok(), os = 'Darwin', arch = 'arm64', managers = ['brew'], min = MIN, cached = true } = {}) {
   const base = makeTmp();
   dirs.push(base);
   const pkg = join(base, 'pkg'), state = join(base, 'state'), bin = join(base, 'bin'), work = join(base, 'work');
@@ -129,8 +145,7 @@ function setup({ versions = ok(), os = 'Darwin', arch = 'arm64', managers = ['br
   writeFileSync(join(pkg, 'tandem/min-versions.env'), min);
   writeFileSync(join(state, 'tool.sh'), TOOL_SH);
   chmodSync(join(state, 'tool.sh'), 0o755);
-  mkdirSync(join(pkg, 'tandem/src/tandem'), { recursive: true });
-  writeFileSync(join(pkg, 'tandem/src/tandem/__init__.py'), '__version__ = "1.4.0"\n');
+  writeFileSync(join(pkg, 'tandem/Cargo.toml'), CARGO_TOML('1.4.0'));
   for (const c of CORE) symlinkSync(execFileSync('/usr/bin/which', [c]).toString().trim(), join(bin, c));
   for (const c of ['shasum', 'sha256sum']) {
     try {
@@ -149,8 +164,12 @@ function setup({ versions = ok(), os = 'Darwin', arch = 'arm64', managers = ['br
   }
   for (const m of [...managers, 'curl']) link(m);
   if (os === 'Linux') link('sudo');
-  return { base, pkg, state, bin, work, mark: (f, c = '') => writeFileSync(join(state, f), c) };
+  const env = { base, pkg, state, bin, work, mark: (f, c = '') => writeFileSync(join(state, f), c) };
+  if (cached && slugFor(os, arch)) makeCachedBinary(env, '1.4.0', slugFor(os, arch));
+  return env;
 }
+
+const setupSource = (options = {}) => setup({ ...options, cached: false });
 
 function run(env, args = [], { stdin = null, extraEnv = {} } = {}) {
   return new Promise((resolve) => {
@@ -168,24 +187,12 @@ function run(env, args = [], { stdin = null, extraEnv = {} } = {}) {
 }
 const calls = (env) => (existsSync(join(env.state, 'calls.log')) ? readFileSync(join(env.state, 'calls.log'), 'utf8') : '');
 
-const HEALTHY_PY = (v = '3.12') => `#!/bin/sh\necho ${v}\n`;
-const BROKEN_PY = '#!/bin/sh\necho "ERROR:root:code for hash blake2b was not found." >&2\necho 3.12\n';
-
-function fakePython(path, body) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, body);
-  chmodSync(path, 0o755);
-  return path;
-}
-
-const slugOf = (pkg) => join(pkg, 'tandem').replace(/[^A-Za-z0-9]/g, '-').replace(/^-+/, '');
-
 describe('run.sh happy path', () => {
-  it('keeps the tandem virtualenv outside the (possibly read-only) package directory', async () => {
-    const env = setup();
-    const r = await run(env);
-    assert.match(r.stdout, new RegExp(`venv=${env.base}/\\.local/state/tandem/venv`));
-    assert.ok(!r.stdout.includes(env.pkg + '/tandem/.venv'));
+  it('builds into a state directory outside the (possibly read-only) package directory', async () => {
+    const env = setupSource();
+    const r = await run(env, ['--yes']);
+    assert.match(r.calls, new RegExp(`cargo build --release --locked --manifest-path ${env.pkg}/tandem/Cargo\\.toml --target-dir ${env.base}/\\.local/state/tandem/build-`));
+    assert.ok(!r.calls.includes(`--target-dir ${env.pkg}`));
   });
 
   it('runs tandem with no prompts when everything is present and current', async () => {
@@ -193,8 +200,8 @@ describe('run.sh happy path', () => {
     const r = await run(env, ['--nope-flag']);
     assert.equal(r.code, 0, r.out);
     assert.ok(!r.out.includes('[y/N]'));
-    assert.match(r.calls, /uv sync --project \S+ --frozen/);
-    assert.match(r.stdout, /TANDEM-RAN cwd=.*work args=run --project \S+ tandem --nope-flag/);
+    assert.ok(!r.calls.includes('cargo build'));
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=--nope-flag/);
   });
 
   it('accepts letter suffixes (tmux 3.3a) and "next-" tmux builds', async () => {
@@ -219,7 +226,7 @@ describe('run.sh missing dependencies', () => {
     const r = await run(env, ['--answers', 'n']);
     assert.equal(r.code, 2);
     assert.ok(!r.calls.includes('brew install'));
-    assert.ok(!r.calls.includes('uv run'));
+    assert.ok(!r.calls.includes('cargo build'));
   });
 
   it('allows declining agy when claude is installed', async () => {
@@ -231,7 +238,7 @@ describe('run.sh missing dependencies', () => {
   it('terminates with 2 when no AI CLI would remain', async () => {
     const r = await run(setup({ versions: ok({ agy: null, claude: null }) }), ['--answers', 'n,n']);
     assert.equal(r.code, 2);
-    assert.ok(!r.calls.includes('uv run'));
+    assert.ok(!r.calls.includes('cargo build'));
   });
 
   it('shows the official installer URL before running a curl installer', async () => {
@@ -253,19 +260,11 @@ describe('run.sh missing dependencies', () => {
 describe('run.sh updates and min-version gate', () => {
   it('soft-prompts for an available update and continues on no', async () => {
     const env = setup();
-    env.mark('uv.dryrun', 'Would update uv from v0.10.4 to the latest version\n');
+    env.mark('outdated', 'tmux\n');
     const r = await run(env, ['--answers', 'n']);
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /Update uv/);
-    assert.ok(!r.calls.includes('uv self update\n'));
-  });
-
-  it('applies the update on yes', async () => {
-    const env = setup();
-    env.mark('uv.dryrun', 'Would update uv from v0.10.4 to the latest version\n');
-    const r = await run(env, ['--answers', 'y']);
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.calls, /^uv self update$/m);
+    assert.match(r.out, /Update tmux/);
+    assert.ok(!r.calls.includes('brew upgrade'));
   });
 
   it('detects brew-outdated system packages', async () => {
@@ -277,7 +276,7 @@ describe('run.sh updates and min-version gate', () => {
 
   it('skips the soft prompt and says so when the update check fails (offline)', async () => {
     const env = setup();
-    env.mark('uv.dryrun.fail');
+    env.mark('brew.outdated.fail');
     const r = await run(env);
     assert.equal(r.code, 0, r.out);
     assert.ok(!r.out.includes('[y/N]'));
@@ -289,7 +288,7 @@ describe('run.sh updates and min-version gate', () => {
     const r = await run(env, ['--answers', 'n']);
     assert.equal(r.code, 3);
     assert.match(r.out, /may crash/);
-    assert.ok(!r.calls.includes('uv run'));
+    assert.ok(!r.calls.includes('cargo build'));
   });
 
   it('updates a below-minimum tool on yes and continues', async () => {
@@ -320,13 +319,13 @@ describe('run.sh flags and environment', () => {
     assert.notEqual(r.code, 0);
     assert.match(r.out, /tmux.*not installed/);
     assert.ok(!r.calls.includes('install'));
-    assert.ok(!r.calls.includes('uv run'));
+    assert.ok(!r.calls.includes('cargo build'));
   });
 
   it('--check exits 0 when ready', async () => {
     const r = await run(setup(), ['--check']);
     assert.equal(r.code, 0, r.out);
-    assert.ok(!r.calls.includes('uv sync'));
+    assert.ok(!r.calls.includes('cargo build'));
   });
 
   it('--yes answers every prompt yes, --no answers no', async () => {
@@ -380,7 +379,7 @@ describe('run.sh security', () => {
       assert.equal(r.code, 4, r.out);
       assert.match(r.out, /min-versions\.env/);
       assert.ok(!existsSync(join(env.work, 'pwned')) && !existsSync(join(env.pkg, 'pwned')));
-      assert.ok(!r.calls.includes('uv run'));
+      assert.ok(!r.calls.includes('cargo build'));
     });
   }
 
@@ -395,58 +394,254 @@ describe('run.sh security', () => {
   });
 });
 
-describe('run.sh per-workspace virtualenv', () => {
-  it('gives every workspace its own virtualenv so editable installs never collide', async () => {
-    const a = setup(), b = setup();
-    const ra = await run(a), rb = await run(b);
-    const venv = (r) => r.stdout.match(/venv=(\S+)/)[1];
-    assert.equal(venv(ra), `${a.base}/.local/state/tandem/venv-${slugOf(a.pkg)}`);
-    assert.equal(venv(rb), `${b.base}/.local/state/tandem/venv-${slugOf(b.pkg)}`);
-    assert.notEqual(venv(ra).split('/').pop(), venv(rb).split('/').pop());
+describe('run.sh source fallback', () => {
+  const stateOf = (env) => join(env.base, '.local/state/tandem');
+
+  it('gives every workspace its own build directory', async () => {
+    const a = setupSource(), b = setupSource();
+    const ra = await run(a, ['--yes']), rb = await run(b, ['--yes']);
+    const target = (r) => r.calls.match(/--target-dir (\S+)/)[1];
+    assert.notEqual(target(ra), target(rb));
+    assert.match(target(ra), new RegExp(`^${a.base}/\\.local/state/tandem/build-`));
   });
 
-  it('honours an explicit UV_PROJECT_ENVIRONMENT', async () => {
-    const env = setup();
-    const r = await run(env, [], { extraEnv: { UV_PROJECT_ENVIRONMENT: join(env.base, 'mine') } });
-    assert.match(r.stdout, new RegExp(`venv=${env.base}/mine `));
-  });
-});
-
-describe('run.sh healthy Python selection', () => {
-  const pythonOf = (r) => r.stdout.match(/python=(\S*)/)[1];
-
-  it('uses the Python on PATH when it is healthy', async () => {
-    const env = setup();
-    fakePython(join(env.bin, 'python3'), HEALTHY_PY());
-    const r = await run(env);
-    assert.equal(pythonOf(r), join(env.bin, 'python3'));
-    assert.match(r.calls, new RegExp(`sync-python=${join(env.bin, 'python3')}`));
+  it('honours XDG_STATE_HOME for the build directory', async () => {
+    const env = setupSource();
+    const xdg = join(env.base, 'xdg');
+    const r = await run(env, ['--yes'], { extraEnv: { XDG_STATE_HOME: xdg } });
+    assert.match(r.calls, new RegExp(`--target-dir ${xdg}/tandem/build-`));
   });
 
-  it('skips a Python whose hashlib prints blake2 errors and uses a fallback', async () => {
-    const env = setup();
-    fakePython(join(env.bin, 'python3'), BROKEN_PY);
-    const fallback = fakePython(join(env.base, 'fallback/python3'), HEALTHY_PY());
-    const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: fallback } });
+  it('reports the runtime as source and passes arguments through', async () => {
+    const r = await run(setupSource(), ['--yes', '--', '--flag', 'x']);
     assert.equal(r.code, 0, r.out);
-    assert.equal(pythonOf(r), fallback);
-    assert.match(r.stderr, /broken hashlib/);
+    assert.match(r.stdout, /runtime: source/);
+    assert.match(r.stdout, /args=--flag x /);
   });
 
-  it('skips a Python older than TANDEM_MIN_PYTHON', async () => {
-    const env = setup();
-    fakePython(join(env.bin, 'python3'), HEALTHY_PY('3.9'));
-    const fallback = fakePython(join(env.base, 'fallback/python3'), HEALTHY_PY('3.13'));
-    const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: fallback } });
-    assert.equal(pythonOf(r), fallback);
-  });
-
-  it('lets uv choose when no healthy Python is found', async () => {
-    const env = setup();
-    fakePython(join(env.bin, 'python3'), BROKEN_PY);
-    const r = await run(env, [], { extraEnv: { TANDEM_PYTHON_FALLBACKS: join(env.base, 'nowhere/python3') } });
+  it('never needs uv or Python', async () => {
+    const r = await run(setupSource(), ['--yes']);
     assert.equal(r.code, 0, r.out);
-    assert.equal(pythonOf(r), '');
+    assert.doesNotMatch(r.out, /\buv\b|python/i);
+  });
+
+  it('reads the version from [package], not from a dependency', async () => {
+    const env = setupSource();
+    writeFileSync(join(env.pkg, 'tandem/Cargo.toml'), CARGO_TOML('2.0.1'));
+    env.mark('cargo.builtversion', '2.0.1');
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 0, r.out);
+  });
+
+  it('exits 4 when the built binary reports a different version', async () => {
+    const env = setupSource();
+    env.mark('cargo.builtversion', '9.9.9');
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 4);
+    assert.match(r.out, /Unexpected --version output/);
+  });
+
+  it('exits 4 when cargo build fails', async () => {
+    const env = setupSource();
+    env.mark('cargo.buildfail');
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 4);
+    assert.match(r.out, /cargo build failed/);
+  });
+
+  it('exits 4 when the crate sources are missing', async () => {
+    const env = setupSource();
+    rmSync(join(env.pkg, 'tandem/Cargo.toml'));
+    writeFileSync(join(env.pkg, 'package.json'), '{ "version": "1.4.0" }\n');
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 4);
+    assert.match(r.out, /sources not found/);
+    assert.ok(!r.calls.includes('cargo build'));
+  });
+
+  it('offers to install cargo through rustup and shows the command first', async () => {
+    const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+    const r = await run(env, ['--answers', 'y,y']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /curl --proto '=https' --tlsv1\.2 -sSf https:\/\/sh\.rustup\.rs \| sh -s -- -y --profile minimal/);
+    assert.match(r.calls, /^cargo build /m);
+  });
+
+  it('terminates with 2 when cargo is needed and the install is declined', async () => {
+    const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+    const r = await run(env, ['--answers', 'y,n']);
+    assert.equal(r.code, 2);
+    assert.match(r.out, /sh\.rustup\.rs/);
+    assert.ok(!r.calls.includes('cargo build'));
+  });
+
+  it('terminates with 3 when cargo is below the minimum and the update is declined', async () => {
+    const env = setupSource({ versions: ok({ cargo: 'cargo 1.70.0 (abc 2023-06-01)' }) });
+    const r = await run(env, ['--answers', 'y,n']);
+    assert.equal(r.code, 3);
+    assert.ok(!r.calls.includes('cargo build'));
+  });
+
+  it('updates a below-minimum cargo through rustup and builds', async () => {
+    const env = setupSource({ versions: ok({ cargo: 'cargo 1.70.0 (abc 2023-06-01)' }) });
+    const r = await run(env, ['--answers', 'y,y']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.calls, /^rustup update$/m);
+    assert.match(r.calls, /^cargo build /m);
+  });
+
+  it('does not require cargo when a healthy binary is cached', async () => {
+    const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+    makeCachedBinary(env);
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.stdout, /cargo/);
+  });
+
+  it('--check treats a missing cargo as optional while the binary is simply not cached yet', async () => {
+    const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+    const r = await run(env, ['--check']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.stdout, /cargo.*only needed if the binary download fails/);
+    assert.match(r.stdout, /runtime: source \(binary not cached\)/);
+  });
+
+  it('--check still requires cargo when the source runtime was chosen explicitly', async () => {
+    const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+    const r = await run(env, ['--check'], { extraEnv: { TANDEM_RUNTIME: 'source' } });
+    assert.equal(r.code, 2);
+    assert.match(r.stdout, /cargo.*not installed \(required\)/);
+  });
+
+  describe('consent before building on the user machine', () => {
+    const buildDirOf = (env) => join(env.base, '.local/state/tandem', `build-${join(env.pkg, 'tandem').replace(/[^A-Za-z0-9]/g, '-').replace(/^-+/, '')}`);
+
+    it('asks before compiling when no usable prebuilt binary exists, and says why', async () => {
+      const env = setupSource();
+      env.mark('curl.404', '1');
+      const r = await run(env, ['--answers', 'y']);
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, /Build tandem from source\?/);
+      assert.match(r.out, /download failed/);
+      assert.match(r.out, /cargo build --release --locked/);
+      assert.match(r.calls, /^cargo build /m);
+    });
+
+    it('does not compile anything when the build is declined, and exits 2', async () => {
+      const env = setupSource();
+      const r = await run(env, ['--no']);
+      assert.equal(r.code, 2);
+      assert.match(r.out, /Build tandem from source\?/);
+      assert.match(r.out, /declined/i);
+      assert.ok(!r.calls.includes('cargo build'));
+    });
+
+    it('never builds silently when stdin is not a terminal (exit 6)', async () => {
+      const r = await run(setupSource());
+      assert.equal(r.code, 6);
+      assert.ok(!r.calls.includes('cargo build'));
+    });
+
+    it('--yes consents to the build', async () => {
+      const r = await run(setupSource(), ['--yes']);
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.calls, /^cargo build /m);
+    });
+
+    it('asks about the build before it asks to install cargo, and installs nothing when declined', async () => {
+      const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+      const declined = await run(env, ['--answers', 'n']);
+      assert.equal(declined.code, 2);
+      assert.ok(!declined.out.includes('rustup'), declined.out);
+
+      const env2 = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+      const accepted = await run(env2, ['--answers', 'y,y']);
+      assert.equal(accepted.code, 0, accepted.out);
+      assert.ok(accepted.out.indexOf('Build tandem from source?') < accepted.out.indexOf('sh.rustup.rs'), 'build question comes first');
+    });
+
+    it('falls back to a consented build on a platform with no prebuilt binary', async () => {
+      const env = setupSource({ arch: 'riscv64' });
+      const r = await run(env, ['--answers', 'y']);
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, /no prebuilt binary for this platform/);
+      assert.match(r.calls, /^cargo build /m);
+    });
+
+    it('treats an explicit TANDEM_RUNTIME=source as consent', async () => {
+      const r = await run(setupSource(), [], { extraEnv: { TANDEM_RUNTIME: 'source' } });
+      assert.equal(r.code, 0, r.out);
+      assert.ok(!r.out.includes('Build tandem from source?'));
+      assert.match(r.calls, /^cargo build /m);
+    });
+
+    it('reuses a healthy local build of the same version without asking or needing cargo', async () => {
+      const env = setupSource({ versions: ok({ cargo: null, rustup: null }) });
+      const dir = join(buildDirOf(env), 'release');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'tandem'), '#!/bin/sh\ncase "$1" in --version) echo "tandem 1.4.0";; *) echo "REUSED-BUILD";; esac\n');
+      chmodSync(join(dir, 'tandem'), 0o755);
+      const r = await run(env, ['--yes']);
+      assert.equal(r.code, 0, r.out);
+      assert.ok(!r.out.includes('[y/N]'));
+      assert.ok(!r.calls.includes('cargo build'));
+      assert.match(r.stdout, /REUSED-BUILD/);
+    });
+
+    it('asks again when the local build is for another version', async () => {
+      const env = setupSource();
+      const dir = join(buildDirOf(env), 'release');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'tandem'), '#!/bin/sh\necho "tandem 0.0.1"\n');
+      chmodSync(join(dir, 'tandem'), 0o755);
+      const r = await run(env);
+      assert.equal(r.code, 6);
+    });
+
+    it('--check never builds and never asks', async () => {
+      const r = await run(setupSource(), ['--check']);
+      assert.equal(r.code, 0, r.out);
+      assert.ok(!r.out.includes('[y/N]'));
+      assert.ok(!r.calls.includes('cargo build'));
+    });
+  });
+
+  describe('legacy virtualenv cleanup', () => {
+    const makeVenv = (dir, withCfg = true) => {
+      mkdirSync(join(dir, 'bin'), { recursive: true });
+      if (withCfg) writeFileSync(join(dir, 'pyvenv.cfg'), 'home = /x\n');
+    };
+
+    it('removes venv directories left by the Python tandem', async () => {
+      const env = setupSource();
+      makeVenv(join(stateOf(env), 'venv'));
+      makeVenv(join(stateOf(env), 'venv-some-workspace'));
+      await run(env, ['--yes']);
+      assert.ok(!existsSync(join(stateOf(env), 'venv')));
+      assert.ok(!existsSync(join(stateOf(env), 'venv-some-workspace')));
+    });
+
+    it('also cleans up on the binary runtime', async () => {
+      const env = setupSource();
+      makeCachedBinary(env);
+      makeVenv(join(stateOf(env), 'venv-some-workspace'));
+      await run(env, ['--yes']);
+      assert.ok(!existsSync(join(stateOf(env), 'venv-some-workspace')));
+    });
+
+    it('never deletes a directory that is not a virtualenv', async () => {
+      const env = setupSource();
+      makeVenv(join(stateOf(env), 'venv-notes'), false);
+      await run(env, ['--yes']);
+      assert.ok(existsSync(join(stateOf(env), 'venv-notes')));
+    });
+
+    it('does not touch virtualenvs under --check', async () => {
+      const env = setupSource();
+      makeVenv(join(stateOf(env), 'venv-some-workspace'));
+      await run(env, ['--check']);
+      assert.ok(existsSync(join(stateOf(env), 'venv-some-workspace')));
+    });
   });
 });
 
@@ -478,6 +673,7 @@ function setupChangelog(env, fromV, toV, extraBullet) {
   ].join('\n'));
   const srcMin = join(env.pkg, 'tandem', 'min-versions.env');
   writeFileSync(join(dir, 'min-versions.env'), readFileSync(srcMin, 'utf8'));
+  writeFileSync(join(dir, 'Cargo.toml'), CARGO_TOML('1.4.0'));
 }
 
 function readNotice(env) {
@@ -494,7 +690,7 @@ describe('run.sh auto-update', () => {
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /agent-workspace 1\.3\.0 is up to date/);
     assert.ok(!r.calls.includes('update --yes'));
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('applies the update with exact args, writes notice, prints what\'s new, re-execs once', async () => {
@@ -514,7 +710,7 @@ describe('run.sh auto-update', () => {
     assert.ok(!existsSync(join(env.pkg, '.agent-workspace', 'update-notice.env.tmp')), 'notice written atomically, no temp file left');
     assert.match(r.out, /What's new/);
     assert.match(r.out, /Clickable status-bar buttons/);
-    assert.ok(r.stdout.includes('TANDEM-RAN'), 're-exec ran tandem');
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'), 're-exec ran tandem');
   });
 
   it('shows only the bold label of a changelog bullet, without markdown', async () => {
@@ -549,7 +745,7 @@ describe('run.sh auto-update', () => {
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Could not check for updates.*offline/);
     assert.ok(!r.calls.includes('update --yes'));
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('warns and continues when the update command fails', async () => {
@@ -561,7 +757,7 @@ describe('run.sh auto-update', () => {
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Update failed/);
     assert.ok(readNotice(env) === null, 'notice not written on failure');
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('skips the update when --no-update is passed', async () => {
@@ -571,7 +767,7 @@ describe('run.sh auto-update', () => {
     const r = await run(env, ['--no-update']);
     assert.equal(r.code, 0, r.out);
     assert.ok(!r.calls.includes('npx'));
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('skips the update and prints a notice when TANDEM_AUTO_UPDATE=0', async () => {
@@ -582,7 +778,7 @@ describe('run.sh auto-update', () => {
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Auto-update off/);
     assert.ok(!r.calls.includes('npx'));
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('skips silently when manifest.json is missing (dev checkout)', async () => {
@@ -591,7 +787,7 @@ describe('run.sh auto-update', () => {
     const r = await run(env);
     assert.equal(r.code, 0, r.out);
     assert.ok(!r.calls.includes('npx'));
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('prints "npx not found" and continues when npx is not on PATH', async () => {
@@ -600,7 +796,7 @@ describe('run.sh auto-update', () => {
     const r = await run(env);
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /npx not found/);
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('rejects an invalid TANDEM_UPDATE_SPEC without passing it to npx', async () => {
@@ -611,7 +807,7 @@ describe('run.sh auto-update', () => {
     assert.equal(r.code, 0, r.out);
     assert.ok(!r.calls.includes('npx'), 'npx never called for invalid spec');
     assert.ok(!existsSync(join(env.work, 'pwned')), 'command injection prevented');
-    assert.ok(r.stdout.includes('TANDEM-RAN'));
+    assert.ok(r.stdout.includes('TANDEM-BINARY-RAN'));
   });
 
   it('--check reports update available without applying it or writing a notice', async () => {
@@ -623,52 +819,6 @@ describe('run.sh auto-update', () => {
     assert.match(r.out, /↑ agent-workspace 1\.2\.0 .* 1\.3\.0 available/);
     assert.ok(!r.calls.includes('update --yes'), 'no update run during --check');
     assert.ok(readNotice(env) === null, 'notice not written during --check');
-  });
-});
-
-describe('run.sh broken virtualenv recovery', () => {
-  const venvOf = (env) => join(env.base, '.local/state/tandem', `venv-${slugOf(env.pkg)}`);
-  const makeVenv = (dir, body) => {
-    writeFileSync(join(mkdirSyncReturn(dir), 'pyvenv.cfg'), 'home = /x\n');
-    fakePython(join(dir, 'bin/python'), body);
-  };
-  const mkdirSyncReturn = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
-
-  it('removes a virtualenv whose Python cannot import hashlib so uv rebuilds it', async () => {
-    const env = setup();
-    makeVenv(venvOf(env), BROKEN_PY);
-    await run(env);
-    assert.ok(!existsSync(venvOf(env)));
-  });
-
-  it('removes a broken legacy shared virtualenv', async () => {
-    const env = setup();
-    const legacy = join(env.base, '.local/state/tandem/venv');
-    makeVenv(legacy, BROKEN_PY);
-    await run(env);
-    assert.ok(!existsSync(legacy));
-  });
-
-  it('keeps a healthy virtualenv', async () => {
-    const env = setup();
-    makeVenv(venvOf(env), HEALTHY_PY());
-    await run(env);
-    assert.ok(existsSync(join(venvOf(env), 'bin/python')));
-  });
-
-  it('never deletes a directory that is not a virtualenv', async () => {
-    const env = setup();
-    const dir = venvOf(env);
-    fakePython(join(dir, 'bin/python'), BROKEN_PY);
-    await run(env);
-    assert.ok(existsSync(join(dir, 'bin/python')));
-  });
-
-  it('does not touch virtualenvs under --check', async () => {
-    const env = setup();
-    makeVenv(venvOf(env), BROKEN_PY);
-    await run(env, ['--check']);
-    assert.ok(existsSync(venvOf(env)));
   });
 });
 
@@ -702,7 +852,7 @@ function makeBinaryAsset(stateDir, version = '1.4.0', banner = `tandem ${version
 function makeCachedBinary(env, version = '1.4.0', slug = 'darwin-arm64', banner = `tandem ${version}`) {
   const bdir = join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, 'tandem');
   mkdirSync(bdir, { recursive: true });
-  const bin = join(bdir, 'tandem');
+  const bin = join(bdir, slug.startsWith('windows') ? 'tandem.exe' : 'tandem');
   writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo "${banner}"; exit 0;; --help) echo "help"; exit 0;; esac\necho "TANDEM-BINARY-RAN args=$*"\n`);
   chmodSync(bin, 0o755);
   writeFileSync(join(env.base, '.local/state/tandem/bin', `${version}-${slug}`, '.managed'), '');
@@ -710,18 +860,18 @@ function makeCachedBinary(env, version = '1.4.0', slug = 'darwin-arm64', banner 
 
 describe('run.sh binary runtime selection', () => {
 
-  it('launches cached healthy binary without requiring uv', async () => {
-    const env = setup({ versions: ok({ uv: null }) });
+  it('launches cached healthy binary without requiring cargo', async () => {
+    const env = setup({ versions: ok({ cargo: null }) });
     makeCachedBinary(env);
     const res = await run(env);
     assert.equal(res.code, 0);
     assert.match(res.stdout, /runtime: binary 1\.4\.0/);
     assert.match(res.stdout, /TANDEM-BINARY-RAN/);
-    assert.doesNotMatch(res.stdout, /uv/);
+    assert.doesNotMatch(res.stdout, /cargo/);
   });
 
   it('downloads and verifies binary when not cached', async () => {
-    const env = setup({ versions: ok({ uv: null }) });
+    const env = setup({ versions: ok({ cargo: null }) });
     makeBinaryAsset(env.state);
     const res = await run(env);
     assert.equal(res.code, 0);
@@ -729,57 +879,83 @@ describe('run.sh binary runtime selection', () => {
     assert.match(res.stdout, /TANDEM-BINARY-RAN/);
   });
 
-  it('falls back to python when binary download 404s', async () => {
-    const env = setup();
+  it('falls back to a source build when binary download 404s', async () => {
+    const env = setupSource();
     env.mark('curl.404', '1');
-    const res = await run(env);
+    const res = await run(env, ['--yes']);
     assert.equal(res.code, 0);
-    assert.match(res.stdout, /runtime: python/);
-    assert.match(res.stdout, /TANDEM-RAN/);
+    assert.match(res.stdout, /runtime: source/);
+    assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
   });
 
-  it('falls back to python on checksum mismatch', async () => {
-    const env = setup();
+  it('falls back to a source build on checksum mismatch', async () => {
+    const env = setupSource();
     makeBinaryAsset(env.state);
     writeFileSync(join(env.state, 'SHA256SUMS'), '0000000000000000000000000000000000000000000000000000000000000000  tandem-1.4.0-darwin-arm64.tar.gz\n');
-    const res = await run(env);
+    const res = await run(env, ['--yes']);
     assert.equal(res.code, 0);
-    assert.match(res.stdout, /runtime: python/);
-    assert.match(res.stdout, /TANDEM-RAN/);
+    assert.match(res.stdout, /runtime: source/);
+    assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
   });
 
-  it('falls back to python on unhealthy binary', async () => {
+  it('falls back to a source build on unhealthy binary', async () => {
     const env = setup();
     makeCachedBinary(env, '1.4.0', 'darwin-arm64', 'tandem 9.9.9');
-    const res = await run(env);
+    const res = await run(env, ['--yes']);
     assert.equal(res.code, 0);
-    assert.match(res.stdout, /runtime: python/);
-    assert.match(res.stdout, /TANDEM-RAN/);
+    assert.match(res.stdout, /runtime: source/);
+    assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
   });
 
   it('fails with code 4 when TANDEM_RUNTIME=binary and binary is unavailable', async () => {
-    const env = setup();
+    const env = setupSource();
     env.mark('curl.404', '1');
     const res = await run(env, [], { extraEnv: { TANDEM_RUNTIME: 'binary' } });
     assert.equal(res.code, 4);
     assert.match(res.stderr, /Binary runtime unavailable/);
   });
 
-  it('uses python when TANDEM_RUNTIME=python even if binary cached', async () => {
+  it('builds from source when TANDEM_RUNTIME=source even if a binary is cached', async () => {
+    const env = setup();
+    makeCachedBinary(env);
+    const res = await run(env, [], { extraEnv: { TANDEM_RUNTIME: 'source' } });
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /runtime: source/);
+    assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
+  });
+
+  it('keeps TANDEM_RUNTIME=python working as a deprecated alias of source', async () => {
     const env = setup();
     makeCachedBinary(env);
     const res = await run(env, [], { extraEnv: { TANDEM_RUNTIME: 'python' } });
     assert.equal(res.code, 0);
-    assert.match(res.stdout, /runtime: python/);
-    assert.match(res.stdout, /TANDEM-RAN/);
+    assert.match(res.stderr, /TANDEM_RUNTIME=python is deprecated/);
+    assert.match(res.stdout, /runtime: source/);
+    assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
+  });
+
+  it('rejects an unknown TANDEM_RUNTIME value', async () => {
+    const res = await run(setup(), [], { extraEnv: { TANDEM_RUNTIME: 'bogus' } });
+    assert.equal(res.code, 4);
+    assert.match(res.stderr, /must be auto, binary, or source/);
+  });
+
+  it('falls back to package.json for the expected version when Cargo.toml is absent', async () => {
+    const env = setup();
+    rmSync(join(env.pkg, 'tandem/Cargo.toml'));
+    writeFileSync(join(env.pkg, 'package.json'), '{ "name": "x", "version": "1.7.0" }\n');
+    makeCachedBinary(env, '1.7.0');
+    const res = await run(env);
+    assert.equal(res.code, 0, res.out);
+    assert.match(res.stdout, /runtime: binary 1\.7\.0/);
   });
 
   it('--check never downloads even if binary not cached', async () => {
-    const env = setup();
+    const env = setupSource();
     makeBinaryAsset(env.state);
     const res = await run(env, ['--check']);
     assert.equal(res.code, 0);
-    assert.match(res.stdout, /runtime: python \(binary not cached\)/);
+    assert.match(res.stdout, /runtime: source \(binary not cached\)/);
     const calls = existsSync(join(env.state, 'calls.log')) ? readFileSync(join(env.state, 'calls.log'), 'utf8') : '';
     assert.doesNotMatch(calls, /releases\/download/);
   });
@@ -794,7 +970,7 @@ describe('run.sh binary runtime selection', () => {
   });
 
   it('--fetch-runtime exits 4 on failure', async () => {
-    const env = setup();
+    const env = setupSource();
     env.mark('curl.404', '1');
     const res = await run(env, ['--fetch-runtime']);
     assert.equal(res.code, 4);
@@ -831,7 +1007,7 @@ describe('run.sh Windows (MSYS2/Git Bash) support', () => {
   });
 
   it('downloads, verifies, and launches windows-x86_64 zip binary (tandem.exe)', async () => {
-    const env = setup({ os: 'MINGW64_NT-10.0', arch: 'x86_64', managers: ['pacman'], versions: ok({ uv: null }) });
+    const env = setup({ os: 'MINGW64_NT-10.0', arch: 'x86_64', managers: ['pacman'], versions: ok({ cargo: null }) });
     makeBinaryAsset(env.state, '1.4.0', 'tandem 1.4.0', 'windows-x86_64');
     const res = await run(env);
     assert.equal(res.code, 0);
@@ -840,7 +1016,7 @@ describe('run.sh Windows (MSYS2/Git Bash) support', () => {
   });
 
   it('WSL reports Linux and uses Linux binary without regressing', async () => {
-    const env = setup({ os: 'Linux', arch: 'x86_64', managers: ['apt-get'], versions: ok({ uv: null }) });
+    const env = setup({ os: 'Linux', arch: 'x86_64', managers: ['apt-get'], versions: ok({ cargo: null }) });
     makeBinaryAsset(env.state, '1.4.0', 'tandem 1.4.0', 'linux-x86_64');
     const res = await run(env);
     assert.equal(res.code, 0);
