@@ -1381,6 +1381,142 @@ def cmd_compile(args: argparse.Namespace) -> None:
     })
 
 
+def cmd_prune(args: argparse.Namespace) -> None:
+    specs = find_specs(args.root)
+    if not args.phases:
+        fail("--phases is required", 2)
+
+    for p in args.phases:
+        if not (PHASE_DIR_RE.match(p) or LEGACY_DIR_RE.match(p)):
+            fail(f"invalid phase argument: {p!r}", 2)
+
+    date = args.date or datetime.date.today().isoformat()
+    if not DATE_RE.match(date):
+        fail("invalid --date: use YYYY-MM-DD", 2)
+
+    eligible: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+
+    completed_md_path = specs / "compiled" / "completed.md"
+    completed_text = completed_md_path.read_text(encoding="utf-8") if completed_md_path.is_file() else ""
+
+    inp_path = specs / "in-progress.md"
+    inp_text = inp_path.read_text(encoding="utf-8") if inp_path.is_file() else ""
+
+    all_disk_dirs = phase_dirs(specs)
+    named_phase_set = set(args.phases)
+
+    for p in args.phases:
+        reasons: list[str] = []
+        p_dir = specs / p
+
+        if not p_dir.exists() or not p_dir.is_dir():
+            reasons.append("phase directory does not exist on disk")
+            blocked.append({"phase": p, "reasons": reasons})
+            continue
+
+        if p_dir.is_symlink():
+            reasons.append("phase directory is a symlink")
+            blocked.append({"phase": p, "reasons": reasons})
+            continue
+
+        c = classify_phase(p_dir, specs)
+        phase = c["phase"]
+        if not c["complete"]:
+            for r in c["rows"]:
+                if not all(r["flags"]):
+                    reasons.append(f"{r['task'].id} criteria incomplete")
+        for t in phase.tasks:
+            if t.status != "Done":
+                reasons.append(f"{t.id} is {t.status}, not Done")
+
+        if not re.search(rf"^##\s+{re.escape(p)}:", completed_text, re.MULTILINE):
+            reasons.append("not present in specs/compiled/completed.md")
+
+        warn_coord: list[str] = []
+        claimed = claimed_tasks(p, warn_coord)
+        if claimed:
+            reasons.append(f"has active coordination claims: {', '.join(sorted(claimed))}")
+
+        if re.search(rf"\b{re.escape(p)}\b", inp_text):
+            reasons.append("active in specs/in-progress.md")
+
+        for other_dir in all_disk_dirs:
+            if other_dir.name in named_phase_set:
+                continue
+            impl_file = other_dir / "impl.md"
+            if impl_file.is_file():
+                impl_text = impl_file.read_text(encoding="utf-8")
+                depends_section = ""
+                if "## Depends On" in impl_text:
+                    depends_section = impl_text.split("## Depends On")[1].split("##")[0]
+                if re.search(rf"\b{re.escape(p)}\b", depends_section):
+                    reasons.append(f"depended on by {other_dir.name}")
+
+        try:
+            proc_git = subprocess.run(
+                ["git", "status", "--porcelain", "--", f"specs/{p}"],
+                cwd=specs.parent,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if proc_git.returncode != 0:
+                reasons.append("workspace is not a clean git repository")
+            elif proc_git.stdout.strip():
+                reasons.append("uncommitted or untracked changes in git")
+        except Exception:
+            reasons.append("git check failed")
+
+        if reasons:
+            blocked.append({"phase": p, "reasons": reasons})
+        else:
+            eligible.append({
+                "phase": p,
+                "tasks": len(phase.tasks),
+                "archive": "specs/compiled/completed.md",
+            })
+
+    if not args.apply:
+        emit({
+            "mode": "dry-run",
+            "eligible": eligible,
+            "blocked": blocked,
+        })
+        return
+
+    deleted: list[str] = []
+    specs_resolved = specs.resolve()
+
+    for item in eligible:
+        p_name = item["phase"]
+        p_dir = (specs / p_name).resolve()
+        if not str(p_dir).startswith(str(specs_resolved) + "/"):
+            fail("path escape rejected", 1)
+
+        try:
+            shutil.rmtree(p_dir)
+            deleted.append(p_name)
+        except Exception:
+            fail("prune deletion failed part-way", 1, mode="apply", eligible=eligible, blocked=blocked, deleted=deleted)
+
+        if completed_md_path.is_file():
+            cur_comp = completed_md_path.read_text(encoding="utf-8")
+            marker = f"**Archived:** removed from specs/ on {date}; restore with git\n\n"
+            pattern = re.compile(rf"(^##\s+{re.escape(p_name)}:[^\n]*\n+)", re.MULTILINE)
+            m = pattern.search(cur_comp)
+            if m and marker not in cur_comp[m.start():m.end() + 150]:
+                updated_comp = pattern.sub(rf"\g<1>{marker}", cur_comp, count=1)
+                write_atomic(completed_md_path, updated_comp)
+
+    emit({
+        "mode": "apply",
+        "eligible": eligible,
+        "blocked": blocked,
+        "deleted": deleted,
+    })
+
+
 def footprint(paths: list[str] | None) -> list[str] | None:
     if not paths:
         return None
@@ -1709,6 +1845,10 @@ def build_parser() -> argparse.ArgumentParser:
     compile_parser = sub.add_parser("compile")
     compile_parser.add_argument("filter", nargs="?")
     compile_parser.add_argument("--date")
+    prune_parser = sub.add_parser("prune")
+    prune_parser.add_argument("--phases", nargs="*")
+    prune_parser.add_argument("--apply", action="store_true")
+    prune_parser.add_argument("--date")
     return parser
 
 
@@ -1716,7 +1856,7 @@ COMMANDS = {
     "list": cmd_list, "show": cmd_show, "next-phase": cmd_next_phase,
     "next-task": cmd_next_task, "resolve": cmd_resolve, "new-phase": cmd_new_phase,
     "new-task": cmd_new_task, "lint": cmd_lint, "set-status": cmd_set_status, "normalize": cmd_normalize,
-    "compile": cmd_compile, "waves": cmd_waves,
+    "compile": cmd_compile, "waves": cmd_waves, "prune": cmd_prune,
 }
 
 
