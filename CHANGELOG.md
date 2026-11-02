@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.0] — 2026-11-02
+
+### CLI Package & tandem
+
+- **tandem is now a native Rust binary (sprints s-001 to s-003):** the Python tandem is removed. The Rust port (ratatui + crossterm) keeps every feature and the on-disk formats, so saved sessions, coordination files, update notices and tmux sockets carry over, and running 1.5.0 sessions upgrade through Exit → Update.
+- **Static Linux binaries:** `linux-x86_64` and `linux-arm64` are built for musl, which removes the glibc >= 2.31 requirement. macOS binaries target macOS 13+. Release asset names, archive layout and `SHA256SUMS` are unchanged.
+- **Build on your machine when no binary is usable, with your consent (`run.sh`):** if the verified binary is unavailable (offline, checksum mismatch, blocked, or no prebuilt binary for your platform), `run.sh` asks whether to build tandem here with `cargo build --release --locked`, says why and where, and compiles only after a yes. Declining exits 2; non-interactive runs without `--yes` exit 6; an earlier healthy build of the same version is reused without asking; `TANDEM_RUNTIME=source` counts as consent. cargo is offered through rustup with the usual ask/describe/execute prompt. uv and Python are no longer needed, and `TANDEM_MIN_CARGO` replaces `TANDEM_MIN_PYTHON` and `TANDEM_MIN_UV`.
+- **`TANDEM_RUNTIME=auto|binary|source`:** `python` still works as a deprecated alias of `source` and prints a notice.
+- **Installer ships the crate:** `init` and `update` install `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` and `src/**/*.rs` under `.agent-workspace/tandem/`, and remove the legacy Python files (a `.bak` is kept for any you edited).
+- **Release build and CI:** `tandem/packaging/build.sh` builds the five targets with cargo; CI runs fmt, clippy and tests for the crate, runs the skill-script pytest suites from `test/skills/`, and the release workflow verifies the tag against `package.json` and `Cargo.toml`.
+- **`run.sh --check`:** a missing cargo is only a warning while a binary download is still possible.
+- **Fix:** the Status tab showed claims and `in-progress.md` entries on one row.
+- **Docs:** README screenshots are regenerated from the Rust binary with plain `python3` (no uv) and no longer show a real project name.
+
 ## [1.5.0] — 2026-11-01
 
 ### CLI Package & tandem
