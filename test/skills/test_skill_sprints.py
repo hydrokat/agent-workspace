@@ -603,7 +603,6 @@ def test_hand_written_sections_preserved(workspace: Path) -> None:
     custom_section = "\n## Business Objectives & Context\nImportant business background.\n"
     sprint_file.write_text(orig_text.replace("## Deliverables", custom_section + "\n## Deliverables"), encoding="utf-8")
 
-    # Add phase
     out(run(workspace, "add-phase", "s-001-preserve-test", "p-002-sample"))
 
     # Verify custom section survived
