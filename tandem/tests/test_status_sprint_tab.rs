@@ -64,6 +64,7 @@ fn test_active_sprint_header_and_progress() {
                 effort: 3.0,
                 done: 7,
                 total: 9,
+                archived: false,
             },
             SprintPhaseView {
                 name: "p-013-agent-workspace-package".to_string(),
@@ -71,6 +72,7 @@ fn test_active_sprint_header_and_progress() {
                 effort: 1.5,
                 done: 2,
                 total: 5,
+                archived: false,
             },
         ],
     };
@@ -82,6 +84,7 @@ fn test_active_sprint_header_and_progress() {
         branch: String::new(),
         target: String::new(),
         warning: String::new(),
+        archived: false,
     };
     let p2 = Phase {
         name: "p-013-agent-workspace-package".to_string(),
@@ -90,6 +93,7 @@ fn test_active_sprint_header_and_progress() {
         branch: String::new(),
         target: String::new(),
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -200,6 +204,7 @@ fn test_phase_rows_sorted_in_moscow_order() {
                 effort: 0.5,
                 done: 0,
                 total: 2,
+                archived: false,
             },
             SprintPhaseView {
                 name: "p-must".to_string(),
@@ -207,6 +212,7 @@ fn test_phase_rows_sorted_in_moscow_order() {
                 effort: 2.0,
                 done: 0,
                 total: 2,
+                archived: false,
             },
             SprintPhaseView {
                 name: "p-should".to_string(),
@@ -214,6 +220,7 @@ fn test_phase_rows_sorted_in_moscow_order() {
                 effort: 1.5,
                 done: 0,
                 total: 2,
+                archived: false,
             },
         ],
     };
@@ -225,6 +232,7 @@ fn test_phase_rows_sorted_in_moscow_order() {
         branch: String::new(),
         target: String::new(),
         warning: String::new(),
+        archived: false,
     };
     let p_should = Phase {
         name: "p-should".to_string(),
@@ -233,6 +241,7 @@ fn test_phase_rows_sorted_in_moscow_order() {
         branch: String::new(),
         target: String::new(),
         warning: String::new(),
+        archived: false,
     };
     let p_could = Phase {
         name: "p-could".to_string(),
@@ -241,6 +250,7 @@ fn test_phase_rows_sorted_in_moscow_order() {
         branch: String::new(),
         target: String::new(),
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -287,6 +297,7 @@ fn test_missing_phase_directory_shows_warning() {
             effort: 0.5,
             done: 0,
             total: 0,
+            archived: false,
         }],
     };
 
@@ -324,6 +335,7 @@ fn test_untrusted_text_is_sanitized() {
             effort: 1.0,
             done: 0,
             total: 1,
+            archived: false,
         }],
     };
 
@@ -363,6 +375,7 @@ fn test_narrow_width_responsive_shrinks_bars_and_truncates() {
             effort: 2.5,
             done: 2,
             total: 4,
+            archived: false,
         }],
     };
 
@@ -375,6 +388,7 @@ fn test_narrow_width_responsive_shrinks_bars_and_truncates() {
             branch: String::new(),
             target: String::new(),
             warning: String::new(),
+            archived: false,
         }],
         now: timestamp_for_date("2026-11-03"),
         ..Default::default()

@@ -210,6 +210,7 @@ fn test_bottom_summary_in_review_and_blocked() {
             Task::new("t-003", "Task 3", "In Progress"),
         ],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
