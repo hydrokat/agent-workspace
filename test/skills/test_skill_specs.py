@@ -1012,3 +1012,143 @@ def test_new_phase_template_has_a_parallel_waves_section(tmp_path: Path) -> None
     out(run(root, "new-task", "p-001", "--title", "T", "--type", "Enhancement", "--paths", "a/"))
     out(run(root, "waves", "p-001", "--write"))
     assert "| 1 | t-001 | ready now |" in (root / "specs/p-001-r/impl.md").read_text()
+
+
+def test_compile_keeps_archived_sections_and_orders_numerically(tmp_path: Path) -> None:
+    root = sample_copy(tmp_path)
+    # Complete p-002 on disk
+    t1_text = (root / "specs/p-002-sample/t-001.md").read_text()
+    (root / "specs/p-002-sample/t-002.md").write_text(t1_text.replace("t-001", "t-002"))
+    (root / "specs/p-002-sample/t-003.md").write_text(t1_text.replace("t-001", "t-003"))
+
+    # Create pre-existing completed.md with archived p-001-archived and p-003-archived (neither exists on disk)
+    compiled_dir = root / "specs/compiled"
+    compiled_dir.mkdir(parents=True, exist_ok=True)
+    archived_content = (
+        "# Compiled Specs — Completed\n\n"
+        "> Generated: 2026-11-01\n"
+        "> Scope: all phases\n\n"
+        "## Summary\n\n"
+        "2 of 2 phases fully complete.\n\n"
+        "---\n\n"
+        "## p-001-archived: First Archived Phase\n\n"
+        "**Archived:** removed from specs/ on 2026-11-01; restore with git\n\n"
+        "**Tasks:** 2 tasks, all complete\n\n"
+        "### Tasks\n\n"
+        "| Task | Title | Done | Tested | Security Audited |\n"
+        "|------|-------|------|--------|-----------------|\n"
+        "| t-001 | First Task | ✅ | ✅ | ✅ |\n"
+        "| t-002 | Second Task | ✅ | ✅ | ✅ |\n\n"
+        "### Objectives Achieved\n\n"
+        "- Objective 1\n\n"
+        "---\n\n"
+        "## p-003-archived: Third Archived Phase\n\n"
+        "**Archived:** removed from specs/ on 2026-11-01; restore with git\n\n"
+        "**Tasks:** 1 tasks, all complete\n\n"
+        "### Tasks\n\n"
+        "| Task | Title | Done | Tested | Security Audited |\n"
+        "|------|-------|------|--------|-----------------|\n"
+        "| t-001 | Only Task | ✅ | ✅ | ✅ |\n\n"
+        "### Objectives Achieved\n\n"
+        "- Objective 3\n\n"
+        "---\n"
+    )
+    (compiled_dir / "completed.md").write_text(archived_content)
+
+    res = out(run(root, "compile", "--date", "2026-11-02"))
+    done_text = compiled(root, "completed.md")
+
+    # Order must be numeric: p-001, then p-002 (from disk), then p-003
+    idx_p1 = done_text.index("## p-001-archived:")
+    idx_p2 = done_text.index("## p-002-sample:")
+    idx_p3 = done_text.index("## p-003-archived:")
+    assert idx_p1 < idx_p2 < idx_p3
+
+    # Summary counts must include archived phases (2 archived + 1 complete from disk = 3)
+    assert "3 of " in done_text
+
+    # Second compile produces identical output (stable)
+    out(run(root, "compile", "--date", "2026-11-02"))
+    assert compiled(root, "completed.md") == done_text
+
+    # Disk phase replaces archived phase of same name
+    p1_dir = root / "specs/p-001-archived"
+    p1_dir.mkdir()
+    (p1_dir / "impl.md").write_text("# p-001: Fresh From Disk\n\n## Status\n- [x] Done\n")
+    (p1_dir / "t-001.md").write_text("# t-001: Task on Disk\n\n## Status\n- [x] Done\n\n## Testing (TDD)\n- [x] Unit tests passing\n\n## Security\n- [x] Security audit passed\n")
+    out(run(root, "compile", "--date", "2026-11-02"))
+    done_text_replaced = compiled(root, "completed.md")
+    assert "Fresh From Disk" in done_text_replaced
+    assert "First Archived Phase" not in done_text_replaced
+
+
+def test_show_and_list_archived_phase(tmp_path: Path) -> None:
+    root = sample_copy(tmp_path)
+    compiled_dir = root / "specs/compiled"
+    compiled_dir.mkdir(parents=True, exist_ok=True)
+    archived_content = (
+        "# Compiled Specs — Completed\n\n"
+        "## p-001-archived: First Archived Phase\n\n"
+        "**Archived:** removed from specs/ on 2026-11-01; restore with git\n\n"
+        "**Tasks:** 2 tasks, all complete\n\n"
+        "### Tasks\n\n"
+        "| Task | Title | Done | Tested | Security Audited |\n"
+        "|------|-------|------|--------|-----------------|\n"
+        "| t-001 | First Task | ✅ | ✅ | ✅ |\n"
+        "| t-002 | Second Task | ✅ | ✅ | ✅ |\n\n"
+        "---\n"
+    )
+    (compiled_dir / "completed.md").write_text(archived_content)
+
+    # show phase
+    show_phase = out(run(root, "show", "p-001-archived"))
+    assert show_phase["dir"] == "p-001-archived"
+    assert show_phase["title"] == "First Archived Phase"
+    assert show_phase["archived"] is True
+    assert len(show_phase["tasks"]) == 2
+    assert show_phase["tasks"][0]["status"] == "Done"
+
+    # show task
+    show_task = out(run(root, "show", "p-001-archived", "t-001"))
+    assert show_task["phase"] == "p-001-archived"
+    assert show_task["archived"] is True
+    assert show_task["task"]["id"] == "t-001"
+    assert show_task["task"]["title"] == "First Task"
+    assert show_task["task"]["status"] == "Done"
+
+    # unknown task in archived phase exits 1
+    err(run(root, "show", "p-001-archived", "t-999"), code=1)
+
+    # unknown phase entirely exits 1
+    err(run(root, "show", "p-999"), code=1)
+
+    # list includes archived phase
+    list_res = out(run(root, "list"))
+    archived_in_list = [p for p in list_res["phases"] if p.get("archived") is True]
+    assert len(archived_in_list) == 1
+    assert archived_in_list[0]["dir"] == "p-001-archived"
+
+    # existing disk phases have no archived key or archived is not True
+    disk_phases = [p for p in list_res["phases"] if p.get("archived") is not True]
+    assert len(disk_phases) > 0
+
+
+def test_compile_unparseable_archived_section_kept_verbatim_with_warning(tmp_path: Path) -> None:
+    root = sample_copy(tmp_path)
+    compiled_dir = root / "specs/compiled"
+    compiled_dir.mkdir(parents=True, exist_ok=True)
+    unparseable_content = (
+        "# Compiled Specs — Completed\n\n"
+        "## p-001-weird: Weird Phase With No Standard Tasks\n\n"
+        "Custom unformatted text without task table.\n\n"
+        "---\n"
+    )
+    (compiled_dir / "completed.md").write_text(unparseable_content)
+
+    res = out(run(root, "compile", "--date", "2026-11-02"))
+    assert any("unparseable" in w for w in res["warnings"])
+    done_text = compiled(root, "completed.md")
+    assert "## p-001-weird: Weird Phase With No Standard Tasks" in done_text
+    assert "Custom unformatted text without task table." in done_text
+
+
