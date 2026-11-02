@@ -1,0 +1,54 @@
+{
+  "claim_from_dict": {
+    "branch": "feat/x",
+    "heartbeat": 1700000010.0,
+    "paths": [
+      "src/lib.rs"
+    ],
+    "phase": "p-001",
+    "session": "s-1",
+    "task": "t-002",
+    "worktree": "/w"
+  },
+  "decode_query_fields": {
+    "answer": "",
+    "author": "implementer-1",
+    "blocking": [
+      "src/main.rs"
+    ],
+    "created": 1700000000.0,
+    "id": "q-1234",
+    "question": "Which architecture pattern?",
+    "status": "open",
+    "target": "user",
+    "task": "p-001 t-002"
+  },
+  "encode_query_fields": "---\nid: \"q-1234\"\nstatus: \"open\"\nauthor: \"implementer-1\"\ntarget: \"user\"\ncreated: 1700000000.0\nquestion: \"Which architecture pattern?\"\nblocking: [\"src/main.rs\"]\nanswer: \"\"\ntask: \"p-001 t-002\"\n---\n",
+  "query_from_dict": {
+    "answer": "",
+    "answered_via": "",
+    "asked_by": "implementer-1",
+    "blocking_scope": "src/main.rs",
+    "created": 1700000000.0,
+    "id": "q-1",
+    "options": [
+      "A",
+      "B"
+    ],
+    "question": "Pattern?",
+    "status": "open",
+    "task": "p-001 t-002"
+  },
+  "session_from_dict": {
+    "branch": "feat/x",
+    "cli": "claude",
+    "cwd": "/w",
+    "heartbeat": 1700000010.0,
+    "id": "s-1",
+    "model": "sonnet",
+    "pane": "%1",
+    "role": "implementer",
+    "task": "p-001 t-002",
+    "worktree": "/w"
+  }
+}

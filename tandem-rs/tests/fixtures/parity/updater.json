@@ -1,0 +1,14 @@
+{
+  "describe_stale": "planner 1  claude\u00b7opus  1.4.0 \u2192 1.5.0  resumes conversation",
+  "plan_frozen": [
+    "1. npx --yes 1.5.0 update --yes --no-link   (refreshes skills, agents, run.sh and tandem, and updates the installed AI CLIs: claude update, agy update, codex through its package manager)",
+    "2. run.sh --fetch-runtime   (refreshes the tandem binary runtime)",
+    "3. restart tandem's own windows (status, placeholders) on the new code",
+    "Your agents keep running. Nothing is typed into their panes."
+  ],
+  "plan_not_frozen": [
+    "1. npx --yes 1.5.0 update --yes --no-link   (refreshes skills, agents, run.sh and tandem, and updates the installed AI CLIs: claude update, agy update, codex through its package manager)",
+    "2. tandem is running from a checkout, not the workspace copy: update that with git yourself",
+    "Your agents keep running. Nothing is typed into their panes."
+  ]
+}

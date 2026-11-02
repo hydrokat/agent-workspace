@@ -1,0 +1,39 @@
+{
+  "format_line": {
+    "agy_only": "Quota  agy: quota not available",
+    "claude_and_agy": "Quota  claude: 5h 35% (resets 23:13) \u00b7 7d 80% (resets Thu 22:13)  \u2502  agy: quota not available",
+    "claude_fresh": "Quota  claude: 5h 35% (resets 23:13) \u00b7 7d 80% (resets Thu 22:13)",
+    "claude_stale": "Quota  claude: 5h 35% (resets 23:13) \u00b7 7d 80% (resets Thu 22:13) [as of 22:13]",
+    "none": "Quota: quota not available (no agents running)"
+  },
+  "parse_statusline": {
+    "empty": true,
+    "five_only": {
+      "five_hour": {
+        "resets_at": 1700001800,
+        "used_percentage": 12.0
+      },
+      "updated": 1700000000.0
+    },
+    "full": {
+      "five_hour": {
+        "resets_at": 1700003600,
+        "used_percentage": 35.0
+      },
+      "seven_day": {
+        "resets_at": 1700172800,
+        "used_percentage": 80.0
+      },
+      "updated": 1700000000.0
+    },
+    "invalid": true
+  },
+  "tmux_safe": {
+    "Control \u0000\u001b\u007f chars": "Control  chars",
+    "Line with \n newline": "Line with  newline",
+    "Normal text": "Normal text",
+    "Text with # hash": "Text with ## hash",
+    "Text with #(command)": "Text with ##(command)",
+    "Text with #[fg=red] color": "Text with ##[fg=red] color"
+  }
+}

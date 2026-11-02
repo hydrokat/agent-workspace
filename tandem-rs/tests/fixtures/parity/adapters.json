@@ -1,0 +1,3233 @@
+{
+  "agy_models_sample": [
+    "gemini-2.5-pro",
+    "claude-3-5-sonnet"
+  ],
+  "build_argv_matrix": [
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-planner-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "opus",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "sonnet",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--session-id",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}"
+      ],
+      "cli": "claude",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "claude",
+        "--permission-mode",
+        "auto",
+        "--model",
+        "gemini-2.5-pro",
+        "-n",
+        "tandem-implementer-1",
+        "--settings",
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"tandem quota-feed\"}}",
+        "--resume",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": null,
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": null,
+      "cli": "claude",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": "ValueError: claude is always launched with --permission-mode auto",
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "planner",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "opus",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "sonnet",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "sonnet",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": false,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": false
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log"
+      ],
+      "cli": "agy",
+      "conversation": null,
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": null,
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    },
+    {
+      "argv": [
+        "agy",
+        "--model",
+        "gemini-2.5-pro",
+        "--dangerously-skip-permissions",
+        "--log-file",
+        "/tmp/tandem-test.log",
+        "--conversation",
+        "c0a80101-0000-0000-0000-000000000001"
+      ],
+      "cli": "agy",
+      "conversation": "c0a80101-0000-0000-0000-000000000001",
+      "error": null,
+      "log_file": "/tmp/tandem-test.log",
+      "model": "gemini-2.5-pro",
+      "resume": true,
+      "role": "implementer",
+      "skip_permissions": true
+    }
+  ],
+  "claude_models": [
+    "opus",
+    "sonnet",
+    "fable"
+  ],
+  "statusline_settings": {
+    "custom": "{\"statusLine\":{\"type\":\"command\",\"command\":\"/usr/local/bin/tandem quota-feed\"}}",
+    "default": "{\"statusLine\":{\"type\":\"command\",\"command\":\"/Users/hydrokat/Projects/side-projects/agent-workspace/agent-workspace/codebase-symlinks/agent-workspace-package/tandem/.venv/bin/python -m tandem quota-feed\"}}"
+  }
+}

@@ -36,5 +36,20 @@ jobs:
       - run: uv run mypy
       - run: uv run pytest -q
 
+  tandem-rs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tandem-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.89.0
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test --locked
+
   binary:
     uses: ./.github/workflows/build-binary.yml
