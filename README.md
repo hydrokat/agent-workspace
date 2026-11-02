@@ -333,7 +333,7 @@ The window shows planners on the left, implementers on the right, and the status
 
 <p align="center"><img src="docs/images/help.svg" alt="Alt+h help popup listing tandem's keys" width="70%"></p>
 
-<sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `docs/screenshots/make_screenshots.py`; a test fails if a screenshot contains a home-directory path.</sub>
+<sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `cargo build --release --manifest-path tandem/Cargo.toml && python3 docs/screenshots/make_screenshots.py` (needs tmux; no uv or Python tandem); a test fails if a screenshot contains a home-directory path.</sub>
 
 **Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning.
 

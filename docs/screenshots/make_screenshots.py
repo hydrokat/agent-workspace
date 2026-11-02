@@ -1,14 +1,17 @@
 """Regenerate the README screenshots from a fictional demo project (no real paths, names or sessions).
 
-Run with tandem's interpreter from the repository root:
+Run with plain python3 from the repository root, after building the Rust binary:
 
-    cd tandem && uv run python ../docs/screenshots/make_screenshots.py
+    cargo build --release --manifest-path tandem/Cargo.toml
+    python3 docs/screenshots/make_screenshots.py [--tandem path/to/tandem]
 
 It builds a throwaway workspace ("acme-workspace") with stand-in `claude`/`agy` programs that only print
-sample text, runs the real tandem against it in a private tmux server, captures the screen and writes SVGs.
+sample text, runs the real tandem binary against it in a private tmux server, captures the screen and writes SVGs.
 """
+import argparse
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -20,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ansi_svg import render  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "images"
+DEFAULT_TANDEM = Path(__file__).resolve().parents[2] / "tandem/target/release/tandem"
 COORD = Path(__file__).resolve().parents[2] / "templates/skills/agent-coordination/scripts/coord.py"
 COLS, ROWS = 150, 50
 GIT = ["git", "-c", "user.email=demo@example.com", "-c", "user.name=Demo"]
@@ -136,11 +140,41 @@ def save(name: str, title: str = "") -> None:
     print("wrote", OUT / f"{name}.svg")
 
 
+def socket_for(workspace: Path) -> str:
+    return "tandem-%010x" % random.Random(str(workspace)).getrandbits(40)
+
+
+def agent(cli: str, role: str, model: str, index: int, skip_permissions: bool = False) -> dict[str, object]:
+    return {"cli": cli, "role": role, "model": model, "index": index, "cwd": None, "conversation": None,
+            "skip_permissions": skip_permissions}
+
+
+def write_session(path: Path, agents: list[dict[str, object]], active: dict[str, int], saved_at: float, cwd: Path) -> None:
+    for entry in agents:
+        entry["cwd"] = str(cwd)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "version": 2, "agents": agents, "active": active,
+        "layout": {"columns_percent": None, "status_rows": None}, "saved_at": saved_at, "clean": True,
+    }, indent=2) + "\n")
+
+
+def write_quota_feed(coord: Path, session: str, now: float) -> None:
+    folder = coord / "quota"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"claude-{session}.json").write_text(json.dumps({
+        "updated": now,
+        "five_hour": {"used_percentage": 42, "resets_at": int(now) + 3 * 3600},
+        "seven_day": {"used_percentage": 12, "resets_at": int(now) + 4 * 86400},
+    }))
+
+
 def main() -> None:
-    from tandem import state
-    from tandem.adapters.base import AgentSpec
-    from tandem.quota import ClaudeQuota, Window, write_feed
-    from tandem.tmux.client import socket_for
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--tandem", type=Path, default=DEFAULT_TANDEM, help="path to the tandem binary")
+    tandem = parser.parse_args().tandem.resolve()
+    if not tandem.is_file():
+        sys.exit(f"tandem binary not found at {tandem}; build it with: cargo build --release --manifest-path tandem/Cargo.toml")
 
     root = Path(tempfile.mkdtemp(prefix="tandem-demo-")).resolve()
     ws = build_workspace(root)
@@ -150,10 +184,10 @@ def main() -> None:
     (xdg / "tandem" / "first-run-done").write_text("0")  # no first-run help popup over the screenshot
     coord = ws / ".agent-workspace" / "coordination"
     now = time.time()
-    state.save(state.state_path(ws), state.SavedState((
-        AgentSpec("claude", "planner", "opus", 1), AgentSpec("agy", "planner", "gemini-3.8-flash-high", 2),
-        AgentSpec("claude", "implementer", "sonnet", 1), AgentSpec("claude", "implementer", "sonnet", 2)),
-        {"planner": 1, "implementer": 1}, saved_at=now))
+    write_session(ws / ".agent-workspace" / "tandem-session.json", [
+        agent("claude", "planner", "opus", 1), agent("agy", "planner", "gemini-3.8-flash-high", 2),
+        agent("claude", "implementer", "sonnet", 1), agent("claude", "implementer", "sonnet", 2)],
+        {"planner": 1, "implementer": 1}, now, ws)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_STATE_HOME": str(xdg), "NO_COLOR": "",
            "TERM": "xterm-256color", "LANG": "en_US.UTF-8", "HOME": str(root)}
     env.pop("TMUX", None)
@@ -161,7 +195,7 @@ def main() -> None:
     sock = socket_for(ws)
     try:
         sh("tmux", "-L", OUTER, "-f", "/dev/null", "new-session", "-d", "-x", str(COLS), "-y", str(ROWS), "-n", "demo",
-           f"cd {ws} && {py} -m tandem --resume; sleep 5", env=env)
+           f"cd {ws} && {tandem} --resume; sleep 5", env=env)
         time.sleep(8)
         for who, role, model in (("implementer-1", "implementer", "sonnet"), ("implementer-2", "implementer", "sonnet"),
                                  ("planner-1", "planner", "opus")):
@@ -175,7 +209,7 @@ def main() -> None:
         sh(py, str(COORD), "ask", "Should the cart persist across logins?", "--task", "t-003",
            "--blocking-scope", "t-003 persistence", "--option", "Yes, store it server-side",
            "--option", "No, keep it per browser session", cwd=ws, env=c2)
-        write_feed(coord, "planner-1", ClaudeQuota(Window(42, int(now) + 3 * 3600), Window(12, int(now) + 4 * 86400), now))
+        write_quota_feed(coord, "planner-1", now)
         time.sleep(4)
         panes = sh("tmux", "-L", sock, "list-panes", "-a", "-F", "#{pane_id} #{@tandem_role} #{@tandem_kind}").splitlines()
         status = next(p.split()[0] for p in panes if " status " in p + " ")
@@ -195,7 +229,7 @@ def main() -> None:
         # 4. help popup
         client = sh("tmux", "-L", sock, "list-clients", "-F", "#{client_name}").split()[0]
         subprocess.Popen(["tmux", "-L", sock, "display-popup", "-c", client, "-E", "-w", "70%", "-h", "75%",
-                          f"env TANDEM_WORKSPACE={ws} {py} -m tandem help"], env=env,
+                          f"env TANDEM_WORKSPACE={ws} {tandem} help"], env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
         save("help", "Alt+h help")

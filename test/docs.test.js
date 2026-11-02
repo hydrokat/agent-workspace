@@ -63,6 +63,31 @@ describe('README runtime documentation', () => {
   });
 });
 
+describe('screenshot generator', () => {
+  const script = readFileSync(join(ROOT, 'docs/screenshots/make_screenshots.py'), 'utf8');
+
+  it('does not import the Python tandem or need uv', () => {
+    assert.ok(!/^\s*(from|import)\s+tandem\b/m.test(script), 'no tandem import');
+    assert.ok(!/uv run|-m tandem|sys\.executable.*tandem/.test(script), 'no uv or python -m tandem');
+  });
+
+  it('drives the Rust binary, found through --tandem or the release build', () => {
+    assert.match(script, /--tandem/);
+    assert.match(script, /tandem\/target\/release\/tandem/);
+  });
+
+  it('computes the tmux socket with the stdlib random formula tandem reproduces', () => {
+    assert.match(script, /random\.Random\(str\(/);
+    assert.match(script, /getrandbits\(40\)/);
+  });
+
+  it('is documented in the README with a plain python3 command', () => {
+    const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+    assert.match(readme, /python3 docs\/screenshots\/make_screenshots\.py/);
+    assert.ok(!/cd tandem && uv run python/.test(readme));
+  });
+});
+
 describe('README screenshots', () => {
   const svgs = existsSync(IMAGES) ? readdirSync(IMAGES).filter((f) => f.endsWith('.svg')) : [];
 
