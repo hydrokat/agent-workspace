@@ -174,6 +174,7 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
     end_date = ""
     capacity_days = 5.0
     committed_effort = 0.0
+    declared_effort: float | None = None
 
     in_audit = False
     in_scope_table = False
@@ -230,8 +231,6 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
                         rice_score=p_rice,
                         spec_link=p_link,
                     ))
-                    if p_moscow != "Won't Have":
-                        committed_effort += p_effort
             continue
 
         if stripped.startswith("- **Status**:"):
@@ -249,9 +248,14 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
         elif stripped.startswith("- **Committed Capacity**:"):
             val = stripped.partition(":")[2].strip().partition(" ")[0].rstrip("d")
             try:
-                committed_effort = float(val)
+                declared_effort = float(val)
             except ValueError:
                 pass
+
+    if phases:
+        committed_effort = sum(p.effort for p in phases if p.moscow != "Won't Have")
+    elif declared_effort is not None:
+        committed_effort = declared_effort
 
     deliverables = [f for f in HTML_DOCS if (sprint_dir / f).is_file()]
 

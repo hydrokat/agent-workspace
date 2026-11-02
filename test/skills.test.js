@@ -103,6 +103,24 @@ describe('script-first skills ship their scripts and templates', () => {
     }
   });
 
+  it('ships the test-failures skill with its runner', () => {
+    has('test-failures/SKILL.md');
+    has('test-failures/agents/openai.yaml');
+    has('test-failures/scripts/run_tests.py');
+  });
+
+  it('routes agent test runs through the failed-tests-only runner', () => {
+    const runner = 'test-failures/scripts/run_tests.py';
+    for (const name of ['code-cleanup', 'code-review-remediation', 'pull-request', 'spec-implement', 'pm-sprint-implement']) {
+      assert.ok(skill(name).includes(runner), `${name} uses the runner`);
+    }
+    for (const doc of ['AGENTS.md', 'WORKFLOW.md']) {
+      const text = readFile(dir, doc);
+      assert.ok(text.includes(runner), `${doc} states the rule`);
+      assert.match(text, /only the failures|only what failed|read only the failures/i, `${doc} says to read only failures`);
+    }
+  });
+
   it('installed scripts run from the workspace with python3', { skip: !hasPython }, () => {
     const run = (rel, ...args) => JSON.parse(execFileSync('python3', [`${dir}/.agents/skills/${rel}`, ...args], { cwd: dir, encoding: 'utf8' }));
     assert.equal(run('spec-planner/scripts/specs.py', 'next-phase').next, '001');

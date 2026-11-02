@@ -1,0 +1,7 @@
+running suite alpha
+  ok   parses header
+  ok   parses footer
+  FAIL renders table: expected 3 rows, got 2
+    at render_test:44
+  ok   escapes html
+Finished: 1 failure

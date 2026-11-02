@@ -77,8 +77,8 @@ The script re-reads every target and compares it with the scan. If a file change
 ## Step 7: Verify And Report
 
 1. Show `git diff --stat` and, when helpful, `git diff` for the touched files.
-2. Run the project's tests. Find the runner with `python3 .agents/skills/explain/scripts/locate.py stack` when it is installed, else from the repo manifests.
-3. If tests fail, report it, show the failing output, and offer to revert with `git checkout -- <files>`.
+2. Run the project's tests through the failed-tests-only runner: `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` (leave out the command to let it detect one with `explain/scripts/locate.py stack`).
+3. If tests fail, report the failing blocks it printed, and offer to revert with `git checkout -- <files>`.
 4. Report what was deleted, what was kept and why, and what still needs review. Leave committing to the user or the `commit` skill.
 
 ## Mandates

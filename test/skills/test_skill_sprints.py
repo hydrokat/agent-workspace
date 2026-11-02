@@ -258,6 +258,34 @@ def test_list_and_show(workspace: Path) -> None:
     assert "audit_log" in show_res
 
 
+def write_sprint(workspace: Path, name: str, committed_line: str | None, rows: list[tuple[str, str, str]]) -> None:
+    folder = workspace / "sprints" / name
+    folder.mkdir()
+    meta = ["- **Status**: open", "- **AI-Assisted Capacity Limit**: 5.0 Days"]
+    if committed_line is not None:
+        meta.append(f"- **Committed Capacity**: {committed_line}")
+    table = ["| Phase | Title | MoSCoW | Reach | Impact | Confidence | Effort | RICE Score | Spec Link |", "|---|---|---|---|---|---|---|---|---|"]
+    table += [f"| {phase} | {phase} | {moscow} | 100 | 1 | 0.8 | {effort} | 10 | [x](../../specs/{phase}/impl.md) |" for phase, moscow, effort in rows]
+    (folder / "sprint.md").write_text("# Sprint s-001: Demo\n\n## Metadata\n" + "\n".join(meta) + "\n\n## Prioritized Scope (MoSCoW & RICE)\n\n" + "\n".join(table) + "\n", encoding="utf-8")
+
+
+def test_committed_effort_is_not_double_counted(workspace: Path) -> None:
+    write_sprint(workspace, "s-001-demo", "5.0 Days", [("p-001-a", "Must Have", "2.0d"), ("p-002-b", "Should Have", "3.0d")])
+    listed = out(run(workspace, "list"))["sprints"][0]
+    assert listed["committed_effort"] == 5.0
+    assert out(run(workspace, "show", "s-001-demo"))["committed_effort"] == 5.0
+
+
+def test_committed_effort_comes_from_the_scope_table_rows(workspace: Path) -> None:
+    write_sprint(workspace, "s-001-demo", "9.9 Days", [("p-001-a", "Must Have", "1.5d"), ("p-002-b", "Won't Have", "4d")])
+    assert out(run(workspace, "list"))["sprints"][0]["committed_effort"] == 1.5
+
+
+def test_committed_effort_falls_back_to_the_metadata_line_without_rows(workspace: Path) -> None:
+    write_sprint(workspace, "s-001-demo", "4.0 Days", [])
+    assert out(run(workspace, "list"))["sprints"][0]["committed_effort"] == 4.0
+
+
 def test_status_command(workspace: Path) -> None:
     coord_dir = tempfile.mkdtemp(prefix="sprints-coord-")
     out(run(

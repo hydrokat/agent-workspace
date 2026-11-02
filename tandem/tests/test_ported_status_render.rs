@@ -27,6 +27,7 @@ fn default_snap() -> StatusSnapshot {
         codebase_git: HashMap::new(),
         coord_exists: true,
         now: NOW,
+        sprint: None,
     }
 }
 

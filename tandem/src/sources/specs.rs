@@ -49,7 +49,7 @@ impl Phase {
     }
 }
 
-fn read_file_capped(path: &Path) -> Option<String> {
+pub(crate) fn read_file_capped(path: &Path) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
     let mut buf = Vec::new();
     file.by_ref().take(MAX_BYTES).read_to_end(&mut buf).ok()?;

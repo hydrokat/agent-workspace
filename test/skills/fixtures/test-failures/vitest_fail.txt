@@ -1,0 +1,28 @@
+ ✓ src/format.test.ts (3 tests) 2ms
+ ❯ src/cart.test.ts (3 tests | 1 failed) 8ms
+   ✓ cart > adds items
+   × cart > applies the discount to the subtotal
+     → expected 100 to be 90 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/cart.test.ts > cart > applies the discount to the subtotal
+AssertionError: expected 100 to be 90 // Object.is equality
+
+- Expected
++ Received
+
+- 90
++ 100
+
+ ❯ src/cart.test.ts:14:26
+     12|   const cart = new Cart([{ price: 100, qty: 1 }]);
+     13|   cart.applyDiscount(0.1);
+     14|   expect(cart.total()).toBe(90);
+       |                        ^
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 5 passed (6)
+   Duration  412ms

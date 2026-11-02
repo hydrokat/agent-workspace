@@ -46,6 +46,7 @@ fn test_render_parity_fixture() {
         codebase_git: std::collections::HashMap::new(),
         coord_exists: true,
         now: 10_000.0,
+        sprint: None,
     };
 
     let summary_cases = fixture["summary_line"].as_object().unwrap();
@@ -99,6 +100,7 @@ fn test_render_parity_fixture() {
         codebase_git: std::collections::HashMap::new(),
         coord_exists: true,
         now: 10_000.0,
+        sprint: None,
     };
 
     assert_eq!(

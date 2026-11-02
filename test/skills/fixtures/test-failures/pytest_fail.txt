@@ -1,0 +1,22 @@
+.FF.                                                                     [100%]
+=================================== FAILURES ===================================
+_________________________________ test_bad_sum _________________________________
+
+    def test_bad_sum():
+        total = sum([1, 2, 3])
+>       assert total == 7, "sum is wrong"
+E       AssertionError: sum is wrong
+E       assert 6 == 7
+
+test_math.py:6: AssertionError
+__________________________________ test_boom ___________________________________
+
+    def test_boom():
+>       raise ValueError("boom")
+E       ValueError: boom
+
+test_math.py:9: ValueError
+=========================== short test summary info ============================
+FAILED test_math.py::test_bad_sum - AssertionError: sum is wrong
+FAILED test_math.py::test_boom - ValueError: boom
+2 failed, 2 passed in 0.01s

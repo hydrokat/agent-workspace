@@ -57,6 +57,7 @@ pub struct StatusApp {
     pub sessions_state: OptionListState,
     pub session_items: Vec<OptionItem>,
 
+    pub collapsible_sprint: Collapsible,
     pub collapsible_repos: Collapsible,
     pub collapsible_phases: Collapsible,
     pub collapsible_conflicts: Collapsible,
@@ -71,6 +72,7 @@ pub struct StatusApp {
     pub banner_area: Rect,
     pub tabs_area: Rect,
     pub sessions_area: Rect,
+    pub sprint_header_y: u16,
     pub repos_header_y: u16,
     pub phases_header_y: u16,
     pub conflicts_header_y: u16,
@@ -117,6 +119,7 @@ impl StatusApp {
             sessions_state: OptionListState::default(),
             session_items: Vec::new(),
 
+            collapsible_sprint: Collapsible::new("Sprint", true),
             collapsible_repos: Collapsible::new(
                 "Repositories · * main checkout · → linked worktree",
                 true,
@@ -134,6 +137,7 @@ impl StatusApp {
             banner_area: Rect::default(),
             tabs_area: Rect::default(),
             sessions_area: Rect::default(),
+            sprint_header_y: 0,
             repos_header_y: 0,
             phases_header_y: 0,
             conflicts_header_y: 0,
@@ -425,6 +429,11 @@ impl StatusApp {
             }
 
             if self.tab_idx == 0 {
+                if self.snapshot.sprint.is_some()
+                    && self.collapsible_sprint.click_at(row, self.sprint_header_y)
+                {
+                    return;
+                }
                 if self.collapsible_repos.click_at(row, self.repos_header_y) {
                     return;
                 }
@@ -521,6 +530,21 @@ impl StatusApp {
         let mut y = area.y;
         let bottom = area.y + area.height;
 
+        if let Some(headline) = render::sprint_line(&self.snapshot)
+            && y < bottom
+        {
+            buf.set_stringn(
+                area.x + 1,
+                y,
+                &headline,
+                (area.width as usize).saturating_sub(2),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+            y += 1;
+        }
+
         let label_style = Style::default().fg(Color::Yellow);
         buf.set_string(area.x + 1, y, "In progress", label_style);
         y += 1;
@@ -547,6 +571,31 @@ impl StatusApp {
                 Style::default().fg(Color::DarkGray),
             );
             y += 1;
+        }
+
+        if self.snapshot.sprint.is_some() && y < bottom {
+            self.sprint_header_y = y;
+            self.collapsible_sprint.render_header(
+                Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
+                buf,
+            );
+            y += 1;
+            if self.collapsible_sprint.expanded && y < bottom {
+                let sprint_text = render::sprint_text(&self.snapshot);
+                for line in sprint_text.lines() {
+                    if y >= bottom {
+                        break;
+                    }
+                    buf.set_stringn(
+                        area.x + 3,
+                        y,
+                        line,
+                        (area.width as usize).saturating_sub(4),
+                        Style::default().fg(Color::White),
+                    );
+                    y += 1;
+                }
+            }
         }
 
         if y < bottom {

@@ -69,6 +69,7 @@ Compatibility sync rules:
 - **Surgical Updates:** Minimize noise; change only what is necessary to fulfill the objective.
 - **Type Safety:** All implementation must prioritize strict typing and clear interfaces.
 - **Validation:** No task is complete without verified automated tests or documented manual validation when tests are unavailable.
+- **Test Output:** Run tests through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` and read only the failures it reports. Open the saved log or run `... show <test name>` only when a failure block is not enough. Never paste a full passing log into the conversation.
 
 ### 6. Script-First Execution
 For repetitive or complex technical tasks:

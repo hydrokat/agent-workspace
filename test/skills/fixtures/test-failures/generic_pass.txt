@@ -1,0 +1,4 @@
+running suite alpha
+  ok   parses header
+  ok   escapes html
+Finished: 0 failures

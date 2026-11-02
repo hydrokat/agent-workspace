@@ -1,6 +1,8 @@
-# agent-workspace
+# tandem (agent-workspace)
 
-A CLI that turns any project directory into an AI-ready workspace — pre-loaded with specialized agents, reusable skills, and shared guidelines, configured for whichever AI provider you use.
+**tandem** is the product, also known as **agent-workspace**. It turns any project directory into an AI-ready workspace — pre-loaded with specialized agents, reusable skills, and shared guidelines, configured for whichever AI provider you use.
+
+> **Naming:** the command is `agent-workspace` (`npx hydrokat/agent-workspace init`), and `./run.sh` starts the tandem runtime that runs your AI CLIs side by side. There is no separate `tandem` command to install from npm.
 
 ## What it does
 
@@ -261,6 +263,7 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, a
 | `/feasibility <feature>` | Decide whether a feature can be built here and how: verdict, effort, options, risks, unknowns |
 | `/code-cleanup [paths] [--diff <base>]` | List unnecessary comments, ask which to delete, then delete only those |
 | `/workspace-cleanup` | List files that may not belong in the workspace and delete the ones you approve |
+| `test-failures` (used automatically) | Agents run tests through `run_tests.py`, so only the failing tests reach their context; the full log is saved under `.agent-workspace/test-runs/` |
 
 `/spec-explain`, `/explain`, and `/feasibility` never change files unless you ask them to save. `/code-cleanup` and `/workspace-cleanup` delete nothing without your explicit answer.
 

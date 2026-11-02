@@ -1,6 +1,6 @@
 # tandem
 
-Run several AI CLIs (`claude`, `agy`) side by side in one tmux session: **planners** on the left, **implementers** on the right, and a live status window underneath. Start it with `./run.sh` from your workspace (see the package README).
+The runtime of tandem (agent-workspace): run several AI CLIs (`claude`, `agy`) side by side in one tmux session: **planners** on the left, **implementers** on the right, and a live status window underneath. Start it with `./run.sh` from your workspace (see the package README).
 
 tandem only **launches** the official CLIs exactly as you would from a shell, with their documented flags. It never types into them, reads their output, proxies their traffic, or touches their credentials. Coordination happens only because agents choose to read and write shared files through the `agent-coordination` skill.
 
@@ -48,6 +48,8 @@ tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side
 Terminals narrower than 100 columns stack the columns vertically, and the status window is kept to at most 40% of a short terminal (you can still drag it larger).
 
 The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `Ctrl+Alt+r` restarts them and reopens their conversation when the CLI has one to reopen.
+
+The Status tab also shows the **active sprint** when one exists: the last sprint under `sprints/` whose `sprint.md` says `open` or `locked` (the same rule as `sprints.py resolve`). A headline above "In progress" gives the sprint id and title, task progress across its phases, days left (`3 days left`, `ends today`, `overdue 2d`), the remaining Must Have tasks, `locked`, and `OVERLOADED 7.5/5.0d` when the committed effort is above the capacity. A **Sprint** section lists the dates, the capacity and one row per phase (MoSCoW, progress bar, done/total), and the summary line gets a short `s-003 4/14` token so the sprint stays visible in compact mode. Nothing is shown without an active sprint. tandem reads `sprint.md` and the phase specs directly, so no script runs on the refresh loop; committed effort comes from the scope table rows, as in `sprints.py`.
 
 ## Runtime
 

@@ -1,0 +1,25 @@
+PHPUnit 11.2.1 by Sebastian Bergmann and contributors.
+
+..F.E                                                               5 / 5 (100%)
+
+Time: 00:00.021, Memory: 8.00 MB
+
+There was 1 error:
+
+1) Tests\CartTest::test_rejects_negative_quantity
+InvalidArgumentException: Quantity must be positive
+
+/app/src/Cart.php:31
+/app/tests/CartTest.php:44
+
+--
+
+There was 1 failure:
+
+1) Tests\CartTest::test_discount_applies
+Failed asserting that 100 matches expected 90.
+
+/app/tests/CartTest.php:27
+
+FAILURES!
+Tests: 5, Assertions: 7, Errors: 1, Failures: 1.

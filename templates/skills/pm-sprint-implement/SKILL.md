@@ -92,7 +92,7 @@ Every task executed under `/pm-sprint-implement` must satisfy the full `/spec-im
 
 1. **Task Normalization & Roles**: Ensure the task file has all required metadata via `python3 .agents/skills/spec-planner/scripts/specs.py normalize <phase> <task>`. Explicitly act in or delegate to the assigned role (e.g. `senior-backend-dev`, `frontend-dev`, `qa-engineer`, `security-auditor`).
 2. **Caveman Style**: Use the `caveman` skill whenever possible for progress reports, implementation notes, and operational summaries to preserve token bandwidth.
-3. **TDD & Automated Verification**: Write failing unit/integration tests before writing implementation code. Ensure tests pass before proceeding.
+3. **TDD & Automated Verification**: Write failing unit/integration tests before writing implementation code. Ensure tests pass before proceeding. Run every test command (including the regression suite after each merge) through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` and read only the failures it reports.
 4. **Code Comment Discipline**: Treat comments as documentation only. Do not narrate obvious code or write scratchpad thinking in comments. Run `/code-cleanup --diff <merge-target>` to remove unnecessary comments before task completion.
 5. **Security & Knowledgebase**:
    - Run a security audit if the task touches auth, inputs, data handling, or permissions.

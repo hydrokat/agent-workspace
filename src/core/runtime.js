@@ -11,7 +11,7 @@ const WALK_SKIP = new Set(['target', 'tests', '__pycache__']);
 const LEGACY_PYTHON_FILES = new Set([`${TANDEM_DEST}/pyproject.toml`, `${TANDEM_DEST}/uv.lock`]);
 const LEGACY_PYTHON_PACKAGE = `${TANDEM_DEST}/src/tandem`;
 const MODIFIED_GRACE_MS = 2000;
-const GITIGNORE_ENTRIES = ['update-notice.env', 'update-check.env'];
+const GITIGNORE_ENTRIES = ['update-notice.env', 'update-check.env', 'test-runs/'];
 
 function walk(dir, base = '') {
   const out = [];
