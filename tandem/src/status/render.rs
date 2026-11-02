@@ -33,14 +33,107 @@ fn count(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+pub fn days_left(end_date: &str, now: f64) -> String {
+    let Ok(end) = chrono::NaiveDate::parse_from_str(end_date.trim(), "%Y-%m-%d") else {
+        return String::new();
+    };
+    let Some(today) = chrono::DateTime::from_timestamp(now as i64, 0).map(|d| d.date_naive())
+    else {
+        return String::new();
+    };
+    match (end - today).num_days() {
+        0 => "ends today".to_string(),
+        d if d > 0 => format!("{d} {} left", if d == 1 { "day" } else { "days" }),
+        d => format!("overdue {}d", -d),
+    }
+}
+
+fn short_sprint_id(id: &str) -> String {
+    id.splitn(3, '-').take(2).collect::<Vec<_>>().join("-")
+}
+
+pub fn sprint_line(s: &StatusSnapshot) -> Option<String> {
+    let sprint = s.sprint.as_ref()?;
+    let mut parts = vec![
+        format!("Sprint {}", clean(&sprint.id)),
+        clean(&sprint.title),
+        format!("{}/{} tasks", sprint.done, sprint.total),
+    ];
+    let left = days_left(&sprint.end_date, s.now);
+    if !left.is_empty() {
+        parts.push(left);
+    }
+    if sprint.must_remaining > 0 {
+        parts.push(format!("{} Must Have left", sprint.must_remaining));
+    }
+    if sprint.status == "locked" {
+        parts.push("locked".to_string());
+    }
+    if sprint.overloaded {
+        parts.push(format!(
+            "OVERLOADED {:.1}/{:.1}d",
+            sprint.committed_days, sprint.capacity_days
+        ));
+    }
+    Some(parts.join(" · "))
+}
+
+pub fn sprint_text(s: &StatusSnapshot) -> String {
+    let Some(sprint) = s.sprint.as_ref() else {
+        return String::new();
+    };
+    let mut lines = Vec::new();
+    let left = days_left(&sprint.end_date, s.now);
+    lines.push(format!(
+        "{} → {}{}",
+        clean(&sprint.start_date),
+        clean(&sprint.end_date),
+        if left.is_empty() {
+            String::new()
+        } else {
+            format!(" · {left}")
+        }
+    ));
+    lines.push(format!(
+        "Capacity: {:.1}d committed of {:.1}d{}",
+        sprint.committed_days,
+        sprint.capacity_days,
+        if sprint.overloaded {
+            " (overloaded)"
+        } else {
+            ""
+        }
+    ));
+    for phase in &sprint.phases {
+        lines.push(format!(
+            "{:<12} {}  {}  {}/{}",
+            clean(&phase.moscow),
+            clean(&phase.name),
+            bar(phase.done, phase.total, 12),
+            phase.done,
+            phase.total
+        ));
+    }
+    lines.join("\n")
+}
+
 pub fn summary_line(s: &StatusSnapshot) -> String {
     let done: usize = s.phases.iter().map(|p| p.done()).sum();
     let total: usize = s.phases.iter().map(|p| p.total()).sum();
-    let mut parts = vec![
+    let mut parts = Vec::new();
+    if let Some(sprint) = s.sprint.as_ref() {
+        parts.push(format!(
+            "{} {}/{}",
+            short_sprint_id(&sprint.id),
+            sprint.done,
+            sprint.total
+        ));
+    }
+    parts.extend([
         format!("{done}/{total} tasks"),
         count(s.sessions.len(), "agent", "agents"),
         count(s.claims.len(), "claim", "claims"),
-    ];
+    ]);
 
     let stale = s.stale_claims();
     if !stale.is_empty() {

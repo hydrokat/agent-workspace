@@ -5,10 +5,74 @@ use crate::sources::conflicts::{Conflict, find_conflicts};
 use crate::sources::gitinfo::{GitInfo, git_info};
 use crate::sources::inprogress::{InProgressEntry, parse_in_progress};
 use crate::sources::specs::{Phase, load_phases};
+use crate::sources::sprints::{Sprint, load_active_sprint};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SprintPhaseView {
+    pub name: String,
+    pub moscow: String,
+    pub effort: f64,
+    pub done: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SprintView {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub capacity_days: f64,
+    pub committed_days: f64,
+    pub overloaded: bool,
+    pub done: usize,
+    pub total: usize,
+    pub must_remaining: usize,
+    pub phases: Vec<SprintPhaseView>,
+}
+
+impl SprintView {
+    pub fn from_sprint(sprint: Sprint, phases: &[Phase]) -> Self {
+        let views: Vec<SprintPhaseView> = sprint
+            .phases
+            .iter()
+            .map(|sp| {
+                let found = phases.iter().find(|p| p.name == sp.name);
+                SprintPhaseView {
+                    name: sp.name.clone(),
+                    moscow: sp.moscow.clone(),
+                    effort: sp.effort,
+                    done: found.map(|p| p.done()).unwrap_or(0),
+                    total: found.map(|p| p.total()).unwrap_or(0),
+                }
+            })
+            .collect();
+        let must_remaining = views
+            .iter()
+            .filter(|p| p.moscow == "Must Have")
+            .map(|p| p.total - p.done)
+            .sum();
+        Self {
+            overloaded: sprint.committed_days > sprint.capacity_days,
+            done: views.iter().map(|p| p.done).sum(),
+            total: views.iter().map(|p| p.total).sum(),
+            must_remaining,
+            id: sprint.id,
+            title: sprint.title,
+            status: sprint.status,
+            start_date: sprint.start_date,
+            end_date: sprint.end_date,
+            capacity_days: sprint.capacity_days,
+            committed_days: sprint.committed_days,
+            phases: views,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StatusSnapshot {
@@ -34,6 +98,8 @@ pub struct StatusSnapshot {
     pub coord_exists: bool,
     #[serde(default)]
     pub now: f64,
+    #[serde(default)]
+    pub sprint: Option<SprintView>,
 }
 
 impl StatusSnapshot {
@@ -67,8 +133,11 @@ pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> S
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
 
+    let phases = load_phases(workspace);
+    let sprint = load_active_sprint(workspace).map(|s| SprintView::from_sprint(s, &phases));
+
     StatusSnapshot {
-        phases: load_phases(workspace),
+        phases,
         entries: parse_in_progress(&workspace.join("specs").join("in-progress.md")),
         sessions: store.sessions(),
         claims: claims.clone(),
@@ -79,5 +148,6 @@ pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> S
         codebase_git,
         coord_exists: store.exists(),
         now,
+        sprint,
     }
 }
