@@ -30,6 +30,7 @@ export const log = {
   created: (path) => emit('file', '+', path),
   updated: (path) => emit('file', '~', path),
   backedUp: (path) => emit('file', '•', `${path} (backed up)`),
+  removed: (path) => emit('file', '−', `${path} (removed)`),
   skipped: (path) => emit('file', '↷', `${path} (skipped)`),
   unchanged: (path) => emit('unchanged', '=', path),
   data: (key, value) => {

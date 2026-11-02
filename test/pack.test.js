@@ -86,9 +86,9 @@ describe('npm pack contents', () => {
     assert.deepEqual(files.filter((f) => f.startsWith('templates/') && /(__pycache__|\.pyc$|\.pytest_cache)/.test(f)), []);
   });
 
-  it('ships run.sh and the tandem project needed to run it', () => {
-    for (const p of ['run.sh', 'tandem/pyproject.toml', 'tandem/uv.lock', 'tandem/min-versions.env',
-      'tandem/src/tandem/cli.py', 'tandem/README.md']) {
+  it('ships run.sh and the Rust crate needed to build it from source', () => {
+    for (const p of ['run.sh', 'tandem/Cargo.toml', 'tandem/Cargo.lock', 'tandem/rust-toolchain.toml',
+      'tandem/min-versions.env', 'tandem/README.md', 'tandem/src/main.rs', 'tandem/src/lib.rs']) {
       assert.ok(files.includes(p), `${p} packed`);
     }
   });
@@ -97,9 +97,17 @@ describe('npm pack contents', () => {
     assert.ok(files.includes('CHANGELOG.md'), 'CHANGELOG.md packed');
   });
 
-  it('does not ship virtualenvs, caches, or tandem tests', () => {
-    const bad = files.filter((f) => /(^|\/)(\.venv|__pycache__|\.pytest_cache|\.mypy_cache)(\/|$)/.test(f) || f.startsWith('tandem/tests/'));
-    assert.deepEqual(bad, []);
+  it('ships no Python, build output, tests or packaging scripts under tandem/', () => {
+    const tandem = files.filter((f) => f.startsWith('tandem/'));
+    assert.deepEqual(tandem.filter((f) => /\.py$|(^|\/)(uv\.lock|pyproject\.toml)$/.test(f)), []);
+    assert.deepEqual(tandem.filter((f) => /(^|\/)(target|tests|packaging|dist)(\/|$)/.test(f)), []);
+    assert.deepEqual(files.filter((f) => /(^|\/)(\.venv|__pycache__|\.pytest_cache|\.mypy_cache)(\/|$)/.test(f) && !f.startsWith('templates/')), []);
+  });
+
+  it('ships only .rs files under tandem/src', () => {
+    const src = files.filter((f) => f.startsWith('tandem/src/'));
+    assert.ok(src.length > 0);
+    assert.deepEqual(src.filter((f) => !f.endsWith('.rs')), []);
   });
 
   it('marks run.sh executable in the tarball', () => {
