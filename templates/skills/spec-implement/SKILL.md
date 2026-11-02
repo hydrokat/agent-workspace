@@ -144,7 +144,7 @@ For each task:
 4. Keep the `Knowledgebase References` section accurate as new references are discovered.
 5. Update the knowledgebase with decisions, reusable patterns, business flow changes, or lessons learned.
 6. Record implementation notes in the task file with changed files and key decisions.
-7. Run the narrowest useful validation first, then broader validation when appropriate.
+7. Run the narrowest useful validation first, then broader validation when appropriate. Run every test command through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` (TDD red and green runs, wave baselines, post-merge suites) and read only the failures it reports.
 8. Record validation results in the task file.
 9. Request or run a security review when the task touches risky surfaces.
 10. Run the code comment discipline cleanup (`/code-cleanup --diff <merge-target>`, see Step 5) before review or completion.

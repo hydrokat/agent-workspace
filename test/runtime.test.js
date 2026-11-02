@@ -110,6 +110,7 @@ describe('run.sh and tandem installation', () => {
     const gitignore = readFile(dir, '.agent-workspace/.gitignore');
     assert.ok(gitignore.includes('update-notice.env'), 'update-notice.env in .gitignore');
     assert.ok(gitignore.includes('update-check.env'), 'update-check.env in .gitignore');
+    assert.ok(gitignore.split('\n').some((l) => l.trim() === 'test-runs/'), 'test-runs/ in .gitignore');
   });
   describe('legacy Python tandem cleanup on update', () => {
     const TANDEM = '.agent-workspace/tandem';

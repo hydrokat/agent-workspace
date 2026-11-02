@@ -15,7 +15,7 @@ Use this skill to turn completed implementation work into a high-quality pull re
 4. Do not commit directly to `main`, `master`, or `trunk`. Create or switch to a descriptive branch using `<type>/<short-description>`, where type is `feature`, `bugfix`, `hotfix`, `refactor`, `chore`, `docs`, or `test`.
 5. Review all modifications and identify business requirements, architectural impact, API changes, database changes, migrations, breaking changes, backward compatibility, deployment notes, and rollback needs.
 6. Create atomic commits when committing is part of the request. Keep one logical change per commit and prefer exact path or hunk staging over `git add .` when multiple contexts exist.
-7. Run appropriate validation before opening the PR: formatter, linter, type checks, static analysis, unit tests, feature tests, integration tests, security checks, or project-specific checks.
+7. Run appropriate validation before opening the PR: formatter, linter, type checks, static analysis, unit tests, feature tests, integration tests, security checks, or project-specific checks. Run the test commands through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` and report its PASS/FAIL line.
 8. Fix validation failures before creating the PR unless the user explicitly instructs otherwise. If a failure cannot be fixed in scope, document it clearly in the PR and final response.
 9. Push the branch and create the PR with the project's preferred tool, usually `gh pr create`, when credentials and network access are available. If PR creation is not possible, prepare the exact title and body for the user.
 

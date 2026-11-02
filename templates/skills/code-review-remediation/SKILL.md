@@ -57,7 +57,7 @@ For every finding and every reviewer thread:
 Run CI locally whenever possible, before relying on the remote:
 
 - Discover the pipeline: `.github/workflows/`, `.gitlab-ci.yml`, `Makefile`, package scripts, `composer.json`, `pyproject.toml`, and project docs.
-- Prefer running the workflow itself (`act`, `gitlab-ci-local`) when installed; otherwise run the equivalent commands directly: install, lint, format, type check, static analysis, unit/feature/integration tests, build, and security checks.
+- Prefer running the workflow itself (`act`, `gitlab-ci-local`) when installed; otherwise run the equivalent commands directly: install, lint, format, type check, static analysis, unit/feature/integration tests, build, and security checks. Run the test commands through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` so only failures reach your context.
 - Never disable, skip, or weaken a check to get green.
 
 **Remote CI failure with local CI passing**: do not assume either is right. Re-run the remote job once to rule out flakiness, diff environments (versions, env vars, services, OS, cache), and fix the cause if it is real. If it stays failing while local passes and the cause is environmental or flaky, post a PR comment with the evidence: commands run, versions, full pass output (or a log excerpt), commit SHA, and the failing remote job link with the suspected cause.
