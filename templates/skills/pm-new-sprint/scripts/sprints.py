@@ -235,6 +235,8 @@ def parse_sprint_md(sprint_dir: Path) -> SprintModel:
                 cols = [c.strip() for c in stripped.strip("|").split("|")]
                 if len(cols) >= 8:
                     p_name = cols[0]
+                    if p_name in ("None", "-", "") or p_name.startswith("[") or p_name.startswith("{{"):
+                        continue
                     p_title = cols[1]
                     p_moscow = cols[2]
                     try:
@@ -428,22 +430,34 @@ def render_sprint_markdown(
     phases: list[PhaseScope],
     audit_entry: list[str] | str,
     custom_sections: dict[str, str] | None = None,
+    root: Path | None = None,
 ) -> str:
     committed = sum(p.effort for p in phases if p.moscow != "Won't Have")
     overloaded = "Yes" if committed > capacity_days or len(phases) > 3 else "No"
+
+    if root is None:
+        try:
+            root = find_workspace_root(None)
+        except Exception:
+            root = None
 
     has_subsets = any(bool(p.tasks) for p in phases)
 
     rows: list[str] = []
     for p in phases:
+        if root is not None and not (root / "specs" / p.phase).is_dir():
+            spec_link = f"[{p.phase}](../../specs/compiled/completed.md)"
+        else:
+            spec_link = f"[{p.phase}](../../specs/{p.phase}/impl.md)"
+
         if has_subsets:
             tasks_str = ", ".join(p.tasks) if p.tasks else ""
             rows.append(
-                f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | [{p.phase}](../../specs/{p.phase}/impl.md) | {tasks_str} |"
+                f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | {spec_link} | {tasks_str} |"
             )
         else:
             rows.append(
-                f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | [{p.phase}](../../specs/{p.phase}/impl.md) |"
+                f"| {p.phase} | {p.title} | {p.moscow} | {p.reach:g} | {p.impact:g} | {p.confidence:g} | {p.effort:g}d | {p.rice_score:.2f} | {spec_link} |"
             )
 
     if has_subsets:
@@ -625,7 +639,7 @@ def cmd_create(args: argparse.Namespace) -> None:
     sprint_template = assets_dir / "sprint.md"
     if phases:
         text = render_sprint_markdown(
-            sprint_id, title, status, start_date, end_date, capacity_days, phases, audit_entry
+            sprint_id, title, status, start_date, end_date, capacity_days, phases, audit_entry, root=root
         )
         write_atomic(sprint_dir / "sprint.md", text)
     elif sprint_template.is_file():
@@ -641,7 +655,7 @@ def cmd_create(args: argparse.Namespace) -> None:
         write_atomic(sprint_dir / "sprint.md", text)
     else:
         text = render_sprint_markdown(
-            sprint_id, title, status, start_date, end_date, capacity_days, phases, audit_entry
+            sprint_id, title, status, start_date, end_date, capacity_days, phases, audit_entry, root=root
         )
         write_atomic(sprint_dir / "sprint.md", text)
 
@@ -826,6 +840,7 @@ def cmd_add_phase(args: argparse.Namespace) -> None:
         all_phases,
         [*model.audit_log, log_entry],
         model.custom_sections,
+        root=root,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -871,6 +886,7 @@ def cmd_lock(args: argparse.Namespace) -> None:
         model.phases,
         [*model.audit_log, audit_entry],
         model.custom_sections,
+        root=root,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -905,6 +921,7 @@ def cmd_unlock(args: argparse.Namespace) -> None:
         model.phases,
         [*model.audit_log, audit_entry],
         model.custom_sections,
+        root=root,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -920,6 +937,7 @@ def cmd_close(args: argparse.Namespace) -> None:
     specs_script = get_specs_script(root)
     incomplete_tasks: list[dict[str, str]] = []
     incomplete_phases: list[str] = []
+    unreadable_phases: list[str] = []
 
     if specs_script:
         for p in model.phases:
@@ -929,9 +947,13 @@ def cmd_close(args: argparse.Namespace) -> None:
                     capture_output=True,
                     text=True,
                     timeout=10,
-                    check=True,
                 )
+                if proc.returncode != 0:
+                    unreadable_phases.append(p.phase)
+                    continue
                 phase_data = json.loads(proc.stdout)
+                if phase_data.get("archived") is True:
+                    continue
                 tasks = scoped_tasks(p, phase_data.get("tasks", []))
                 p_incomplete = [t for t in tasks if t.get("status") != "Done"]
                 if p_incomplete:
@@ -944,17 +966,25 @@ def cmd_close(args: argparse.Namespace) -> None:
                             "status": t.get("status", ""),
                         })
             except Exception:
-                pass
+                unreadable_phases.append(p.phase)
+    else:
+        for p in model.phases:
+            unreadable_phases.append(p.phase)
 
-    if incomplete_tasks and not args.carry_over:
+    if (incomplete_tasks or unreadable_phases) and not args.carry_over:
+        err_kwargs: dict[str, Any] = {
+            "sprint": model.sprint_id,
+            "can_close": False,
+            "incomplete_phases": incomplete_phases,
+            "incomplete_tasks": incomplete_tasks,
+        }
+        if unreadable_phases:
+            err_kwargs["unreadable_phases"] = unreadable_phases
+        err_kwargs["recommendation"] = "carry-over" if len(incomplete_tasks) > 3 or unreadable_phases else "implement"
         fail(
-            "incomplete tasks remain in sprint",
+            "unreadable phases in sprint" if unreadable_phases else "incomplete tasks remain in sprint",
             1,
-            sprint=model.sprint_id,
-            can_close=False,
-            incomplete_phases=incomplete_phases,
-            incomplete_tasks=incomplete_tasks,
-            recommendation="carry-over" if len(incomplete_tasks) > 3 else "implement",
+            **err_kwargs,
         )
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -974,6 +1004,7 @@ def cmd_close(args: argparse.Namespace) -> None:
         model.phases,
         [*model.audit_log, audit_entry],
         model.custom_sections,
+        root=root,
     )
     write_atomic(sprint_dir / "sprint.md", new_content)
 
@@ -1404,9 +1435,11 @@ def cmd_status(args: argparse.Namespace) -> None:
     specs_script = get_specs_script(root)
     remaining_tasks: list[dict[str, Any]] = []
     in_development: list[dict[str, Any]] = []
+    warnings: list[str] = []
 
     for p in model.phases:
         if not specs_script:
+            warnings.append(f"specs.py unavailable: could not inspect {p.phase}")
             continue
         try:
             proc = subprocess.run(
@@ -1414,9 +1447,13 @@ def cmd_status(args: argparse.Namespace) -> None:
                 capture_output=True,
                 text=True,
                 timeout=10,
-                check=True,
             )
+            if proc.returncode != 0:
+                warnings.append(f"could not read phase {p.phase}")
+                continue
             p_data = json.loads(proc.stdout)
+            if p_data.get("archived") is True:
+                continue
             for t in scoped_tasks(p, p_data.get("tasks", [])):
                 t_id = t.get("id")
                 t_status = t.get("status")
@@ -1438,7 +1475,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                         "status": t_status,
                     })
         except Exception:
-            pass
+            warnings.append(f"could not read phase {p.phase}")
 
     by_moscow: dict[str, list[dict[str, Any]]] = {m: [] for m in VALID_MOSCOW}
     for t in remaining_tasks:
@@ -1460,6 +1497,7 @@ def cmd_status(args: argparse.Namespace) -> None:
             "parallel_waves_hours": round(parallel_hours, 1),
             "parallel_waves_days": round(parallel_hours / 6.0, 1),
         },
+        "warnings": warnings,
     })
 
 
@@ -1507,6 +1545,7 @@ def cmd_next_work(args: argparse.Namespace) -> None:
 
     running_paths: list[str] = []
     tasks_by_phase: dict[str, list[dict[str, Any]]] = {}
+    warnings: list[str] = []
 
     for p in model.phases:
         try:
@@ -1515,9 +1554,13 @@ def cmd_next_work(args: argparse.Namespace) -> None:
                 capture_output=True,
                 text=True,
                 timeout=10,
-                check=True,
             )
+            if proc.returncode != 0:
+                warnings.append(f"could not read phase {p.phase}")
+                continue
             p_data = json.loads(proc.stdout)
+            if p_data.get("archived") is True:
+                continue
             t_list = scoped_tasks(p, p_data.get("tasks", []))
             tasks_by_phase[p.phase] = t_list
             for t in t_list:
@@ -1525,7 +1568,7 @@ def cmd_next_work(args: argparse.Namespace) -> None:
                 if t.get("status") == "In Progress" or key in claimed_task_keys:
                     running_paths.extend(t.get("affected_paths") or [])
         except Exception:
-            pass
+            warnings.append(f"could not read phase {p.phase}")
 
     sorted_phases = sorted(
         model.phases,
@@ -1564,6 +1607,7 @@ def cmd_next_work(args: argparse.Namespace) -> None:
         "next_task": chosen_task.get("id") if chosen_task else None,
         "task": chosen_task,
         "parallel_candidates": parallel_candidates,
+        "warnings": warnings,
     })
 
 
@@ -1588,7 +1632,20 @@ def cmd_lint(args: argparse.Namespace) -> None:
         try:
             model = parse_sprint_md(sprint_dir)
             specs_script = get_specs_script(root)
+            completed_md = root / "specs" / "compiled" / "completed.md"
+            completed_text = completed_md.read_text(encoding="utf-8") if completed_md.is_file() else ""
+
             for p in model.phases:
+                phase_dir = root / "specs" / p.phase
+                is_on_disk = phase_dir.is_dir()
+                is_archived = bool(re.search(rf"^##\s+{re.escape(p.phase)}:", completed_text, re.MULTILINE))
+                if not is_on_disk and not is_archived:
+                    problems.append({
+                        "file": "sprint.md",
+                        "code": "broken-spec-link",
+                        "message": f"phase {p.phase} is neither on disk nor archived in completed.md",
+                    })
+
                 if not p.tasks:
                     continue
                 known_task_ids: set[str] = set()
@@ -1599,15 +1656,13 @@ def cmd_lint(args: argparse.Namespace) -> None:
                             capture_output=True,
                             text=True,
                             timeout=10,
-                            check=True,
                         )
-                        known_task_ids = {t["id"] for t in json.loads(proc.stdout).get("tasks", [])}
+                        if proc.returncode == 0:
+                            known_task_ids = {t["id"] for t in json.loads(proc.stdout).get("tasks", [])}
                     except Exception:
                         pass
-                if not known_task_ids:
-                    phase_dir = root / "specs" / p.phase
-                    if phase_dir.is_dir():
-                        known_task_ids = {f.stem for f in phase_dir.glob("t-*.md")}
+                if not known_task_ids and is_on_disk:
+                    known_task_ids = {f.stem for f in phase_dir.glob("t-*.md")}
                 for tid in p.tasks:
                     if tid not in known_task_ids:
                         problems.append({
