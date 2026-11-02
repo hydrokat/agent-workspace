@@ -675,17 +675,14 @@ def test_archived_phase_close_status_and_spec_link(workspace: Path) -> None:
     subprocess.run(["git", "add", "-A"], cwd=workspace, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "pre-prune"], cwd=workspace, check=True, capture_output=True)
 
-    # Prune p-002-sample
     subprocess.run([sys.executable, str(specs_script), "--root", str(workspace), "prune", "--phases", "p-002-sample", "--apply"], check=True)
     assert not (workspace / "specs/p-002-sample").exists()
 
-    # status: treats archived phase as complete with 0 remaining tasks
     status_res = out(run(workspace, "status", "s-001-archived-sprint"))
     assert status_res["total_remaining_tasks"] == 0
     assert len(status_res["in_development"]) == 0
     assert status_res.get("warnings") == []
 
-    # next-work: reports no tasks to do
     next_res = out(run(workspace, "next-work", "s-001-archived-sprint"))
     assert next_res["next_task"] is None
     assert next_res.get("warnings") == []
@@ -709,12 +706,10 @@ def test_unreadable_phase_fails_close_and_warns_in_status_and_next_work(workspac
     new_text = re.sub(r"\| (?:\[Phase Directory\]|None)[^\n]+\n", injected_row, orig_text)
     sprint_file.write_text(new_text)
 
-    # status: keeps running with warning
     status_res = out(run(workspace, "status", "s-001-unreadable-sprint"))
     assert "warnings" in status_res
     assert any("p-999-missing" in w for w in status_res["warnings"])
 
-    # next-work: keeps running with warning
     next_res = out(run(workspace, "next-work", "s-001-unreadable-sprint"))
     assert "warnings" in next_res
     assert any("p-999-missing" in w for w in next_res["warnings"])
