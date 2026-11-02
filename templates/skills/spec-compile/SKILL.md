@@ -66,6 +66,12 @@ A phase is **complete** when every one of its tasks is complete. A phase with no
 
 The files are rendered from `assets/completed.md` and `assets/incomplete.md`; [references/output-format.md](references/output-format.md) describes the layout. `specs/compiled/` must be a real directory; the script refuses to clear a link.
 
+### Archive Behavior
+
+When `specs/compiled/completed.md` already contains archived sections from previously pruned phases (marked with `**Archived:**`), `specs.py compile` preserves those archived sections and merges them in numeric order with newly completed phases from disk.
+
+`/spec-compile` strictly compiles records and never modifies or deletes original spec files. Removal of finished phase directories from `specs/` is handled as a separate guarded procedure via `specs.py prune --phases ... [--apply]`.
+
 ### Manual Fallback
 
 If `specs.py` is unavailable or fails, say so and do the same work by hand: read the specs in scope, classify each task with the criteria above, delete the output files named in the table, and write the files following `references/output-format.md`.

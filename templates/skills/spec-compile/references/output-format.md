@@ -22,6 +22,8 @@ X of Y phases fully complete.
 
 ## p-###-[repo-or-multi]: [Phase Name]
 
+**Archived:** removed from specs/ on YYYY-MM-DD; restore with git
+
 **Tasks:** N tasks, all complete
 
 ### Tasks
@@ -37,6 +39,8 @@ X of Y phases fully complete.
 
 ---
 ```
+
+When a phase directory has been removed with `specs.py prune --apply`, the `**Archived:**` line is inserted directly under the phase heading. Future `specs.py compile all` executions preserve this line and section verbatim.
 
 **Empty state** (no complete phases in scope):
 
