@@ -255,6 +255,7 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, a
 | `/pm-sprint-status [sprint]` | Live sprint dashboard with active agent claims, deliverables, and sequential/parallel ETAs |
 | `/pm-sprint-list` | List all historical, active, and planned sprints |
 | `/pm-commands` | Catalog of all PM and sprint management commands |
+| `/pm-backlogs [specs|tasks|all] [sprint]` | Scan unscheduled backlog specs and tasks, folding chosen items or task subsets into active sprint or planning next sprint |
 | `/spec-plan` | Plan a phase: branches, scope, tasks with Affected Paths and Depends On, sprint sizing (splits oversized work into `/pm-new-sprint`), and delivery task |
 | `/spec-implement [phase] [task]` | Implement a phase or active sprint task: queries `sprints.py next-work` by default, plans parallel waves, claims tasks, keeps progress in sync, runs `/code-cleanup --diff` |
 | `/spec-compile [all\|completed\|incomplete\|NNN\|NNN-NNN]` | Compile completed and incomplete specs into `specs/compiled/` |

@@ -94,6 +94,9 @@ describe('npm pack contents', () => {
       'templates/skills/pm-commands/SKILL.md',
       'templates/skills/pm-commands/agents/openai.yaml',
       'templates/skills/pm-commands/assets/commands.md',
+      'templates/skills/pm-backlogs/SKILL.md',
+      'templates/skills/pm-backlogs/agents/openai.yaml',
+      'templates/skills/pm-backlogs/assets/backlog.md',
     ];
     for (const p of required) assert.ok(files.includes(p), `${p} packed`);
   });
