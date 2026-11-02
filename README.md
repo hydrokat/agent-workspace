@@ -328,9 +328,16 @@ macOS (Homebrew) is tested; Linux (apt, dnf) is covered by stubbed tests only.
 
 <p align="center"><img src="docs/images/overview.svg" alt="tandem: planner and implementer columns with a status window and quota line below" width="100%"></p>
 
-The window shows planners on the left, implementers on the right, and the status window below. The status window lists work in progress, every codebase's branches and the worktree each one is active on, and phase progress; the **Queries** tab collects questions your agents asked without blocking.
+The window shows planners on the left, implementers on the right, and the status window below. The status window features five tabs:
+- **Status:** live agent sessions, active claims, repository branches and worktrees, and sprint progress summary.
+- **Sprint:** the active 1-week sprint in full, tracking capacity vs committed days, task progress, days left, and phase progress in MoSCoW order.
+- **Spec:** ongoing specification phases with their branch strategy, progress bar, task status ordered by task id with in-progress marker `▶`, and next-up labelling.
+- **Task:** ongoing tasks with objective checklist progress, owning session and pane, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to jump to the owning agent's tmux pane.
+- **Queries:** non-blocking questions queued by your agents.
 
-<p align="center"><img src="docs/images/status.svg" alt="Status tab with repositories, branches and worktrees" width="49%"> <img src="docs/images/queries.svg" alt="Queries tab with an open question" width="49%"></p>
+Navigate between tabs with `Tab` / `Shift+Tab`, number keys `1-5`, or mouse click; scroll tab content with `↑↓`, `PgUp`/`PgDn`, `Home`/`End`, and the mouse wheel. Global shortcuts `Alt+s` (focus Status window) and `Alt+q` (focus Queries tab) remain available.
+
+<p align="center"><img src="docs/images/status.svg" alt="Status tab with repositories, branches and worktrees" width="32%"> <img src="docs/images/task.svg" alt="Task tab with ongoing task, claim, and objective progress" width="32%"> <img src="docs/images/queries.svg" alt="Queries tab with an open question" width="32%"></p>
 
 <p align="center"><img src="docs/images/help.svg" alt="Alt+h help popup listing tandem's keys" width="70%"></p>
 

@@ -221,12 +221,16 @@ def main() -> None:
         sh("tmux", "-L", sock, "resize-pane", "-t", status, "-y", "34")
         time.sleep(3)
         save("status", "Status tab: work in progress, repositories (branch → worktree), phases")
-        # 3. queries tab
+        # 3. task tab
+        sh("tmux", "-L", sock, "send-keys", "-t", status, "4")
+        time.sleep(3)
+        save("task", "Task tab: the ongoing task with claim and progress")
+        # 4. queries tab
         sh("tmux", "-L", sock, "send-keys", "-t", status, "M-q")
         time.sleep(3)
         save("queries", "Queries tab: questions your agents queued while they keep working")
         sh("tmux", "-L", sock, "send-keys", "-t", status, "Tab")
-        # 4. help popup
+        # 5. help popup
         client = sh("tmux", "-L", sock, "list-clients", "-F", "#{client_name}").split()[0]
         subprocess.Popen(["tmux", "-L", sock, "display-popup", "-c", client, "-E", "-w", "70%", "-h", "75%",
                           f"env TANDEM_WORKSPACE={ws} {tandem} help"], env=env,

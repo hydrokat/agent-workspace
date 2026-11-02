@@ -112,6 +112,28 @@ describe('screenshot generator', () => {
   });
 });
 
+describe('Status window documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem', 'README.md'), 'utf8');
+
+  it('documents the five tabs: Status, Sprint, Spec, Task, Queries', () => {
+    for (const text of [readme, tandemReadme]) {
+      assert.ok(text.includes('Status'), 'Status tab');
+      assert.ok(text.includes('Sprint'), 'Sprint tab');
+      assert.ok(text.includes('Spec'), 'Spec tab');
+      assert.ok(text.includes('Task'), 'Task tab');
+      assert.ok(text.includes('Queries'), 'Queries tab');
+    }
+  });
+
+  it('documents tab navigation keys', () => {
+    for (const text of [readme, tandemReadme]) {
+      assert.ok(text.includes('Shift+Tab'), 'Shift+Tab documented');
+      assert.ok(text.includes('1-5') || text.includes('1..5'), '1-5 or 1..5 documented');
+    }
+  });
+});
+
 describe('README screenshots', () => {
   const svgs = existsSync(IMAGES) ? readdirSync(IMAGES).filter((f) => f.endsWith('.svg')) : [];
 
