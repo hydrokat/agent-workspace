@@ -1,0 +1,32 @@
+   Compiling demo v0.1.0 (/work)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.90s
+     Running unittests src/lib.rs (target/debug/deps/demo-97258ec726e1dba6)
+
+running 3 tests
+test tests::adds ... ok
+test tests::wrong_sum ... FAILED
+test tests::explodes ... FAILED
+
+failures:
+
+---- tests::wrong_sum stdout ----
+
+thread 'tests::wrong_sum' (781306845) panicked at src/lib.rs:6:30:
+assertion `left == right` failed: math is hard
+  left: 4
+ right: 5
+
+---- tests::explodes stdout ----
+
+thread 'tests::explodes' (781306844) panicked at src/lib.rs:7:64:
+index out of bounds: the len is 0 but the index is 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::explodes
+    tests::wrong_sum
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
