@@ -1100,7 +1100,6 @@ def test_show_and_list_archived_phase(tmp_path: Path) -> None:
     )
     (compiled_dir / "completed.md").write_text(archived_content)
 
-    # show phase
     show_phase = out(run(root, "show", "p-001-archived"))
     assert show_phase["dir"] == "p-001-archived"
     assert show_phase["title"] == "First Archived Phase"
@@ -1108,7 +1107,6 @@ def test_show_and_list_archived_phase(tmp_path: Path) -> None:
     assert len(show_phase["tasks"]) == 2
     assert show_phase["tasks"][0]["status"] == "Done"
 
-    # show task
     show_task = out(run(root, "show", "p-001-archived", "t-001"))
     assert show_task["phase"] == "p-001-archived"
     assert show_task["archived"] is True
