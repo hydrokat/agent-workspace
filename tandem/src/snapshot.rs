@@ -4,6 +4,7 @@ use crate::sources::codebases::{Codebase, list_codebases};
 use crate::sources::conflicts::{Conflict, find_conflicts};
 use crate::sources::gitinfo::{GitInfo, git_info};
 use crate::sources::inprogress::{InProgressEntry, parse_in_progress};
+use crate::sources::ongoing::{OngoingSpec, OngoingTask, ongoing_specs, ongoing_tasks};
 use crate::sources::specs::{Phase, load_phases};
 use crate::sources::sprints::{Sprint, load_active_sprint};
 use serde::{Deserialize, Serialize};
@@ -100,6 +101,10 @@ pub struct StatusSnapshot {
     pub now: f64,
     #[serde(default)]
     pub sprint: Option<SprintView>,
+    #[serde(default)]
+    pub ongoing_specs: Vec<OngoingSpec>,
+    #[serde(default)]
+    pub ongoing_tasks: Vec<OngoingTask>,
 }
 
 impl StatusSnapshot {
@@ -134,12 +139,20 @@ pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> S
         .unwrap_or(0.0);
 
     let phases = load_phases(workspace);
-    let sprint = load_active_sprint(workspace).map(|s| SprintView::from_sprint(s, &phases));
+    let raw_sprint = load_active_sprint(workspace);
+    let sprint = raw_sprint
+        .as_ref()
+        .map(|s| SprintView::from_sprint(s.clone(), &phases));
+    let entries = parse_in_progress(&workspace.join("specs").join("in-progress.md"));
+    let sessions = store.sessions();
+
+    let ongoing_specs = ongoing_specs(&phases, &claims, &entries, raw_sprint.as_ref());
+    let ongoing_tasks = ongoing_tasks(&phases, &claims, &sessions, &entries, now);
 
     StatusSnapshot {
         phases,
-        entries: parse_in_progress(&workspace.join("specs").join("in-progress.md")),
-        sessions: store.sessions(),
+        entries,
+        sessions,
         claims: claims.clone(),
         queries: store.queries(),
         conflicts: find_conflicts(&claims),
@@ -149,5 +162,7 @@ pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> S
         coord_exists: store.exists(),
         now,
         sprint,
+        ongoing_specs,
+        ongoing_tasks,
     }
 }

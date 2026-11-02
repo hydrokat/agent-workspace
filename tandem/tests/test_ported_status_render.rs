@@ -28,6 +28,8 @@ fn default_snap() -> StatusSnapshot {
         coord_exists: true,
         now: NOW,
         sprint: None,
+        ongoing_specs: Vec::new(),
+        ongoing_tasks: Vec::new(),
     }
 }
 
@@ -58,16 +60,8 @@ fn test_summary_counts() {
     s.phases = vec![Phase::new(
         "p",
         vec![
-            Task {
-                id: "t-1".to_string(),
-                title: "a".to_string(),
-                status: "Done".to_string(),
-            },
-            Task {
-                id: "t-2".to_string(),
-                title: "b".to_string(),
-                status: "Pending".to_string(),
-            },
+            Task::new("t-1", "a", "Done"),
+            Task::new("t-2", "b", "Pending"),
         ],
     )];
     s.sessions = vec![default_session()];
@@ -198,14 +192,7 @@ fn test_phase_warning_row_does_not_hide_others() {
     let mut s = default_snap();
     s.phases = vec![
         Phase::with_warning("bad", "bad/impl.md missing"),
-        Phase::new(
-            "ok",
-            vec![Task {
-                id: "t-1".to_string(),
-                title: "x".to_string(),
-                status: "Done".to_string(),
-            }],
-        ),
+        Phase::new("ok", vec![Task::new("t-1", "x", "Done")]),
     ];
 
     let text = phases_text(&s);
