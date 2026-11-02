@@ -41,11 +41,31 @@ Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the
 ```text
 tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side by side; your ~/.tmux.conf is not loaded)
 ├── window "main":  planner column | implementer column
-│                   status window (ratatui): Status tab, Queries tab
+│                   status window (ratatui): Status, Sprint, Spec, Task, Queries tabs
 └── hidden windows "stash-<role>-<n>": background agents, swapped into a column when you switch tabs
 ```
 
 Terminals narrower than 100 columns stack the columns vertically, and the status window is kept to at most 40% of a short terminal (you can still drag it larger).
+
+### Status window tabs
+
+The status window provides five tabs:
+- **Status:** Agent sessions, live claims, repository branches and worktrees, and active sprint summary.
+- **Sprint:** Full ongoing sprint details including capacity vs committed effort, task progress bar, days left, and phase progress rows sorted in MoSCoW order.
+- **Spec:** Ongoing spec phases with branch and merge target strategy, phase progress bar, and the task list ordered by task id with `▶` marking In Progress tasks. Shows `next up: ` when no task is in progress.
+- **Task:** Detailed ongoing task inspection with objective checklist progress, owning session and pane id, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to select the owning agent's tmux pane.
+- **Queries:** Questions queued by agents via `coord.py ask`.
+
+**Navigation:**
+- Cycle tabs with `Tab` and `Shift+Tab`.
+- Jump directly to a tab with number keys `1-5` or by clicking a tab header.
+- Scroll tab content using `↑↓`, `PgUp`, `PgDn`, `Home`, `End`, and the mouse wheel.
+- Focus the status window globally with `Alt+s`, or jump directly to the Queries tab with `Alt+q`.
+
+**What "ongoing" means:**
+- *Ongoing sprint:* The active sprint resolved under `sprints/` whose status is `open` or `locked`.
+- *Ongoing spec:* Every phase with at least one task `In Progress` or `In Review`, an active claim, or an entry in `specs/in-progress.md`. When none exist, the first incomplete phase of the active sprint in MoSCoW order is shown labelled "next up".
+- *Ongoing task:* Every task currently marked `In Progress`, joined with its coordination claim and `in-progress.md` entry. A claim on a non-in-progress task is flagged `status mismatch`, and an unclaimed in-progress task is flagged `unclaimed`.
 
 The Status tab's **Repositories** section lists the workspace and every codebase in `codebase-symlinks/`: one header per repo, then each branch, with `*` for the main checkout and `→ path` for the linked worktree a branch is active on (idle branches are listed after, capped at five). Rows shorten to the window width. Exited agents stay on screen with their exit code; `Ctrl+Alt+r` restarts them and reopens their conversation when the CLI has one to reopen.
 
