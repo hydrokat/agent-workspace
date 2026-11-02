@@ -555,13 +555,78 @@ def summarize(phase: Phase) -> dict[str, Any]:
     }
 
 
-def resolve_dir(specs: Path, arg: str | None) -> tuple[Path, str]:
+def read_archive(specs: Path) -> list[dict[str, Any]]:
+    completed_file = specs / "compiled" / "completed.md"
+    if not completed_file.is_file():
+        return []
+    content = completed_file.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    sections: list[dict[str, Any]] = []
+    current_lines: list[str] = []
+    current_heading: str | None = None
+
+    def flush(heading: str, raw_lines: list[str]) -> None:
+        if ":" not in heading:
+            return
+        p_dir, _, p_title = heading.partition(":")
+        p_dir = p_dir.strip()
+        p_title = p_title.strip()
+        if not (PHASE_DIR_RE.match(p_dir) or LEGACY_DIR_RE.match(p_dir)):
+            return
+
+        archived_on: str | None = None
+        tasks: list[dict[str, str]] = []
+        is_parseable = False
+
+        for line in raw_lines:
+            m_arch = re.search(r"\*\*Archived:\*\*\s*removed from specs/ on\s*([^;]+);", line)
+            if m_arch:
+                archived_on = m_arch.group(1).strip()
+            m_row = re.match(r"^\|\s*(t-\d{3})\s*\|\s*([^|]+?)\s*\|", line)
+            if m_row:
+                is_parseable = True
+                tasks.append({
+                    "id": m_row.group(1).strip(),
+                    "title": m_row.group(2).strip(),
+                })
+
+        raw_text = "\n".join(raw_lines).strip()
+        if raw_text.endswith("---"):
+            raw_text = raw_text[:-3].rstrip()
+        raw_text = raw_text + "\n\n---"
+
+        sections.append({
+            "dir": p_dir,
+            "title": p_title,
+            "tasks": tasks,
+            "archived_on": archived_on,
+            "parseable": is_parseable,
+            "raw_markdown": raw_text,
+            "number": phase_number(p_dir),
+        })
+
+    for line in lines:
+        if line.startswith("## ") and re.match(r"^##\s+(?:p|phase)-\d{3}", line):
+            if current_heading is not None and current_lines:
+                flush(current_heading, current_lines)
+            current_heading = line[3:].strip()
+            current_lines = [line]
+        elif current_heading is not None:
+            current_lines.append(line)
+
+    if current_heading is not None and current_lines:
+        flush(current_heading, current_lines)
+
+    return sections
+
+
+def find_dir(specs: Path, arg: str | None) -> tuple[Path | None, str | None]:
     dirs = phase_dirs(specs)
     if arg is None:
         for directory in reversed(dirs):
             if is_incomplete(parse_phase(directory, specs)):
                 return directory, "active"
-        fail("no phase with incomplete tasks", 1, valid=[d.name for d in dirs])
+        return None, None
     exact = [d for d in dirs if d.name == arg]
     number = NUMBER_ARG_RE.match(arg)
     if not exact and number:
@@ -573,9 +638,19 @@ def resolve_dir(specs: Path, arg: str | None) -> tuple[Path, str]:
             fail(f"ambiguous phase {arg}", 1, valid=[d.name for d in exact])
     elif not exact and not (PHASE_DIR_RE.match(arg) or LEGACY_DIR_RE.match(arg)):
         fail(f"invalid phase argument: {arg!r}")
-    if not exact:
+    if exact:
+        return exact[0], "explicit"
+    return None, None
+
+
+def resolve_dir(specs: Path, arg: str | None) -> tuple[Path, str]:
+    directory, kind = find_dir(specs, arg)
+    if directory is None:
+        dirs = phase_dirs(specs)
+        if arg is None:
+            fail("no phase with incomplete tasks", 1, valid=[d.name for d in dirs])
         fail(f"phase not found: {arg}", 1, valid=[d.name for d in dirs])
-    return exact[0], "explicit"
+    return directory, kind  # type: ignore[return-value]
 
 
 def check_phase_arg(arg: str) -> str:
@@ -586,22 +661,86 @@ def check_phase_arg(arg: str) -> str:
 
 def cmd_list(args: argparse.Namespace) -> None:
     specs = find_specs(args.root)
-    emit({"phases": [summarize(parse_phase(d, specs)) for d in phase_dirs(specs)]})
+    phases = [summarize(parse_phase(d, specs)) for d in phase_dirs(specs)]
+    archived = [s for s in read_archive(specs) if not (specs / s["dir"]).is_dir()]
+    for s in archived:
+        phases.append({
+            "dir": s["dir"],
+            "path": "specs/compiled/completed.md",
+            "legacy": False,
+            "number": s["number"],
+            "title": s["title"],
+            "scope_type": "Single Repo",
+            "counts": {"Done": len(s["tasks"])},
+            "total": len(s["tasks"]),
+            "next_task": None,
+            "archived": True,
+        })
+    phases.sort(key=lambda p: (p["number"], p["dir"]))
+    emit({"phases": phases})
 
 
 def cmd_show(args: argparse.Namespace) -> None:
     specs = find_specs(args.root)
-    directory, _ = resolve_dir(specs, check_phase_arg(args.phase))
-    phase = parse_phase(directory, specs)
-    if args.task is None:
-        emit(asdict(phase))
+    phase_arg = check_phase_arg(args.phase)
+    req_task = args.task or getattr(args, "pos_task", None)
+    directory, _ = find_dir(specs, phase_arg)
+    if directory is not None:
+        phase = parse_phase(directory, specs)
+        if req_task is None:
+            emit(asdict(phase))
+            return
+        if not TASK_ID_RE.match(req_task):
+            fail(f"invalid task argument: {req_task!r}")
+        task = next((t for t in phase.tasks if t.id == req_task), None)
+        if task is None:
+            fail(f"task not found: {req_task}", 1, valid=[t.id for t in phase.tasks])
+        emit({"phase": phase.dir, "title": phase.title, "task": asdict(task)})
         return
-    if not TASK_ID_RE.match(args.task):
-        fail(f"invalid task argument: {args.task!r}")
-    task = next((t for t in phase.tasks if t.id == args.task), None)
-    if task is None:
-        fail(f"task not found: {args.task}", 1, valid=[t.id for t in phase.tasks])
-    emit({"phase": phase.dir, "title": phase.title, "task": asdict(task)})
+
+    archived = [s for s in read_archive(specs) if not (specs / s["dir"]).is_dir()]
+    target_archive: dict[str, Any] | None = None
+    for s in archived:
+        if s["dir"] == phase_arg:
+            target_archive = s
+            break
+    if not target_archive and NUMBER_ARG_RE.match(phase_arg):
+        wanted = int(NUMBER_ARG_RE.match(phase_arg).group(1))
+        matches = [s for s in archived if s["number"] == wanted]
+        if len(matches) == 1:
+            target_archive = matches[0]
+
+    if target_archive is not None:
+        if req_task is None:
+            emit({
+                "dir": target_archive["dir"],
+                "title": target_archive["title"],
+                "archived": True,
+                "tasks": [
+                    {"id": t["id"], "title": t["title"], "status": "Done"}
+                    for t in target_archive["tasks"]
+                ],
+            })
+            return
+        if not TASK_ID_RE.match(req_task):
+            fail(f"invalid task argument: {req_task!r}")
+        task = next((t for t in target_archive["tasks"] if t["id"] == req_task), None)
+        if task is None:
+            fail(f"task not found: {req_task}", 1, valid=[t["id"] for t in target_archive["tasks"]])
+        emit({
+            "phase": target_archive["dir"],
+            "title": target_archive["title"],
+            "archived": True,
+            "task": {
+                "id": task["id"],
+                "title": task["title"],
+                "status": "Done",
+            },
+        })
+        return
+
+    dirs = phase_dirs(specs)
+    fail(f"phase not found: {phase_arg}", 1, valid=[d.name for d in dirs])
 
 
 def cmd_next_phase(args: argparse.Namespace) -> None:
@@ -1155,7 +1294,12 @@ def render_compiled(name: str, header: dict[str, str], entries: list[dict[str, A
 
     phase_block = re.compile(BLOCK_RE.format(tag="phase"), re.DOTALL)
     template = phase_block.sub(
-        lambda m: "".join(fill(m.group(1), phase_fields(e, incomplete), name) for e in entries), template,
+        lambda m: "".join(
+            (e["raw_markdown"].rstrip() + "\n\n") if e.get("is_archived")
+            else fill(m.group(1), phase_fields(e, incomplete), name)
+            for e in entries
+        ),
+        template,
     )
     conditional("phases", bool(entries))
     conditional("empty", not entries and in_scope > 0)
@@ -1169,21 +1313,55 @@ def cmd_compile(args: argparse.Namespace) -> None:
     date = args.date or datetime.date.today().isoformat()
     if not DATE_RE.match(date):
         fail("invalid --date: use YYYY-MM-DD")
-    dirs = [d for d in phase_dirs(specs) if numbers is None or phase_number(d.name) in numbers]
+
+    archived_all = read_archive(specs)
+    archived_sections = [s for s in archived_all if not (specs / s["dir"]).is_dir()]
+    if numbers is not None:
+        archived_sections = [s for s in archived_sections if s["number"] in numbers]
+
     warnings: list[str] = []
+    for s in archived_sections:
+        if not s["parseable"]:
+            warnings.append(f"unparseable archived section in completed.md: {s['dir']}")
+
+    dirs = [d for d in phase_dirs(specs) if numbers is None or phase_number(d.name) in numbers]
     if numbers is not None:
         absent = sorted(n for n in numbers if all(phase_number(d.name) != n for d in dirs))
         if absent:
             warnings.append("no phase directory for: " + ", ".join(f"{n:03d}" for n in absent))
+
     classified = [classify_phase(d, specs) for d in dirs]
     done_entries = [c for c in classified if c["complete"]]
     todo_entries = [c for c in classified if not c["complete"]]
+
+    archived_entries = [
+        {
+            "is_archived": True,
+            "dir": s["dir"],
+            "raw_markdown": s["raw_markdown"],
+            "number": s["number"],
+            "tasks": s["tasks"],
+        }
+        for s in archived_sections
+    ]
+    def entry_dir(entry: dict[str, Any]) -> str:
+        return entry["dir"] if entry.get("is_archived") else entry["phase"].dir
+
+    all_completed_entries = sorted(done_entries + archived_entries, key=lambda e: (phase_number(entry_dir(e)), entry_dir(e)))
+
     wanted = {"completed": ["completed.md"], "incomplete": ["incomplete.md"]}.get(mode, ["completed.md", "incomplete.md"])
     outputs: dict[str, str] = {}
+    total_phases = len(classified) + len(archived_sections)
+    complete_count = len(all_completed_entries)
+
     for name in wanted:
-        entries = done_entries if name == "completed.md" else todo_entries
-        header = {"date": date, "scope": scope, "count": str(len(entries)), "total": str(len(classified))}
-        outputs[name] = render_compiled(name, header, entries, len(classified))
+        if name == "completed.md":
+            header = {"date": date, "scope": scope, "count": str(complete_count), "total": str(total_phases)}
+            outputs[name] = render_compiled(name, header, all_completed_entries, total_phases)
+        else:
+            header = {"date": date, "scope": scope, "count": str(len(todo_entries)), "total": str(len(classified))}
+            outputs[name] = render_compiled(name, header, todo_entries, len(classified))
+
     target = specs / "compiled"
     if target.is_symlink() or (target.exists() and not target.is_dir()):
         fail("specs/compiled must be a real directory, not a link or file", 1)
@@ -1198,7 +1376,7 @@ def cmd_compile(args: argparse.Namespace) -> None:
     all_rows = [r for c in classified for r in c["rows"]]
     emit({
         "filter": mode, "scope": scope, "written": wanted, "note": note, "warnings": warnings,
-        "phases": {"in_scope": len(classified), "complete": len(done_entries), "incomplete": len(todo_entries)},
+        "phases": {"in_scope": total_phases, "complete": complete_count, "incomplete": len(todo_entries)},
         "tasks": {"in_scope": len(all_rows), "complete": sum(1 for r in all_rows if all(r["flags"]))},
     })
 
@@ -1494,6 +1672,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list").add_argument("--json", action="store_true")
     show = sub.add_parser("show")
     show.add_argument("phase")
+    show.add_argument("pos_task", nargs="?", default=None)
     show.add_argument("--task")
     sub.add_parser("next-phase")
     sub.add_parser("next-task").add_argument("phase")
