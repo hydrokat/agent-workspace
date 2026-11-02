@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$target" in *windows*) exe=tandem.exe;; *) exe=tandem;; esac
-outdir="${CARGO_TARGET_DIR:-$CRATE_ROOT/target}/$target/release"
+outdir="\${CARGO_TARGET_DIR:-$CRATE_ROOT/target}/$target/release"
 mkdir -p "$outdir"
 ver="\${STUB_BINARY_VERSION:-${VERSION}}"
 printf '#!/bin/sh\\ncase "$1" in --version) echo "tandem %s";; *) echo "tandem help";; esac\\n' "$ver" > "$outdir/$exe"
