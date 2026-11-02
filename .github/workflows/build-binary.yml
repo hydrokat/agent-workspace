@@ -15,14 +15,19 @@ jobs:
         include:
           - runner: ubuntu-22.04
             slug: linux-x86_64
+            target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             slug: linux-arm64
+            target: aarch64-unknown-linux-musl
           - runner: macos-14
             slug: darwin-arm64
+            target: aarch64-apple-darwin
           - runner: macos-15-intel
             slug: darwin-x86_64
+            target: x86_64-apple-darwin
           - runner: windows-latest
             slug: windows-x86_64
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -30,10 +35,27 @@ jobs:
         working-directory: tandem
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --locked --group build
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tandem
+          key: ${{ matrix.target }}
+      - name: Install musl tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Build binary
-        run: uv run --group build python packaging/build.py
+        run: bash packaging/build.sh --target ${{ matrix.target }}
+      - name: Check static linking (Linux)
+        if: runner.os == 'Linux'
+        run: file dist/tandem/tandem | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
+      - name: Check macOS deployment floor (macOS)
+        if: runner.os == 'macOS'
+        run: otool -l dist/tandem/tandem | tee /dev/stderr | grep -q 'minos 13.0'
       - name: Extra clean smoke test (POSIX)
         if: runner.os != 'Windows'
         run: |
