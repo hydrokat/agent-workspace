@@ -1717,6 +1717,13 @@ def cmd_commands(args: argparse.Namespace) -> None:
             "usable": True,
             "reason": "Always available",
         },
+        {
+            "command": "/pm-backlogs",
+            "title": "Scan and Manage Backlogs",
+            "description": "Scans unscheduled specs and tasks, guiding scope selection and sprint planning",
+            "usable": True,
+            "reason": "Always available to scan; folding requires an open sprint" if active_status != "open" else "Ready to scan or fold into active sprint",
+        },
     ]
 
     emit({"active_status": active_status, "commands": catalog})

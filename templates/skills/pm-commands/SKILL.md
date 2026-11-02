@@ -1,11 +1,11 @@
 ---
 name: pm-commands
-description: Use when the user asks what sprint commands exist, which /pm-* commands are usable, or invokes /pm-commands. Reads current sprint state through sprints.py commands and displays all nine /pm-* commands with real-time usability badges. Read-only.
+description: Use when the user asks what sprint commands exist, which /pm-* commands are usable, or invokes /pm-commands. Reads current sprint state through sprints.py commands and displays all ten /pm-* commands with real-time usability badges. Read-only.
 ---
 
 # PM Commands Catalog
 
-This skill displays the complete catalog of all nine `/pm-*` commands, highlighting which commands are **usable right now** based on the workspace's active sprint state.
+This skill displays the complete catalog of all ten `/pm-*` commands, highlighting which commands are **usable right now** based on the workspace's active sprint state.
 
 ## Step 0: Parse The Request
 
