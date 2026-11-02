@@ -29,6 +29,7 @@ fn make_phase_with_tasks(name: &str, tasks: &[(&str, &str)]) -> Phase {
         target: "trunk".to_string(),
         tasks: task_objs,
         warning: String::new(),
+        archived: false,
     }
 }
 

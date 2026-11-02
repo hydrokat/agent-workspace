@@ -53,6 +53,7 @@ fn test_one_ongoing_spec_with_tasks() {
             Task::new("t-004", "Spec tab: ongoing spec and its tasks", "Pending"),
         ],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -95,6 +96,7 @@ fn test_next_up_spec_is_labelled() {
         target: String::new(),
         tasks: vec![Task::new("t-001", "First task", "Pending")],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -120,6 +122,7 @@ fn test_several_ongoing_specs_stacked() {
         target: "main".to_string(),
         tasks: vec![Task::new("t-001", "Core task", "In Progress")],
         warning: String::new(),
+        archived: false,
     };
     let p2 = Phase {
         name: "p-002-docs".to_string(),
@@ -128,6 +131,7 @@ fn test_several_ongoing_specs_stacked() {
         target: "main".to_string(),
         tasks: vec![Task::new("t-001", "Docs task", "In Progress")],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -160,6 +164,7 @@ fn test_malformed_spec_warning_line() {
         target: String::new(),
         tasks: Vec::new(),
         warning: "impl.md missing".to_string(),
+        archived: false,
     };
     let p_ok = Phase {
         name: "p-001-ok".to_string(),
@@ -168,6 +173,7 @@ fn test_malformed_spec_warning_line() {
         target: String::new(),
         tasks: vec![Task::new("t-001", "Task", "Done")],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -200,6 +206,7 @@ fn test_spec_with_zero_tasks() {
         target: String::new(),
         tasks: Vec::new(),
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -226,6 +233,7 @@ fn test_untrusted_text_sanitized() {
         target: "t\x1b[33marget".to_string(),
         tasks: vec![Task::new("t-001", "Task\x1b[1mBold", "Done")],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {
@@ -259,6 +267,7 @@ fn test_responsive_task_title_truncation() {
             "Pending",
         )],
         warning: String::new(),
+        archived: false,
     };
 
     let snapshot = StatusSnapshot {

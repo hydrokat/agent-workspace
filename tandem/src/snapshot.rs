@@ -12,13 +12,15 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SprintPhaseView {
     pub name: String,
     pub moscow: String,
     pub effort: f64,
     pub done: usize,
     pub total: usize,
+    #[serde(default)]
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,6 +52,7 @@ impl SprintView {
                     effort: sp.effort,
                     done: found.map(|p| p.done()).unwrap_or(0),
                     total: found.map(|p| p.total()).unwrap_or(0),
+                    archived: found.map(|p| p.archived).unwrap_or(false),
                 }
             })
             .collect();

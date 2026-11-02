@@ -30,7 +30,7 @@ impl Task {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Phase {
     pub name: String,
     #[serde(default)]
@@ -43,6 +43,8 @@ pub struct Phase {
     pub tasks: Vec<Task>,
     #[serde(default)]
     pub warning: String,
+    #[serde(default)]
+    pub archived: bool,
 }
 
 impl Phase {
@@ -54,6 +56,7 @@ impl Phase {
             target: String::new(),
             tasks,
             warning: String::new(),
+            archived: false,
         }
     }
 
@@ -65,6 +68,7 @@ impl Phase {
             target: String::new(),
             tasks: Vec::new(),
             warning: warning.into(),
+            archived: false,
         }
     }
 
@@ -295,7 +299,91 @@ fn load_phase_dir(directory: &Path) -> Phase {
         target,
         tasks,
         warning: String::new(),
+        archived: false,
     }
+}
+
+fn parse_archive_table(lines: &[&str]) -> Vec<Task> {
+    let mut tasks = Vec::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('|') {
+            continue;
+        }
+        let cols: Vec<&str> = trimmed
+            .trim_matches('|')
+            .split('|')
+            .map(|c| c.trim())
+            .collect();
+        if cols.len() >= 2 {
+            let task_id = cols[0];
+            if task_id.starts_with("t-") && task_id.len() == 5 && task_id[2..].chars().all(|c| c.is_ascii_digit()) {
+                tasks.push(Task {
+                    id: task_id.to_string(),
+                    title: clean(cols[1]).trim().to_string(),
+                    status: "Done".to_string(),
+                    objectives_done: 0,
+                    objectives_total: 0,
+                });
+            }
+        }
+    }
+    tasks
+}
+
+pub fn load_archived_phases(specs: &Path) -> Vec<Phase> {
+    let completed_path = specs.join("compiled").join("completed.md");
+    let content = match read_file_capped(&completed_path) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+
+    let mut phases = Vec::new();
+    let mut current_phase_name: Option<String> = None;
+    let mut current_phase_title = String::new();
+    let mut current_lines: Vec<&str> = Vec::new();
+
+    let flush = |name: Option<String>, title: String, lines: &[&str], out: &mut Vec<Phase>| {
+        if let Some(phase_name) = name {
+            if is_phase_dir(&phase_name) {
+                let tasks = parse_archive_table(lines);
+                out.push(Phase {
+                    name: phase_name,
+                    title,
+                    branch: String::new(),
+                    target: String::new(),
+                    tasks,
+                    warning: String::new(),
+                    archived: true,
+                });
+            }
+        }
+    };
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") {
+            let rest = trimmed.strip_prefix("## ").unwrap().trim();
+            if rest.starts_with("p-") || rest.starts_with("phase-") {
+                flush(current_phase_name.take(), current_phase_title.clone(), &current_lines, &mut phases);
+                current_lines.clear();
+                if let Some((p_name, p_title)) = rest.split_once(':') {
+                    current_phase_name = Some(clean(p_name).trim().to_string());
+                    current_phase_title = clean(p_title).trim().to_string();
+                } else {
+                    current_phase_name = Some(clean(rest).trim().to_string());
+                    current_phase_title = String::new();
+                }
+                continue;
+            }
+        }
+        if current_phase_name.is_some() {
+            current_lines.push(line);
+        }
+    }
+    flush(current_phase_name, current_phase_title, &current_lines, &mut phases);
+
+    phases
 }
 
 pub fn load_phases(workspace: &Path) -> Vec<Phase> {
@@ -308,25 +396,32 @@ pub fn load_phases(workspace: &Path) -> Vec<Phase> {
         return Vec::new();
     }
 
-    let read_dir = match std::fs::read_dir(&specs) {
-        Ok(rd) => rd,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut entries: Vec<std::fs::DirEntry> = read_dir.filter_map(|e| e.ok()).collect();
-    entries.sort_by_key(|e| e.file_name());
-
     let mut phases = Vec::new();
-    for entry in entries {
-        let entry_meta = match entry.path().symlink_metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        if entry_meta.is_dir() && !entry_meta.is_symlink() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if is_phase_dir(&name) {
-                phases.push(load_phase_dir(&entry.path()));
+    let mut disk_names = std::collections::HashSet::new();
+
+    if let Ok(read_dir) = std::fs::read_dir(&specs) {
+        let mut entries: Vec<std::fs::DirEntry> = read_dir.filter_map(|e| e.ok()).collect();
+        entries.sort_by_key(|e| e.file_name());
+
+        for entry in entries {
+            let entry_meta = match entry.path().symlink_metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if entry_meta.is_dir() && !entry_meta.is_symlink() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if is_phase_dir(&name) {
+                    disk_names.insert(name);
+                    phases.push(load_phase_dir(&entry.path()));
+                }
             }
+        }
+    }
+
+    let archived = load_archived_phases(&specs);
+    for ap in archived {
+        if !disk_names.contains(&ap.name) {
+            phases.push(ap);
         }
     }
 

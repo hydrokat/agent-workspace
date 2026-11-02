@@ -105,8 +105,9 @@ pub fn sprint_text(s: &StatusSnapshot) -> String {
         }
     ));
     for phase in &sprint.phases {
+        let arch = if phase.archived { "  (archived)" } else { "" };
         lines.push(format!(
-            "{:<12} {}  {}  {}/{}",
+            "{:<12} {}  {}  {}/{}{arch}",
             clean(&phase.moscow),
             clean(&phase.name),
             bar(phase.done, phase.total, 12),

@@ -263,6 +263,13 @@ pub fn lines(snapshot: &StatusSnapshot, width: u16) -> Vec<Line<'static>> {
                 format!("{}/{}", phase.done, phase.total),
                 Style::default().fg(Color::White),
             ));
+            if phase.archived && width >= 50 {
+                row_spans.push(Span::raw("  "));
+                row_spans.push(Span::styled(
+                    "(archived)",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         } else {
             row_spans.push(Span::styled(
                 "(no specs/ directory)",
