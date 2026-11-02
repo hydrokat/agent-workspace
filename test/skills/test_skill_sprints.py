@@ -653,4 +653,82 @@ def test_lint_detects_unknown_subset_task(workspace: Path) -> None:
     assert any(p["code"] == "subset-unknown-task" for p in err_lint["problems"])
 
 
+def test_archived_phase_close_status_and_spec_link(workspace: Path) -> None:
+    # Set up git repo for prune to work
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=workspace, check=True, capture_output=True)
+
+    # Complete p-002-sample
+    t1_text = (workspace / "specs/p-002-sample/t-001.md").read_text()
+    (workspace / "specs/p-002-sample/t-002.md").write_text(t1_text.replace("t-001", "t-002"))
+    (workspace / "specs/p-002-sample/t-003.md").write_text(t1_text.replace("t-001", "t-003"))
+
+    # Create sprint containing p-002-sample
+    out(run(workspace, "create", "--title", "Archived Sprint", "--slug", "archived-sprint", "--phase", "p-002-sample"))
+
+    # Compile so p-002 is in completed.md
+    specs_script = Path(__file__).resolve().parents[2] / "templates/skills/spec-planner/scripts/specs.py"
+    subprocess.run([sys.executable, str(specs_script), "--root", str(workspace), "compile"], check=True)
+
+    # Commit git state so prune is clean
+    subprocess.run(["git", "add", "-A"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "pre-prune"], cwd=workspace, check=True, capture_output=True)
+
+    # Prune p-002-sample
+    subprocess.run([sys.executable, str(specs_script), "--root", str(workspace), "prune", "--phases", "p-002-sample", "--apply"], check=True)
+    assert not (workspace / "specs/p-002-sample").exists()
+
+    # status: treats archived phase as complete with 0 remaining tasks
+    status_res = out(run(workspace, "status", "s-001-archived-sprint"))
+    assert status_res["total_remaining_tasks"] == 0
+    assert len(status_res["in_development"]) == 0
+    assert status_res.get("warnings") == []
+
+    # next-work: reports no tasks to do
+    next_res = out(run(workspace, "next-work", "s-001-archived-sprint"))
+    assert next_res["next_task"] is None
+    assert next_res.get("warnings") == []
+
+    # close: closes cleanly without --carry-over
+    close_res = out(run(workspace, "close", "s-001-archived-sprint"))
+    assert close_res["status"] == "closed"
+
+    # sprint.md Spec Link rewritten to completed.md
+    sprint_text = (workspace / "sprints/s-001-archived-sprint/sprint.md").read_text()
+    assert "[p-002-sample](../../specs/compiled/completed.md)" in sprint_text
+    assert "[p-002-sample](../../specs/p-002-sample/impl.md)" not in sprint_text
+
+
+def test_unreadable_phase_fails_close_and_warns_in_status_and_next_work(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "Unreadable Sprint", "--slug", "unreadable-sprint"))
+    sprint_file = workspace / "sprints/s-001-unreadable-sprint/sprint.md"
+    orig_text = sprint_file.read_text()
+    # Inject a non-existent phase into Prioritized Scope
+    injected_row = "| p-999-missing | Missing Phase | Must Have | 100.0 | 1.0 | 0.8 | 1.0d | 80.00 | [p-999-missing](../../specs/p-999-missing/impl.md) |\n"
+    new_text = re.sub(r"\| (?:\[Phase Directory\]|None)[^\n]+\n", injected_row, orig_text)
+    sprint_file.write_text(new_text)
+
+    # status: keeps running with warning
+    status_res = out(run(workspace, "status", "s-001-unreadable-sprint"))
+    assert "warnings" in status_res
+    assert any("p-999-missing" in w for w in status_res["warnings"])
+
+    # next-work: keeps running with warning
+    next_res = out(run(workspace, "next-work", "s-001-unreadable-sprint"))
+    assert "warnings" in next_res
+    assert any("p-999-missing" in w for w in next_res["warnings"])
+
+    # close: fails plain close reporting unreadable_phases
+    err_close = err(run(workspace, "close", "s-001-unreadable-sprint"), code=1)
+    assert err_close.get("can_close") is False
+    assert "unreadable_phases" in err_close
+    assert "p-999-missing" in err_close["unreadable_phases"]
+
+    # lint: detects broken spec link to phase that is nowhere
+    err_lint = err(run(workspace, "lint", "s-001-unreadable-sprint"), code=1)
+    assert any(p.get("code") in ("broken-spec-link", "missing-spec-phase") for p in err_lint.get("problems", []))
+
+
+
 

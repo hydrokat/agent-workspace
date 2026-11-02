@@ -18,7 +18,7 @@ This skill evaluates sprint completion and closes the active sprint (`open`/`loc
 ```bash
 python3 .agents/skills/pm-new-sprint/scripts/sprints.py close <sprint>
 ```
-If all tasks are `Done`, the sprint transitions to `closed` immediately.
+If all tasks are `Done`, the sprint transitions to `closed` immediately. Archived phases (phases compiled and pruned via `specs.py prune`) are treated as complete with zero remaining tasks, and their Spec Links in `sprint.md` point to `../../specs/compiled/completed.md`.
 
 ### 2. Handle Incomplete Deliverables
 If `sprints.py close` exits with status `1`, incomplete tasks remain:
