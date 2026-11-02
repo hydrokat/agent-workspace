@@ -317,7 +317,10 @@ fn parse_archive_table(lines: &[&str]) -> Vec<Task> {
             .collect();
         if cols.len() >= 2 {
             let task_id = cols[0];
-            if task_id.starts_with("t-") && task_id.len() == 5 && task_id[2..].chars().all(|c| c.is_ascii_digit()) {
+            if task_id.starts_with("t-")
+                && task_id.len() == 5
+                && task_id[2..].chars().all(|c| c.is_ascii_digit())
+            {
                 tasks.push(Task {
                     id: task_id.to_string(),
                     title: clean(cols[1]).trim().to_string(),
@@ -344,19 +347,19 @@ pub fn load_archived_phases(specs: &Path) -> Vec<Phase> {
     let mut current_lines: Vec<&str> = Vec::new();
 
     let flush = |name: Option<String>, title: String, lines: &[&str], out: &mut Vec<Phase>| {
-        if let Some(phase_name) = name {
-            if is_phase_dir(&phase_name) {
-                let tasks = parse_archive_table(lines);
-                out.push(Phase {
-                    name: phase_name,
-                    title,
-                    branch: String::new(),
-                    target: String::new(),
-                    tasks,
-                    warning: String::new(),
-                    archived: true,
-                });
-            }
+        if let Some(phase_name) = name
+            && is_phase_dir(&phase_name)
+        {
+            let tasks = parse_archive_table(lines);
+            out.push(Phase {
+                name: phase_name,
+                title,
+                branch: String::new(),
+                target: String::new(),
+                tasks,
+                warning: String::new(),
+                archived: true,
+            });
         }
     };
 
@@ -365,7 +368,12 @@ pub fn load_archived_phases(specs: &Path) -> Vec<Phase> {
         if trimmed.starts_with("## ") {
             let rest = trimmed.strip_prefix("## ").unwrap().trim();
             if rest.starts_with("p-") || rest.starts_with("phase-") {
-                flush(current_phase_name.take(), current_phase_title.clone(), &current_lines, &mut phases);
+                flush(
+                    current_phase_name.take(),
+                    current_phase_title.clone(),
+                    &current_lines,
+                    &mut phases,
+                );
                 current_lines.clear();
                 if let Some((p_name, p_title)) = rest.split_once(':') {
                     current_phase_name = Some(clean(p_name).trim().to_string());
@@ -381,7 +389,12 @@ pub fn load_archived_phases(specs: &Path) -> Vec<Phase> {
             current_lines.push(line);
         }
     }
-    flush(current_phase_name, current_phase_title, &current_lines, &mut phases);
+    flush(
+        current_phase_name,
+        current_phase_title,
+        &current_lines,
+        &mut phases,
+    );
 
     phases
 }
