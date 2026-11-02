@@ -132,6 +132,26 @@ Every task executed under `/pm-sprint-implement` must satisfy the full `/spec-im
      ```bash
      python3 .agents/skills/pm-new-sprint/scripts/sprints.py status [<sprint>]
      ```
+   - Compile all specs using the `all` filter (never scope to individual phases, so completed.md retains global archive completeness):
+     ```bash
+     python3 .agents/skills/spec-planner/scripts/specs.py compile all
+     ```
+   - Perform a guarded dry run of phase pruning scoped strictly to the sprint's own phases (using phase names from `sprints.py show`):
+     ```bash
+     python3 .agents/skills/spec-planner/scripts/specs.py prune --phases <sprint-phases...>
+     ```
+   - Show the eligible and blocked lists and ask the user **once** via `AskUserQuestion` whether to remove the eligible phase directories (default: keep them):
+     ```text
+     ? Remove the N completed phase directories?
+        p-###-slug   X tasks
+        [ Remove ]  [ Keep them ]
+     ```
+   - If the user confirms removal, execute:
+     ```bash
+     python3 .agents/skills/spec-planner/scripts/specs.py prune --phases <eligible-phases...> --apply
+     ```
+     Remind the user to commit the deletion, since git is the restore point.
+   - If the user declines or nothing is eligible, say so and proceed without deleting. Only the orchestrator session may perform pruning; subagents never prune.
    - Present a completion summary to the user and recommend running `/pm-sprint-close` to finalize deliverables and produce stakeholder close reports.
 
 ## Mandates
@@ -142,3 +162,4 @@ Every task executed under `/pm-sprint-implement` must satisfy the full `/spec-im
 - **Single-Writer Invariant**: Phase `impl.md` and `sprint.md` are updated solely by the primary orchestrator session. Subagents never write to plan files.
 - **Zero Collision**: Never take over an active claim held by another session without explicit user confirmation via `coord.py ask`.
 - **Quality Gates**: Every task requires automated test validation, code comment cleanup, knowledgebase updates, and clean `specs.py set-status` transitions before release.
+- **Prune Safety**: Prune only the sprint's own phases, only after compile, only with confirmation. Never delete spec directories by hand in manual fallback.
