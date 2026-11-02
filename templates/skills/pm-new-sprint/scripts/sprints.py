@@ -931,6 +931,285 @@ def cmd_discover(args: argparse.Namespace) -> None:
     })
 
 
+def cmd_backlog(args: argparse.Namespace) -> None:
+    root = find_workspace_root(args.root)
+    sprints_dir = find_sprints_dir(root)
+
+    target_sprint_model: SprintModel | None = None
+
+    if args.sprint:
+        if "/" in args.sprint or "\\" in args.sprint or ".." in args.sprint:
+            fail(f"invalid sprint argument: {args.sprint}", 2)
+
+        matched: Path | None = None
+        target_num: str | None = None
+        if SPRINT_NUM_RE.match(args.sprint):
+            target_num = args.sprint
+        elif args.sprint.isdigit():
+            target_num = f"{int(args.sprint):03d}"
+        elif args.sprint.startswith("s-"):
+            rest = args.sprint[2:]
+            if SPRINT_NUM_RE.match(rest):
+                target_num = rest
+            elif rest.partition("-")[0].isdigit():
+                target_num = f"{int(rest.partition('-')[0]):03d}"
+
+        if sprints_dir.is_dir():
+            for entry in sorted(sprints_dir.iterdir()):
+                if entry.is_dir():
+                    m = SPRINT_DIR_RE.match(entry.name)
+                    if m and (entry.name == args.sprint or (target_num and m.group(1) == target_num)):
+                        matched = entry
+                        break
+
+        if not matched:
+            fail(f"sprint not found: {args.sprint}", 2)
+
+        target_sprint_model = parse_sprint_md(matched)
+    else:
+        open_or_locked: list[tuple[Path, str]] = []
+        if sprints_dir.is_dir():
+            for entry in sorted(sprints_dir.iterdir()):
+                if entry.is_dir() and SPRINT_DIR_RE.match(entry.name) and (entry / "sprint.md").is_file():
+                    try:
+                        m = parse_sprint_md(entry)
+                        if m.status in ("open", "locked"):
+                            open_or_locked.append((entry, m.status))
+                    except Exception:
+                        pass
+        if open_or_locked:
+            target_sprint_model = parse_sprint_md(open_or_locked[-1][0])
+
+    if target_sprint_model:
+        cap = target_sprint_model.capacity_days
+        comm = target_sprint_model.committed_effort
+        target_info = {
+            "sprint": target_sprint_model.sprint_id,
+            "status": target_sprint_model.status,
+            "capacity": cap,
+            "committed": comm,
+            "free": round(max(0.0, cap - comm), 1),
+            "can_add": (target_sprint_model.status == "open"),
+        }
+    else:
+        target_info = {
+            "sprint": None,
+            "status": "none",
+            "capacity": 0.0,
+            "committed": 0.0,
+            "free": 0.0,
+            "can_add": False,
+        }
+
+    all_sprints: list[SprintModel] = []
+    if sprints_dir.is_dir():
+        for entry in sorted(sprints_dir.iterdir()):
+            if entry.is_dir() and SPRINT_DIR_RE.match(entry.name) and (entry / "sprint.md").is_file():
+                try:
+                    all_sprints.append(parse_sprint_md(entry))
+                except Exception:
+                    pass
+
+    target_phase_map: dict[str, PhaseScope] = {}
+    if target_sprint_model:
+        for p in target_sprint_model.phases:
+            target_phase_map[p.phase] = p
+
+    closed_sprint_phase_map: dict[str, str] = {}
+    for s in all_sprints:
+        if s.status == "closed":
+            for p in s.phases:
+                closed_sprint_phase_map[p.phase] = s.sprint_id
+
+    coord_script = get_coord_script(root)
+    active_claims: set[tuple[str, str]] = set()
+    if coord_script:
+        try:
+            env = {**os.environ}
+            proc_coord = subprocess.run(
+                [sys.executable, str(coord_script), "overview"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
+            )
+            if proc_coord.returncode == 0:
+                c_data = json.loads(proc_coord.stdout)
+                for c in c_data.get("claims", []):
+                    if not c.get("stale", False):
+                        active_claims.add((c.get("phase", ""), c.get("task", "")))
+        except Exception:
+            pass
+
+    specs_script = get_specs_script(root)
+    raw_phases: list[dict[str, Any]] = []
+    if specs_script:
+        try:
+            proc_specs = subprocess.run(
+                [sys.executable, str(specs_script), "--root", str(root), "list", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            raw_phases = json.loads(proc_specs.stdout).get("phases", [])
+        except Exception:
+            pass
+
+    backlog_phases: list[dict[str, Any]] = []
+    flat_tasks: list[dict[str, Any]] = []
+
+    for p_info in raw_phases:
+        p_name = p_info.get("dir", "")
+        counts = p_info.get("counts", {})
+        total_tasks = p_info.get("total", 0)
+        done_tasks = counts.get("Done", 0)
+
+        if done_tasks >= total_tasks or total_tasks == 0:
+            continue
+
+        in_target = p_name in target_phase_map
+        target_scope = target_phase_map.get(p_name)
+
+        source: str
+        sprint_ref: str | None = None
+
+        if in_target:
+            if target_scope and target_scope.moscow == "Won't Have":
+                source = "deferred"
+            else:
+                tasks_subset = getattr(target_scope, "tasks", []) if target_scope else []
+                if not tasks_subset:
+                    continue
+                source = "outside-subset"
+        else:
+            is_wont_have = False
+            for s in all_sprints:
+                for sp in s.phases:
+                    if sp.phase == p_name and sp.moscow == "Won't Have":
+                        is_wont_have = True
+                        break
+                if is_wont_have:
+                    break
+            if is_wont_have:
+                source = "deferred"
+            elif p_name in closed_sprint_phase_map:
+                source = "carry-over"
+                sprint_ref = closed_sprint_phase_map[p_name]
+            else:
+                source = "unscheduled"
+
+        show_tasks: list[dict[str, Any]] = []
+        if specs_script:
+            try:
+                proc_show = subprocess.run(
+                    [sys.executable, str(specs_script), "--root", str(root), "show", p_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                )
+                show_data = json.loads(proc_show.stdout)
+                show_tasks = show_data.get("tasks", [])
+            except Exception:
+                pass
+
+        if not show_tasks:
+            continue
+
+        task_status_map = {t["id"]: t.get("status", "") for t in show_tasks}
+        last_task_id = show_tasks[-1]["id"] if show_tasks else ""
+
+        incomplete_phase_tasks: list[dict[str, Any]] = []
+
+        for t in show_tasks:
+            t_id = t["id"]
+            t_status = t.get("status", "")
+            if t_status == "Done":
+                continue
+
+            if in_target and source == "outside-subset":
+                tasks_subset = getattr(target_scope, "tasks", []) if target_scope else []
+                if t_id in tasks_subset:
+                    continue
+
+            blocked_by: list[str] = []
+            for dep in (t.get("depends_on") or []):
+                for dep_id in re.findall(r"\b(t-\d{3})\b", dep):
+                    if dep_id in task_status_map and task_status_map[dep_id] != "Done":
+                        if dep_id not in blocked_by:
+                            blocked_by.append(dep_id)
+
+            task_obj = {
+                "id": t_id,
+                "title": t.get("title", ""),
+                "status": t_status,
+                "type": t.get("type", "New Feature"),
+                "blocked_by": blocked_by,
+                "affected_paths": t.get("affected_paths") or [],
+                "claimed": (p_name, t_id) in active_claims,
+                "delivery": (t_id == last_task_id),
+            }
+            incomplete_phase_tasks.append(task_obj)
+
+            flat_task_obj = dict(task_obj)
+            flat_task_obj["phase"] = p_name
+            flat_task_obj["source"] = source
+            if sprint_ref:
+                flat_task_obj["sprint"] = sprint_ref
+            flat_tasks.append(flat_task_obj)
+
+        if not incomplete_phase_tasks:
+            continue
+
+        rem_count = len(incomplete_phase_tasks)
+        effort_days = round(max(0.5, rem_count * 0.5), 1)
+
+        phase_row: dict[str, Any] = {
+            "phase": p_name,
+            "title": p_info.get("title", ""),
+            "source": source,
+            "remaining": rem_count,
+            "effort": effort_days,
+            "tasks": incomplete_phase_tasks,
+        }
+        if sprint_ref:
+            phase_row["sprint"] = sprint_ref
+
+        backlog_phases.append(phase_row)
+
+    source_priority = {
+        "carry-over": 0,
+        "deferred": 1,
+        "outside-subset": 2,
+        "unscheduled": 3,
+    }
+
+    def parse_phase_num(name: str) -> int:
+        m = re.search(r"\d{3}", name)
+        return int(m.group(0)) if m else 999
+
+    backlog_phases.sort(key=lambda p: (source_priority.get(p["source"], 99), parse_phase_num(p["phase"]), p["phase"]))
+
+    phase_order_index = {p["phase"]: idx for idx, p in enumerate(backlog_phases)}
+    flat_tasks.sort(key=lambda t: (phase_order_index.get(t["phase"], 999), t["id"]))
+
+    scope = args.scope or "all"
+    out_obj: dict[str, Any] = {"target": target_info}
+
+    if scope == "specs":
+        for p in backlog_phases:
+            p.pop("tasks", None)
+        out_obj["phases"] = backlog_phases
+    elif scope == "tasks":
+        out_obj["tasks"] = flat_tasks
+    else:
+        out_obj["phases"] = backlog_phases
+        out_obj["tasks"] = flat_tasks
+
+    emit(out_obj)
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     root = find_workspace_root(args.root)
     sprints = find_sprints_dir(root)
@@ -1301,6 +1580,10 @@ def build_parser() -> argparse.ArgumentParser:
     discover = sub.add_parser("discover")
     discover.add_argument("--capacity-days", type=float, default=5.0)
 
+    backlog = sub.add_parser("backlog")
+    backlog.add_argument("--scope", choices=["specs", "tasks", "all"], default="all")
+    backlog.add_argument("--sprint")
+
     status = sub.add_parser("status")
     status.add_argument("sprint", nargs="?")
 
@@ -1329,6 +1612,7 @@ def main() -> None:
         "list": cmd_list,
         "show": cmd_show,
         "discover": cmd_discover,
+        "backlog": cmd_backlog,
         "status": cmd_status,
         "next-work": cmd_next_work,
         "lint": cmd_lint,

@@ -357,3 +357,179 @@ def test_commands_catalog(workspace: Path) -> None:
     cmds2 = {c["command"]: c for c in res2["commands"]}
     assert cmds2["/pm-sprint-lock"]["usable"] is True
     assert cmds2["/pm-sprint-unlock"]["usable"] is False
+
+
+def test_backlog_unknown_sprint_and_empty(workspace: Path) -> None:
+    # Unknown sprint exits 2
+    err(run(workspace, "backlog", "--sprint", "nonexistent-sprint"), code=2)
+
+    # Empty specs workspace exits 0 with empty backlog
+    empty_ws = workspace / "empty_ws"
+    empty_ws.mkdir()
+    (empty_ws / "specs").mkdir()
+    (empty_ws / "sprints").mkdir()
+    res = out(run(empty_ws, "backlog"))
+    assert res["target"]["status"] == "none"
+    assert res["target"]["can_add"] is False
+    assert res["phases"] == []
+    assert res["tasks"] == []
+
+
+def test_backlog_target_block_states(workspace: Path) -> None:
+    # 1. No sprint active
+    res1 = out(run(workspace, "backlog"))
+    assert res1["target"]["sprint"] is None
+    assert res1["target"]["status"] == "none"
+    assert res1["target"]["can_add"] is False
+
+    # 2. Open sprint active
+    out(run(
+        workspace,
+        "create",
+        "--title", "Active Sprint",
+        "--slug", "active-sprint",
+        "--capacity", "6.0",
+    ))
+    res2 = out(run(workspace, "backlog"))
+    assert res2["target"]["sprint"] == "s-001-active-sprint"
+    assert res2["target"]["status"] == "open"
+    assert res2["target"]["capacity"] == 6.0
+    assert res2["target"]["can_add"] is True
+
+    # 3. Locked sprint active
+    out(run(workspace, "lock", "s-001-active-sprint"))
+    res3 = out(run(workspace, "backlog"))
+    assert res3["target"]["status"] == "locked"
+    assert res3["target"]["can_add"] is False
+
+
+def test_backlog_sources_and_filtering(workspace: Path) -> None:
+    # Set up closed sprint s-001 containing a carry-over phase
+    s1_dir = workspace / "sprints" / "s-001-closed"
+    s1_dir.mkdir()
+    (s1_dir / "sprint.md").write_text(
+        "# Sprint s-001: Closed\n\n## Metadata\n- **Status**: closed\n\n## Scope\n"
+        "| Phase | Title | MoSCoW | Reach | Impact | Confidence | Effort | RICE | Spec Link |\n"
+        "|---|---|---|---|---|---|---|---|---|\n"
+        "| p-002-sample | Sample Phase | Must Have | 100 | 1 | 0.8 | 1.0d | 80 | ../../specs/p-002-sample/impl.md |\n",
+        encoding="utf-8",
+    )
+
+    # Set up an active sprint s-002 that commits p-001 and defers p-003-broken as Won't Have
+    s2_dir = workspace / "sprints" / "s-002-active"
+    s2_dir.mkdir()
+    (s2_dir / "sprint.md").write_text(
+        "# Sprint s-002: Active\n\n## Metadata\n- **Status**: open\n\n## Scope\n"
+        "| Phase | Title | MoSCoW | Reach | Impact | Confidence | Effort | RICE | Spec Link |\n"
+        "|---|---|---|---|---|---|---|---|---|\n"
+        "| p-001-agent-workspace-package | tandem | Must Have | 100 | 1 | 0.8 | 1.0d | 80 | ../../specs/p-001-agent-workspace-package/impl.md |\n"
+        "| p-003-broken | Broken Phase | Won't Have | 100 | 1 | 0.8 | 1.0d | 80 | ../../specs/p-003-broken/impl.md |\n",
+        encoding="utf-8",
+    )
+
+    # Add an unscheduled incomplete phase p-004-unscheduled
+    p4_dir = workspace / "specs" / "p-004-unscheduled"
+    p4_dir.mkdir()
+    (p4_dir / "impl.md").write_text("# Phase 4\n", encoding="utf-8")
+    (p4_dir / "t-001.md").write_text(
+        "# t-001: Unscheduled Task\n\n## Objectives\n- [ ] Task\n\n## Status\n- [ ] Pending\n",
+        encoding="utf-8",
+    )
+
+    res = out(run(workspace, "backlog"))
+    phase_names = [p["phase"] for p in res["phases"]]
+
+    # p-001-agent-workspace-package is committed to active sprint -> must not be in backlog
+    assert "p-001-agent-workspace-package" not in phase_names
+
+    # phase-001 is fully Done in fixture -> must not be in backlog
+    assert "phase-001" not in phase_names
+
+    # p-002-sample was in closed sprint -> source carry-over
+    p2 = next(p for p in res["phases"] if p["phase"] == "p-002-sample")
+    assert p2["source"] == "carry-over"
+    assert p2["sprint"] == "s-001-closed"
+
+    # p-003-broken is Won't Have -> source deferred
+    p3 = next(p for p in res["phases"] if p["phase"] == "p-003-broken")
+    assert p3["source"] == "deferred"
+
+    # p-004-unscheduled is in no sprint -> source unscheduled
+    p4 = next(p for p in res["phases"] if p["phase"] == "p-004-unscheduled")
+    assert p4["source"] == "unscheduled"
+
+    # Verify deterministic ordering: carry-over, deferred, outside-subset, unscheduled, then phase number
+    sources = [p["source"] for p in res["phases"]]
+    assert sources == ["carry-over", "deferred", "unscheduled"]
+
+
+def test_backlog_task_details_and_claims(workspace: Path) -> None:
+    import time
+
+    # Add a blocked task in p-002-sample
+    (workspace / "specs" / "p-002-sample" / "t-004.md").write_text(
+        "# t-004: Blocked task\n\n## Requirement Classification\n- **Type**: Enhancement\n\n"
+        "## Affected Paths\n- `src/blocked.py`\n\n"
+        "## Depends On\n- t-002\n\n## Status\n- [ ] Pending\n",
+        encoding="utf-8",
+    )
+
+    # Set up mock coord overview with a live claim on p-002-sample t-002
+    coord_dir = tempfile.mkdtemp(prefix="backlog-coord-")
+    claims_dir = Path(coord_dir) / "claims"
+    claims_dir.mkdir(parents=True)
+    claim_payload = {
+        "phase": "p-002-sample",
+        "task": "t-002",
+        "session": "s-test",
+        "heartbeat": time.time(),
+    }
+    (claims_dir / "p-002-sample__t-002.json").write_text(json.dumps(claim_payload), encoding="utf-8")
+
+    res = out(run(workspace, "backlog", coord_dir=coord_dir))
+    p2 = next(p for p in res["phases"] if p["phase"] == "p-002-sample")
+    task_map = {t["id"]: t for t in p2["tasks"]}
+
+    # t-001 is Done -> not in backlog tasks
+    assert "t-001" not in task_map
+
+    # t-002 is claimed and its dep t-001 is Done -> blocked_by is empty
+    t2 = task_map["t-002"]
+    assert t2["claimed"] is True
+    assert t2["blocked_by"] == []
+    assert t2["delivery"] is False
+
+    # t-004 depends on t-002 (which is not Done) -> blocked_by has t-002
+    t4 = task_map["t-004"]
+    assert "t-002" in t4["blocked_by"]
+    assert t4["claimed"] is False
+
+    # Last task in phase is delivery
+    last_task = p2["tasks"][-1]
+    assert last_task["delivery"] is True
+
+
+def test_backlog_scopes_and_determinism(workspace: Path) -> None:
+    # Scope specs: phase rows have no tasks
+    res_specs = out(run(workspace, "backlog", "--scope", "specs"))
+    assert "phases" in res_specs
+    assert "tasks" not in res_specs
+    assert all("tasks" not in p for p in res_specs["phases"])
+
+    # Scope tasks: flat tasks array
+    res_tasks = out(run(workspace, "backlog", "--scope", "tasks"))
+    assert "tasks" in res_tasks
+    assert "phases" not in res_tasks
+    assert len(res_tasks["tasks"]) > 0
+
+    # Scope all: both phases (with tasks) and flat tasks
+    res_all1 = out(run(workspace, "backlog", "--scope", "all"))
+    assert "phases" in res_all1
+    assert "tasks" in res_all1
+    assert all("tasks" in p for p in res_all1["phases"])
+
+    # Determinism: two runs produce identical JSON output
+    proc1 = run(workspace, "backlog", "--scope", "all")
+    proc2 = run(workspace, "backlog", "--scope", "all")
+    assert proc1.stdout == proc2.stdout
+
