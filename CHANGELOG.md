@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.0] — 2026-11-02
+
+### Sprint & Backlog Tooling (Phase p-016)
+
+- **Backlog Scanner (`sprints.py backlog`):** Scans all incomplete specs and tasks outside the active sprint, classifying backlog items into unscheduled, outside-subset, and deferred (`Won't Have`) sources with active claim and dependency tracking. Supports `--scope specs|tasks|all`.
+- **Sprint Task Subsets (`add-phase --tasks`):** Allows sprints to commit individual tasks within a phase rather than the entire phase.
+  - Automatically resolves in-phase dependencies with `--with-deps`.
+  - Flags `delivery_excluded: true` when the delivery task is not part of the subset.
+  - Renders a 10th `Tasks` column in `sprint.md` only when subsets are present, preserving byte-identical formatting for sprints without subsets.
+  - Subsets are fully respected by `status`, `next-work`, `close` (carry-over lists only subset tasks), and `lint` (flags unknown tasks in subsets).
+  - Preserves custom hand-written markdown sections (such as `Business Objectives & Context`) during sprint file rewrites.
+- **`/pm-backlogs` Skill:** Interactive AI skill to scan unscheduled work, inspect sprint capacity, select phases or task subsets, and either fold items into an open sprint or hand off to `/pm-new-sprint`.
+- **Sprint Commands Catalog:** `/pm-commands` and `sprints.py commands` updated to include `/pm-backlogs` (expanding the PM command suite from nine to ten commands).
+
 ## [1.6.0] — 2026-11-02
 
 ### CLI Package & tandem

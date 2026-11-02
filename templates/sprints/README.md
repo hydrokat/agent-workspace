@@ -32,3 +32,4 @@ sprints/
 - `/pm-sprint-status`: View live status, active claims, blockers, and realistic completion ETAs.
 - `/pm-sprint-list`: List active, planned, and closed sprints.
 - `/pm-commands`: Display a state-aware catalog of all `/pm-*` commands.
+- `/pm-backlogs`: Scan unscheduled specs and tasks, folding chosen items or task subsets into an open sprint or planning a new sprint.

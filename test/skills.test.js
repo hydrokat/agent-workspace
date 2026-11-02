@@ -74,6 +74,7 @@ describe('script-first skills ship their scripts and templates', () => {
     'pm-sprint-status': { command: '/pm-sprint-status', files: ['assets/status.md'] },
     'pm-sprint-list': { command: '/pm-sprint-list', files: ['assets/list.md'] },
     'pm-commands': { command: '/pm-commands', files: ['assets/commands.md'] },
+    'pm-backlogs': { command: '/pm-backlogs', files: ['assets/backlog.md'] },
   };
 
   for (const [name, spec] of Object.entries({ ...NEW_SKILLS, ...PM_SKILLS })) {
