@@ -11,6 +11,12 @@ describe('cli', () => {
     assert.ok(stdout.includes('doctor'), 'usage mentions doctor');
   });
 
+  it('--help brands the product as tandem (agent-workspace) and keeps the command name', async () => {
+    const { stdout } = await runCli(['--help'], process.cwd());
+    assert.ok(stdout.includes('tandem (agent-workspace) — initialize and maintain an AI agent workspace'));
+    assert.match(stdout, /Usage:\n  agent-workspace <command>/);
+  });
+
   it('--version prints a version string', async () => {
     const { code, stdout } = await runCli(['--version'], process.cwd());
     assert.equal(code, 0);

@@ -1,7 +1,7 @@
 {
   "name": "agent-workspace",
   "version": "1.6.0",
-  "description": "Initialize and maintain an AI agent workspace with multi-provider support.",
+  "description": "tandem (agent-workspace): initialize and maintain an AI agent workspace with multi-provider support, and run planners and implementers side by side.",
   "type": "module",
   "bin": {
     "agent-workspace": "bin/agent-workspace.js"
@@ -30,6 +30,7 @@
     "test": "node --test test/cli.test.js test/init.test.js test/update.test.js test/doctor.test.js test/coordination.test.js test/run-sh.test.js test/pack.test.js test/build-script.test.js test/runtime.test.js test/git.test.js test/docs.test.js test/skills.test.js test/ai-clis.test.js test/update-clis.test.js"
   },
   "keywords": [
+    "tandem",
     "agent",
     "workspace",
     "claude",

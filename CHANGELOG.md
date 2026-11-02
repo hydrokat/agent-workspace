@@ -12,6 +12,10 @@
 - **Release build and CI:** `tandem/packaging/build.sh` builds the five targets with cargo; CI runs fmt, clippy and tests for the crate, runs the skill-script pytest suites from `test/skills/`, and the release workflow verifies the tag against `package.json` and `Cargo.toml`.
 - **`run.sh --check`:** a missing cargo is only a warning while a binary download is still possible.
 - **Fix:** the Status tab showed claims and `in-progress.md` entries on one row.
+- **`test-failures` skill:** `run_tests.py` runs any test command and prints only what failed (cargo, pytest, node:test, jest, vitest, go, phpunit, TAP and a generic fallback). Passing tests are never printed, the exit code is passed through, a non-zero exit with nothing recognised always prints `ERROR` plus the output tail, and the full log is kept (owner-only, newest 20) under `.agent-workspace/test-runs/`. `AGENTS.md`, `WORKFLOW.md` and the `code-cleanup`, `code-review-remediation`, `pull-request`, `spec-implement` and `pm-sprint-implement` skills now route test runs through it, and the installer gitignores `test-runs/`.
+- **Active sprint in the Status window:** tandem shows the open or locked sprint with progress, days left, remaining Must Have tasks, a locked marker and an overload warning, in a headline, a Sprint section and a short summary-line token.
+- **Fix:** `sprints.py list` and `show` double-counted committed effort (a 5.0-day sprint reported 10.0). The scope table rows are now the single source.
+- **Branding:** the product is presented as "tandem (agent-workspace)" in the README, `--help` and the package description. The command and the package name stay `agent-workspace`, and `./run.sh` starts the tandem runtime.
 - **Docs:** README screenshots are regenerated from the Rust binary with plain `python3` (no uv) and no longer show a real project name.
 
 ## [1.5.0] — 2026-11-01

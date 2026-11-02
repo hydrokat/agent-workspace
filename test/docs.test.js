@@ -66,6 +66,27 @@ describe('README runtime documentation', () => {
   });
 });
 
+describe('tandem (agent-workspace) branding', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+
+  it('titles the README with the combined name and explains the two commands', () => {
+    assert.ok(readme.startsWith('# tandem (agent-workspace)'));
+    assert.match(readme, /the command is `agent-workspace`/i);
+    assert.match(readme, /`\.\/run\.sh` starts the tandem runtime/);
+  });
+
+  it('introduces the runtime as part of agent-workspace in the tandem README', () => {
+    assert.match(tandemReadme.split('\n').slice(0, 4).join('\n'), /agent-workspace/);
+  });
+
+  it('never claims a tandem npm command', () => {
+    for (const text of [readme, tandemReadme]) {
+      assert.ok(!/npx tandem\b|npm (i|install)( -g)? tandem\b/.test(text), 'no tandem npm command');
+    }
+  });
+});
+
 describe('screenshot generator', () => {
   const script = readFileSync(join(ROOT, 'docs/screenshots/make_screenshots.py'), 'utf8');
 

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const USAGE = `
-agent-workspace — initialize and maintain an AI agent workspace
+tandem (agent-workspace) — initialize and maintain an AI agent workspace
 
 Usage:
   agent-workspace <command> [options]

@@ -1,10 +1,25 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+describe('package identity', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+
+  it('keeps the package name and a single agent-workspace bin (branding is docs-only)', () => {
+    assert.equal(pkg.name, 'agent-workspace');
+    assert.deepEqual(Object.keys(pkg.bin), ['agent-workspace']);
+  });
+
+  it('presents the product as tandem (agent-workspace) in the description and keywords', () => {
+    assert.match(pkg.description, /tandem \(agent-workspace\)/);
+    assert.ok(pkg.keywords.includes('tandem'));
+  });
+});
 
 describe('npm pack contents', () => {
   let files;
