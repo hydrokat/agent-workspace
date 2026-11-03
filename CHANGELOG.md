@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- `AGENTS.md` template (Branch Protection): worktrees must be created inside the `worktrees/` directory at the workspace root, created first if missing.
+
 ## [1.8.0] — 2026-11-02
 
 ### Spec Compile Archiving & Guarded Phase Pruning (Phase p-015)

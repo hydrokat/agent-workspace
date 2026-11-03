@@ -82,6 +82,7 @@ Never commit or make changes directly on `main`, `master`, or `trunk` unless the
 Branch protection rules:
 - Before implementing, check the current branch. If it is `main`, `master`, or `trunk`, create a worktree or switch to a new branch first.
 - Prefer a worktree when the task should run in isolation from the current working tree (e.g. parallel work, experimentation, or when uncommitted changes must be preserved untouched).
+- Create every worktree inside the `worktrees/` directory at the workspace root (e.g. `git worktree add -b <branch> worktrees/<branch-slug>`). Create `worktrees/` first if it does not exist, and never place worktrees elsewhere.
 - Otherwise, create a descriptive branch (e.g. `<type>/<short-description>`) and switch to it before making any changes.
 - If already on a non-protected branch, continue on it rather than creating another one.
 - Only push to or commit on `main`, `master`, or `trunk` when the user explicitly asks for it in that exact request.
