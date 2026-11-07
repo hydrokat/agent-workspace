@@ -53,11 +53,11 @@ fn now_secs() -> f64 {
 }
 
 fn python3() -> Option<String> {
-    let out = Command::new("python3")
-        .args(["-c", "print(1)"])
-        .output()
-        .ok()?;
-    out.status.success().then(|| "python3".to_string())
+    if common::require_tool("python3") {
+        Some("python3".to_string())
+    } else {
+        None
+    }
 }
 
 #[test]

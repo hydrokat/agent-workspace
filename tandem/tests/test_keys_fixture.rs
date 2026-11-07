@@ -1,6 +1,6 @@
 mod common;
 
-use common::parity::load_fixture_value;
+use common::parity::{fixture_path, load_fixture_value};
 use tandem::tmux::keys::{
     Binding, bind_commands, default_keymap, display_shortcut, help_lines, hint_bar,
     hint_bar_with_ranges, keymap, mouse_commands, option_char, resize_commands, wizard_help_lines,
@@ -8,9 +8,33 @@ use tandem::tmux::keys::{
 
 #[test]
 fn test_keys_parity_fixture() {
-    let fixture = load_fixture_value("keys");
-
     let km = default_keymap();
+    let parity_cmd = ["/usr/bin/python3", "-m", "tandem"];
+
+    if std::env::var("UPDATE_GOLDEN").is_ok() {
+        let mut f = load_fixture_value("keys");
+        f["default_keymap"] = serde_json::to_value(&km).unwrap();
+        f["hint_bar"]["darwin"] = serde_json::to_value(hint_bar("darwin", &km)).unwrap();
+        f["hint_bar"]["linux"] = serde_json::to_value(hint_bar("linux", &km)).unwrap();
+        f["hint_bar_with_ranges"]["darwin"] =
+            serde_json::to_value(hint_bar_with_ranges("darwin", &km)).unwrap();
+        f["hint_bar_with_ranges"]["linux"] =
+            serde_json::to_value(hint_bar_with_ranges("linux", &km)).unwrap();
+        f["help_lines"]["darwin"] = serde_json::to_value(help_lines("darwin", &km)).unwrap();
+        f["help_lines"]["linux"] = serde_json::to_value(help_lines("linux", &km)).unwrap();
+        f["bind_commands"]["darwin"] =
+            serde_json::to_value(bind_commands(Some(&parity_cmd), None, "darwin", &km)).unwrap();
+        f["bind_commands"]["linux"] =
+            serde_json::to_value(bind_commands(Some(&parity_cmd), None, "linux", &km)).unwrap();
+        f["mouse_commands"] =
+            serde_json::to_value(mouse_commands(Some(&parity_cmd), None, "linux", &km)).unwrap();
+        f["overrides"]["valid"] = serde_json::to_value(&km).unwrap();
+        f["overrides"]["empty"] = serde_json::to_value(&km).unwrap();
+        let formatted = serde_json::to_string_pretty(&f).unwrap();
+        let _ = std::fs::write(fixture_path("keys"), format!("{formatted}\n"));
+    }
+
+    let fixture = load_fixture_value("keys");
     let expected_keymap: Vec<Binding> =
         serde_json::from_value(fixture["default_keymap"].clone()).unwrap();
     assert_eq!(km, expected_keymap);
@@ -80,12 +104,13 @@ fn test_keys_parity_fixture() {
         );
     }
 
+    let parity_cmd = ["/usr/bin/python3", "-m", "tandem"];
     let bind_cases = fixture["bind_commands"].as_object().unwrap();
     for platform in ["darwin", "linux"] {
         let expected_binds: Vec<Vec<String>> =
             serde_json::from_value(bind_cases[platform].clone()).unwrap();
         assert_eq!(
-            bind_commands(None, None, platform, Some("/usr/bin/python3"), &km),
+            bind_commands(Some(&parity_cmd), None, platform, &km),
             expected_binds,
             "bind_commands mismatch on {platform}"
         );
@@ -94,16 +119,13 @@ fn test_keys_parity_fixture() {
     let expected_mouse: Vec<Vec<String>> =
         serde_json::from_value(fixture["mouse_commands"].clone()).unwrap();
     assert_eq!(
-        mouse_commands(None, None, "linux", Some("/usr/bin/python3"), &km),
+        mouse_commands(Some(&parity_cmd), None, "linux", &km),
         expected_mouse
     );
 
     let expected_resize: Vec<Vec<String>> =
         serde_json::from_value(fixture["resize_commands"].clone()).unwrap();
-    assert_eq!(
-        resize_commands(None, None, Some("/usr/bin/python3")),
-        expected_resize
-    );
+    assert_eq!(resize_commands(Some(&parity_cmd), None), expected_resize);
 
     let overrides = fixture["overrides"].as_object().unwrap();
     let expected_valid: Vec<Binding> = serde_json::from_value(overrides["valid"].clone()).unwrap();

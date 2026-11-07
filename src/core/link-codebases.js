@@ -53,8 +53,6 @@ function extractTomlField(dir, file, field) {
 function summarize(dir) {
   return extractReadmeSummary(dir)
     || extractJsonDescription(dir)
-    || extractTomlField(dir, 'pyproject.toml', 'description')
-    || extractTomlField(dir, 'pyproject.toml', 'name')
     || extractTomlField(dir, 'Cargo.toml', 'description')
     || extractTomlField(dir, 'Cargo.toml', 'name')
     || normalizeText(basename(dir), CELL_LIMIT);

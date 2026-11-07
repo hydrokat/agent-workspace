@@ -152,11 +152,22 @@ fn test_neighbor_none_when_column_empty() {
 fn test_title_marks_visible_and_exited() {
     let panes = sample_panes();
     let title = render_title(&panes, "planner");
-    assert!(title.contains("PLANNERS"));
-    assert!(title.contains("[1 claude·opus]"));
-    assert!(title.contains("2 agy·argon"));
-    assert!(title.contains("⚠3 agy·flash(exited 1)"));
-    assert!(title.contains("#{?pane_active,▶ ,}"));
+    assert_eq!(title, "─ #{?pane_active,▶ ,}planner-1 · claude ─");
+    let exited = vec![pane(
+        "%1",
+        "main",
+        "planner",
+        1,
+        "claude·opus",
+        "agent",
+        true,
+        Some(1),
+    )];
+    let dead_title = render_title(&exited, "planner");
+    assert_eq!(
+        dead_title,
+        "─ #{?pane_active,▶ ,}planner-1 · claude (exited 1) ─"
+    );
 }
 
 #[test]
@@ -212,14 +223,13 @@ fn test_tab_text_replaces_unsafe_characters() {
 }
 
 #[test]
-fn test_render_title_uses_tab_text_for_every_agent() {
+fn test_render_title_shows_agent_title() {
     let panes = vec![
         pane("%1", "main", "planner", 1, "claude", "agent", false, None),
         pane("%2", "stash", "planner", 2, "agy", "agent", false, None),
     ];
     let title = render_title(&panes, "planner");
-    assert!(title.contains(&tab_text(&panes[1])));
-    assert!(title.contains(&format!("[{}]", tab_text(&panes[0]))));
+    assert_eq!(title, "─ #{?pane_active,▶ ,}planner-1 · claude ─");
 }
 
 struct MockRunner {

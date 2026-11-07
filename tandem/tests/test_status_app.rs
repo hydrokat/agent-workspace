@@ -1023,12 +1023,12 @@ fn test_notifier_uses_non_focus_stealing_message_and_escapes() {
 }
 
 #[test]
-fn test_five_tab_titles_in_order_and_dynamic_queries_count() {
+fn test_six_tab_titles_in_order_and_dynamic_queries_count() {
     let tmp = TempDir::new();
     let ws = setup_workspace(tmp.path());
     let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
 
-    assert_eq!(StatusTab::ALL.len(), 5);
+    assert_eq!(StatusTab::ALL.len(), 6);
     assert_eq!(
         app.tab_bar.titles,
         vec![
@@ -1037,6 +1037,7 @@ fn test_five_tab_titles_in_order_and_dynamic_queries_count() {
             "Spec".to_string(),
             "Task".to_string(),
             "Queries".to_string(),
+            "Settings".to_string(),
         ]
     );
 
@@ -1072,7 +1073,9 @@ fn test_tab_and_backtab_wrap_around() {
     app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
     assert_eq!(app.tab, StatusTab::Status);
     app.handle_key(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
-    assert_eq!(app.tab, StatusTab::Queries);
+    assert_eq!(app.tab, StatusTab::Settings);
+    app.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Status);
 }
 
 #[test]
@@ -1221,4 +1224,25 @@ fn test_scroll_keys_and_mouse_wheel_on_tabs() {
     });
 
     assert_eq!(app.sprint_scroll.offset, 0);
+}
+
+#[test]
+fn test_status_app_dirty_flag_lifecycle() {
+    let temp = TempDir::new();
+    let ws = setup_workspace(temp.path());
+    let store = CoordStore::new(temp.path().join("coord"));
+    let (tmux, _) = create_mock_tmux();
+
+    let mut app = StatusApp::new(ws, store, Some(tmux), None);
+    assert!(app.dirty);
+
+    app.dirty = false;
+    assert!(!app.dirty);
+
+    app.set_tab(StatusTab::Sprint);
+    assert!(app.dirty);
+
+    app.dirty = false;
+    app.action_refresh_now();
+    assert!(app.dirty);
 }

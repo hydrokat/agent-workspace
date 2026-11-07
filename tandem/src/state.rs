@@ -9,11 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::adapters::base::{AgentSpec, validate_model_id};
 use crate::conversations::valid_id;
 
-pub const STATE_VERSION: u32 = 2;
-pub const READABLE_VERSIONS: [u32; 2] = [1, 2];
+pub const STATE_VERSION: u32 = 3;
+pub const READABLE_VERSIONS: [u32; 3] = [1, 2, 3];
 pub const CLIS: [&str; 2] = ["claude", "agy"];
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
 pub const MAX_AGENTS: usize = 40;
+pub const DEFAULT_SIDEBAR_COLS: usize = 26;
+pub const DEFAULT_STATUS_ROWS: usize = 10;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StateError {
@@ -29,8 +31,48 @@ fn default_clean() -> bool {
     true
 }
 
+fn default_sidebar_cols() -> usize {
+    DEFAULT_SIDEBAR_COLS
+}
+
+fn default_status_rows() -> usize {
+    DEFAULT_STATUS_ROWS
+}
+
+fn default_version() -> u32 {
+    STATE_VERSION
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UiState {
+    #[serde(default = "default_sidebar_cols")]
+    pub sidebar_cols: usize,
+    #[serde(default = "default_status_rows")]
+    pub status_rows: usize,
+    #[serde(default)]
+    pub selected: Vec<String>,
+    #[serde(default)]
+    pub grid_prefs: crate::tmux::grid::GridPrefs,
+    #[serde(default)]
+    pub sidebar_mode: crate::tmux::grid::SidebarMode,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            sidebar_cols: DEFAULT_SIDEBAR_COLS,
+            status_rows: DEFAULT_STATUS_ROWS,
+            selected: Vec::new(),
+            grid_prefs: crate::tmux::grid::GridPrefs::default(),
+            sidebar_mode: crate::tmux::grid::SidebarMode::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedState {
+    #[serde(default = "default_version")]
+    pub version: u32,
     pub agents: Vec<AgentSpec>,
     #[serde(default)]
     pub active: BTreeMap<String, usize>,
@@ -42,6 +84,8 @@ pub struct SavedState {
     pub saved_at: f64,
     #[serde(default = "default_clean")]
     pub clean: bool,
+    #[serde(default)]
+    pub ui: UiState,
 }
 
 impl SavedState {
@@ -52,13 +96,33 @@ impl SavedState {
         status_rows: Option<u32>,
         saved_at: f64,
     ) -> Self {
+        let status_r = status_rows.unwrap_or(DEFAULT_STATUS_ROWS as u32) as usize;
+        let mut selected = Vec::new();
+        for role in ["planner", "implementer"] {
+            if let Some(&idx) = active.get(role)
+                && let Some(agent) = agents.iter().find(|a| a.role == role && a.index == idx)
+            {
+                if let Some(ref conv) = agent.conversation {
+                    selected.push(conv.clone());
+                } else {
+                    selected.push(format!("{role}-{idx}"));
+                }
+            }
+        }
         Self {
+            version: STATE_VERSION,
             agents,
             active,
             columns_percent,
             status_rows,
             saved_at,
             clean: true,
+            ui: UiState {
+                sidebar_cols: DEFAULT_SIDEBAR_COLS,
+                status_rows: status_r,
+                selected,
+                ..Default::default()
+            },
         }
     }
 }
@@ -86,17 +150,36 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
         })
         .collect();
 
-    serde_json::json!({
-        "version": STATE_VERSION,
-        "saved_at": state.saved_at,
-        "clean": state.clean,
-        "agents": agents_json,
-        "active": state.active,
-        "layout": {
-            "columns_percent": state.columns_percent,
-            "status_rows": state.status_rows,
-        },
-    })
+    if state.version <= 2 {
+        serde_json::json!({
+            "version": 2,
+            "saved_at": state.saved_at,
+            "clean": state.clean,
+            "agents": agents_json,
+            "active": state.active,
+            "layout": {
+                "columns_percent": state.columns_percent,
+                "status_rows": state.status_rows,
+            },
+        })
+    } else {
+        serde_json::json!({
+            "version": STATE_VERSION,
+            "saved_at": state.saved_at,
+            "clean": state.clean,
+            "agents": agents_json,
+            "active": state.active,
+            "layout": {
+                "columns_percent": state.columns_percent,
+                "status_rows": state.status_rows,
+            },
+            "ui": {
+                "sidebar_cols": state.ui.sidebar_cols,
+                "status_rows": state.ui.status_rows,
+                "selected": state.ui.selected,
+            },
+        })
+    }
 }
 
 pub fn save(path: &Path, state: &SavedState) -> Result<(), StateError> {
@@ -230,16 +313,75 @@ pub fn parse(data: &serde_json::Value) -> Option<SavedState> {
     let columns_percent = layout.and_then(|l| parse_percent(l.get("columns_percent"), 10, 90));
     let status_rows = layout.and_then(|l| parse_percent(l.get("status_rows"), 3, 60));
 
+    let raw_ui = obj.get("ui").and_then(|v| v.as_object());
+    let ui = if let Some(u) = raw_ui {
+        let sidebar_cols = u
+            .get("sidebar_cols")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_SIDEBAR_COLS as u64) as usize;
+        let status_rows = u
+            .get("status_rows")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_STATUS_ROWS as u64) as usize;
+        let selected = u
+            .get("selected")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let grid_prefs = u
+            .get("grid_prefs")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let sidebar_mode = u
+            .get("sidebar_mode")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        UiState {
+            sidebar_cols,
+            status_rows,
+            selected,
+            grid_prefs,
+            sidebar_mode,
+        }
+    } else {
+        let status_r = status_rows.unwrap_or(DEFAULT_STATUS_ROWS as u32) as usize;
+        let mut selected = Vec::new();
+        for role in ["planner", "implementer"] {
+            if let Some(&idx) = active.get(role)
+                && let Some(agent) = agents.iter().find(|a| a.role == role && a.index == idx)
+            {
+                if let Some(ref conv) = agent.conversation {
+                    selected.push(conv.clone());
+                } else {
+                    selected.push(format!("{role}-{idx}"));
+                }
+            }
+        }
+        UiState {
+            sidebar_cols: DEFAULT_SIDEBAR_COLS,
+            status_rows: status_r,
+            selected,
+            ..Default::default()
+        }
+    };
+
     let saved_at = obj.get("saved_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let clean = obj.get("clean").and_then(|v| v.as_bool()).unwrap_or(true);
+    let effective_version = if version <= 2 { 2 } else { STATE_VERSION };
 
     Some(SavedState {
+        version: effective_version,
         agents,
         active,
         columns_percent,
         status_rows,
         saved_at,
         clean,
+        ui,
     })
 }
 

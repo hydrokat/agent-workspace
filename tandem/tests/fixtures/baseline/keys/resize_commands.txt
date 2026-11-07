@@ -1,0 +1,9 @@
+bind-key -T tandem-resize Left resize-pane -L 5 ; switch-client -T tandem-resize
+bind-key -T tandem-resize Right resize-pane -R 5 ; switch-client -T tandem-resize
+bind-key -T tandem-resize Up resize-pane -U 2 ; switch-client -T tandem-resize
+bind-key -T tandem-resize Down resize-pane -D 2 ; switch-client -T tandem-resize
+bind-key -T tandem-resize = run-shell -b "env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem reset-layout" ; switch-client -T tandem-resize
+bind-key -T tandem-resize e run-shell -b "env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem equalize" ; switch-client -T tandem-resize
+bind-key -T tandem-resize Enter switch-client -T root
+bind-key -T tandem-resize Escape switch-client -T root
+bind-key -T tandem-resize q switch-client -T root

@@ -1,0 +1,33 @@
+{
+  "active": {
+    "implementer": 1,
+    "planner": 1
+  },
+  "agents": [
+    {
+      "cli": "claude",
+      "conversation": "46f2fc12-7f1f-4ca2-b714-06cbbfd669e9",
+      "cwd": null,
+      "index": 1,
+      "model": "sonnet",
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "cli": "agy",
+      "conversation": "7a9b8c0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d",
+      "cwd": null,
+      "index": 1,
+      "model": "gemini-3.8-flash-high",
+      "role": "implementer",
+      "skip_permissions": true
+    }
+  ],
+  "clean": true,
+  "layout": {
+    "columns_percent": 50,
+    "status_rows": 10
+  },
+  "saved_at": 1700000100.0,
+  "version": 2
+}

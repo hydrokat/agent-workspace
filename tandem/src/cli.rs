@@ -112,6 +112,45 @@ pub enum Command {
 
     #[command(about = "empty-column placeholder")]
     Placeholder(PlaceholderArgs),
+
+    #[command(about = "run the agent sidebar")]
+    Sidebar,
+
+    #[command(about = "show an agent in the main window")]
+    Show(ShowArgs),
+
+    #[command(about = "select an agent or toggle it in the grid")]
+    Select(SelectArgs),
+
+    #[command(about = "scroll the multi-agent grid")]
+    GridScroll(GridScrollArgs),
+
+    #[command(about = "run the grid overflow scrollbar")]
+    Gridbar,
+
+    #[command(about = "equalize pane split or reset border to default")]
+    Equalize(EqualizeArgs),
+
+    #[command(about = "reset UI layout, sizes, grid and sidebar to defaults")]
+    ResetUi,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct EqualizeArgs {
+    #[arg(default_value = "")]
+    pub pane: String,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct SelectArgs {
+    pub target: String,
+    #[arg(long)]
+    pub toggle: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct GridScrollArgs {
+    pub delta: isize,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -142,6 +181,8 @@ pub enum FocusTarget {
     Implementer,
     Status,
     Queries,
+    Sidebar,
+    Settings,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -168,6 +209,12 @@ pub struct ClickTabArgs {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct PlaceholderArgs {
     pub role: String,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct ShowArgs {
+    #[arg(help = "pane id (%N format)")]
+    pub pane: String,
 }
 
 pub fn build_parser() -> clap::Command {
@@ -220,6 +267,24 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
             if let Some(s) = spec {
                 crate::commands::add_agent(&s, &workspace, &config)?;
             }
+        }
+        Some(Command::Sidebar) => {
+            crate::sidebar::run_sidebar(&workspace, &config)?;
+        }
+        Some(Command::Show(args)) => {
+            let layout = crate::commands::make_layout(&workspace, &config);
+            let _ = layout.show_pane(&args.pane);
+        }
+        Some(Command::Select(args)) => {
+            let layout = crate::commands::make_layout(&workspace, &config);
+            let _ = layout.select_agent(&args.target, args.toggle);
+        }
+        Some(Command::GridScroll(args)) => {
+            let layout = crate::commands::make_layout(&workspace, &config);
+            let _ = layout.scroll_grid(args.delta);
+        }
+        Some(Command::Gridbar) => {
+            crate::gridbar::run_gridbar(&workspace, &config)?;
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;
@@ -278,6 +343,12 @@ fn tmux_command(cmd: &Command, workspace: &Path, config: &Config) -> Result<(), 
         }
         Command::ResetLayout => {
             let _ = layout.reset();
+        }
+        Command::ResetUi => {
+            let _ = layout.reset_ui();
+        }
+        Command::Equalize(args) => {
+            let _ = layout.equalize(&args.pane);
         }
         Command::Quit => {
             crate::commands::quit_menu(&layout, workspace.to_str());

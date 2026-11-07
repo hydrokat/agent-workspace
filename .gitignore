@@ -35,3 +35,5 @@ dist/
 build/
 tandem/dist/
 tandem/build/
+*.profraw
+tandem/*.profraw

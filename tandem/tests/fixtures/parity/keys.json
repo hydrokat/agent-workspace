@@ -10,7 +10,7 @@
       [
         "bind-key",
         "-n",
-        "\u02d9",
+        "˙",
         "display-popup -E -w 70% -h 70% \"/usr/bin/python3 -m tandem help\""
       ],
       [
@@ -40,7 +40,7 @@
       [
         "bind-key",
         "-n",
-        "\u00df",
+        "ß",
         "run-shell -b \"/usr/bin/python3 -m tandem focus status\""
       ],
       [
@@ -52,7 +52,7 @@
       [
         "bind-key",
         "-n",
-        "\u0153",
+        "œ",
         "run-shell -b \"/usr/bin/python3 -m tandem focus queries\""
       ],
       [
@@ -64,7 +64,7 @@
       [
         "bind-key",
         "-n",
-        "\u00a1",
+        "¡",
         "run-shell -b \"/usr/bin/python3 -m tandem focus planner\""
       ],
       [
@@ -76,7 +76,7 @@
       [
         "bind-key",
         "-n",
-        "\u2122",
+        "™",
         "run-shell -b \"/usr/bin/python3 -m tandem focus implementer\""
       ],
       [
@@ -102,6 +102,54 @@
         "-n",
         "C-M-z",
         "switch-client -T tandem-resize"
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-b",
+        "run-shell -b \"/usr/bin/python3 -m tandem focus sidebar\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "∫",
+        "run-shell -b \"/usr/bin/python3 -m tandem focus sidebar\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-,",
+        "run-shell -b \"/usr/bin/python3 -m tandem focus settings\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "≤",
+        "run-shell -b \"/usr/bin/python3 -m tandem focus settings\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-PageDown",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll 1\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-NPage",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll 1\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-PageUp",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll -1\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-PPage",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll -1\""
       ]
     ],
     "linux": [
@@ -176,6 +224,42 @@
         "-n",
         "C-M-z",
         "switch-client -T tandem-resize"
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-b",
+        "run-shell -b \"/usr/bin/python3 -m tandem focus sidebar\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-,",
+        "run-shell -b \"/usr/bin/python3 -m tandem focus settings\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-PageDown",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll 1\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-NPage",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll 1\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-PageUp",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll -1\""
+      ],
+      [
+        "bind-key",
+        "-n",
+        "M-PPage",
+        "run-shell -b \"/usr/bin/python3 -m tandem grid-scroll -1\""
       ]
     ]
   },
@@ -196,14 +280,14 @@
     },
     {
       "command": "run-shell -b \"{tandem} tab prev\"",
-      "description": "previous agent in this column",
+      "description": "previous agent (sidebar order), shown alone",
       "group": "Tabs",
       "hint": "Prev",
       "key": "Alt+Up"
     },
     {
       "command": "run-shell -b \"{tandem} tab next\"",
-      "description": "next agent in this column",
+      "description": "next agent (sidebar order), shown alone",
       "group": "Tabs",
       "hint": "Next",
       "key": "Alt+Down"
@@ -224,16 +308,16 @@
     },
     {
       "command": "run-shell -b \"{tandem} focus planner\"",
-      "description": "focus planners",
+      "description": "show last planner",
       "group": "Columns",
-      "hint": "Planners",
+      "hint": "Planner",
       "key": "Alt+1"
     },
     {
       "command": "run-shell -b \"{tandem} focus implementer\"",
-      "description": "focus implementers",
+      "description": "show last implementer",
       "group": "Columns",
-      "hint": "Implementers",
+      "hint": "Implementer",
       "key": "Alt+2"
     },
     {
@@ -263,6 +347,20 @@
       "group": "Layout",
       "hint": "Resize",
       "key": "Ctrl+Alt+z"
+    },
+    {
+      "command": "run-shell -b \"{tandem} focus sidebar\"",
+      "description": "focus the sidebar (popup when hidden)",
+      "group": "Sidebar",
+      "hint": "Sidebar",
+      "key": "Alt+b"
+    },
+    {
+      "command": "run-shell -b \"{tandem} focus settings\"",
+      "description": "open Settings (grid, sidebar, Reset UI)",
+      "group": "Settings",
+      "hint": "Settings",
+      "key": "Alt+,"
     }
   ],
   "display_shortcut": {
@@ -293,24 +391,30 @@
   },
   "help_lines": {
     "darwin": [
-      "tandem keys (planners = left column, implementers = right column)",
+      "tandem keys (agents in sidebar, main grid, status below)",
       "",
       "Global (tmux)",
       "  Help      Opt+h        open this help",
       "  Agents    Ctrl+Opt+n   add an agent",
       "            Ctrl+Opt+w   close the focused agent (asks first)",
       "            Ctrl+Opt+r   restart an exited agent",
-      "  Tabs      Opt+Up       previous agent in this column",
-      "            Opt+Down     next agent in this column",
+      "  Tabs      Opt+Up       previous agent (sidebar order), shown alone",
+      "            Opt+Down     next agent (sidebar order), shown alone",
       "  Status    Opt+s        focus the status window",
       "            Opt+q        open the Queries tab",
-      "  Columns   Opt+1        focus planners",
-      "            Opt+2        focus implementers",
+      "  Columns   Opt+1        show last planner",
+      "            Opt+2        show last implementer",
       "  Quit      Ctrl+Opt+x   exit menu: save and exit, detach, update tandem, discard",
       "  Layout    Ctrl+Opt+z   resize mode: arrows resize the focused pane, = resets, Enter exits",
+      "  Sidebar   Opt+b        focus the sidebar (popup when hidden)",
+      "  Settings  Opt+,        open Settings (grid, sidebar, Reset UI)",
+      "",
+      "Sidebar & Grid",
+      "  Grid      Opt+PgUp / Opt+PgDn scroll the grid one row",
+      "  Equalize  double-click a border, or Ctrl+Opt+z then e",
       "",
       "Status & Queries window",
-      "  Status    Tab          switch between the Status and Queries tabs",
+      "  Status    Tab          switch between tabs (1-6 direct)",
       "            Opt+r        refresh the status now",
       "            Opt+g        go to the highlighted or asking agent's pane",
       "  Queries   Enter        answer the selected open question",
@@ -327,33 +431,39 @@
       "            Esc          back or cancel",
       "",
       "Mouse",
+      "            click agent = show · Shift/Opt+click = add to grid · right-click menu",
+      "            double-click a border to equalize",
       "            click a status-bar hint = press its key",
-      "            click a column title to pick one of its agents from a menu",
-      "            right-click a pane = context menu (focus, restart, close, new agent, \u2026)",
       "            click a pane to focus it; drag a border to resize; scroll wheel scrolls",
-      "  Resize    Ctrl+Opt+z then arrows (\u2190\u2192 5 columns, \u2191\u2193 2 rows) on the focused pane; = resets; Enter exits",
+      "  Resize    Ctrl+Opt+z then arrows (←→ 5 columns, ↑↓ 2 rows) on the focused pane; = resets; Enter exits",
       "  Custom    set TANDEM_KEYS=\"help=Ctrl+Opt+h,quit=Ctrl+Opt+q\" (each needs at least one modifier)",
       "  Detach    your agents keep running; run `tandem` again to re-attach"
     ],
     "linux": [
-      "tandem keys (planners = left column, implementers = right column)",
+      "tandem keys (agents in sidebar, main grid, status below)",
       "",
       "Global (tmux)",
       "  Help      Alt+h        open this help",
       "  Agents    Ctrl+Alt+n   add an agent",
       "            Ctrl+Alt+w   close the focused agent (asks first)",
       "            Ctrl+Alt+r   restart an exited agent",
-      "  Tabs      Alt+Up       previous agent in this column",
-      "            Alt+Down     next agent in this column",
+      "  Tabs      Alt+Up       previous agent (sidebar order), shown alone",
+      "            Alt+Down     next agent (sidebar order), shown alone",
       "  Status    Alt+s        focus the status window",
       "            Alt+q        open the Queries tab",
-      "  Columns   Alt+1        focus planners",
-      "            Alt+2        focus implementers",
+      "  Columns   Alt+1        show last planner",
+      "            Alt+2        show last implementer",
       "  Quit      Ctrl+Alt+x   exit menu: save and exit, detach, update tandem, discard",
       "  Layout    Ctrl+Alt+z   resize mode: arrows resize the focused pane, = resets, Enter exits",
+      "  Sidebar   Alt+b        focus the sidebar (popup when hidden)",
+      "  Settings  Alt+,        open Settings (grid, sidebar, Reset UI)",
+      "",
+      "Sidebar & Grid",
+      "  Grid      Alt+PgUp / Alt+PgDn scroll the grid one row",
+      "  Equalize  double-click a border, or Ctrl+Alt+z then e",
       "",
       "Status & Queries window",
-      "  Status    Tab          switch between the Status and Queries tabs",
+      "  Status    Tab          switch between tabs (1-6 direct)",
       "            Alt+r        refresh the status now",
       "            Alt+g        go to the highlighted or asking agent's pane",
       "  Queries   Enter        answer the selected open question",
@@ -370,22 +480,22 @@
       "            Esc          back or cancel",
       "",
       "Mouse",
+      "            click agent = show · Shift/Alt+click = add to grid · right-click menu",
+      "            double-click a border to equalize",
       "            click a status-bar hint = press its key",
-      "            click a column title to pick one of its agents from a menu",
-      "            right-click a pane = context menu (focus, restart, close, new agent, \u2026)",
       "            click a pane to focus it; drag a border to resize; scroll wheel scrolls",
-      "  Resize    Ctrl+Alt+z then arrows (\u2190\u2192 5 columns, \u2191\u2193 2 rows) on the focused pane; = resets; Enter exits",
+      "  Resize    Ctrl+Alt+z then arrows (←→ 5 columns, ↑↓ 2 rows) on the focused pane; = resets; Enter exits",
       "  Custom    set TANDEM_KEYS=\"help=Ctrl+Alt+h,quit=Ctrl+Alt+q\" (each needs at least one modifier)",
       "  Detach    your agents keep running; run `tandem` again to re-attach"
     ]
   },
   "hint_bar": {
-    "darwin": "Opt+h Help  Ctrl+Opt+n New agent  Opt+Up Prev  Opt+Down Next  Opt+s Status  Opt+q Queries  Opt+1 Planners  Opt+2 Implementers  Ctrl+Opt+w Close  Ctrl+Opt+x Quit  Ctrl+Opt+r Restart  Ctrl+Opt+z Resize",
-    "linux": "Alt+h Help  Ctrl+Alt+n New agent  Alt+Up Prev  Alt+Down Next  Alt+s Status  Alt+q Queries  Alt+1 Planners  Alt+2 Implementers  Ctrl+Alt+w Close  Ctrl+Alt+x Quit  Ctrl+Alt+r Restart  Ctrl+Alt+z Resize"
+    "darwin": "Opt+h Help  Ctrl+Opt+n New agent  Opt+Up Prev  Opt+Down Next  Opt+s Status  Opt+q Queries  Opt+1 Planner  Opt+2 Implementer  Ctrl+Opt+w Close  Ctrl+Opt+x Quit  Ctrl+Opt+r Restart  Ctrl+Opt+z Resize  Opt+b Sidebar  Opt+, Settings",
+    "linux": "Alt+h Help  Ctrl+Alt+n New agent  Alt+Up Prev  Alt+Down Next  Alt+s Status  Alt+q Queries  Alt+1 Planner  Alt+2 Implementer  Ctrl+Alt+w Close  Ctrl+Alt+x Quit  Ctrl+Alt+r Restart  Ctrl+Alt+z Resize  Alt+b Sidebar  Alt+, Settings"
   },
   "hint_bar_with_ranges": {
-    "darwin": "#[range=user|help]Opt+h Help#[norange]  #[range=user|add-agent]Ctrl+Opt+n New agent#[norange]  #[range=user|prev]Opt+Up Prev#[norange]  #[range=user|next]Opt+Down Next#[norange]  #[range=user|status]Opt+s Status#[norange]  #[range=user|queries]Opt+q Queries#[norange]  #[range=user|planner]Opt+1 Planners#[norange]  #[range=user|implementer]Opt+2 Implementers#[norange]  #[range=user|close-agent]Ctrl+Opt+w Close#[norange]  #[range=user|quit]Ctrl+Opt+x Quit#[norange]  #[range=user|restart]Ctrl+Opt+r Restart#[norange]  #[range=user|resize]Ctrl+Opt+z Resize#[norange]",
-    "linux": "#[range=user|help]Alt+h Help#[norange]  #[range=user|add-agent]Ctrl+Alt+n New agent#[norange]  #[range=user|prev]Alt+Up Prev#[norange]  #[range=user|next]Alt+Down Next#[norange]  #[range=user|status]Alt+s Status#[norange]  #[range=user|queries]Alt+q Queries#[norange]  #[range=user|planner]Alt+1 Planners#[norange]  #[range=user|implementer]Alt+2 Implementers#[norange]  #[range=user|close-agent]Ctrl+Alt+w Close#[norange]  #[range=user|quit]Ctrl+Alt+x Quit#[norange]  #[range=user|restart]Ctrl+Alt+r Restart#[norange]  #[range=user|resize]Ctrl+Alt+z Resize#[norange]"
+    "darwin": "#[range=user|help]Opt+h Help#[norange]  #[range=user|add-agent]Ctrl+Opt+n New agent#[norange]  #[range=user|prev]Opt+Up Prev#[norange]  #[range=user|next]Opt+Down Next#[norange]  #[range=user|status]Opt+s Status#[norange]  #[range=user|queries]Opt+q Queries#[norange]  #[range=user|planner]Opt+1 Planner#[norange]  #[range=user|implementer]Opt+2 Implementer#[norange]  #[range=user|close-agent]Ctrl+Opt+w Close#[norange]  #[range=user|quit]Ctrl+Opt+x Quit#[norange]  #[range=user|restart]Ctrl+Opt+r Restart#[norange]  #[range=user|resize]Ctrl+Opt+z Resize#[norange]  #[range=user|sidebar]Opt+b Sidebar#[norange]  #[range=user|settings]Opt+, Settings#[norange]",
+    "linux": "#[range=user|help]Alt+h Help#[norange]  #[range=user|add-agent]Ctrl+Alt+n New agent#[norange]  #[range=user|prev]Alt+Up Prev#[norange]  #[range=user|next]Alt+Down Next#[norange]  #[range=user|status]Alt+s Status#[norange]  #[range=user|queries]Alt+q Queries#[norange]  #[range=user|planner]Alt+1 Planner#[norange]  #[range=user|implementer]Alt+2 Implementer#[norange]  #[range=user|close-agent]Ctrl+Alt+w Close#[norange]  #[range=user|quit]Ctrl+Alt+x Quit#[norange]  #[range=user|restart]Ctrl+Alt+r Restart#[norange]  #[range=user|resize]Ctrl+Alt+z Resize#[norange]  #[range=user|sidebar]Alt+b Sidebar#[norange]  #[range=user|settings]Alt+, Settings#[norange]"
   },
   "mouse_commands": [
     [
@@ -398,13 +508,19 @@
       "bind-key",
       "-n",
       "MouseDown3Pane",
-      "select-pane -t = ; display-menu -O -T tandem -t = -x M -y M \"Focus this pane\" f \"select-pane -t =\" \"#{?pane_dead,,-}Restart agent\" r \"run-shell -b \\\"/usr/bin/python3 -m tandem restart\\\"\" \"Close agent\u2026\" w \"confirm-before -p 'Close this agent? (y/n)' \\\"run-shell -b \\\\\\\"/usr/bin/python3 -m tandem close-agent\\\\\\\"\\\"\" \"\" \"New agent\" n \"display-popup -E -w 90% -h 90% \\\"/usr/bin/python3 -m tandem add-agent\\\"\" \"Status\" s \"run-shell -b \\\"/usr/bin/python3 -m tandem focus status\\\"\" \"Queries\" q \"run-shell -b \\\"/usr/bin/python3 -m tandem focus queries\\\"\" \"Resize mode\" z \"switch-client -T tandem-resize\" \"Help\" h \"display-popup -E -w 70% -h 70% \\\"/usr/bin/python3 -m tandem help\\\"\""
+      "select-pane -t = ; display-menu -O -T tandem -t = -x M -y M \"Focus this pane\" f \"select-pane -t =\" \"#{?pane_dead,,-}Restart agent\" r \"run-shell -b \\\"/usr/bin/python3 -m tandem restart\\\"\" \"Close agent…\" w \"confirm-before -p 'Close this agent? (y/n)' \\\"run-shell -b \\\\\\\"/usr/bin/python3 -m tandem close-agent\\\\\\\"\\\"\" \"\" \"New agent\" n \"display-popup -E -w 90% -h 90% \\\"/usr/bin/python3 -m tandem add-agent\\\"\" \"Status\" s \"run-shell -b \\\"/usr/bin/python3 -m tandem focus status\\\"\" \"Queries\" q \"run-shell -b \\\"/usr/bin/python3 -m tandem focus queries\\\"\" \"Resize mode\" z \"switch-client -T tandem-resize\" \"Help\" h \"display-popup -E -w 70% -h 70% \\\"/usr/bin/python3 -m tandem help\\\"\""
     ],
     [
       "bind-key",
       "-n",
       "MouseDown1Border",
-      "select-pane -t = ; run-shell -b \"/usr/bin/python3 -m tandem click-tab #{q:pane_id}\""
+      "select-pane -t ="
+    ],
+    [
+      "bind-key",
+      "-n",
+      "DoubleClick1Border",
+      "select-pane -t = ; run-shell -b \"/usr/bin/python3 -m tandem equalize #{q:pane_id}\""
     ],
     [
       "unbind-key",
@@ -429,11 +545,11 @@
     "darwin": {
       "Alt++": null,
       "Alt+-": null,
-      "Alt+1": "\u00a1",
-      "Alt+2": "\u2122",
+      "Alt+1": "¡",
+      "Alt+2": "™",
       "Alt+Shift+Left": null,
-      "Alt+h": "\u02d9",
-      "Alt+q": "\u0153",
+      "Alt+h": "˙",
+      "Alt+q": "œ",
       "Ctrl+Alt+z": null,
       "Ctrl+c": null,
       "Shift+Up": null
@@ -469,14 +585,14 @@
       },
       {
         "command": "run-shell -b \"{tandem} tab prev\"",
-        "description": "previous agent in this column",
+        "description": "previous agent (sidebar order), shown alone",
         "group": "Tabs",
         "hint": "Prev",
         "key": "Alt+Up"
       },
       {
         "command": "run-shell -b \"{tandem} tab next\"",
-        "description": "next agent in this column",
+        "description": "next agent (sidebar order), shown alone",
         "group": "Tabs",
         "hint": "Next",
         "key": "Alt+Down"
@@ -497,16 +613,16 @@
       },
       {
         "command": "run-shell -b \"{tandem} focus planner\"",
-        "description": "focus planners",
+        "description": "show last planner",
         "group": "Columns",
-        "hint": "Planners",
+        "hint": "Planner",
         "key": "Alt+1"
       },
       {
         "command": "run-shell -b \"{tandem} focus implementer\"",
-        "description": "focus implementers",
+        "description": "show last implementer",
         "group": "Columns",
-        "hint": "Implementers",
+        "hint": "Implementer",
         "key": "Alt+2"
       },
       {
@@ -536,6 +652,20 @@
         "group": "Layout",
         "hint": "Resize",
         "key": "Ctrl+Alt+z"
+      },
+      {
+        "command": "run-shell -b \"{tandem} focus sidebar\"",
+        "description": "focus the sidebar (popup when hidden)",
+        "group": "Sidebar",
+        "hint": "Sidebar",
+        "key": "Alt+b"
+      },
+      {
+        "command": "run-shell -b \"{tandem} focus settings\"",
+        "description": "open Settings (grid, sidebar, Reset UI)",
+        "group": "Settings",
+        "hint": "Settings",
+        "key": "Alt+,"
       }
     ],
     "valid": [
@@ -555,14 +685,14 @@
       },
       {
         "command": "run-shell -b \"{tandem} tab prev\"",
-        "description": "previous agent in this column",
+        "description": "previous agent (sidebar order), shown alone",
         "group": "Tabs",
         "hint": "Prev",
         "key": "Alt+Up"
       },
       {
         "command": "run-shell -b \"{tandem} tab next\"",
-        "description": "next agent in this column",
+        "description": "next agent (sidebar order), shown alone",
         "group": "Tabs",
         "hint": "Next",
         "key": "Alt+Down"
@@ -583,16 +713,16 @@
       },
       {
         "command": "run-shell -b \"{tandem} focus planner\"",
-        "description": "focus planners",
+        "description": "show last planner",
         "group": "Columns",
-        "hint": "Planners",
+        "hint": "Planner",
         "key": "Alt+1"
       },
       {
         "command": "run-shell -b \"{tandem} focus implementer\"",
-        "description": "focus implementers",
+        "description": "show last implementer",
         "group": "Columns",
-        "hint": "Implementers",
+        "hint": "Implementer",
         "key": "Alt+2"
       },
       {
@@ -622,6 +752,20 @@
         "group": "Layout",
         "hint": "Resize",
         "key": "Ctrl+Alt+z"
+      },
+      {
+        "command": "run-shell -b \"{tandem} focus sidebar\"",
+        "description": "focus the sidebar (popup when hidden)",
+        "group": "Sidebar",
+        "hint": "Sidebar",
+        "key": "Alt+b"
+      },
+      {
+        "command": "run-shell -b \"{tandem} focus settings\"",
+        "description": "open Settings (grid, sidebar, Reset UI)",
+        "group": "Settings",
+        "hint": "Settings",
+        "key": "Alt+,"
       }
     ]
   },
@@ -660,6 +804,13 @@
       "tandem-resize",
       "=",
       "run-shell -b \"/usr/bin/python3 -m tandem reset-layout\" ; switch-client -T tandem-resize"
+    ],
+    [
+      "bind-key",
+      "-T",
+      "tandem-resize",
+      "e",
+      "run-shell -b \"/usr/bin/python3 -m tandem equalize\" ; switch-client -T tandem-resize"
     ],
     [
       "bind-key",

@@ -1,0 +1,8 @@
+{
+  "version": "1.9.0",
+  "providers": [
+    "claude",
+    "codex"
+  ],
+  "filesCount": 0
+}

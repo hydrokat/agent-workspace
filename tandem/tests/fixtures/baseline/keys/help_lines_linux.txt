@@ -1,0 +1,47 @@
+tandem keys (agents in sidebar, main grid, status below)
+
+Global (tmux)
+  Help      Alt+h        open this help
+  Agents    Ctrl+Alt+n   add an agent
+            Ctrl+Alt+w   close the focused agent (asks first)
+            Ctrl+Alt+r   restart an exited agent
+  Tabs      Alt+Up       previous agent (sidebar order), shown alone
+            Alt+Down     next agent (sidebar order), shown alone
+  Status    Alt+s        focus the status window
+            Alt+q        open the Queries tab
+  Columns   Alt+1        show last planner
+            Alt+2        show last implementer
+  Quit      Ctrl+Alt+x   exit menu: save and exit, detach, update tandem, discard
+  Layout    Ctrl+Alt+z   resize mode: arrows resize the focused pane, = resets, Enter exits
+  Sidebar   Alt+b        focus the sidebar (popup when hidden)
+  Settings  Alt+,        open Settings (grid, sidebar, Reset UI)
+
+Sidebar & Grid
+  Grid      Alt+PgUp / Alt+PgDn scroll the grid one row
+  Equalize  double-click a border, or Ctrl+Alt+z then e
+
+Status & Queries window
+  Status    Tab          switch between tabs (1-6 direct)
+            Alt+r        refresh the status now
+            Alt+g        go to the highlighted or asking agent's pane
+  Queries   Enter        answer the selected open question
+            1-9          fill the answer with a numbered option
+            Ctrl+S       send the answer
+            Alt+w        mark the selected question withdrawn
+            Esc          clear the draft and return to the list
+
+Launch / add-agent wizard
+  Model     Alt+f        focus the model filter
+  Summary   Alt+a        add another agent
+            Alt+d        delete the highlighted agent
+            Shift+L      launch all configured agents
+            Esc          back or cancel
+
+Mouse
+            click agent = show · Shift/Alt+click = add to grid · right-click menu
+            double-click a border to equalize
+            click a status-bar hint = press its key
+            click a pane to focus it; drag a border to resize; scroll wheel scrolls
+  Resize    Ctrl+Alt+z then arrows (←→ 5 columns, ↑↓ 2 rows) on the focused pane; = resets; Enter exits
+  Custom    set TANDEM_KEYS="help=Ctrl+Alt+h,quit=Ctrl+Alt+q" (each needs at least one modifier)
+  Detach    your agents keep running; run `tandem` again to re-attach

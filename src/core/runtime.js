@@ -7,9 +7,7 @@ import { log } from './log.js';
 const PACKAGE_ROOT = join(templatesDir(), '..');
 const TANDEM_DEST = '.agent-workspace/tandem';
 const TANDEM_FILES = ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'min-versions.env', 'README.md'];
-const WALK_SKIP = new Set(['target', 'tests', '__pycache__']);
-const LEGACY_PYTHON_FILES = new Set([`${TANDEM_DEST}/pyproject.toml`, `${TANDEM_DEST}/uv.lock`]);
-const LEGACY_PYTHON_PACKAGE = `${TANDEM_DEST}/src/tandem`;
+const WALK_SKIP = new Set(['target', 'tests']);
 const MODIFIED_GRACE_MS = 2000;
 const GITIGNORE_ENTRIES = ['update-notice.env', 'update-check.env', 'test-runs/'];
 
@@ -48,30 +46,26 @@ function ensureGitignoreEntries(target, dryRun) {
   log.updated(rel);
 }
 
-function isLegacyPython(rel) {
-  return LEGACY_PYTHON_FILES.has(rel) || (rel.startsWith(`${LEGACY_PYTHON_PACKAGE}/`) && rel.endsWith('.py'));
-}
-
-function pruneEmptyLegacyDirs(dir) {
+function pruneEmptyRetiredDirs(dir) {
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (!statSync(full).isDirectory()) continue;
-    if (name === '__pycache__') rmSync(full, { recursive: true, force: true });
-    else pruneEmptyLegacyDirs(full);
+    if (name.includes('cache')) {
+      rmSync(full, { recursive: true, force: true });
+    } else {
+      pruneEmptyRetiredDirs(full);
+    }
   }
   if (readdirSync(dir).length === 0) rmdirSync(dir);
 }
 
-/**
- * Removes the Python tandem files that earlier versions installed (only those recorded in the manifest).
- * A file edited after the manifest's last update is kept as `<file>.bak` before it is deleted.
- */
-function removeLegacyPython(target, manifest, dryRun) {
-  const legacy = manifest.managedFiles.filter(isLegacyPython);
-  if (legacy.length === 0) return;
+function removeRetiredRuntimeFiles(target, manifest, dryRun, currentFiles) {
+  const isRetired = (rel) => rel.startsWith(`${TANDEM_DEST}/`) && !currentFiles.has(rel);
+  const retired = manifest.managedFiles.filter(isRetired);
+  if (retired.length === 0) return;
   const lastUpdate = Date.parse(manifest.updatedAt);
-  for (const rel of legacy) {
+  for (const rel of retired) {
     const full = join(target, rel);
     if (existsSync(full)) {
       const edited = Number.isNaN(lastUpdate) || statSync(full).mtimeMs > lastUpdate + MODIFIED_GRACE_MS;
@@ -86,20 +80,22 @@ function removeLegacyPython(target, manifest, dryRun) {
     }
   }
   if (dryRun) return;
-  manifest.managedFiles = manifest.managedFiles.filter((rel) => !isLegacyPython(rel));
-  pruneEmptyLegacyDirs(join(target, LEGACY_PYTHON_PACKAGE));
+  manifest.managedFiles = manifest.managedFiles.filter((rel) => !isRetired(rel));
+  pruneEmptyRetiredDirs(join(target, TANDEM_DEST, 'src/tandem'));
 }
 
 /** Install `run.sh` at the workspace root and the tandem project under `.agent-workspace/tandem/`. */
 export function installRuntime(target, manifest, dryRun = false) {
   log.step('Installing run.sh and tandem');
-  for (const { from, to, exec } of runtimeFiles()) {
+  const files = runtimeFiles();
+  const currentFiles = new Set(files.map((f) => f.to));
+  for (const { from, to, exec } of files) {
     const action = writeManaged(target, to, readFileSync(join(PACKAGE_ROOT, from), 'utf8'), manifest, dryRun);
     if (exec && !dryRun) chmodSync(join(target, to), 0o755);
     if (action === 'created') log.created(to);
     else if (action === 'updated') log.updated(to);
     else log.unchanged(to);
   }
-  removeLegacyPython(target, manifest, dryRun);
+  removeRetiredRuntimeFiles(target, manifest, dryRun, currentFiles);
   ensureGitignoreEntries(target, dryRun);
 }

@@ -123,13 +123,14 @@ describe('Status window documentation', () => {
       assert.ok(text.includes('Spec'), 'Spec tab');
       assert.ok(text.includes('Task'), 'Task tab');
       assert.ok(text.includes('Queries'), 'Queries tab');
+      assert.ok(text.includes('Settings'), 'Settings tab');
     }
   });
 
   it('documents tab navigation keys', () => {
     for (const text of [readme, tandemReadme]) {
       assert.ok(text.includes('Shift+Tab'), 'Shift+Tab documented');
-      assert.ok(text.includes('1-5') || text.includes('1..5'), '1-5 or 1..5 documented');
+      assert.ok(text.includes('1-6') || text.includes('1-5') || text.includes('1..5'), '1-6 or 1-5 documented');
     }
   });
 });
@@ -164,5 +165,64 @@ describe('README screenshots', () => {
       const text = readFileSync(join(IMAGES, f), 'utf8');
       assert.ok(!/<script|href=|xlink:|<image|@import|url\(/i.test(text), f);
     }
+  });
+});
+
+describe('repo-level runtime reference guard', () => {
+  function getFiles(dir, ext) {
+    const results = [];
+    if (!existsSync(dir)) return results;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...getFiles(full, ext));
+      } else if (!ext || full.endsWith(ext)) {
+        results.push(full);
+      }
+    }
+    return results;
+  }
+
+  it('prohibits python, uv, and pyproject references across runtime, installer, and core docs', () => {
+    const strictTargets = [
+      join(ROOT, 'run.sh'),
+      join(ROOT, 'tandem/README.md'),
+      ...getFiles(join(ROOT, 'bin')),
+      ...getFiles(join(ROOT, 'src'), '.js'),
+      ...getFiles(join(ROOT, 'tandem/src'), '.rs'),
+    ];
+
+    const pattern = /python|\buv\b|pyproject/i;
+    const violations = [];
+
+    for (const file of strictTargets) {
+      const content = readFileSync(file, 'utf8');
+      const lines = content.split('\n');
+      lines.forEach((line, idx) => {
+        if (pattern.test(line)) {
+          violations.push(`${file.replace(ROOT + '/', '')}:${idx + 1}: ${line.trim()}`);
+        }
+      });
+    }
+
+    // Root README may only mention python3 for skill scripts or doc screenshot generation
+    const readmeLines = readFileSync(join(ROOT, 'README.md'), 'utf8').split('\n');
+    readmeLines.forEach((line, idx) => {
+      if (pattern.test(line)) {
+        const allowed =
+          line.includes('.agents/skills') ||
+          line.includes('docs/screenshots') ||
+          line.includes('Python 3 scripts');
+        if (!allowed) {
+          violations.push(`README.md:${idx + 1}: ${line.trim()}`);
+        }
+      }
+    });
+
+    assert.equal(
+      violations.length,
+      0,
+      `Found forbidden references to python/uv/pyproject in runtime/installer/docs:\n${violations.join('\n')}`
+    );
   });
 });

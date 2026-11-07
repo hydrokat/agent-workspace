@@ -11,7 +11,7 @@ use tandem::tmux::keys::{
     tmux_key, wizard_help_lines,
 };
 
-const EXPECTED_KEYS: [&str; 12] = [
+const EXPECTED_KEYS: [&str; 14] = [
     "Alt+h",
     "Ctrl+Alt+n",
     "Alt+Up",
@@ -24,6 +24,8 @@ const EXPECTED_KEYS: [&str; 12] = [
     "Ctrl+Alt+x",
     "Ctrl+Alt+r",
     "Ctrl+Alt+z",
+    "Alt+b",
+    "Alt+,",
 ];
 
 #[test]
@@ -284,17 +286,20 @@ fn test_help_lines_cover_every_key() {
 #[test]
 fn test_bind_commands_use_root_table_and_tmux_key() {
     let km = default_keymap();
-    let cmds = bind_commands(None, None, "linux", Some("/usr/bin/python3"), &km);
-    assert_eq!(cmds.len(), km.len());
-    let expected_tmux: HashSet<String> =
+    let cmds = bind_commands(None, None, "linux", &km);
+    assert_eq!(cmds.len(), km.len() + 4);
+    let mut expected_tmux: HashSet<String> =
         EXPECTED_KEYS.iter().map(|k| tmux_key(k).unwrap()).collect();
+    for extra in ["M-PageDown", "M-NPage", "M-PageUp", "M-PPage"] {
+        expected_tmux.insert(extra.to_string());
+    }
     for argv in &cmds {
         assert_eq!(argv[0], "bind-key");
         assert_eq!(argv[1], "-n");
         assert!(expected_tmux.contains(&argv[2]));
     }
 
-    let cmds_mac = bind_commands(None, None, "darwin", Some("/usr/bin/python3"), &km);
+    let cmds_mac = bind_commands(None, None, "darwin", &km);
     assert!(cmds_mac.len() > km.len());
     let mac_keys: HashSet<&str> = cmds_mac.iter().map(|a| a[2].as_str()).collect();
     assert!(mac_keys.contains("˙"));
@@ -312,7 +317,7 @@ fn test_hint_bar_is_plain_text() {
 #[test]
 fn test_workspace_is_pinned_in_every_bound_command() {
     let km = default_keymap();
-    let cmds = bind_commands(None, Some("/my ws"), "linux", Some("/usr/bin/python3"), &km);
+    let cmds = bind_commands(None, Some("/my ws"), "linux", &km);
     for c in &cmds {
         if c[3].contains("run-shell") {
             assert!(c[3].contains("TANDEM_WORKSPACE='/my ws'"));
@@ -322,7 +327,7 @@ fn test_workspace_is_pinned_in_every_bound_command() {
 
 #[test]
 fn test_resize_mode_keys_stay_in_table_and_can_exit() {
-    let cmds = resize_commands(None, Some("/ws"), Some("/usr/bin/python3"));
+    let cmds = resize_commands(None, Some("/ws"));
     let mut map: HashMap<String, String> = HashMap::new();
     for c in &cmds {
         assert_eq!(c[0], "bind-key");
@@ -385,6 +390,8 @@ fn test_option_char() {
     assert_eq!(option_char("Alt+q", "darwin"), Some('œ'));
     assert_eq!(option_char("Alt+1", "darwin"), Some('¡'));
     assert_eq!(option_char("Alt+2", "darwin"), Some('™'));
+    assert_eq!(option_char("Alt+b", "darwin"), Some('∫'));
+    assert_eq!(option_char("Alt+,", "darwin"), Some('≤'));
     assert_eq!(option_char("Alt+Up", "darwin"), None);
     assert_eq!(option_char("Ctrl+Alt+r", "darwin"), None);
     assert_eq!(option_char("Alt+h", "linux"), None);
@@ -420,7 +427,7 @@ fn test_parse_shortcut_with_mac_modifiers() {
 #[test]
 fn test_expand_command_and_run_shell_with_spaces() {
     let ws = "/path with spaces/my project";
-    let launcher = launcher_for(Some(&["/custom path/tandem"]), Some(ws), None);
+    let launcher = launcher_for(Some(&["/custom path/tandem"]), Some(ws));
     let cmd = run_shell(&launcher, "add-agent");
     assert!(cmd.starts_with("run-shell -b \""));
     assert!(cmd.ends_with('"'));
@@ -440,6 +447,8 @@ fn test_key_for_lookup() {
     let km = default_keymap();
     assert_eq!(key_for("help", &km), "Alt+h");
     assert_eq!(key_for("quit", &km), "Ctrl+Alt+x");
+    assert_eq!(key_for("sidebar", &km), "Alt+b");
+    assert_eq!(key_for("settings", &km), "Alt+,");
     assert_eq!(key_for("unknown", &km), "");
 }
 
@@ -459,11 +468,13 @@ fn test_tandem_keys_override() {
     let mut env = HashMap::new();
     env.insert(
         "TANDEM_KEYS".to_string(),
-        "help=Alt+F1,quit=Ctrl+Alt+q".to_string(),
+        "help=Alt+F1,quit=Ctrl+Alt+q,sidebar=Alt+Shift+b,settings=Ctrl+Alt+,".to_string(),
     );
     let custom = keymap(Some(&env)).unwrap();
     assert_eq!(custom[0].key, "Alt+F1");
     assert_eq!(custom[9].key, "Ctrl+Alt+q");
+    assert_eq!(custom[12].key, "Alt+Shift+b");
+    assert_eq!(custom[13].key, "Ctrl+Alt+,");
     assert_eq!(custom[1].key, "Ctrl+Alt+n");
 }
 
@@ -515,7 +526,7 @@ fn test_status_left_resize_arm_has_no_ranges() {
 #[test]
 fn test_mouse_commands_contains_expected_bindings() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, Some("/ws"), "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, Some("/ws"), "linux", &km);
     let verbs: Vec<&str> = cmds.iter().map(|c| c[0].as_str()).collect();
     assert!(verbs.iter().filter(|v| **v == "bind-key").count() >= 2);
     assert_eq!(verbs.iter().filter(|v| **v == "unbind-key").count(), 3);
@@ -524,7 +535,7 @@ fn test_mouse_commands_contains_expected_bindings() {
 #[test]
 fn test_mouse_commands_mousedown1status_runs_click() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, Some("/ws"), "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, Some("/ws"), "linux", &km);
     let click1 = cmds.iter().find(|c| c[2] == "MouseDown1Status").unwrap();
     let cmd_str = &click1[3];
     assert!(cmd_str.contains("run-shell"));
@@ -535,7 +546,7 @@ fn test_mouse_commands_mousedown1status_runs_click() {
 #[test]
 fn test_mouse_commands_mousedown3pane_has_display_menu() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, Some("/ws"), "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, Some("/ws"), "linux", &km);
     let click3 = cmds.iter().find(|c| c[2] == "MouseDown3Pane").unwrap();
     let cmd_str = &click3[3];
     assert!(cmd_str.contains("display-menu"));
@@ -549,7 +560,7 @@ fn test_mouse_commands_mousedown3pane_has_display_menu() {
 #[test]
 fn test_mouse_commands_unbinds_unsafe_defaults() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, None, "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, None, "linux", &km);
     let unbind_keys: Vec<&str> = cmds
         .iter()
         .filter(|c| c[0] == "unbind-key")
@@ -563,7 +574,7 @@ fn test_mouse_commands_unbinds_unsafe_defaults() {
 #[test]
 fn test_mouse_commands_does_not_touch_safe_defaults() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, None, "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, None, "linux", &km);
     let touched: Vec<&str> = cmds
         .iter()
         .map(|c| {
@@ -583,7 +594,7 @@ fn test_mouse_commands_does_not_touch_safe_defaults() {
 fn test_mouse_commands_display_menu_no_forbidden_ops() {
     let km = default_keymap();
     for platform in ["linux", "darwin"] {
-        let cmds = mouse_commands(None, Some("/ws"), platform, Some("/usr/bin/python3"), &km);
+        let cmds = mouse_commands(None, Some("/ws"), platform, &km);
         let joined: String = cmds
             .iter()
             .flat_map(|a| a.iter().cloned())
@@ -602,21 +613,24 @@ fn test_mouse_commands_display_menu_no_forbidden_ops() {
 }
 
 #[test]
-fn test_mouse_commands_mousedown1border_runs_click_tab() {
+fn test_mouse_commands_mousedown1border_focuses_and_double_click_equalizes() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, Some("/ws"), "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, Some("/ws"), "linux", &km);
     let border = cmds.iter().find(|c| c[2] == "MouseDown1Border").unwrap();
-    let cmd_str = &border[3];
+    assert_eq!(&border[3], "select-pane -t =");
+
+    let dclick = cmds.iter().find(|c| c[2] == "DoubleClick1Border").unwrap();
+    let cmd_str = &dclick[3];
     assert!(cmd_str.contains("select-pane -t ="));
     assert!(cmd_str.contains("run-shell"));
-    assert!(cmd_str.contains("click-tab"));
+    assert!(cmd_str.contains("equalize"));
     assert!(cmd_str.contains("pane_id"));
 }
 
 #[test]
 fn test_mouse_commands_mousedown1border_is_one_compound_string() {
     let km = default_keymap();
-    let cmds = mouse_commands(None, Some("/ws"), "linux", Some("/usr/bin/python3"), &km);
+    let cmds = mouse_commands(None, Some("/ws"), "linux", &km);
     let border = cmds.iter().find(|c| c[2] == "MouseDown1Border").unwrap();
     assert_eq!(border.len(), 4);
 }

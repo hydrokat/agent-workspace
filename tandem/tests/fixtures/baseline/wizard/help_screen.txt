@@ -1,0 +1,30 @@
+Agents                                                                                              
+No agents yet                                                                                       
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Which AI CLI?                                                                                      
+                                                                                                    
+▶ claude                                                                                            
+  agy               ┌ Keys ────────────────────────────────────────────────────┐                    
+                    │Alt+f focus the model filter                              │                    
+                    │Alt+a add another agent                                   │                    
+                    │Alt+d delete the highlighted agent                        │                    
+                    │Shift+L launch all agents                                 │                    
+                    │Esc back or cancel                                        │                    
+                    │? or Alt+h this help                                      │                    
+                    │                                                          │                    
+                    │                                                          │                    
+                    │                                                          │                    
+                    │                                                          │                    
+                    │                                                          │                    
+                    │                                                          │                    
+                    │                                                          │                    
+                    └──────────────────────────────────────────────────────────┘                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+↑↓ Move  Enter Pick  Esc Back  ? Help                                                               

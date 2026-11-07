@@ -42,7 +42,7 @@ describe('run.sh and tandem installation', () => {
     assert.ok(!fileExists(dir, '.agent-workspace/tandem/packaging'), 'no packaging scripts');
   });
 
-  it('installs only Rust sources under tandem/src and no Python', () => {
+  it('installs only Rust sources under tandem/src and no retired runtime files', () => {
     const files = listFiles(join(dir, '.agent-workspace/tandem'));
     assert.deepEqual(files.filter((f) => /\.py$|pyproject\.toml$|uv\.lock$|__pycache__/.test(f)), []);
     assert.ok(files.filter((f) => f.startsWith('src/')).every((f) => f.endsWith('.rs')), 'only .rs under src');
@@ -112,7 +112,7 @@ describe('run.sh and tandem installation', () => {
     assert.ok(gitignore.includes('update-check.env'), 'update-check.env in .gitignore');
     assert.ok(gitignore.split('\n').some((l) => l.trim() === 'test-runs/'), 'test-runs/ in .gitignore');
   });
-  describe('legacy Python tandem cleanup on update', () => {
+  describe('retired runtime tandem cleanup on update', () => {
     const TANDEM = '.agent-workspace/tandem';
     const LEGACY = [
       `${TANDEM}/pyproject.toml`,
@@ -145,7 +145,7 @@ describe('run.sh and tandem installation', () => {
       });
     }
 
-    it('removes managed legacy Python files and drops them from the manifest', async () => {
+    it('removes managed retired runtime files and drops them from the manifest', async () => {
       const old = await oldWorkspace();
       try {
         const { code } = await runCli(['update', '--yes', '--no-link'], old);
@@ -159,7 +159,7 @@ describe('run.sh and tandem installation', () => {
       } finally { cleanup(old); }
     });
 
-    it('keeps a .bak only for legacy files modified since the last update', async () => {
+    it('keeps a .bak only for retired files modified since the last update', async () => {
       const old = await oldWorkspace();
       try {
         await runCli(['update', '--yes', '--no-link'], old);
@@ -169,7 +169,7 @@ describe('run.sh and tandem installation', () => {
       } finally { cleanup(old); }
     });
 
-    it('leaves unmanaged Python files in the legacy directory alone', async () => {
+    it('leaves unmanaged files in the retired directory alone', async () => {
       const old = await oldWorkspace();
       try {
         writeFile(old, `${TANDEM}/src/tandem/mine.py`, 'print("mine")\n');

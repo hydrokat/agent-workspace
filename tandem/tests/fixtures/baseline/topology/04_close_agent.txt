@@ -1,0 +1,4 @@
+main	implementer	agent	2	fake·implementer2	0	133x28+27+1
+main	sidebar	own	0	sidebar	0	26x28+0+1
+main	status	own	0	fake·status0	0	160x10+0+30
+stash-implementer-2	planner	agent	1	fake·planner1	0	160x39+0+1

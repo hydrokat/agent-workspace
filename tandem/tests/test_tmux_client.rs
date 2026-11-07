@@ -281,3 +281,77 @@ fn test_socket_for_parity_fixtures() {
         );
     }
 }
+
+#[test]
+fn test_run_batch_empty() {
+    let fake = std::sync::Arc::new(FakeRunner::new(HashMap::new()));
+    let client = create_client(fake.clone());
+    let res = client.run_batch(&[]).unwrap();
+    assert_eq!(res.code, 0);
+    assert_eq!(fake.calls().len(), 0);
+}
+
+#[test]
+fn test_run_batch_joins_with_semicolon() {
+    let fake = std::sync::Arc::new(FakeRunner::new(HashMap::new()));
+    let client = create_client(fake.clone());
+    let cmd1 = vec![
+        "set-option".to_string(),
+        "-g".to_string(),
+        "status".to_string(),
+        "on".to_string(),
+    ];
+    let cmd2 = vec![
+        "set-option".to_string(),
+        "-g".to_string(),
+        "mouse".to_string(),
+        "on".to_string(),
+    ];
+    let res = client.run_batch(&[cmd1, cmd2]).unwrap();
+    assert_eq!(res.code, 0);
+    assert_eq!(fake.calls().len(), 1);
+    let call = &fake.calls()[0];
+    assert_eq!(
+        call,
+        &[
+            "tmux",
+            "-L",
+            "tandem-test",
+            "-f",
+            "/c/tandem.conf",
+            "set-option",
+            "-g",
+            "status",
+            "on",
+            ";",
+            "set-option",
+            "-g",
+            "mouse",
+            "on",
+        ]
+    );
+}
+
+#[test]
+fn test_run_batch_enforces_allow_list() {
+    let fake = std::sync::Arc::new(FakeRunner::new(HashMap::new()));
+    let client = create_client(fake.clone());
+    let safe = vec![
+        "set-option".to_string(),
+        "-g".to_string(),
+        "status".to_string(),
+        "on".to_string(),
+    ];
+    let unsafe_cmd = vec![
+        "send-keys".to_string(),
+        "-t".to_string(),
+        "%1".to_string(),
+        "rm -rf /".to_string(),
+    ];
+    let res = client.run_batch(&[safe, unsafe_cmd]);
+    assert_eq!(
+        res,
+        Err(ToSViolation::SubcommandNotAllowed("send-keys".to_string()))
+    );
+    assert_eq!(fake.calls().len(), 0);
+}

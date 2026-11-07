@@ -1,0 +1,20 @@
+[1] [2] [3] [4] [5] Queries [6]                                       
+ 1/2 tasks · 1 agent · 0 claims · 0 open queries                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+ No open questions. Agents keep working while they wait.              
+                                                                      
+                                                                      
+┌Answer (Ctrl+S to send):────────────────────────────────────────────┐
+│                                                                    │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+                                                                      
+ [Send]  [Withdraw]  [Go to agent]  [Cancel]                          
+Tab Next element  Shift+Tab Prev tab  1-5 Jump  ↑↓ Move  Alt+r Refresh

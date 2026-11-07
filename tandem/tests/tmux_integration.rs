@@ -13,11 +13,7 @@ use tandem::tmux::layout::{Launch, Layout, SESSION, conf_text};
 use tandem::tmux::tabs::{agents_in, visible_pane};
 
 fn tmux_available() -> bool {
-    std::process::Command::new("tmux")
-        .arg("-V")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    common::require_tool("tmux")
 }
 
 struct TestContext {
@@ -163,10 +159,10 @@ fn test_build_creates_columns_status_and_tags() {
     for v in ids.values() {
         assert!(pane_ids.contains(v));
     }
-    let left = visible_pane(&panes, "planner").unwrap();
-    let right = visible_pane(&panes, "implementer").unwrap();
-    assert_eq!(left.id, ids["left"]);
-    assert_eq!(right.id, ids["right"]);
+    let sb = visible_pane(&panes, "sidebar").unwrap();
+    let main = visible_pane(&panes, "planner").unwrap();
+    assert_eq!(sb.id, ids["sidebar"]);
+    assert_eq!(main.id, ids["main"]);
 
     let out = ctx
         .layout
@@ -189,8 +185,8 @@ fn test_build_creates_columns_status_and_tags() {
             );
         }
     }
-    assert!(pos[&ids["left"]].0 < pos[&ids["right"]].0);
-    assert!(pos[&ids["status"]].1 > pos[&ids["left"]].1);
+    assert!(pos[&ids["sidebar"]].0 < pos[&ids["main"]].0);
+    assert!(pos[&ids["status"]].1 > pos[&ids["main"]].1);
 }
 
 #[test]
@@ -207,11 +203,11 @@ fn test_border_title_lists_tabs() {
             "show-options",
             "-p",
             "-t",
-            &ids["left"],
+            &ids["main"],
             "pane-border-format",
         ])
         .unwrap();
-    assert!(fmt.contains("PLANNERS") && fmt.contains("[1 fake·planner1]"));
+    assert!(fmt.contains("planner-1 · fake"));
 }
 
 #[test]
@@ -259,7 +255,7 @@ fn test_tmux_root_bindings_single_and_multi_modifier() {
         "linux"
     };
     let km = default_keymap();
-    let cmds = bind_commands(None, None, platform, Some("/fake/python"), &km);
+    let cmds = bind_commands(None, None, platform, &km);
     for cmd in cmds {
         let str_refs: Vec<&str> = cmd.iter().map(|s| s.as_str()).collect();
         ctx.layout.client.run_checked(&str_refs).unwrap();
@@ -309,7 +305,7 @@ fn test_add_agent_swaps_in_and_tab_navigation() {
         .client
         .run_checked(&["show-options", "-p", "-t", &new, "pane-border-format"])
         .unwrap();
-    assert!(fmt.contains("[2 fake·planner2]") && fmt.contains("1 fake·planner1"));
+    assert!(fmt.contains("planner-2 · fake"));
 }
 
 #[test]
@@ -371,15 +367,21 @@ fn test_closing_last_agent_leaves_placeholder() {
     ctx.layout
         .close_agent(&ids["left"], &sleeper("planner", 0, "own", "placeholder"))
         .unwrap();
+    ctx.layout
+        .close_agent(&ids["right"], &sleeper("agent", 0, "own", "placeholder"))
+        .unwrap();
     let panes = ctx.layout.panes().unwrap();
-    let shown = visible_pane(&panes, "planner").unwrap();
+    let shown = panes
+        .iter()
+        .find(|p| p.window == "main" && p.role != "sidebar" && p.role != "status")
+        .unwrap();
     assert_eq!(shown.kind, "own");
     let fmt = ctx
         .layout
         .client
         .run_checked(&["show-options", "-p", "-t", &shown.id, "pane-border-format"])
         .unwrap();
-    assert!(fmt.contains("No planners yet"));
+    assert!(fmt.contains("No agent"));
 }
 
 #[test]
@@ -391,6 +393,9 @@ fn test_adding_to_empty_column_replaces_placeholder() {
     let ids = built(&ctx);
     ctx.layout
         .close_agent(&ids["left"], &sleeper("planner", 0, "own", "placeholder"))
+        .unwrap();
+    ctx.layout
+        .close_agent(&ids["right"], &sleeper("agent", 0, "own", "placeholder"))
         .unwrap();
     let new = ctx
         .layout
@@ -468,39 +473,18 @@ fn test_restart_respawns_dead_pane() {
 }
 
 #[test]
-fn test_reflow_stacks_and_unstacks() {
+fn test_reflow_preserves_layout() {
     let ctx = match TestContext::new() {
         Some(c) => c,
         None => return,
     };
-    let ids = built(&ctx);
-    let lefts = || -> HashMap<String, String> {
-        let out = ctx
-            .layout
-            .client
-            .run_checked(&[
-                "list-panes",
-                "-t",
-                &format!("{SESSION}:main"),
-                "-F",
-                "#{pane_id} #{pane_left}",
-            ])
-            .unwrap();
-        out.lines()
-            .filter_map(|l| {
-                let mut p = l.splitn(2, ' ');
-                Some((p.next()?.to_string(), p.next()?.to_string()))
-            })
-            .collect()
-    };
-    ctx.layout.reflow(80, 40).unwrap();
-    assert_eq!(lefts()[&ids["left"]], lefts()[&ids["right"]]);
-    ctx.layout.reflow(160, 40).unwrap();
-    assert_ne!(lefts()[&ids["left"]], lefts()[&ids["right"]]);
+    let _ids = built(&ctx);
+    assert!(ctx.layout.reflow(80, 40).is_ok());
+    assert!(ctx.layout.reflow(160, 40).is_ok());
 }
 
 #[test]
-fn test_reset_restores_equal_columns_after_manual_resize() {
+fn test_reset_restores_default_dimensions_after_manual_resize() {
     let ctx = match TestContext::new() {
         Some(c) => c,
         None => return,
@@ -517,11 +501,11 @@ fn test_reset_restores_equal_columns_after_manual_resize() {
     };
     ctx.layout
         .client
-        .run_checked(&["resize-pane", "-t", &ids["left"], "-x", "20"])
+        .run_checked(&["resize-pane", "-t", &ids["sidebar"], "-x", "40"])
         .unwrap();
-    assert!(width(&ids["left"]) < width(&ids["right"]) - 20);
+    assert_eq!(width(&ids["sidebar"]), 40);
     ctx.layout.reset().unwrap();
-    assert!((width(&ids["left"]) - width(&ids["right"])).abs() <= 2);
+    assert_eq!(width(&ids["sidebar"]), 26);
 }
 
 #[test]
@@ -628,10 +612,10 @@ fn test_capture_state_records_lineup_active_tab_and_sizes() {
         .unwrap();
     ctx.layout.select("planner", 1).unwrap();
     let panes = ctx.layout.panes().unwrap();
-    let planner_vis = visible_pane(&panes, "planner").unwrap();
+    let sb = visible_pane(&panes, "sidebar").unwrap();
     ctx.layout
         .client
-        .run_checked(&["resize-pane", "-t", &planner_vis.id, "-x", "40"])
+        .run_checked(&["resize-pane", "-t", &sb.id, "-x", "30"])
         .unwrap();
 
     let snap = commands::capture_state(&ctx.layout, true).unwrap();
@@ -657,9 +641,10 @@ fn test_capture_state_records_lineup_active_tab_and_sizes() {
         ]
     );
     assert_eq!(snap.active.get("planner"), Some(&1));
-    assert_eq!(snap.active.get("implementer"), Some(&1));
+    assert_eq!(snap.active.get("implementer"), None);
     let col_pct = snap.columns_percent.unwrap();
-    assert!((20..=30).contains(&col_pct));
+    assert_eq!(col_pct, 30);
+    assert_eq!(snap.ui.sidebar_cols, 30);
     let st_rows = snap.status_rows.unwrap();
     assert!(st_rows >= 3);
 }
@@ -1192,15 +1177,14 @@ fn test_bound_border_click_command_line_is_accepted_by_the_cli() {
         Some(&[exe]),
         Some(ctx.temp_dir.path().to_str().unwrap()),
         platform,
-        None,
         &km,
     )
     .into_iter()
-    .find(|c| c.len() >= 4 && c[0] == "bind-key" && c[1] == "-n" && c[2] == "MouseDown1Border")
-    .expect("MouseDown1Border binding");
+    .find(|c| c.len() >= 4 && c[0] == "bind-key" && c[1] == "-n" && c[2] == "DoubleClick1Border")
+    .expect("DoubleClick1Border binding");
     let bound_cmd = &bound[3];
-    let marker = "click-tab ";
-    let idx = bound_cmd.find(marker).expect("find click-tab");
+    let marker = "equalize ";
+    let idx = bound_cmd.find(marker).expect("find equalize");
     let template = bound_cmd[idx + marker.len()..].trim_end_matches('"');
     let pane = ctx.layout.panes().unwrap()[0].id.clone();
     let expanded = ctx
@@ -1211,9 +1195,9 @@ fn test_bound_border_click_command_line_is_accepted_by_the_cli() {
     let expanded_trimmed = expanded.trim();
 
     let output = std::process::Command::new(exe)
-        .args(std::iter::once("click-tab").chain(expanded_trimmed.split_whitespace()))
+        .args(std::iter::once("equalize").chain(expanded_trimmed.split_whitespace()))
         .output()
-        .expect("run click-tab");
+        .expect("run equalize");
     assert_ne!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("usage:"), "stderr: {}", stderr);
@@ -1290,7 +1274,7 @@ try:
         r, _, _ = select.select([master], [], [], 0.1)
         if r:
             seen += os.read(master, 65536)
-        if b"tandem" in seen and b"New agent" in seen:
+        if b"\xe2\x96\xb6 2" in seen:
             break
     os.write(master, b"\x1b")
     time.sleep(0.3)
@@ -1356,12 +1340,9 @@ fn test_click_tab_menu_renders_on_an_attached_client() {
     let _ = opener.join();
 
     let text = std::fs::read_to_string(&out_file).unwrap_or_default();
-    let menu_start = text.rfind("tandem").unwrap_or(0);
-    let menu = &text[menu_start..];
     assert!(
-        menu.contains("▶ 2") && menu.contains("1") && menu.contains("New agent"),
-        "Menu content: {}",
-        &menu[..menu.len().min(800)]
+        text.contains("▶ 2") && text.contains("1") && text.contains("New agent"),
+        "Screen content:\n{text}"
     );
 }
 
@@ -1485,4 +1466,100 @@ fn test_click_tab_menu_item_commands_are_valid_tmux_commands() {
     ];
     expected_lines.sort();
     assert_eq!(actual_lines, expected_lines);
+}
+
+#[test]
+fn test_multi_agent_grid_selection_and_tiling_in_tmux() {
+    let ctx = match TestContext::new() {
+        Some(c) => c,
+        None => return,
+    };
+    let ids = built(&ctx);
+
+    let initial_panes = ctx.layout.panes().unwrap();
+    let main_agents: Vec<_> = initial_panes
+        .iter()
+        .filter(|p| p.window == "main" && p.kind == "agent")
+        .collect();
+    assert_eq!(main_agents.len(), 1);
+    assert_eq!(main_agents[0].id, ids["left"]);
+
+    ctx.layout.select_agent(&ids["right"], true).unwrap();
+
+    let grid_panes = ctx.layout.panes().unwrap();
+    let main_grid_agents: Vec<_> = grid_panes
+        .iter()
+        .filter(|p| p.window == "main" && p.kind == "agent")
+        .collect();
+    assert_eq!(main_grid_agents.len(), 2);
+    let selected = ctx.layout.get_selected();
+    assert_eq!(selected.len(), 2);
+
+    ctx.layout
+        .close_agent(
+            &ids["left"],
+            &sleeper("planner", 0, "placeholder", "placeholder"),
+        )
+        .unwrap();
+
+    let remaining_panes = ctx.layout.panes().unwrap();
+    let remaining_main_agents: Vec<_> = remaining_panes
+        .iter()
+        .filter(|p| p.window == "main" && p.kind == "agent")
+        .collect();
+    assert_eq!(remaining_main_agents.len(), 1);
+    assert_eq!(remaining_main_agents[0].id, ids["right"]);
+    let updated_selected = ctx.layout.get_selected();
+    assert_eq!(updated_selected.len(), 1);
+}
+
+#[test]
+fn test_responsive_reflow_resize_cycle_in_tmux() {
+    let ctx = match TestContext::new() {
+        Some(c) => c,
+        None => return,
+    };
+    let ids = built(&ctx);
+
+    let initial_panes = ctx.layout.panes().unwrap();
+    let initial_sidebar = initial_panes
+        .iter()
+        .find(|p| p.role == "sidebar" && p.window == "main");
+    assert!(initial_sidebar.is_some());
+
+    // 1. Medium breakpoint (100 cols, 25 rows)
+    ctx.layout.reflow(100, 25).unwrap();
+    let med_panes = ctx.layout.panes().unwrap();
+    let med_sidebar = med_panes
+        .iter()
+        .find(|p| p.role == "sidebar" && p.window == "main");
+    assert!(med_sidebar.is_some());
+    assert!(med_panes.iter().any(|p| p.id == ids["left"]));
+
+    // 2. Narrow breakpoint (70 cols, 18 rows) -> hides sidebar
+    ctx.layout.reflow(70, 18).unwrap();
+    let narrow_panes = ctx.layout.panes().unwrap();
+    let narrow_main_sidebar = narrow_panes
+        .iter()
+        .find(|p| p.role == "sidebar" && p.window == "main");
+    assert!(narrow_main_sidebar.is_none());
+    let narrow_stashed_sidebar = narrow_panes
+        .iter()
+        .find(|p| p.role == "sidebar" && p.window != "main");
+    assert!(narrow_stashed_sidebar.is_some());
+    assert!(narrow_panes.iter().any(|p| p.id == ids["left"]));
+
+    // 3. Wide breakpoint restored (150 cols, 40 rows) -> un-hides sidebar
+    ctx.layout.reflow(150, 40).unwrap();
+    let wide_panes = ctx.layout.panes().unwrap();
+    let wide_sidebar = wide_panes
+        .iter()
+        .find(|p| p.role == "sidebar" && p.window == "main");
+    assert!(wide_sidebar.is_some());
+    assert!(wide_panes.iter().any(|p| p.id == ids["left"]));
+    assert!(
+        wide_panes
+            .iter()
+            .any(|p| p.role == "status" && p.window == "main")
+    );
 }
