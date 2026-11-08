@@ -849,7 +849,7 @@ pub fn help_lines(platform: &str, km: &[Binding]) -> Vec<String> {
         ),
         String::new(),
         "Status & Queries window".to_string(),
-        "  Status    Tab          switch between tabs (1-6 direct)".to_string(),
+        "  Status    Tab          switch between tabs (1-7 direct)".to_string(),
         format!("            {:<12} refresh the status now", d(STATUS_REFRESH)),
         format!(
             "            {:<12} go to the highlighted or asking agent's pane",

@@ -123,6 +123,7 @@ describe('Status window documentation', () => {
       assert.ok(text.includes('Spec'), 'Spec tab');
       assert.ok(text.includes('Task'), 'Task tab');
       assert.ok(text.includes('Queries'), 'Queries tab');
+      assert.ok(text.includes('Web'), 'Web tab');
       assert.ok(text.includes('Settings'), 'Settings tab');
     }
   });
@@ -130,7 +131,7 @@ describe('Status window documentation', () => {
   it('documents tab navigation keys', () => {
     for (const text of [readme, tandemReadme]) {
       assert.ok(text.includes('Shift+Tab'), 'Shift+Tab documented');
-      assert.ok(text.includes('1-6') || text.includes('1-5') || text.includes('1..5'), '1-6 or 1-5 documented');
+      assert.ok(text.includes('1-7'), '1-7 documented');
     }
   });
 });

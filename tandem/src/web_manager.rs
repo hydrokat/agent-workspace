@@ -9,7 +9,7 @@ pub const DEFAULT_WEB_PORT: u16 = 3940;
 pub const WEB_CONFIG_FILE_NAME: &str = "web-config.json";
 pub const WEB_PID_FILE_NAME: &str = "tandem-web.pid";
 
-fn generate_auth_token() -> String {
+pub fn generate_auth_token() -> String {
     format!(
         "tandem_{}",
         uuid::Uuid::new_v4().to_string().replace('-', "")
@@ -95,6 +95,17 @@ pub enum WebStatus {
     Running { url: String, pid: Option<u32> },
     Starting,
     Error(String),
+}
+
+pub fn access_url(config: &WebConfig, include_token: bool) -> String {
+    if include_token {
+        format!(
+            "http://{}:{}/?token={}",
+            config.bind_ip, config.port, config.auth_token
+        )
+    } else {
+        format!("http://{}:{}/", config.bind_ip, config.port)
+    }
 }
 
 pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {

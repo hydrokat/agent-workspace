@@ -6,6 +6,7 @@ pub mod link;
 pub mod option_list;
 pub mod scroll;
 pub mod tabs;
+pub mod text;
 pub mod textarea;
 
 pub use buttons::{Button, ButtonRow};

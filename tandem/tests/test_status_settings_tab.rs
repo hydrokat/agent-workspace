@@ -39,24 +39,25 @@ fn buffer_text(buf: &Buffer) -> String {
 }
 
 #[test]
-fn test_status_tab_six_tabs_indexing_and_cycling() {
-    assert_eq!(StatusTab::ALL.len(), 6);
-    assert_eq!(StatusTab::Settings.index(), 5);
-    assert_eq!(StatusTab::from_index(5), Some(StatusTab::Settings));
+fn test_status_tab_seven_tabs_indexing_and_cycling() {
+    assert_eq!(StatusTab::ALL.len(), 7);
+    assert_eq!(StatusTab::Settings.index(), 6);
+    assert_eq!(StatusTab::from_index(6), Some(StatusTab::Settings));
 
-    assert_eq!(StatusTab::Queries.next(), StatusTab::Settings);
+    assert_eq!(StatusTab::Queries.next(), StatusTab::Web);
+    assert_eq!(StatusTab::Web.next(), StatusTab::Settings);
     assert_eq!(StatusTab::Settings.next(), StatusTab::Status);
 
     assert_eq!(StatusTab::Status.prev(), StatusTab::Settings);
-    assert_eq!(StatusTab::Settings.prev(), StatusTab::Queries);
+    assert_eq!(StatusTab::Settings.prev(), StatusTab::Web);
 
     assert_eq!(StatusTab::Settings.title(0), "Settings");
     assert_eq!(StatusTab::Settings.short_title(0), "Set");
-    assert_eq!(StatusTab::Settings.number_title(0), "6");
+    assert_eq!(StatusTab::Settings.number_title(0), "7");
 }
 
 #[test]
-fn test_status_app_keys_1_through_6_and_alt_comma() {
+fn test_status_app_keys_1_through_7_and_alt_comma() {
     let temp = std::env::temp_dir().join(format!("tandem-test-tab6-{}", std::process::id()));
     let store = CoordStore::new(temp.join("coord"));
     let tmux = TmuxClient::with_runner("tandem-test", None, Arc::new(DummyTmuxRunner));
@@ -64,8 +65,10 @@ fn test_status_app_keys_1_through_6_and_alt_comma() {
 
     assert_eq!(app.tab, StatusTab::Status);
 
-    // Key 6 switches to Settings
+    // Key 6 switches to Web, key 7 to Settings
     app.handle_key(&KeyEvent::new(KeyCode::Char('6'), KeyModifiers::NONE));
+    assert_eq!(app.tab, StatusTab::Web);
+    app.handle_key(&KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE));
     assert_eq!(app.tab, StatusTab::Settings);
 
     // Key 1 switches to Status
@@ -131,35 +134,27 @@ fn test_settings_tab_navigation_and_option_cycling() {
     tab.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     assert_eq!(tab.sidebar_mode, SidebarMode::Wide);
 
-    // Down to Enable web
+    // Down to Reset UI button
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 4);
 
-    // Down to Bind IP
+    // Down to Quit button
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert_eq!(tab.focused_row, 5);
-
-    // Down to Reset UI button
-    tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert_eq!(tab.focused_row, 6);
-
-    // Down to Quit button (row 7)
-    tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert_eq!(tab.focused_row, 7);
+    assert_eq!(tab.focused_row, QUIT_ROW);
 
     // Down wraps to 0
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 0);
 
-    // Up wraps to 7
+    // Up wraps to the Quit button
     tab.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    assert_eq!(tab.focused_row, 7);
+    assert_eq!(tab.focused_row, QUIT_ROW);
 }
 
 #[test]
 fn test_settings_tab_confirm_reset_modal_lifecycle() {
     let mut tab = SettingsTab {
-        focused_row: 6, // Reset UI button
+        focused_row: 4, // Reset UI button
         ..Default::default()
     };
 
@@ -249,9 +244,9 @@ fn test_settings_tab_quit_button() {
         ..Default::default()
     };
 
-    assert_eq!(QUIT_ROW, 7);
+    assert_eq!(QUIT_ROW, 5);
 
-    // Left and Right on row 7 return None
+    // Left and Right on the Quit row return None
     assert_eq!(
         tab.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
         None
@@ -261,7 +256,7 @@ fn test_settings_tab_quit_button() {
         None
     );
 
-    // Enter and Space on row 7 return QuitMenu
+    // Enter and Space on the Quit row return QuitMenu
     assert_eq!(
         tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
         Some(SettingsAction::QuitMenu)

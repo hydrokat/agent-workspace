@@ -402,7 +402,7 @@ pub fn focus(layout: &mut Layout, _config: &Config, target: crate::cli::FocusTar
             let _ = layout
                 .client
                 .run_checked(&["select-pane", "-t", &status.id]);
-            let _ = layout.client.send_keys_own(&status.id, &["6"]);
+            let _ = layout.client.send_keys_own(&status.id, &["7"]);
         }
         crate::cli::FocusTarget::Status | crate::cli::FocusTarget::Queries => {
             let panes = match layout.panes() {

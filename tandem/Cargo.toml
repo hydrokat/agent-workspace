@@ -1,6 +1,6 @@
 [package]
 name = "tandem"
-version = "1.10.0"
+version = "1.11.0"
 edition = "2024"
 authors = []
 description = "Launch planner and implementer AI CLIs side-by-side in tmux."
@@ -26,6 +26,7 @@ unicode-width = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 ratatui = "0.29"
 crossterm = "0.28"
+qrcodegen = "1.8"
 
 [lints.rust]
 unsafe_code = "forbid"
