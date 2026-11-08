@@ -1,13 +1,14 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
 use std::sync::Arc;
 
 use tandem::coordination::store::CoordStore;
 use tandem::state::UiState;
 use tandem::status::app::{StatusApp, StatusTab};
-use tandem::status::settings_tab::SettingsTab;
+use tandem::status::settings_tab::{QUIT_ROW, SettingsAction, SettingsTab};
 use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
 use tandem::tmux::grid::{FillOrder, GridCols, GridPrefs, GridRows, SidebarMode};
 
@@ -142,13 +143,17 @@ fn test_settings_tab_navigation_and_option_cycling() {
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 6);
 
+    // Down to Quit button (row 7)
+    tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(tab.focused_row, 7);
+
     // Down wraps to 0
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 0);
 
-    // Up wraps to 6
+    // Up wraps to 7
     tab.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    assert_eq!(tab.focused_row, 6);
+    assert_eq!(tab.focused_row, 7);
 }
 
 #[test]
@@ -235,4 +240,115 @@ fn test_settings_tab_render() {
     assert!(text.contains("Sidebar"));
     assert!(text.contains("[ Reset UI ]"));
     assert!(text.contains("github.com/hydrokat/agent-workspace"));
+}
+
+#[test]
+fn test_settings_tab_quit_button() {
+    let mut tab = SettingsTab {
+        focused_row: QUIT_ROW,
+        ..Default::default()
+    };
+
+    assert_eq!(QUIT_ROW, 7);
+
+    // Left and Right on row 7 return None
+    assert_eq!(
+        tab.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+        None
+    );
+    assert_eq!(
+        tab.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+        None
+    );
+
+    // Enter and Space on row 7 return QuitMenu
+    assert_eq!(
+        tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Some(SettingsAction::QuitMenu)
+    );
+    assert_eq!(
+        tab.handle_key(&KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)),
+        Some(SettingsAction::QuitMenu)
+    );
+
+    // Mouse click testing
+    let area = Rect::new(0, 0, 80, 15);
+    tab.focused_row = 0;
+
+    // First cell (x=14)
+    let click_first = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 14,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(
+        tab.handle_mouse(&click_first, area),
+        Some(SettingsAction::QuitMenu)
+    );
+    assert_eq!(tab.focused_row, QUIT_ROW);
+
+    // Last cell (x=22)
+    let click_last = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 22,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(
+        tab.handle_mouse(&click_last, area),
+        Some(SettingsAction::QuitMenu)
+    );
+
+    // One cell before (x=13) -> None
+    let click_before = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 13,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(tab.handle_mouse(&click_before, area), None);
+
+    // One cell after (x=23) -> None
+    let click_after = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 23,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(tab.handle_mouse(&click_after, area), None);
+
+    // Click while Reset UI modal is open dismisses modal and returns None
+    tab.confirm_reset = true;
+    assert_eq!(tab.handle_mouse(&click_first, area), None);
+    assert!(!tab.confirm_reset);
+
+    // Render at height 7 contains [ Quit… ]
+    let backend_h7 = TestBackend::new(80, 7);
+    let mut term_h7 = Terminal::new(backend_h7).unwrap();
+    term_h7
+        .draw(|f| tab.render(f.area(), f.buffer_mut()))
+        .unwrap();
+    let text_h7 = buffer_text(term_h7.backend().buffer());
+    assert!(text_h7.contains("[ Quit… ]"));
+    assert!(text_h7.contains("save, detach, update, discard"));
+
+    // Render at width 20 does not panic and hides button
+    let backend_w20 = TestBackend::new(20, 7);
+    let mut term_w20 = Terminal::new(backend_w20).unwrap();
+    term_w20
+        .draw(|f| tab.render(f.area(), f.buffer_mut()))
+        .unwrap();
+    let text_w20 = buffer_text(term_w20.backend().buffer());
+    assert!(!text_w20.contains("[ Quit… ]"));
+
+    // Render at width 50 includes button but hides long description
+    let backend_w50 = TestBackend::new(50, 7);
+    let mut term_w50 = Terminal::new(backend_w50).unwrap();
+    term_w50
+        .draw(|f| tab.render(f.area(), f.buffer_mut()))
+        .unwrap();
+    let text_w50 = buffer_text(term_w50.backend().buffer());
+    assert!(text_w50.contains("[ Quit… ]"));
+    assert!(!text_w50.contains("save, detach, update, discard"));
 }

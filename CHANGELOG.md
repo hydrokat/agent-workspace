@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Quit button in tandem Settings tab**: Added a `[ Quit… ]` button on body row 0 of the tandem Settings tab beside the `Grid layout` header. Activating via Enter, Space, or left click opens the exit menu (save and exit, detach, update tandem, discard, cancel), providing full keyboard and mouse parity with `Ctrl+Alt+x` directly inside the Settings tab.
+
 ## [1.10.0] — 2026-11-08
 
 ### Security and reliability fixes for `tandem-web` (found in post-merge review of #39)

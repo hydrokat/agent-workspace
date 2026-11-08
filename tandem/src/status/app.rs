@@ -162,6 +162,7 @@ pub struct StatusApp {
     pub refresh_seconds: f64,
     pub autosave: Option<Arc<dyn Fn() + Send + Sync>>,
     pub autosave_seconds: f64,
+    pub quit_menu: Option<Arc<dyn Fn() + Send + Sync>>,
     pub snapshot: StatusSnapshot,
     pub notifier: Notifier,
     pub config: Option<Config>,
@@ -227,6 +228,7 @@ impl StatusApp {
             refresh_seconds: 2.0,
             autosave: None,
             autosave_seconds: AUTOSAVE_SECONDS,
+            quit_menu: None,
             snapshot: StatusSnapshot::default(),
             notifier,
             config,
@@ -281,6 +283,11 @@ impl StatusApp {
     pub fn with_autosave(mut self, f: Arc<dyn Fn() + Send + Sync>, seconds: f64) -> Self {
         self.autosave = Some(f);
         self.autosave_seconds = seconds;
+        self
+    }
+
+    pub fn with_quit_menu(mut self, f: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.quit_menu = Some(f);
         self
     }
 
@@ -614,6 +621,11 @@ impl StatusApp {
                     crate::status::settings_tab::SettingsAction::ResetUi => {
                         self.action_reset_ui();
                     }
+                    crate::status::settings_tab::SettingsAction::QuitMenu => {
+                        if let Some(ref quit_menu) = self.quit_menu {
+                            quit_menu();
+                        }
+                    }
                 }
             }
             self.dirty = true;
@@ -740,6 +752,11 @@ impl StatusApp {
                                 }
                                 crate::status::settings_tab::SettingsAction::ResetUi => {
                                     self.action_reset_ui();
+                                }
+                                crate::status::settings_tab::SettingsAction::QuitMenu => {
+                                    if let Some(ref quit_menu) = self.quit_menu {
+                                        quit_menu();
+                                    }
                                 }
                             }
                             self.dirty = true;
@@ -1065,14 +1082,20 @@ impl StatusApp {
 }
 
 pub fn run_status(workspace: &std::path::Path, config: &Config) -> Result<(), std::io::Error> {
-    let layout = crate::commands::make_layout(workspace, config);
+    let layout = Arc::new(crate::commands::make_layout(workspace, config));
     let socket = crate::tmux::client::socket_for(workspace);
     let tmux = TmuxClient::new(&socket, None);
     let coord_dir = crate::commands::coord_dir_for(workspace, config);
     let store = CoordStore::new(coord_dir);
     let ws = workspace.to_path_buf();
+    let autosave_layout = Arc::clone(&layout);
     let autosave = Arc::new(move || {
-        let _ = crate::commands::autosave(&layout, &ws);
+        let _ = crate::commands::autosave(&autosave_layout, &ws);
+    });
+    let quit_layout = Arc::clone(&layout);
+    let quit_ws = layout.workspace.clone();
+    let quit_menu = Arc::new(move || {
+        crate::commands::quit_menu(&quit_layout, quit_ws.as_deref());
     });
     let mut app = StatusApp::new(
         workspace.to_path_buf(),
@@ -1080,7 +1103,8 @@ pub fn run_status(workspace: &std::path::Path, config: &Config) -> Result<(), st
         Some(tmux),
         Some(config.clone()),
     )
-    .with_autosave(autosave, AUTOSAVE_SECONDS);
+    .with_autosave(autosave, AUTOSAVE_SECONDS)
+    .with_quit_menu(quit_menu);
 
     let state_dir = crate::registry::resolve_state_dir();
     let cfg_path = crate::web_manager::web_config_path(&state_dir);

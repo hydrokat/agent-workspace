@@ -73,19 +73,19 @@ fn test_settings_tab_navigation_and_rows() {
 
     assert_eq!(tab.focused_row, 0);
 
-    // Navigate down through all 7 rows: 0..=6
-    for i in 1..=6 {
+    // Navigate down through rows: 0..=7
+    for i in 1..=7 {
         tab.handle_key(&make_key(KeyCode::Down));
         assert_eq!(tab.focused_row, i);
     }
 
-    // Down from row 6 wraps to 0
+    // Down from row 7 wraps to 0
     tab.handle_key(&make_key(KeyCode::Down));
     assert_eq!(tab.focused_row, 0);
 
-    // Up from row 0 wraps to 6
+    // Up from row 0 wraps to 7
     tab.handle_key(&make_key(KeyCode::Up));
-    assert_eq!(tab.focused_row, 6);
+    assert_eq!(tab.focused_row, 7);
 }
 
 #[test]
