@@ -1109,6 +1109,14 @@ describe('run.sh --fresh', () => {
     assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file untouched');
   });
 
+  it('--check creates nothing when the coordination dir is missing', async () => {
+    const env = setup();
+    const coord = join(env.pkg, '.agent-workspace', 'coordination');
+    const r = await run(env, ['--fresh', '--check']);
+    assert.match(r.out, /Nothing to clear/);
+    assert.ok(!existsSync(coord), 'coordination dir must not be created by --check');
+  });
+
   it('refuses to clear when tandem is running and exits 2', async () => {
     const env = setup();
     const coord = setupCoord(env);
