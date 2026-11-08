@@ -1,12 +1,14 @@
 pub mod app;
 pub mod banners;
 pub mod notify;
+pub mod qr;
 pub mod queries_tab;
 pub mod render;
 pub mod settings_tab;
 pub mod spec_tab;
 pub mod sprint_tab;
 pub mod task_tab;
+pub mod web_tab;
 
 pub use app::{StatusApp, StatusTab, run_status};
 pub use banners::{BannerAction, OfferBanner, UpdateBanner};

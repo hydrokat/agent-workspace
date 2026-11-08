@@ -21,7 +21,7 @@ Sidebar & Grid
   Equalize  double-click a border, or Ctrl+Alt+z then e
 
 Status & Queries window
-  Status    Tab          switch between tabs (1-6 direct)
+  Status    Tab          switch between tabs (1-7 direct)
             Alt+r        refresh the status now
             Alt+g        go to the highlighted or asking agent's pane
   Queries   Enter        answer the selected open question

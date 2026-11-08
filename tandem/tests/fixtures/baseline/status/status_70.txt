@@ -1,4 +1,4 @@
-[1] Status [2] [3] [4] [5] [6]                                        
+[1] Status [2] [3] [4] [5] [6] [7]                                    
  1/2 tasks · 1 agent · 0 claims · 0 open queries                      
  In progress                                                          
 ▶ impl-1  claude·sonnet  p-001 t-002  branch feat/baseline  stale [AGE]
@@ -17,4 +17,4 @@
                                                                       
                                                                       
                                                                       
-Tab Switch tabs  1-5 Jump  ↑↓ Move  Alt+g Go to agent  Alt+r Refresh  
+Tab Switch tabs  1-7 Jump  ↑↓ Move  Alt+g Go to agent  Alt+r Refresh  

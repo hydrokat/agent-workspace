@@ -365,9 +365,10 @@ The window shows the agent sidebar on the left, the agent grid in the main area,
 - **Spec:** ongoing specification phases with their branch strategy, progress bar, task status ordered by task id with in-progress marker `▶`, and next-up labelling.
 - **Task:** ongoing tasks with objective checklist progress, owning session and pane, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to jump to the owning agent's tmux pane.
 - **Queries:** non-blocking questions queued by your agents.
+- **Web:** enable or disable `tandem-web` with first-time dependency consent, pick the bind IP and source, set the port, toggle the `ttyd` terminal, show or hide the auth token, regenerate it, and open a scannable QR code to connect a phone. Start errors are shown in the pane.
 - **Settings:** UI layout preferences (grid columns, rows per page, fill order, sidebar mode) and interactive Reset UI.
 
-Navigate between tabs with `Tab` / `Shift+Tab`, number keys `1-6`, or mouse click; scroll tab content with `↑↓`, `PgUp`/`PgDn`, `Home`/`End`, and the mouse wheel. Global shortcuts `Alt+s` (focus Status window), `Alt+q` (focus Queries tab), and `Alt+,` (focus Settings tab) remain available.
+Navigate between tabs with `Tab` / `Shift+Tab`, number keys `1-7`, or mouse click; scroll tab content with `↑↓`, `PgUp`/`PgDn`, `Home`/`End`, and the mouse wheel. Global shortcuts `Alt+s` (focus Status window), `Alt+q` (focus Queries tab), and `Alt+,` (focus Settings tab) remain available.
 
 <p align="center"><img src="docs/images/status.svg" alt="Status tab with repositories, branches and worktrees" width="32%"> <img src="docs/images/task.svg" alt="Task tab with ongoing task, claim, and objective progress" width="32%"> <img src="docs/images/queries.svg" alt="Queries tab with an open question" width="32%"></p>
 

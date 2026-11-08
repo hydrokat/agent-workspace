@@ -45,16 +45,18 @@ pub enum StatusTab {
     Spec,
     Task,
     Queries,
+    Web,
     Settings,
 }
 
 impl StatusTab {
-    pub const ALL: [StatusTab; 6] = [
+    pub const ALL: [StatusTab; 7] = [
         StatusTab::Status,
         StatusTab::Sprint,
         StatusTab::Spec,
         StatusTab::Task,
         StatusTab::Queries,
+        StatusTab::Web,
         StatusTab::Settings,
     ];
 
@@ -65,7 +67,8 @@ impl StatusTab {
             StatusTab::Spec => 2,
             StatusTab::Task => 3,
             StatusTab::Queries => 4,
-            StatusTab::Settings => 5,
+            StatusTab::Web => 5,
+            StatusTab::Settings => 6,
         }
     }
 
@@ -76,7 +79,8 @@ impl StatusTab {
             2 => Some(StatusTab::Spec),
             3 => Some(StatusTab::Task),
             4 => Some(StatusTab::Queries),
-            5 => Some(StatusTab::Settings),
+            5 => Some(StatusTab::Web),
+            6 => Some(StatusTab::Settings),
             _ => None,
         }
     }
@@ -87,7 +91,8 @@ impl StatusTab {
             StatusTab::Sprint => StatusTab::Spec,
             StatusTab::Spec => StatusTab::Task,
             StatusTab::Task => StatusTab::Queries,
-            StatusTab::Queries => StatusTab::Settings,
+            StatusTab::Queries => StatusTab::Web,
+            StatusTab::Web => StatusTab::Settings,
             StatusTab::Settings => StatusTab::Status,
         }
     }
@@ -99,7 +104,8 @@ impl StatusTab {
             StatusTab::Spec => StatusTab::Sprint,
             StatusTab::Task => StatusTab::Spec,
             StatusTab::Queries => StatusTab::Task,
-            StatusTab::Settings => StatusTab::Queries,
+            StatusTab::Web => StatusTab::Queries,
+            StatusTab::Settings => StatusTab::Web,
         }
     }
 
@@ -116,6 +122,7 @@ impl StatusTab {
                     "Queries".to_string()
                 }
             }
+            StatusTab::Web => "Web".to_string(),
             StatusTab::Settings => "Settings".to_string(),
         }
     }
@@ -133,6 +140,7 @@ impl StatusTab {
                     "Q".to_string()
                 }
             }
+            StatusTab::Web => "Web".to_string(),
             StatusTab::Settings => "Set".to_string(),
         }
     }
@@ -150,7 +158,8 @@ impl StatusTab {
                     "5".to_string()
                 }
             }
-            StatusTab::Settings => "6".to_string(),
+            StatusTab::Web => "6".to_string(),
+            StatusTab::Settings => "7".to_string(),
         }
     }
 }
@@ -187,6 +196,9 @@ pub struct StatusApp {
 
     pub queries_tab: QueriesTab,
     pub settings_tab: crate::status::settings_tab::SettingsTab,
+    pub web_tab: crate::status::web_tab::WebTab,
+    pub web_daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
+    pub web_state_dir: Option<PathBuf>,
     pub platform: String,
 
     pub last_refresh: f64,
@@ -255,6 +267,9 @@ impl StatusApp {
 
             queries_tab,
             settings_tab: crate::status::settings_tab::SettingsTab::default(),
+            web_tab: crate::status::web_tab::WebTab::default(),
+            web_daemon: Arc::new(crate::web_manager::SystemDaemonRunner),
+            web_state_dir: None,
             platform: "linux".to_string(),
 
             last_refresh: 0.0,
@@ -282,6 +297,22 @@ impl StatusApp {
         self.autosave = Some(f);
         self.autosave_seconds = seconds;
         self
+    }
+
+    pub fn with_web_daemon(
+        mut self,
+        daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
+        state_dir: PathBuf,
+    ) -> Self {
+        self.web_daemon = daemon;
+        self.web_state_dir = Some(state_dir);
+        self
+    }
+
+    fn web_state_dir(&self) -> PathBuf {
+        self.web_state_dir
+            .clone()
+            .unwrap_or_else(crate::registry::resolve_state_dir)
     }
 
     pub fn with_now(mut self, now: Arc<dyn Fn() -> f64 + Send + Sync>) -> Self {
@@ -452,22 +483,30 @@ impl StatusApp {
             let _ = layout.reflow(0, 0);
         }
 
-        let state_dir = crate::registry::resolve_state_dir();
-        let cfg_path = crate::web_manager::web_config_path(&state_dir);
-        let _ = crate::web_manager::save_web_config(&cfg_path, &self.settings_tab.web_config);
-
-        let daemon = crate::web_manager::SystemDaemonRunner;
-        use crate::web_manager::DaemonRunner;
-        if self.settings_tab.web_config.enabled {
-            let _ = daemon.start_daemon(&self.settings_tab.web_config, &self.workspace, &state_dir);
-        } else {
-            let _ = daemon.stop_daemon(&state_dir);
-        }
-        self.settings_tab.web_status = daemon.status(&self.settings_tab.web_config, &state_dir);
-
         if let Some(ref autosave) = self.autosave {
             autosave();
         }
+        self.dirty = true;
+    }
+
+    pub fn apply_web_changed(&mut self) {
+        let state_dir = self.web_state_dir();
+        let cfg_path = crate::web_manager::web_config_path(&state_dir);
+        let cfg = self.web_tab.web_config.clone();
+        let _ = crate::web_manager::save_web_config(&cfg_path, &cfg);
+
+        let _ = self.web_daemon.stop_daemon(&state_dir);
+        self.web_tab.web_status = if cfg.enabled {
+            match self
+                .web_daemon
+                .start_daemon(&cfg, &self.workspace, &state_dir)
+            {
+                Ok(_) => self.web_daemon.status(&cfg, &state_dir),
+                Err(err) => crate::web_manager::WebStatus::Error(err.to_string()),
+            }
+        } else {
+            self.web_daemon.status(&cfg, &state_dir)
+        };
         self.dirty = true;
     }
 
@@ -564,7 +603,8 @@ impl StatusApp {
             return;
         }
 
-        if event.modifiers.is_empty() {
+        let web_captures = self.tab == StatusTab::Web && self.web_tab.captures_input();
+        if event.modifiers.is_empty() && !web_captures {
             match event.code {
                 KeyCode::Char('1') => {
                     self.set_tab(StatusTab::Status);
@@ -587,6 +627,10 @@ impl StatusApp {
                     return;
                 }
                 KeyCode::Char('6') => {
+                    self.set_tab(StatusTab::Web);
+                    return;
+                }
+                KeyCode::Char('7') => {
                     self.set_tab(StatusTab::Settings);
                     return;
                 }
@@ -598,6 +642,18 @@ impl StatusApp {
             if self.queries_tab.handle_key(event) {
                 self.action_refresh_now();
             }
+            return;
+        }
+
+        if self.tab == StatusTab::Web {
+            if !web_captures && event.code == KeyCode::Tab {
+                self.set_tab(self.tab.next());
+                return;
+            }
+            if self.web_tab.handle_key(event).is_some() {
+                self.apply_web_changed();
+            }
+            self.dirty = true;
             return;
         }
 
@@ -662,7 +718,7 @@ impl StatusApp {
                 let lines = task_tab::lines(&self.snapshot, view_w);
                 self.task_scroll.handle_key(event.code, lines.len(), view_h);
             }
-            StatusTab::Queries | StatusTab::Settings => {}
+            StatusTab::Queries | StatusTab::Web | StatusTab::Settings => {}
         }
     }
 
@@ -730,6 +786,12 @@ impl StatusApp {
                         if self.queries_tab.handle_mouse(event, self.sessions_area) =>
                     {
                         self.action_refresh_now();
+                    }
+                    StatusTab::Web => {
+                        if self.web_tab.handle_mouse(event, self.body_area).is_some() {
+                            self.apply_web_changed();
+                        }
+                        self.dirty = true;
                     }
                     StatusTab::Settings => {
                         if let Some(action) = self.settings_tab.handle_mouse(event, self.body_area)
@@ -852,6 +914,9 @@ impl StatusApp {
                 }
                 StatusTab::Queries => {
                     self.queries_tab.render(chunks[3], buf);
+                }
+                StatusTab::Web => {
+                    self.web_tab.render(chunks[3], buf);
                 }
                 StatusTab::Settings => {
                     self.settings_tab.render(chunks[3], buf);
@@ -982,7 +1047,7 @@ impl StatusApp {
         match self.tab {
             StatusTab::Status => {
                 items.push(FooterItem::new("Tab", "Switch tabs"));
-                items.push(FooterItem::new("1-5", "Jump"));
+                items.push(FooterItem::new("1-7", "Jump"));
                 items.push(FooterItem::new("↑↓", "Move"));
                 items.push(FooterItem::new(d(GO_TO_AGENT), "Go to agent"));
                 items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
@@ -991,7 +1056,7 @@ impl StatusApp {
             }
             StatusTab::Sprint | StatusTab::Spec | StatusTab::Task => {
                 items.push(FooterItem::new("Tab", "Switch tabs"));
-                items.push(FooterItem::new("1-5", "Jump"));
+                items.push(FooterItem::new("1-7", "Jump"));
                 items.push(FooterItem::new("↑↓", "Scroll"));
                 items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
                 items.push(FooterItem::new(d("Alt+s"), "Status"));
@@ -1000,11 +1065,22 @@ impl StatusApp {
             StatusTab::Queries => {
                 items.push(FooterItem::new("Tab", "Next element"));
                 items.push(FooterItem::new("Shift+Tab", "Prev tab"));
-                items.push(FooterItem::new("1-5", "Jump"));
+                items.push(FooterItem::new("1-7", "Jump"));
                 items.push(FooterItem::new("↑↓", "Move"));
                 items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
                 items.push(FooterItem::new(d("Alt+s"), "Status"));
                 items.push(FooterItem::new(d("Alt+q"), "Queries"));
+            }
+            StatusTab::Web if self.web_tab.editing_port.is_some() => {
+                items.push(FooterItem::new("0-9", "Type port"));
+                items.push(FooterItem::new("Enter", "Save"));
+                items.push(FooterItem::new("Esc", "Cancel"));
+            }
+            StatusTab::Web => {
+                items.push(FooterItem::new("↑↓", "Move"));
+                items.push(FooterItem::new("←→", "Change"));
+                items.push(FooterItem::new("Enter", "Activate"));
+                items.push(FooterItem::new("Tab", "Next tab"));
             }
             StatusTab::Settings => {
                 items.push(FooterItem::new("↑↓", "Move"));
@@ -1086,12 +1162,9 @@ pub fn run_status(workspace: &std::path::Path, config: &Config) -> Result<(), st
     let cfg_path = crate::web_manager::web_config_path(&state_dir);
     let web_cfg = crate::web_manager::load_web_config(&cfg_path).unwrap_or_default();
     let ip_candidates = crate::net_interfaces::discover_ips();
-    app.settings_tab.set_web_config(web_cfg);
-    app.settings_tab.set_ip_candidates(ip_candidates);
-
-    let daemon = crate::web_manager::SystemDaemonRunner;
-    use crate::web_manager::DaemonRunner;
-    app.settings_tab.web_status = daemon.status(&app.settings_tab.web_config, &state_dir);
+    app.web_tab.set_web_config(web_cfg);
+    app.web_tab.set_ip_candidates(ip_candidates);
+    app.web_tab.web_status = app.web_daemon.status(&app.web_tab.web_config, &state_dir);
 
     run_app_in_terminal(&mut app)
 }

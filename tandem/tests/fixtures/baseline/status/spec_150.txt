@@ -1,4 +1,4 @@
-  Status    Sprint  [ Spec ]  Task    Queries    Settings                                                                                             
+  Status    Sprint  [ Spec ]  Task    Queries    Web    Settings                                                                                      
  1/2 tasks · 1 agent · 0 claims · 0 open queries                                                                                                      
  p-001-baseline                                                                                                                                       
  ████░░░░  1 / 2 done                                                                                                                                 
@@ -17,4 +17,4 @@
                                                                                                                                                       
                                                                                                                                                       
                                                                                                                                                       
-Tab Switch tabs  1-5 Jump  ↑↓ Scroll  Alt+r Refresh  Alt+s Status  Alt+q Queries                                                                      
+Tab Switch tabs  1-7 Jump  ↑↓ Scroll  Alt+r Refresh  Alt+s Status  Alt+q Queries                                                                      

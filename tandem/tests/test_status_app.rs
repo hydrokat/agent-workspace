@@ -1023,12 +1023,12 @@ fn test_notifier_uses_non_focus_stealing_message_and_escapes() {
 }
 
 #[test]
-fn test_six_tab_titles_in_order_and_dynamic_queries_count() {
+fn test_seven_tab_titles_in_order_and_dynamic_queries_count() {
     let tmp = TempDir::new();
     let ws = setup_workspace(tmp.path());
     let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None);
 
-    assert_eq!(StatusTab::ALL.len(), 6);
+    assert_eq!(StatusTab::ALL.len(), 7);
     assert_eq!(
         app.tab_bar.titles,
         vec![
@@ -1037,6 +1037,7 @@ fn test_six_tab_titles_in_order_and_dynamic_queries_count() {
             "Spec".to_string(),
             "Task".to_string(),
             "Queries".to_string(),
+            "Web".to_string(),
             "Settings".to_string(),
         ]
     );

@@ -45,7 +45,7 @@ Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the
 ```text
 tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side by side; your ~/.tmux.conf is not loaded)
 ├── window "main":  agent sidebar | main multi-agent grid (responsive breakpoints)
-│                   status window (ratatui): Status, Sprint, Spec, Task, Queries, Settings tabs
+│                   status window (ratatui): Status, Sprint, Spec, Task, Queries, Web, Settings tabs
 └── hidden windows "stash-<role>-<n>": background agents, joined into grid when selected
 ```
 
@@ -59,11 +59,12 @@ The status window provides six tabs:
 - **Spec:** Ongoing spec phases with branch and merge target strategy, phase progress bar, and the task list ordered by task id with `▶` marking In Progress tasks. Shows `next up: ` when no task is in progress.
 - **Task:** Detailed ongoing task inspection with objective checklist progress, owning session and pane id, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to select the owning agent's tmux pane.
 - **Queries:** Questions queued by agents via `coord.py ask`.
-- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode), Remote Web (`tandem-web`) toggle with first-time dependency consent and IP selector, and interactive Reset UI.
+- **Web:** Remote Web (`tandem-web`) on/off with first-time dependency consent, live status, bind IP and source selector, port, `ttyd` terminal toggle, masked auth token (show/hide, regenerate with confirmation), and a full QR code overlay for connecting a phone. Changing any setting while running restarts the server; start errors appear in the pane. The QR needs about 37x19 cells; a smaller pane tells you the size it needs.
+- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode) and interactive Reset UI.
 
 **Navigation:**
 - Cycle tabs with `Tab` and `Shift+Tab`.
-- Jump directly to a tab with number keys `1-6`, click a tab header, or press `Alt+,` for Settings.
+- Jump directly to a tab with number keys `1-7`, click a tab header, or press `Alt+,` for Settings.
 - Scroll tab content using `↑↓`, `PgUp`, `PgDn`, `Home`, `End`, and the mouse wheel.
 - Focus the status window globally with `Alt+s`, jump to Queries with `Alt+q`, or jump to Settings with `Alt+,`.
 
