@@ -19,6 +19,16 @@ import type { IpCandidate } from "@/domain/models/network";
 import type { AllowedTandemAction } from "@/domain/ports/tandem-gateway";
 
 export default function DashboardPage() {
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const sync = () => setIsDesktop(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceEntry | null>(null);
   const [settings, setSettings] = useState<WebSettings | null>(null);
@@ -160,7 +170,7 @@ export default function DashboardPage() {
       {/* Desktop view matches desktopTab; Mobile view matches activeTab */}
       <div className="flex flex-col gap-6">
         {/* Status view: AgentGrid + StatusOverviewPanel */}
-        {((desktopTab === "status" && window?.innerWidth >= 768) || activeTab === "status") && (
+        {((desktopTab === "status" && isDesktop) || activeTab === "status") && (
           <div className="flex flex-col gap-6">
             <AgentGrid
               panes={snapshot?.panes || []}
@@ -172,12 +182,12 @@ export default function DashboardPage() {
         )}
 
         {/* Sprint view */}
-        {((desktopTab === "sprint" && window?.innerWidth >= 768) || (activeTab === "work" && desktopTab === "sprint")) && (
+        {((desktopTab === "sprint" && isDesktop) || (activeTab === "work" && desktopTab === "sprint")) && (
           <SprintProgressPanel sprint={snapshot?.snapshot?.sprint} />
         )}
 
         {/* Spec view */}
-        {((desktopTab === "spec" && window?.innerWidth >= 768) || (activeTab === "work" && desktopTab === "spec")) && (
+        {((desktopTab === "spec" && isDesktop) || (activeTab === "work" && desktopTab === "spec")) && (
           <SpecProgressPanel
             phases={snapshot?.snapshot?.phases}
             ongoingSpecs={snapshot?.snapshot?.ongoing_specs}
@@ -185,7 +195,7 @@ export default function DashboardPage() {
         )}
 
         {/* Task view */}
-        {((desktopTab === "task" && window?.innerWidth >= 768) || (activeTab === "work" && desktopTab === "task")) && (
+        {((desktopTab === "task" && isDesktop) || (activeTab === "work" && desktopTab === "task")) && (
           <TaskProgressPanel
             claims={snapshot?.snapshot?.claims}
             ongoingTasks={snapshot?.snapshot?.ongoing_tasks}
@@ -210,7 +220,7 @@ export default function DashboardPage() {
         )}
 
         {/* Queries tab */}
-        {((desktopTab === "queries" && window?.innerWidth >= 768) || activeTab === "queries") && (
+        {((desktopTab === "queries" && isDesktop) || activeTab === "queries") && (
           <QueriesInboxList
             queries={snapshot?.snapshot?.queries || []}
             onAnswer={handleAnswerQuery}
@@ -218,7 +228,7 @@ export default function DashboardPage() {
         )}
 
         {/* Terminal tab */}
-        {((desktopTab === "terminal" && window?.innerWidth >= 768) || activeTab === "terminal") && (
+        {((desktopTab === "terminal" && isDesktop) || activeTab === "terminal") && (
           <TerminalAttachPanel
             workspaceId={activeWorkspace?.id || "tandem-default"}
             ttydEnabled={Boolean(settings?.ttyd_enabled)}
@@ -226,7 +236,7 @@ export default function DashboardPage() {
         )}
 
         {/* Settings tab */}
-        {((desktopTab === "settings" && window?.innerWidth >= 768) || activeTab === "settings") && settings && (
+        {((desktopTab === "settings" && isDesktop) || activeTab === "settings") && settings && (
           <WebSettingsPanel
             settings={settings}
             candidates={candidates}

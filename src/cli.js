@@ -34,6 +34,7 @@ Options:
   --list-ips             web: list available network IPs and sources
   --status               web: check if tandem-web daemon is running
   --stop                 web: stop tandem-web daemon
+  --no-qr                web: do not print the connect QR code
   --version              Print version
   --help                 Print this help
 
@@ -64,6 +65,7 @@ function parseArgs(argv) {
     bind: null,
     port: null,
     listIps: false,
+    noQr: false,
     status: false,
     stop: false,
   };
@@ -88,6 +90,7 @@ function parseArgs(argv) {
     else if (arg === '--help' || arg === '-h') { flags.help = true; }
     else if (arg === '--list-ips') { flags.listIps = true; }
     else if (arg === '--status') { flags.status = true; }
+    else if (arg === '--no-qr') { flags.noQr = true; }
     else if (arg === '--stop') { flags.stop = true; }
     else if (arg === '--bind' && argv[i + 1]) { flags.bind = argv[++i]; }
     else if (arg.startsWith('--bind=')) { flags.bind = arg.slice(7); }

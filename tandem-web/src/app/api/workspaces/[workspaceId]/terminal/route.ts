@@ -56,7 +56,12 @@ export async function POST(
     }
 
     const port = settings.port + 1;
-    const res = await ttydAdapter.start(workspace.socket, settings.bind_ip, port);
+    const res = await ttydAdapter.start(
+      workspace.socket,
+      settings.bind_ip,
+      port,
+      process.env.TANDEM_AUTH_TOKEN ?? ""
+    );
     return NextResponse.json({ running: true, port: res.port });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

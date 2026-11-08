@@ -97,6 +97,31 @@ pub enum WebStatus {
     Error(String),
 }
 
+pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {
+    if config.bind_ip == "0.0.0.0" || config.bind_ip == "::" {
+        return Err("refusing to bind tandem-web to a wildcard address".to_string());
+    }
+    if config.auth_token.is_empty() {
+        return Err("refusing to start tandem-web without an auth token".to_string());
+    }
+    Ok([
+        "run",
+        "start",
+        "--",
+        "-H",
+        config.bind_ip.as_str(),
+        "-p",
+        config.port.to_string().as_str(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect())
+}
+
+pub fn web_is_built(web_dir: &Path) -> bool {
+    web_dir.join(".next").join("BUILD_ID").exists()
+}
+
 pub trait DaemonRunner {
     fn start_daemon(
         &self,
@@ -162,9 +187,18 @@ impl DaemonRunner for SystemDaemonRunner {
             ));
         }
 
+        if !web_is_built(&web_dir) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "tandem-web is not built; run `agent-workspace web` once to install and build it",
+            ));
+        }
+
+        let args = web_server_args(config)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+
         let child = std::process::Command::new("bun")
-            .arg("run")
-            .arg("start")
+            .args(&args)
             .current_dir(&web_dir)
             .env("PORT", config.port.to_string())
             .env("HOSTNAME", &config.bind_ip)

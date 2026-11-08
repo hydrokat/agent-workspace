@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-11-08
+
+### Security and reliability fixes for `tandem-web` (found in post-merge review of #39)
+
+- **Authentication was never enforced.** The auth gate lived in `src/proxy.ts`, which Next 15 does not load; it is now `src/middleware.ts`. The gate fails closed: with no `TANDEM_AUTH_TOKEN` configured the server returns 503 instead of serving. Unauthenticated pages return 401 instead of redirecting to a nonexistent `/login`. Token comparison is constant-time and edge-runtime safe.
+- **Bind address was ignored.** `next start` does not read `HOSTNAME`, so the dashboard listened on all interfaces. Both launchers now pass `-H <ip> -p <port>` and refuse wildcard addresses.
+- **`agent-workspace web` did not pass the auth token** to the server and generated tokens with `Math.random`. It now uses `crypto.randomBytes` (`tandem_<32 hex>`, shared with the Rust launcher), passes `TANDEM_AUTH_TOKEN`, and regenerates weak tokens found in an existing `web-config.json`.
+- **Optional `ttyd` terminal had no credentials.** It now requires a credential, refuses wildcard binds, and starts with `-c tandem:<token>`.
+- Action arguments beginning with `-` are rejected (CLI flag injection).
+- **tandem-web could not build from a clean install:** `autoprefixer` was missing from `package.json` and the home page referenced `window` during prerender. Both fixed.
+- **Nothing ever installed or built tandem-web.** `agent-workspace web` now runs `bun install --frozen-lockfile` and `bun run build` on first use; the TUI toggle reports a clear error if the build is missing.
+- Removed unused duplicate `infrastructure/gateway` and `infrastructure/registry` modules and the committed `tsconfig.tsbuildinfo`.
+
+### Fixed: sidebar panic on narrow widths
+
+- The tandem sidebar sliced rendered text by byte length, which panics when a row contains a multi-byte glyph (`▶`, `☑`, `↗`) and the pane is narrow. The compact brand (`▶tdm 1.10 ↗`) triggered it as soon as the minor version reached two digits. All five render sites now truncate on character boundaries by display width.
+
+### Connect from your phone with a QR code
+
+- `agent-workspace web` (start, already-running, and `--status`) prints the access URL and a terminal QR code. Scanning it opens the dashboard and exchanges the one-time `?token=` for an HttpOnly cookie. Loopback binds print a hint to use `--bind <vpn-or-lan-ip>` instead. Suppress with `--no-qr`.
+- New dependency: `qrcode-terminal@0.12.0` (loaded lazily; the URL is still printed if it is unavailable).
+- The tandem Settings tab points at `agent-workspace web --status` for the QR code.
+
 ### Remote Multi-Workspace Web Interface (`tandem-web`) (Phase p-007)
 
 - **Remote Multi-Workspace Web Dashboard (`tandem-web`)**:

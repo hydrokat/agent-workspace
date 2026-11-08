@@ -31,7 +31,7 @@ export class RunWorkspaceActionUseCase {
     }
 
     for (const arg of args) {
-      if (!/^[a-zA-Z0-9%_.:-]+$/.test(arg)) {
+      if (!/^[a-zA-Z0-9%_.:][a-zA-Z0-9%_.:-]*$/.test(arg)) {
         throw new Error(`Argument contains invalid characters: '${arg}'`);
       }
     }

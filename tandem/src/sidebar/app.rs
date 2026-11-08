@@ -14,6 +14,17 @@ use crate::sidebar::model::{
     SidebarRow, first_selectable, last_selectable, next_selectable, prev_selectable, rows_from,
 };
 use crate::tmux::SESSION;
+
+pub fn truncate_to_width(text: &str, max_cols: usize) -> &str {
+    let mut cols = 0usize;
+    for (idx, ch) in text.char_indices() {
+        cols += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if cols > max_cols {
+            return &text[..idx];
+        }
+    }
+    text
+}
 use crate::tmux::client::TmuxClient;
 
 pub struct SidebarApp {
@@ -293,8 +304,12 @@ impl SidebarApp {
         if self.brand_focused {
             brand_style = brand_style.add_modifier(Modifier::REVERSED);
         }
-        let max_w = (area.width as usize).min(brand_text.len());
-        buf.set_string(area.x, area.y, &brand_text[..max_w], brand_style);
+        buf.set_string(
+            area.x,
+            area.y,
+            truncate_to_width(&brand_text, area.width as usize),
+            brand_style,
+        );
 
         let max_rows_y = if self.status_msg.is_some() && area.height > 2 {
             area.y + area.height - 1
@@ -315,8 +330,12 @@ impl SidebarApp {
                     let style = Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::BOLD);
-                    let len = text.len().min(area.width as usize);
-                    buf.set_string(area.x + 1, current_y, &text[..len], style);
+                    buf.set_string(
+                        area.x + 1,
+                        current_y,
+                        truncate_to_width(&text, area.width as usize),
+                        style,
+                    );
                 }
                 SidebarRow::Agent {
                     label,
@@ -345,9 +364,12 @@ impl SidebarApp {
                     } else {
                         Style::default()
                     };
-
-                    let len = line.len().min(area.width as usize);
-                    buf.set_string(area.x, current_y, &line[..len], row_style);
+                    buf.set_string(
+                        area.x,
+                        current_y,
+                        truncate_to_width(&line, area.width as usize),
+                        row_style,
+                    );
 
                     if !is_selected
                         && area.width > 4
@@ -364,14 +386,22 @@ impl SidebarApp {
                     } else {
                         Style::default().fg(Color::Cyan)
                     };
-                    let len = line.len().min(area.width as usize);
-                    buf.set_string(area.x, current_y, &line[..len], style);
+                    buf.set_string(
+                        area.x,
+                        current_y,
+                        truncate_to_width(&line, area.width as usize),
+                        style,
+                    );
                 }
                 SidebarRow::Empty => {
                     let line = "  No agents yet.";
                     let style = Style::default().fg(Color::DarkGray);
-                    let len = line.len().min(area.width as usize);
-                    buf.set_string(area.x, current_y, &line[..len], style);
+                    buf.set_string(
+                        area.x,
+                        current_y,
+                        truncate_to_width(line, area.width as usize),
+                        style,
+                    );
                 }
             }
         }
@@ -381,8 +411,12 @@ impl SidebarApp {
         {
             let status_y = area.y + area.height - 1;
             let status_style = Style::default().fg(Color::DarkGray);
-            let len = msg.len().min(area.width as usize);
-            buf.set_string(area.x, status_y, &msg[..len], status_style);
+            buf.set_string(
+                area.x,
+                status_y,
+                truncate_to_width(msg, area.width as usize),
+                status_style,
+            );
         }
     }
 
