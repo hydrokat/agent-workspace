@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-11-08
+
 ### Added: dependency check when enabling tandem-web
 
 - Enabling tandem-web (the tandem **Web** tab, `./run.sh --web` and `agent-workspace web`) now checks that **bun runs on the current host** (not just that a file named `bun` exists) and, when the terminal feature is on, whether `ttyd` is installed.
