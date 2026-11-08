@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-11-09
+
+### Added: tandem-web-core-service, per-agent Interact, single-port proxy, and PWA (Phase p-010)
+
+- **Per-Agent ToS-Safe Interact Button**: Added an `Interact` button to live agent cards in `tandem-web` that focuses the target agent's pane via `tandem show <pane_id>` and streams the genuine agent CLI PTY session over `ttyd` directly into the web UI without wrapping or invoking prohibited tmux commands (`send-keys`, `capture-pane`, `pipe-pane`). Mobile modifier bar dispatches client-side keyboard events directly into the terminal iframe.
+- **tandem-web-core-service Host Singleton**: Promoted `tandem-web` to a single host daemon (`tandem-web-core-service`) managing all workspace sessions across the host machine over one shared URL and port (`http://<bind_ip>:<port>`). First-time setup explicitly informs the user during dependency installation.
+- **Single-Port Reverse Proxy**: Custom HTTP and WebSocket upgrade proxy (`tandem-web/server.ts`) multiplexing Next.js BFF routes and `/api/workspaces/:id/terminal/pty/*` ephemeral loopback `ttyd` streams (`127.0.0.1:<ephemeral_port>`) under `TokenGuard` authentication on a single origin and port.
+- **PWA with QR Scanner & Host IP Reconfiguration**: Standalone PWA manifest and service worker shell with offline host reconfiguration banner, `HostConnectionDialog` with saved host history, and dual-mode `QrScannerView` supporting universal camera capture over HTTP as well as `BarcodeDetector` over Secure Contexts.
+- **Deep-Linked Workspace Switching**: Per-workspace QR codes append `&workspace=<socket>` so scanning any session deep-links directly into that workspace within the shared UI, with `authGate` preserving `?workspace=` across token-to-cookie exchanges.
+- **Auto-Install & Build on Enable**: When enabling web in tandem, everything needed to run (bun, packages, and Next.js production build) is automatically built and installed, with the TUI consent modal making the user aware and asking for agreement before setup begins.
+
+### Fixed
+
+- **Start failure when tandem-web is not built**: `start_daemon` now automatically checks if the production bundle is built and invokes `bun run build` (and `bun install` if needed) rather than failing with an error directing the user to run manual CLI commands.
+- **Cargo fmt compliance**: Resolved rustfmt line-wrapping violation in `web_manager.rs`.
+- **Connect row retry**: Activating the Connect row in an error state now triggers a build and start retry.
+
 ## [1.12.0] — 2026-11-08
 
 ### Added: dependency check when enabling tandem-web
