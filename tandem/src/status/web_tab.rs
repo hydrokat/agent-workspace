@@ -370,6 +370,10 @@ impl WebTab {
     }
 
     fn open_connect(&mut self) -> Option<WebAction> {
+        if matches!(self.web_status, WebStatus::Error(_)) {
+            self.flash("Retrying build and start…");
+            return Some(WebAction::Changed);
+        }
         if !matches!(self.web_status, WebStatus::Running { .. }) {
             self.flash("Enable web first, then scan the QR code");
             return None;
@@ -725,7 +729,7 @@ impl WebTab {
         );
         let lines = [
             (
-                "  Turning on tandem-web-core-service on this host may install",
+                "  Turning on tandem-web-core-service on this host may install and build",
                 bold,
             ),
             (
