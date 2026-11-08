@@ -407,9 +407,8 @@ impl SettingsTab {
         buf.set_string(area.x, area.y, "Grid layout", header_style);
 
         if area.width >= 23 {
-            let is_focused = self.focused_row == QUIT_ROW
-                && !self.confirm_reset
-                && !self.confirm_web_modal;
+            let is_focused =
+                self.focused_row == QUIT_ROW && !self.confirm_reset && !self.confirm_web_modal;
             let quit_style = if is_focused {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
