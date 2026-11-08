@@ -4,7 +4,18 @@ export class TtydProcessAdapter {
   private activeProcess: ChildProcess | null = null;
   private activePort: number | null = null;
 
-  async start(socket: string, bindIp: string, port: number): Promise<{ port: number }> {
+  async start(
+    socket: string,
+    bindIp: string,
+    port: number,
+    credential: string
+  ): Promise<{ port: number }> {
+    if (!credential) {
+      throw new Error("ttyd requires a credential; refusing to start an unauthenticated terminal");
+    }
+    if (bindIp === "0.0.0.0" || bindIp === "::") {
+      throw new Error("ttyd must not bind a wildcard address");
+    }
     if (this.activeProcess) {
       return { port: this.activePort || port };
     }
@@ -16,6 +27,8 @@ export class TtydProcessAdapter {
         port.toString(),
         "-i",
         bindIp,
+        "-c",
+        `tandem:${credential}`,
         "-W",
         "tmux",
         "-L",

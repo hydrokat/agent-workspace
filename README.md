@@ -147,7 +147,7 @@ Start, stop, or check the status of the remote mobile/tablet web interface (`tan
 
 # Or manage the daemon directly
 npx hydrokat/agent-workspace web
-npx hydrokat/agent-workspace web --status
+npx hydrokat/agent-workspace web --status   # prints the URL and a QR code to scan with your phone
 npx hydrokat/agent-workspace web --stop
 npx hydrokat/agent-workspace web --list-ips
 ```
@@ -178,6 +178,7 @@ What it does:
 | `--port <port>` | `web` | Port for tandem-web (default: 3940) |
 | `--status` | `web` | Check running state of tandem-web daemon |
 | `--stop` | `web` | Stop tandem-web daemon |
+| `--no-qr` | `web` | Do not print the connect QR code |
 | `--list-ips` | `web` | List detected host network IPs and source interfaces |
 | `--dry-run` | `init`, `update` | Show what would change without writing anything |
 | `--quiet` | all | Suppress per-file output; show only summaries |

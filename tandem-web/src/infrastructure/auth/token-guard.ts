@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 export const AUTH_COOKIE_NAME = "tandem_auth_token";
 
 export class TokenGuard {
@@ -8,14 +6,16 @@ export class TokenGuard {
       return false;
     }
 
-    const expectedBuf = Buffer.from(expectedToken, "utf8");
-    const candidateBuf = Buffer.from(candidateToken, "utf8");
+    const encoder = new TextEncoder();
+    const expected = encoder.encode(expectedToken);
+    const candidate = encoder.encode(candidateToken);
 
-    if (expectedBuf.length !== candidateBuf.length) {
-      return false;
+    let diff = expected.length ^ candidate.length;
+    const len = Math.max(expected.length, candidate.length);
+    for (let i = 0; i < len; i++) {
+      diff |= (expected[i] ?? 0) ^ (candidate[i] ?? 0);
     }
-
-    return timingSafeEqual(expectedBuf, candidateBuf);
+    return diff === 0;
   }
 
   static extractToken(request: Request): string | null {
