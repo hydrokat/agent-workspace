@@ -384,11 +384,14 @@ pub fn launch(
 ) -> Result<(), anyhow::Error> {
     let layout = crate::commands::make_layout(workspace, config);
     if fresh && layout.exists() {
-        eprintln!(
-            "tandem is already running for this workspace, so --fresh cannot start a fresh state. \
-             Quit it first (Quit and exit from its menu), then run --fresh again."
-        );
-        std::process::exit(2);
+        eprintln!("Ending the running tandem session so --fresh starts from a clean state…");
+        crate::commands::discard_exit(&layout, workspace);
+        for _ in 0..50 {
+            if !layout.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
     if layout.exists() {
         if let Some(notice) = crate::notice::read_notice(workspace)
