@@ -21,5 +21,6 @@ pub mod ui;
 pub mod update_check;
 pub mod updater;
 pub mod versions;
+pub mod web_deps;
 pub mod web_manager;
 pub mod wizard;

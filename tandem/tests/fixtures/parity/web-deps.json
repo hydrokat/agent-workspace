@@ -1,0 +1,620 @@
+[
+  {
+    "name": "macos-arm64-bun-missing",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl"
+      ],
+      "platform": {
+        "os": "macos",
+        "arch": "arm64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": true,
+      "autoInstall": [
+        "bun"
+      ],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": {
+        "name": "install-web-deps.sh",
+        "content": "#!/usr/bin/env bash\n# tandem-web dependency installer for macOS arm64\n# Source: https://bun.com/docs/installation\nset -euo pipefail\n\necho \"==> Installing bun\"\ncurl -fsSL https://bun.com/install | bash\nexport BUN_INSTALL=\"${BUN_INSTALL:-$HOME/.bun}\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\"\nbun --version\n\necho \"==> Done\"\necho \"If bun is not found in a new shell, add these lines to your shell profile:\"\necho '  export BUN_INSTALL=\"$HOME/.bun\"'\necho '  export PATH=\"$BUN_INSTALL/bin:$PATH\"'\n"
+      }
+    }
+  },
+  {
+    "name": "macos-x64-bun-and-ttyd-with-brew",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": true,
+      "hostProblem": null,
+      "tools": [
+        "curl",
+        "brew"
+      ],
+      "platform": {
+        "os": "macos",
+        "arch": "x64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": true,
+      "canAutoInstall": true,
+      "autoInstall": [
+        "bun",
+        "ttyd"
+      ],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash",
+            "brew install oven-sh/bun/bun"
+          ]
+        },
+        {
+          "dep": "ttyd",
+          "commands": [
+            "brew install ttyd"
+          ]
+        }
+      ],
+      "script": {
+        "name": "install-web-deps.sh",
+        "content": "#!/usr/bin/env bash\n# tandem-web dependency installer for macOS x64\n# Source: https://bun.com/docs/installation\nset -euo pipefail\n\necho \"==> Installing bun\"\ncurl -fsSL https://bun.com/install | bash\nexport BUN_INSTALL=\"${BUN_INSTALL:-$HOME/.bun}\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\"\nbun --version\n\necho \"==> Installing ttyd\"\nbrew install ttyd\nttyd --version\n\necho \"==> Done\"\necho \"If bun is not found in a new shell, add these lines to your shell profile:\"\necho '  export BUN_INSTALL=\"$HOME/.bun\"'\necho '  export PATH=\"$BUN_INSTALL/bin:$PATH\"'\n"
+      }
+    }
+  },
+  {
+    "name": "macos-bun-ok-ttyd-missing-no-brew",
+    "facts": {
+      "bun": "ok",
+      "ttyd": false,
+      "needTerminal": true,
+      "hostProblem": null,
+      "tools": [],
+      "platform": {
+        "os": "macos",
+        "arch": "arm64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": false,
+      "bunBroken": false,
+      "ttydMissing": true,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "ttyd",
+          "commands": [
+            "Install Homebrew from https://brew.sh, then run: brew install ttyd"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "macos-12-too-old",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": "macOS 12.7 is older than 13.0",
+      "tools": [
+        "curl"
+      ],
+      "platform": {
+        "os": "macos",
+        "arch": "x64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": false,
+      "unsupportedReason": "macOS 12.7 is older than 13.0",
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "See https://bun.com/docs/installation (macOS 12.7 is older than 13.0)"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "linux-x64-glibc-ready",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl",
+        "unzip"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": true,
+      "autoInstall": [
+        "bun"
+      ],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": {
+        "name": "install-web-deps.sh",
+        "content": "#!/usr/bin/env bash\n# tandem-web dependency installer for Linux x64 (glibc)\n# Source: https://bun.com/docs/installation\nset -euo pipefail\n\necho \"==> Installing bun\"\ncurl -fsSL https://bun.com/install | bash\nexport BUN_INSTALL=\"${BUN_INSTALL:-$HOME/.bun}\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\"\nbun --version\n\necho \"==> Done\"\necho \"If bun is not found in a new shell, add these lines to your shell profile:\"\necho '  export BUN_INSTALL=\"$HOME/.bun\"'\necho '  export PATH=\"$BUN_INSTALL/bin:$PATH\"'\n"
+      }
+    }
+  },
+  {
+    "name": "linux-arm64-musl-ready",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl",
+        "unzip",
+        "apk"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "arm64",
+        "libc": "musl"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": true,
+      "autoInstall": [
+        "bun"
+      ],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": {
+        "name": "install-web-deps.sh",
+        "content": "#!/usr/bin/env bash\n# tandem-web dependency installer for Linux arm64 (musl)\n# Source: https://bun.com/docs/installation\nset -euo pipefail\n\necho \"==> Installing bun\"\ncurl -fsSL https://bun.com/install | bash\nexport BUN_INSTALL=\"${BUN_INSTALL:-$HOME/.bun}\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\"\nbun --version\n\necho \"==> Done\"\necho \"If bun is not found in a new shell, add these lines to your shell profile:\"\necho '  export BUN_INSTALL=\"$HOME/.bun\"'\necho '  export PATH=\"$BUN_INSTALL/bin:$PATH\"'\n"
+      }
+    }
+  },
+  {
+    "name": "linux-x64-missing-unzip-apt",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl",
+        "apt"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "unzip",
+          "commands": [
+            "sudo apt install unzip"
+          ]
+        },
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "linux-x64-missing-curl-and-unzip-dnf",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "dnf"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "curl",
+          "commands": [
+            "sudo dnf install curl"
+          ]
+        },
+        {
+          "dep": "unzip",
+          "commands": [
+            "sudo dnf install unzip"
+          ]
+        },
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "linux-x64-no-package-manager",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "unzip",
+          "commands": [
+            "sudo apt install unzip"
+          ]
+        },
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "linux-x64-no-sse42",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": "CPU lacks SSE4.2 (bun needs Intel Nehalem or AMD Bulldozer or newer)",
+      "tools": [
+        "curl",
+        "unzip"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": false,
+      "unsupportedReason": "CPU lacks SSE4.2 (bun needs Intel Nehalem or AMD Bulldozer or newer)",
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "See https://bun.com/docs/installation (CPU lacks SSE4.2 (bun needs Intel Nehalem or AMD Bulldozer or newer))"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "linux-bun-ok-ttyd-missing-pacman",
+    "facts": {
+      "bun": "ok",
+      "ttyd": false,
+      "needTerminal": true,
+      "hostProblem": null,
+      "tools": [
+        "pacman"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": false,
+      "bunBroken": false,
+      "ttydMissing": true,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "ttyd",
+          "commands": [
+            "sudo pacman -S ttyd"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "linux-bun-broken",
+    "facts": {
+      "bun": "broken",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl",
+        "unzip"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "arm64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": true,
+      "ttydMissing": false,
+      "canAutoInstall": true,
+      "autoInstall": [
+        "bun"
+      ],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "curl -fsSL https://bun.com/install | bash"
+          ]
+        }
+      ],
+      "script": {
+        "name": "install-web-deps.sh",
+        "content": "#!/usr/bin/env bash\n# tandem-web dependency installer for Linux arm64 (glibc)\n# Source: https://bun.com/docs/installation\nset -euo pipefail\n\necho \"==> Installing bun\"\ncurl -fsSL https://bun.com/install | bash\nexport BUN_INSTALL=\"${BUN_INSTALL:-$HOME/.bun}\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\"\nbun --version\n\necho \"==> Done\"\necho \"If bun is not found in a new shell, add these lines to your shell profile:\"\necho '  export BUN_INSTALL=\"$HOME/.bun\"'\necho '  export PATH=\"$BUN_INSTALL/bin:$PATH\"'\n"
+      }
+    }
+  },
+  {
+    "name": "windows-x64-scoop",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "scoop"
+      ],
+      "platform": {
+        "os": "windows",
+        "arch": "x64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": true,
+      "autoInstall": [
+        "bun"
+      ],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "powershell -c \"irm bun.sh/install.ps1|iex\"",
+            "scoop install bun"
+          ]
+        }
+      ],
+      "script": {
+        "name": "install-web-deps.ps1",
+        "content": "# tandem-web dependency installer for Windows x64\n# Source: https://bun.com/docs/installation\n$ErrorActionPreference = 'Stop'\n\nWrite-Host '==> Installing bun'\npowershell -c \"irm bun.sh/install.ps1|iex\"\n& \"$env:USERPROFILE\\.bun\\bin\\bun\" --version\n\nWrite-Host '==> Done'\nWrite-Host 'If bun is not found in a new terminal, add %USERPROFILE%\\.bun\\bin to your user PATH.'\n"
+      }
+    }
+  },
+  {
+    "name": "windows-arm64-ttyd-missing",
+    "facts": {
+      "bun": "ok",
+      "ttyd": false,
+      "needTerminal": true,
+      "hostProblem": null,
+      "tools": [],
+      "platform": {
+        "os": "windows",
+        "arch": "arm64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": false,
+      "bunBroken": false,
+      "ttydMissing": true,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "ttyd",
+          "commands": [
+            "See https://github.com/tsl0922/ttyd"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "freebsd-riscv64-unsupported",
+    "facts": {
+      "bun": "missing",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [],
+      "platform": {
+        "os": "freebsd",
+        "arch": "riscv64",
+        "libc": null
+      }
+    },
+    "expected": {
+      "supported": false,
+      "unsupportedReason": "no official bun build for freebsd riscv64",
+      "bunMissing": true,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [
+        {
+          "dep": "bun",
+          "commands": [
+            "See https://bun.com/docs/installation (no official bun build for freebsd riscv64)"
+          ]
+        }
+      ],
+      "script": null
+    }
+  },
+  {
+    "name": "bun-ok-nothing-to-do",
+    "facts": {
+      "bun": "ok",
+      "ttyd": false,
+      "needTerminal": false,
+      "hostProblem": null,
+      "tools": [
+        "curl",
+        "unzip"
+      ],
+      "platform": {
+        "os": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      }
+    },
+    "expected": {
+      "supported": true,
+      "unsupportedReason": null,
+      "bunMissing": false,
+      "bunBroken": false,
+      "ttydMissing": false,
+      "canAutoInstall": false,
+      "autoInstall": [],
+      "manual": [],
+      "script": null
+    }
+  }
+]

@@ -223,12 +223,19 @@ impl DaemonRunner for SystemDaemonRunner {
         let args = web_server_args(config)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
 
-        let child = std::process::Command::new("bun")
+        let bun = crate::web_deps::locate_bun(&crate::web_deps::DepsEnv::from_process())
+            .unwrap_or_else(|| PathBuf::from("bun"));
+        let tandem_bin = crate::selfexec::self_argv()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "tandem".to_string());
+        let child = std::process::Command::new(bun)
             .args(&args)
             .current_dir(&web_dir)
             .env("PORT", config.port.to_string())
             .env("HOSTNAME", &config.bind_ip)
             .env("TANDEM_AUTH_TOKEN", &config.auth_token)
+            .env("TANDEM_BIN", &tandem_bin)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;

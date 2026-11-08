@@ -1,8 +1,20 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { runCli } from './helpers.js';
+import { cleanup, makeTmp, runCli as runCliIn } from './helpers.js';
 
 describe('agent-workspace web command', () => {
+  let stateRoot;
+  let isolatedEnv;
+
+  before(() => {
+    stateRoot = makeTmp();
+    isolatedEnv = { ...process.env, XDG_STATE_HOME: stateRoot, HOME: stateRoot };
+  });
+
+  after(() => cleanup(stateRoot));
+
+  const runCli = (args, cwd) => runCliIn(args, cwd, isolatedEnv);
+
   it('web --status reports stopped when daemon is not running', async () => {
     const { code, stdout } = await runCli(['web', '--status'], process.cwd());
     assert.equal(code, 0);

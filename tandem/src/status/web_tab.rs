@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKin
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::net_interfaces::IpCandidate;
@@ -21,11 +22,23 @@ const LAST_ROW: usize = ROW_REGENERATE;
 const MIN_PORT: u16 = 1024;
 const CONSENT_MODAL: (u16, u16) = (64, 7);
 const REGEN_MODAL: (u16, u16) = (50, 5);
+const DEPS_MODAL: (u16, u16) = (68, 7);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebAction {
     Changed,
     Regenerated,
+    InstallDeps,
+    ManualInstall,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepsPrompt {
+    pub platform_label: String,
+    pub missing: String,
+    pub script_path: Option<PathBuf>,
+    pub preview: String,
+    pub focus: usize,
 }
 
 pub struct WebTab {
@@ -40,6 +53,9 @@ pub struct WebTab {
     pub token_revealed: bool,
     pub editing_port: Option<String>,
     pub qr_open: bool,
+    pub deps_prompt: Option<DepsPrompt>,
+    pub deps_help: Option<Vec<String>>,
+    pub installing: bool,
     pub flash_message: Option<(String, Instant)>,
 }
 
@@ -57,6 +73,9 @@ impl Default for WebTab {
             token_revealed: false,
             editing_port: None,
             qr_open: false,
+            deps_prompt: None,
+            deps_help: None,
+            installing: false,
             flash_message: None,
         }
     }
@@ -98,9 +117,18 @@ impl WebTab {
             || self.confirm_web_modal
             || self.confirm_regenerate
             || self.qr_open
+            || self.deps_prompt.is_some()
+            || self.deps_help.is_some()
     }
 
     pub fn handle_key(&mut self, key: &KeyEvent) -> Option<WebAction> {
+        if self.deps_help.is_some() {
+            self.deps_help = None;
+            return None;
+        }
+        if self.deps_prompt.is_some() {
+            return self.handle_deps_key(key);
+        }
         if self.qr_open {
             if matches!(
                 key.code,
@@ -140,6 +168,31 @@ impl WebTab {
             KeyCode::Left | KeyCode::Char('h') => self.cycle_option(false),
             KeyCode::Right | KeyCode::Char('l') => self.cycle_option(true),
             KeyCode::Enter | KeyCode::Char(' ') => self.activate(),
+            _ => None,
+        }
+    }
+
+    fn handle_deps_key(&mut self, key: &KeyEvent) -> Option<WebAction> {
+        let prompt = self.deps_prompt.as_mut()?;
+        match key.code {
+            KeyCode::Esc => {
+                self.deps_prompt = None;
+                None
+            }
+            KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Char('h')
+            | KeyCode::Char('l') => {
+                prompt.focus = 1 - prompt.focus;
+                None
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => Some(if prompt.focus == 0 {
+                WebAction::InstallDeps
+            } else {
+                WebAction::ManualInstall
+            }),
             _ => None,
         }
     }
@@ -257,6 +310,10 @@ impl WebTab {
     }
 
     fn toggle_enabled(&mut self) -> Option<WebAction> {
+        if self.installing {
+            self.flash("Installing dependencies, please wait");
+            return None;
+        }
         if self.web_config.enabled {
             self.web_config.enabled = false;
             self.flash("tandem-web disabled");
@@ -354,6 +411,25 @@ impl WebTab {
             return None;
         }
 
+        if self.deps_help.is_some() {
+            self.deps_help = None;
+            return None;
+        }
+
+        if let Some(prompt) = self.deps_prompt.as_ref() {
+            let _ = prompt;
+            let (x, y) = modal_origin(area, DEPS_MODAL);
+            if mouse.row == y + 5 {
+                if (x + 3..=x + 24).contains(&mouse.column) {
+                    return Some(WebAction::InstallDeps);
+                } else if (x + 28..=x + 53).contains(&mouse.column) {
+                    return Some(WebAction::ManualInstall);
+                }
+            }
+            self.deps_prompt = None;
+            return None;
+        }
+
         if self.qr_open {
             self.qr_open = false;
             return None;
@@ -400,7 +476,10 @@ impl WebTab {
             return;
         }
 
-        let modal_open = self.confirm_web_modal || self.confirm_regenerate;
+        let modal_open = self.confirm_web_modal
+            || self.confirm_regenerate
+            || self.deps_prompt.is_some()
+            || self.deps_help.is_some();
         for row in 0..=LAST_ROW {
             let y = area.y + row as u16;
             if y >= area.y + area.height {
@@ -425,7 +504,11 @@ impl WebTab {
             );
         }
 
-        if self.confirm_web_modal {
+        if self.deps_help.is_some() {
+            self.render_deps_help(area, buf);
+        } else if self.deps_prompt.is_some() {
+            self.render_deps_prompt(area, buf);
+        } else if self.confirm_web_modal {
             self.render_consent_modal(area, buf);
         } else if self.confirm_regenerate {
             self.render_regenerate_modal(area, buf);
@@ -458,6 +541,7 @@ impl WebTab {
                 x = badge(buf, x, y, right, "Off", !self.web_config.enabled);
                 x = badge(buf, x, y, right, "On", self.web_config.enabled);
                 let (text, color) = match &self.web_status {
+                    _ if self.installing => ("  ● Installing dependencies…", Color::Yellow),
                     WebStatus::Running { .. } => ("  ● Running", Color::Green),
                     WebStatus::Starting => ("  ● Starting", Color::Yellow),
                     WebStatus::Error(_) => ("  ● Error", Color::Red),
@@ -669,6 +753,84 @@ impl WebTab {
         );
     }
 
+    fn render_deps_prompt(&self, area: Rect, buf: &mut Buffer) {
+        let Some(prompt) = self.deps_prompt.as_ref() else {
+            return;
+        };
+        let (x, y, w, h) = modal_rect(area, DEPS_MODAL);
+        let script = prompt
+            .script_path
+            .as_ref()
+            .map_or("(none)".to_string(), |p| {
+                shorten_left(&p.display().to_string(), (w as usize).saturating_sub(14))
+            });
+        let line1 = format!(
+            "  tandem-web needs {}, which is not installed for {}.",
+            prompt.missing, prompt.platform_label
+        );
+        let line2 = format!("  Script: {script}");
+        let line3 = format!("  Runs:   {}", prompt.preview);
+        let lines = [
+            (
+                line1.as_str(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            (line2.as_str(), Style::default().fg(Color::Yellow)),
+            (line3.as_str(), Style::default().fg(Color::DarkGray)),
+        ];
+        draw_modal(
+            buf,
+            (x, y, w, h),
+            "Dependencies needed",
+            Color::Cyan,
+            &lines,
+        );
+        modal_button(
+            buf,
+            x + 3,
+            y + 5,
+            x + w,
+            "[ Let tandem install ]",
+            Color::Green,
+            prompt.focus == 0,
+        );
+        modal_button(
+            buf,
+            x + 28,
+            y + 5,
+            x + w,
+            "[ I'll install it myself ]",
+            Color::White,
+            prompt.focus == 1,
+        );
+    }
+
+    fn render_deps_help(&self, area: Rect, buf: &mut Buffer) {
+        let Some(help) = self.deps_help.as_ref() else {
+            return;
+        };
+        let width = 96u16.min(area.width);
+        let height = ((help.len() + 3) as u16).min(area.height);
+        let x = area.x + area.width.saturating_sub(width) / 2;
+        let y = area.y + area.height.saturating_sub(height) / 2;
+        let mut lines: Vec<(String, Style)> = help
+            .iter()
+            .map(|l| (format!("  {l}"), Style::default()))
+            .collect();
+        lines.push((
+            "  Press any key to close".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+        let refs: Vec<(&str, Style)> = lines.iter().map(|(t, s)| (t.as_str(), *s)).collect();
+        draw_modal(
+            buf,
+            (x, y, width, height),
+            "Install dependencies yourself",
+            Color::Yellow,
+            &refs,
+        );
+    }
+
     fn render_regenerate_modal(&self, area: Rect, buf: &mut Buffer) {
         let (x, y, w, h) = modal_rect(area, REGEN_MODAL);
         let lines = [(
@@ -695,6 +857,18 @@ impl WebTab {
             self.regen_modal_focus == 1,
         );
     }
+}
+
+fn shorten_left(text: &str, max_cols: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max_cols || max_cols == 0 {
+        return text.to_string();
+    }
+    let keep = max_cols.saturating_sub(1);
+    format!(
+        "…{}",
+        chars[chars.len() - keep..].iter().collect::<String>()
+    )
 }
 
 fn modal_origin(area: Rect, size: (u16, u16)) -> (u16, u16) {

@@ -1093,20 +1093,13 @@ start_web_if_requested() {
     fi
   fi
 
-  if ! command -v bun >/dev/null 2>&1; then
-    if ask "Install bun to run tandem-web remote interface?"; then
-      curl -fsSL https://bun.sh/install | bash || die 4 "Failed to install bun"
-      add_cargo_bin_to_path
-      export PATH="$HOME/.bun/bin:$PATH"
-    else
-      printf 'Skipping tandem-web launch (bun installation declined).\n'
-      return 0
-    fi
-  fi
-
   local web_args=(web)
   [ -z "$WEB_BIND" ] || web_args+=(--bind "$WEB_BIND")
   [ -z "$WEB_PORT" ] || web_args+=(--port "$WEB_PORT")
+  case "$MODE" in
+    yes) web_args+=(--yes) ;;
+    no) web_args+=(--no-install-deps) ;;
+  esac
   if [ "$runner" = "local" ]; then
     node "$ROOT_DIR/bin/agent-workspace.js" "${web_args[@]}" || true
   else
