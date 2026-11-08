@@ -15,6 +15,10 @@
 - **Nothing ever installed or built tandem-web.** `agent-workspace web` now runs `bun install --frozen-lockfile` and `bun run build` on first use; the TUI toggle reports a clear error if the build is missing.
 - Removed unused duplicate `infrastructure/gateway` and `infrastructure/registry` modules and the committed `tsconfig.tsbuildinfo`.
 
+### Fixed: sidebar panic on narrow widths
+
+- The tandem sidebar sliced rendered text by byte length, which panics when a row contains a multi-byte glyph (`▶`, `☑`, `↗`) and the pane is narrow. The compact brand (`▶tdm 1.10 ↗`) triggered it as soon as the minor version reached two digits. All five render sites now truncate on character boundaries by display width.
+
 ### Connect from your phone with a QR code
 
 - `agent-workspace web` (start, already-running, and `--status`) prints the access URL and a terminal QR code. Scanning it opens the dashboard and exchanges the one-time `?token=` for an HttpOnly cookie. Loopback binds print a hint to use `--bind <vpn-or-lan-ip>` instead. Suppress with `--no-qr`.

@@ -238,3 +238,28 @@ fn test_sidebar_brand_activation_and_status_message() {
     let text = buffer_text(term.backend().buffer());
     assert!(text.contains("Could not open the link: https://github.com/hydrokat/agent-workspace"));
 }
+
+#[test]
+fn truncate_to_width_never_splits_a_multibyte_char() {
+    use tandem::sidebar::app::truncate_to_width;
+    assert_eq!(truncate_to_width("▶tdm 1.10 ↗", 14), "▶tdm 1.10 ↗");
+    assert_eq!(truncate_to_width("▶tdm 1.10 ↗", 10), "▶tdm 1.10 ");
+    assert_eq!(truncate_to_width("▶tdm 1.10 ↗", 0), "");
+    assert_eq!(truncate_to_width("abc", 2), "ab");
+    assert_eq!(truncate_to_width("↗↗↗", 2), "↗↗");
+}
+
+#[test]
+fn compact_brand_with_two_digit_minor_version_does_not_panic_at_narrow_widths() {
+    let temp_dir = std::env::temp_dir().join(format!("tandem-test-narrow-{}", std::process::id()));
+    let store = CoordStore::new(temp_dir.join("coord"));
+    let tmux = TmuxClient::with_runner("tandem-test", None, Arc::new(DummyTmuxRunner));
+    let mut app = SidebarApp::new(temp_dir, store, Some(tmux));
+    for width in 1..=30u16 {
+        for focused in [false, true] {
+            app.brand_focused = focused;
+            let mut term = Terminal::new(TestBackend::new(width, 6)).unwrap();
+            term.draw(|f| app.render(f.area(), f.buffer_mut())).unwrap();
+        }
+    }
+}

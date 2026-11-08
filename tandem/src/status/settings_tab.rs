@@ -489,7 +489,8 @@ impl SettingsTab {
             cur_x = render_option_badge(buf, cur_x, enable_y, "On", self.web_config.enabled);
 
             if let WebStatus::Running { ref url, .. } = self.web_status {
-                let status_str = format!("   ● Running on {url}  (QR: agent-workspace web --status)");
+                let status_str =
+                    format!("   ● Running on {url}  (QR: agent-workspace web --status)");
                 buf.set_string(
                     cur_x,
                     enable_y,
