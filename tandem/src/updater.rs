@@ -182,7 +182,7 @@ pub fn run_update(
             out
         };
         result.message = format!(
-            "Workspace updated, but the new tandem binary could not be fetched ({reason}). Quit and run ./run.sh to finish (it will fall back to Python if needed)."
+            "Workspace updated, but the new tandem binary could not be fetched ({reason}). Quit and run ./run.sh to finish (it will build tandem from source if needed)."
         );
         return result;
     }
@@ -198,7 +198,7 @@ pub fn run_update(
 
     if new_self.is_empty() {
         result.message =
-            "Workspace updated, but the new tandem binary could not be fetched (TANDEM_SELF not reported). Quit and run ./run.sh to finish (it will fall back to Python if needed)."
+            "Workspace updated, but the new tandem binary could not be fetched (TANDEM_SELF not reported). Quit and run ./run.sh to finish (it will build tandem from source if needed)."
                 .to_string();
         return result;
     }
@@ -229,7 +229,7 @@ pub fn run_update(
 
     if !in_expected_base || !self_path.is_file() {
         result.message =
-            "Workspace updated, but the new tandem binary could not be fetched (invalid binary path). Quit and run ./run.sh to finish (it will fall back to Python if needed)."
+            "Workspace updated, but the new tandem binary could not be fetched (invalid binary path). Quit and run ./run.sh to finish (it will build tandem from source if needed)."
                 .to_string();
         return result;
     }

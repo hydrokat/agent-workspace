@@ -122,10 +122,10 @@ fn test_answer_conflict_error_when_already_answered() {
 
 #[test]
 fn test_coord_py_interop_round_trip() {
-    let python = match Command::new("python3").arg("--version").output() {
-        Ok(out) if out.status.success() => "python3",
-        _ => return,
-    };
+    if !common::require_tool("python3") {
+        return;
+    }
+    let python = "python3";
 
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let coord_py = manifest_dir

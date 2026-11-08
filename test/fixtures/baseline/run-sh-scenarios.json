@@ -1,0 +1,40 @@
+[
+  {
+    "name": "help-long",
+    "args": [
+      "--help"
+    ],
+    "exitCode": 0,
+    "hasOutput": true
+  },
+  {
+    "name": "help-short",
+    "args": [
+      "-h"
+    ],
+    "exitCode": 0,
+    "hasOutput": true
+  },
+  {
+    "name": "check",
+    "args": [
+      "--check"
+    ],
+    "exitCode": 0,
+    "hasOutput": true
+  },
+  {
+    "name": "answers-missing-value",
+    "args": [
+      "--answers"
+    ],
+    "exitCode": 4,
+    "hasOutput": true
+  },
+  {
+    "name": "bad-runtime",
+    "args": [],
+    "exitCode": 4,
+    "hasOutput": true
+  }
+]

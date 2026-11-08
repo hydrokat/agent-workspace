@@ -1,0 +1,292 @@
+=== SUBCOMMAND: add-agent ===
+add an agent to the running session (opened by the add-agent key)
+
+Usage: add-agent
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: click ===
+dispatch a status-bar or pane-menu click action
+
+Usage: click [ACTION]
+
+Arguments:
+  [ACTION]  action name from the hint bar [default: ""]
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: click-tab ===
+open the agent menu for a clicked column title
+
+Usage: click-tab [OPTIONS] <PANE>
+
+Arguments:
+  <PANE>  pane id (%N format)
+
+Options:
+      --select <SELECT>  pane id of the agent to switch to [default: ""]
+  -h, --help             Print help
+
+
+=== SUBCOMMAND: close-agent ===
+close the focused agent
+
+Usage: close-agent
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: discard-exit ===
+end the session and delete the saved state
+
+Usage: discard-exit
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: equalize ===
+equalize pane split or reset border to default
+
+Usage: equalize [PANE]
+
+Arguments:
+  [PANE]  [default: ""]
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: first-run ===
+open help once on first attach
+
+Usage: first-run
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: focus ===
+focus a column or the status window
+
+Usage: focus <TARGET>
+
+Arguments:
+  <TARGET>  [possible values: planner, implementer, status, queries, sidebar, settings]
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: grid-scroll ===
+scroll the multi-agent grid
+
+Usage: grid-scroll <DELTA>
+
+Arguments:
+  <DELTA>  
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: gridbar ===
+run the grid overflow scrollbar
+
+Usage: gridbar
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: help ===
+show the key help
+
+Usage: help
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: placeholder ===
+empty-column placeholder
+
+Usage: placeholder <ROLE>
+
+Arguments:
+  <ROLE>  
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: quit ===
+detach or quit
+
+Usage: quit
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: quota-feed ===
+Claude Code statusline hook: record quota, then run your own statusline
+
+Usage: quota-feed
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: quota-line ===
+print the quota line shown under the window
+
+Usage: quota-line
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: reflow ===
+re-stack columns for the terminal size
+
+Usage: reflow
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: refresh ===
+redraw tab titles
+
+Usage: refresh
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: reload ===
+restart tandem's own windows on the installed code
+
+Usage: reload
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: reset-layout ===
+reset pane sizes to the defaults
+
+Usage: reset-layout
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: reset-ui ===
+reset UI layout, sizes, grid and sidebar to defaults
+
+Usage: reset-ui
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: restart ===
+restart an exited agent
+
+Usage: restart
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: save-exit ===
+save the session state and end the session
+
+Usage: save-exit
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: select ===
+select an agent or toggle it in the grid
+
+Usage: select [OPTIONS] <TARGET>
+
+Arguments:
+  <TARGET>  
+
+Options:
+      --toggle  
+  -h, --help    Print help
+
+
+=== SUBCOMMAND: show ===
+show an agent in the main window
+
+Usage: show <PANE>
+
+Arguments:
+  <PANE>  pane id (%N format)
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: sidebar ===
+run the agent sidebar
+
+Usage: sidebar
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: status ===
+run the status window
+
+Usage: status
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: tab ===
+switch agent tab in the focused column
+
+Usage: tab <DIRECTION> [NUMBER]
+
+Arguments:
+  <DIRECTION>  [possible values: prev, next, select]
+  [NUMBER]     
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: update ===
+update tandem and the workspace; agents keep running (F10 menu)
+
+Usage: update [OPTIONS]
+
+Options:
+      --yes   do not ask for confirmation
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: whats-new ===
+show what changed in the last update
+
+Usage: whats-new
+
+Options:
+  -h, --help  Print help
+
+

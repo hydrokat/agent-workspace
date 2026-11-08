@@ -4,7 +4,39 @@
 
 - `AGENTS.md` template (Branch Protection): worktrees must be created inside the `worktrees/` directory at the workspace root, created first if missing.
 
-## [1.8.0] — 2026-11-02
+## [1.9.0] — 2026-11-08
+
+### Responsive UI, Sidebar & Multi-Agent Grid (Phase p-006)
+
+- **Dedicated Agent Sidebar (`tandem sidebar`):** Replaces the previous rigid 2-column layout with a left sidebar displaying running agents categorized by role (Planners, Implementers), active conversation status badges (`▶` focused, `●` running, `○` stashed, `✕` exited), question badges, and quick actions (`+ Add agent`, `? Help`).
+- **Multi-Agent Grid View in Main Window:** Select and tile multiple agents simultaneously in the main area.
+  - Press `Enter` on a sidebar row to show the agent alone.
+  - Press `Space` or `Shift+Click` / `Opt+Click` to toggle agents in and out of the multi-agent grid.
+  - Overflow scrollbar (`gridbar`): automatically displays a vertical scrollbar when selected agents exceed visible grid cells; page with `Opt+PgUp` / `Opt+PgDn` or mouse wheel.
+- **Responsive Terminal Breakpoints:** Layouts adapt dynamically to terminal geometry:
+  - **Wide (≥120 cols):** Full sidebar with brand line, role sections, and multi-column grid.
+  - **Medium (80–119 cols):** Compact 14-col sidebar with glyphs and 4-character truncated agent names.
+  - **Narrow (<80 cols) / Short (<20 rows):** Sidebar auto-hides; grid collapses to single-pane view.
+- **Double-Click Border Equalize:** Double-clicking any inner pane border equalizes sibling split dimensions; double-clicking structural borders resets sidebar width or status height. In resize mode (`Ctrl+Opt+z`), press `e` to equalize via keyboard.
+- **Status Window Settings Tab (6th Tab):** Introduces `[6 Settings]` tab (`Alt+,` / `≤` or direct key `6`):
+  - Configure grid columns (`Auto`, `1`–`4`), rows per page (`Auto`, `1`–`3`), fill order (`Row first`, `Column first`), and sidebar mode (`Auto`, `Wide`, `Compact`, `Hidden`).
+  - Interactive **Reset UI** action with confirmation modal (`[ Reset ] [ Cancel ]`) to restore default layout geometry without interrupting running agents.
+  - Preferences persist across restarts in `SavedState` schema v3.
+- **Clickable Brand & Version Link:** Header displays `tandem 1.9.0 ↗` (compact `tdm 1.9 ↗`) linking to `https://github.com/hydrokat/agent-workspace` via OSC 8 terminal hyperlinks and platform browser spawners (`open` / `xdg-open`).
+- **Keymap & Keyboard-Only Navigation:**
+  - `Opt+Up` / `Opt+Down`: Navigate previous/next agent in sidebar order (shown alone).
+  - `Opt+1` / `Opt+2`: Show last planner / last implementer agent.
+  - `Opt+b` (new, macOS `∫`): Focus sidebar (pops up when hidden).
+  - `Opt+,` (new, macOS `≤`): Jump directly to Settings tab.
+  - `Opt+PgUp` / `Opt+PgDn` (new): Scroll multi-agent grid one row.
+  - `Esc`: In sidebar, returns focus immediately to the active agent pane.
+- **Python Runtime Removal:** Deprecated Python runtime completely removed. `TANDEM_RUNTIME=python` is no longer accepted (use `auto`, `binary`, or `source`). All dependencies on `uv` or Python in tandem binaries eliminated.
+- **`run.sh --fresh` Flag:** Starts tandem fresh by wiping all stale sessions, claims, and queries in `.agent-workspace/coordination/` before launching.
+- **Performance Optimizations:**
+  - Dirty-only TUI redraw loop eliminates 90% of idle redraws (0.5 draws/sec idle).
+  - Batched tmux invocations (`\;`) reduce process spawns by up to 88% on build, close, and refresh.
+  - Git mtime caching speeds up snapshot collection by >500x (39ms → 74µs warm).
+- **Intended Behavior Change:** Single-click on a pane title border now focuses the pane rather than popping up the agent menu (resolving double-click equalize ambiguity). Agent menus remain accessible via right-click and the sidebar.
 
 ### Spec Compile Archiving & Guarded Phase Pruning (Phase p-015)
 

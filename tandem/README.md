@@ -14,53 +14,58 @@ Single source: `src/tmux/keys.rs` (the hint bar, help popup, and this table are 
 |---|---|
 | `Alt+h` | open this help |
 | `Ctrl+Alt+n` | add an agent |
-| `Alt+Up` | previous agent in this column |
-| `Alt+Down` | next agent in this column |
+| `Alt+Up` | previous agent (sidebar order), shown alone |
+| `Alt+Down` | next agent (sidebar order), shown alone |
 | `Alt+s` | focus the status window |
 | `Alt+q` | open the Queries tab |
-| `Alt+1` | focus planners |
-| `Alt+2` | focus implementers |
+| `Alt+1` | show last planner |
+| `Alt+2` | show last implementer |
 | `Ctrl+Alt+w` | close the focused agent (asks first) |
 | `Ctrl+Alt+x` | exit menu: save and exit, detach, update tandem, discard |
 | `Ctrl+Alt+r` | restart an exited agent |
 | `Ctrl+Alt+z` | resize mode: arrows resize the focused pane, = resets, Enter exits |
+| `Alt+b` | focus the sidebar (popup when hidden) |
+| `Alt+,` | open Settings (grid, sidebar, Reset UI) |
 
 Mouse works everywhere:
 
+- **Click an agent in the sidebar** to show it alone in the main area.
+- **Shift+click or Opt/Alt+click** an agent (or press `Space` in the sidebar) to add or toggle it in the multi-agent grid.
 - **Click a status-bar hint** to press its keyboard shortcut.
-- **Click a column title** to open a menu of that column's agents (the visible one is marked `▶`) and switch to the one you pick, or choose **New agent**. Clicking "No planners yet…" opens the add-agent wizard. tmux cannot report which tab text was clicked on a pane border, so the menu replaces per-tab clicks.
+- **Double-click any inner border** to equalize sibling pane splits; double-click a structural border to reset sidebar width or status height.
 - **Right-click any pane** to open a context menu: focus, restart (if exited), close, new agent, status/queries, resize, help.
 - **Click a pane** to focus it; **drag a border** to resize; **scroll** to scroll.
 - **Click the update banner** in the Status window to open the "What's new" popup; click **[×]** to dismiss it.
 - When an in-session update offer is shown, click **[Update now]**, **[Later]**, or **[Skip this version]** in the banner.
 
-Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the focused pane, `=` resets to the default sizes, `Enter`/`Esc` leaves resize mode.
+Keyboard resize: `Ctrl+Alt+z`, then arrows (5 columns / 2 rows per press) on the focused pane, `e` equalizes the split, `=` resets to the default sizes, `Enter`/`Esc` leaves resize mode.
 
 ## Layout
 
 ```text
 tmux -L tandem-<workspace hash>  (one socket per workspace, so projects run side by side; your ~/.tmux.conf is not loaded)
-├── window "main":  planner column | implementer column
-│                   status window (ratatui): Status, Sprint, Spec, Task, Queries tabs
-└── hidden windows "stash-<role>-<n>": background agents, swapped into a column when you switch tabs
+├── window "main":  agent sidebar | main multi-agent grid (responsive breakpoints)
+│                   status window (ratatui): Status, Sprint, Spec, Task, Queries, Settings tabs
+└── hidden windows "stash-<role>-<n>": background agents, joined into grid when selected
 ```
 
-Terminals narrower than 100 columns stack the columns vertically, and the status window is kept to at most 40% of a short terminal (you can still drag it larger).
+The layout adapts across responsive breakpoints (Wide ≥120 cols, Medium 80–119 cols, Narrow <80 cols, Short <20 rows). The status window is kept to at most 40% of a short terminal (you can still drag it larger).
 
 ### Status window tabs
 
-The status window provides five tabs:
+The status window provides six tabs:
 - **Status:** Agent sessions, live claims, repository branches and worktrees, and active sprint summary.
 - **Sprint:** Full ongoing sprint details including capacity vs committed effort, task progress bar, days left, and phase progress rows sorted in MoSCoW order.
 - **Spec:** Ongoing spec phases with branch and merge target strategy, phase progress bar, and the task list ordered by task id with `▶` marking In Progress tasks. Shows `next up: ` when no task is in progress.
 - **Task:** Detailed ongoing task inspection with objective checklist progress, owning session and pane id, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to select the owning agent's tmux pane.
 - **Queries:** Questions queued by agents via `coord.py ask`.
+- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode) and interactive Reset UI.
 
 **Navigation:**
 - Cycle tabs with `Tab` and `Shift+Tab`.
-- Jump directly to a tab with number keys `1-5` or by clicking a tab header.
+- Jump directly to a tab with number keys `1-6`, click a tab header, or press `Alt+,` for Settings.
 - Scroll tab content using `↑↓`, `PgUp`, `PgDn`, `Home`, `End`, and the mouse wheel.
-- Focus the status window globally with `Alt+s`, or jump directly to the Queries tab with `Alt+q`.
+- Focus the status window globally with `Alt+s`, jump to Queries with `Alt+q`, or jump to Settings with `Alt+,`.
 
 **What "ongoing" means:**
 - *Ongoing sprint:* The active sprint resolved under `sprints/` whose status is `open` or `locked`.
@@ -73,7 +78,7 @@ The Status tab also shows the **active sprint** when one exists: the last sprint
 
 ## Runtime
 
-tandem is a native Rust binary (ratatui + crossterm) with no Python or other runtime dependency, so launches are instant. `./run.sh` checks for and downloads the verified release binary for your platform; if it is unavailable it builds from the shipped sources with cargo.
+tandem is a native Rust binary (ratatui + crossterm) with zero external runtime dependencies, so launches are instant. `./run.sh` checks for and downloads the verified release binary for your platform; if it is unavailable it builds from the shipped sources with cargo.
 
 ### Supported platforms
 - `linux-x86_64` and `linux-arm64` (static musl binaries, no glibc requirement)
@@ -90,7 +95,7 @@ When the binary is unavailable (not downloadable, checksum mismatch, blocked by 
 - `TANDEM_RUNTIME=auto|binary|source`:
   - `auto` (default): tries the binary first; builds from source if unavailable.
   - `binary`: requires the binary; fails with exit code 4 if unavailable or checksum fails.
-  - `source`: skips the binary and builds with cargo. `python` is a deprecated alias that prints a notice.
+  - `source`: skips the binary and builds with cargo.
 - `TANDEM_RELEASE_BASE`: Base URL for binary archives and `SHA256SUMS` (default: `https://github.com/hydrokat/agent-workspace/releases/download`).
 - `./run.sh --fetch-runtime`: Downloads and verifies the binary runtime non-interactively without launching tandem (exit 0 on success, exit 4 on failure).
 
@@ -109,7 +114,7 @@ tandem keeps `.agent-workspace/tandem-session.json` (owner-only JSON) up to date
 
 The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank (new conversations) / [q]uit** (Enter resumes). If the last save was an autosave, the prompt says tandem did not exit cleanly. Non-interactive: `./run.sh -- --resume` or `--fresh`. A blank start replaces the saved file once the new session autosaves. An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
 
-**Per-workspace builds:** source builds live under `${XDG_STATE_HOME:-~/.local/state}/tandem/build-<slug>`, one per workspace, so parallel workspaces never clobber each other. Leftover `venv` and `venv-*` folders from the Python tandem are removed on the first normal launch.
+**Per-workspace builds:** source builds live under `${XDG_STATE_HOME:-~/.local/state}/tandem/build-<slug>`, one per workspace, so parallel workspaces never clobber each other. Leftover `venv` and `venv-*` folders from retired runtimes are removed on the first normal launch.
 
 **AI state (conversations).** Resuming relaunches each agent with its model and folder and reopens its own conversation, using only documented CLI flags:
 
@@ -185,6 +190,6 @@ Minimum tool versions live in `min-versions.env` (read by `../run.sh` as data, n
 | `state.rs`, `conversations.rs`, `quota.rs` | Saved sessions, conversation IDs, quota feed |
 | `updater.rs`, `update_check.rs`, `notice.rs` | In-session update, version check, what's-new notice |
 
-The golden fixtures in `tests/fixtures/parity/` were captured from the Python tandem 1.5.0 and are frozen.
+The golden fixtures in `tests/fixtures/parity/` were captured from legacy tandem 1.5.0 and are frozen.
 
 `tests/tos_guard.rs` fails the build if code could send keys to or capture output from an AI pane.

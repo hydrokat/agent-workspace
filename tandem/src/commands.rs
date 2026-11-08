@@ -168,6 +168,34 @@ pub fn status_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> L
     }
 }
 
+pub fn sidebar_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> Launch {
+    let mut cmd = self_cmd
+        .map(|s| s.to_vec())
+        .unwrap_or_else(selfexec::self_argv);
+    cmd.push("sidebar".to_string());
+
+    let mut env = HashMap::new();
+    if let Some(ws) = workspace {
+        env.insert(
+            "TANDEM_WORKSPACE".to_string(),
+            ws.to_string_lossy().to_string(),
+        );
+    }
+
+    Launch {
+        argv: cmd,
+        role: "sidebar".to_string(),
+        index: 0,
+        label: "sidebar".to_string(),
+        kind: "own".to_string(),
+        env,
+        cwd: None,
+        session_id: String::new(),
+        spec: String::new(),
+        cli_version: String::new(),
+    }
+}
+
 pub fn coord_dir_for(workspace: &Path, config: &Config) -> PathBuf {
     config
         .coord_dir
@@ -197,65 +225,62 @@ pub fn start(
     let _ = conversations::prepare(&coord_dir);
     let resume = saved.is_some();
 
-    let mut by_role: HashMap<&str, Vec<&AgentSpec>> = HashMap::new();
-    for role in &ROLES {
-        by_role.insert(role, Vec::new());
-    }
-    for s in specs {
-        if let Some(group) = by_role.get_mut(s.role.as_str()) {
-            group.push(s);
-        }
-    }
-
     let claude_dir = Some(config.claude_dir.as_path());
     let coord_str = coord_dir.to_string_lossy();
 
-    let planner_launch = if let Some(first) = by_role["planner"].first() {
-        agent_launch(first, &coord_str, workspace, resume, claude_dir)
-    } else {
-        placeholder_launch("planner", None, Some(workspace))
-    };
+    let sidebar_l = sidebar_launch(None, Some(workspace));
 
-    let implementer_launch = if let Some(first) = by_role["implementer"].first() {
+    let mut ordered_specs: Vec<&AgentSpec> = specs.iter().collect();
+    ordered_specs.sort_by(|a, b| {
+        let role_order = |r: &str| match r {
+            "planner" => 0,
+            "implementer" => 1,
+            _ => 2,
+        };
+        role_order(&a.role)
+            .cmp(&role_order(&b.role))
+            .then(a.index.cmp(&b.index))
+    });
+
+    let main_l = if let Some(first) = ordered_specs.first() {
         agent_launch(first, &coord_str, workspace, resume, claude_dir)
     } else {
-        placeholder_launch("implementer", None, Some(workspace))
+        placeholder_launch("agent", None, Some(workspace))
     };
 
     let status_l = status_launch(None, Some(workspace));
 
     let (cols, rows) = crossterm::terminal::size().unwrap_or((160, 45));
-    layout.build(
-        cols as usize,
-        rows as usize,
-        &planner_launch,
-        &implementer_launch,
-        &status_l,
-    )?;
+    layout.build(cols as usize, rows as usize, &sidebar_l, &main_l, &status_l)?;
 
-    for role in &ROLES {
-        if let Some(group) = by_role.get(role) {
-            for spec in group.iter().skip(1) {
-                let l = agent_launch(spec, &coord_str, workspace, resume, claude_dir);
-                let _ = layout.add_agent(&l, false);
-            }
-        }
+    for spec in ordered_specs.iter().skip(1) {
+        let l = agent_launch(spec, &coord_str, workspace, resume, claude_dir);
+        let _ = layout.add_agent(&l, false);
     }
 
     if let Some(st) = saved {
-        for (role, index) in &st.active {
-            let _ = layout.select(role, *index);
+        let panes = layout.panes().unwrap_or_default();
+        let mut activated = false;
+        for sess in &st.ui.selected {
+            if let Some(target) = panes
+                .iter()
+                .find(|p| p.session == *sess && p.kind == "agent")
+            {
+                let _ = layout.show_pane(&target.id);
+                activated = true;
+                break;
+            }
         }
-        let _ = layout.apply_sizes(
-            st.columns_percent.map(|c| c as usize),
-            st.status_rows.map(|r| r as usize),
-        );
-        let target = if !by_role["planner"].is_empty() {
-            "planner"
-        } else {
-            "implementer"
-        };
-        let _ = layout.focus(target);
+        if !activated {
+            for role in &ROLES {
+                if let Some(idx) = st.active.get(*role) {
+                    let _ = layout.select(role, *idx);
+                    break;
+                }
+            }
+        }
+        let _ = layout.apply_sizes(Some(st.ui.sidebar_cols), Some(st.ui.status_rows));
+        let _ = layout.focus("planner");
     }
 
     autosave(&layout, workspace);
@@ -331,12 +356,10 @@ pub fn tab(
     number: Option<i32>,
 ) {
     let role = own_role(layout, config);
-    if !ROLES.contains(&role.as_str()) {
-        return;
-    }
     match direction {
         crate::cli::TabDirection::Select => {
-            if let Some(num) = number
+            if ROLES.contains(&role.as_str())
+                && let Some(num) = number
                 && num >= 1
             {
                 let _ = layout.select(&role, num as usize);
@@ -358,6 +381,23 @@ pub fn focus(layout: &mut Layout, _config: &Config, target: crate::cli::FocusTar
         }
         crate::cli::FocusTarget::Implementer => {
             let _ = layout.focus("implementer");
+        }
+        crate::cli::FocusTarget::Sidebar => {
+            let _ = layout.focus("sidebar");
+        }
+        crate::cli::FocusTarget::Settings => {
+            let panes = match layout.panes() {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            let status = match panes.iter().find(|p| p.role == "status") {
+                Some(s) => s,
+                None => return,
+            };
+            let _ = layout
+                .client
+                .run_checked(&["select-pane", "-t", &status.id]);
+            let _ = layout.client.send_keys_own(&status.id, &["6"]);
         }
         crate::cli::FocusTarget::Status | crate::cli::FocusTarget::Queries => {
             let panes = match layout.panes() {
@@ -459,14 +499,29 @@ pub fn capture_state(layout: &Layout, clean: bool) -> Result<SavedState, TmuxErr
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
-    Ok(SavedState {
+    let mut state = SavedState::new(
         agents,
         active,
-        columns_percent: cols.map(|c| c as u32),
-        status_rows: rows.map(|r| r as u32),
-        saved_at: now,
-        clean,
-    })
+        cols.map(|c| c as u32),
+        rows.map(|r| r as u32),
+        now,
+    );
+    let visible_agent = panes
+        .iter()
+        .find(|p| p.window == "main" && p.kind == "agent");
+    if let Some(vis) = visible_agent
+        && !vis.session.is_empty()
+    {
+        state.ui.selected = vec![vis.session.clone()];
+    }
+    if let Some(c) = cols {
+        state.ui.sidebar_cols = c;
+    }
+    if let Some(r) = rows {
+        state.ui.status_rows = r;
+    }
+    state.clean = clean;
+    Ok(state)
 }
 
 pub fn save_state(
@@ -604,7 +659,6 @@ pub fn quit_menu(layout: &Layout, workspace: Option<&str>) {
     let launcher = keys::launcher_for(
         self_cmd_refs.as_deref(),
         workspace.or(layout.workspace.as_deref()),
-        layout.python.as_deref(),
     );
     let mut update_label = "Update tandem and workspace".to_string();
     if let Some(ws) = workspace {
@@ -650,15 +704,66 @@ pub fn quit_menu(layout: &Layout, workspace: Option<&str>) {
 
 pub fn reload_ui(layout: &mut Layout, workspace: &Path, _config: &Config) {
     let _ = layout.apply_chrome();
-    let mut launches = HashMap::new();
-    launches.insert("status".to_string(), status_launch(None, Some(workspace)));
-    for r in &ROLES {
+    let panes = layout.panes().unwrap_or_default();
+    let has_sidebar = panes
+        .iter()
+        .any(|p| p.role == "sidebar" && p.window == "main");
+
+    if !has_sidebar {
+        let agent_panes: Vec<PaneInfo> = panes
+            .iter()
+            .filter(|p| p.window == "main" && p.kind == "agent")
+            .cloned()
+            .collect();
+        for p in &agent_panes {
+            let stash_name = format!("stash-{}-{}", p.role, p.index);
+            let _ = layout.client.run_checked(&[
+                "break-pane",
+                "-d",
+                "-s",
+                p.id.as_str(),
+                "-n",
+                &stash_name,
+            ]);
+        }
+        for p in panes.iter().filter(|p| p.window == "main") {
+            let _ = layout
+                .client
+                .run_checked(&["kill-pane", "-t", p.id.as_str()]);
+        }
+        let sidebar_l = sidebar_launch(None, Some(workspace));
+        let status_l = status_launch(None, Some(workspace));
+        let (cols, rows) = crossterm::terminal::size().unwrap_or((160, 45));
+        let main_l = if let Some(first) = agent_panes.first() {
+            Launch::new(
+                vec!["sleep".to_string(), "0".to_string()],
+                &first.role,
+                first.index,
+                &first.label,
+            )
+        } else {
+            placeholder_launch("agent", None, Some(workspace))
+        };
+        let _ = layout.build(cols as usize, rows as usize, &sidebar_l, &main_l, &status_l);
+        if let Some(first) = agent_panes.first() {
+            let _ = layout.show_pane(&first.id);
+        }
+    } else {
+        let mut launches = HashMap::new();
+        launches.insert("status".to_string(), status_launch(None, Some(workspace)));
+        launches.insert("sidebar".to_string(), sidebar_launch(None, Some(workspace)));
         launches.insert(
-            format!("placeholder-{r}"),
-            placeholder_launch(r, None, Some(workspace)),
+            "placeholder-agent".to_string(),
+            placeholder_launch("agent", None, Some(workspace)),
         );
+        for r in &ROLES {
+            launches.insert(
+                format!("placeholder-{r}"),
+                placeholder_launch(r, None, Some(workspace)),
+            );
+        }
+        let _ = layout.respawn_own(&launches);
     }
-    let _ = layout.respawn_own(&launches);
     let _ = layout.refresh();
 }
 
@@ -891,7 +996,6 @@ pub fn first_run(layout: &Layout, config: &Config) {
     let launcher = keys::launcher_for(
         self_cmd_refs.as_deref(),
         config.workspace.as_ref().and_then(|w| w.to_str()),
-        layout.python.as_deref(),
     );
 
     if let Some(ref ws) = config.workspace
@@ -975,11 +1079,7 @@ pub fn click(layout: &mut Layout, config: &Config, action: &str) {
         .self_cmd
         .as_ref()
         .map(|v| v.iter().map(|s| s.as_str()).collect());
-    let launcher = keys::launcher_for(
-        self_cmd_refs.as_deref(),
-        layout.workspace.as_deref(),
-        layout.python.as_deref(),
-    );
+    let launcher = keys::launcher_for(self_cmd_refs.as_deref(), layout.workspace.as_deref());
 
     match action {
         "help" => {
@@ -1010,6 +1110,8 @@ pub fn click(layout: &mut Layout, config: &Config, action: &str) {
         "queries" => focus(layout, config, crate::cli::FocusTarget::Queries),
         "planner" => focus(layout, config, crate::cli::FocusTarget::Planner),
         "implementer" => focus(layout, config, crate::cli::FocusTarget::Implementer),
+        "sidebar" => focus(layout, config, crate::cli::FocusTarget::Sidebar),
+        "settings" => focus(layout, config, crate::cli::FocusTarget::Settings),
         "close-agent" => {
             let close_cmd = keys::run_shell(&launcher, "close-agent");
             let _ = layout.client.run_checked(&[
@@ -1074,11 +1176,7 @@ pub fn click_tab(layout: &mut Layout, _config: &Config, pane_id: &str, select: &
         .self_cmd
         .as_ref()
         .map(|v| v.iter().map(|s| s.as_str()).collect());
-    let launcher = keys::launcher_for(
-        self_cmd_refs.as_deref(),
-        layout.workspace.as_deref(),
-        layout.python.as_deref(),
-    );
+    let launcher = keys::launcher_for(self_cmd_refs.as_deref(), layout.workspace.as_deref());
 
     if !select.is_empty() {
         if let Some(target) = agents.iter().find(|p| p.id == select) {

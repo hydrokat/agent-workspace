@@ -1,4 +1,14 @@
+pub mod golden;
 pub mod parity;
+pub mod tools;
+pub mod topology;
+
+#[allow(unused_imports)]
+pub use golden::assert_golden;
+#[allow(unused_imports)]
+pub use tools::require_tool;
+#[allow(unused_imports)]
+pub use topology::capture_topology;
 
 use std::path::{Path, PathBuf};
 

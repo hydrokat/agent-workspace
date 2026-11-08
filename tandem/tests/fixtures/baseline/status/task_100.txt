@@ -1,0 +1,20 @@
+  Sta    Spr    Spe  [ Tsk ]  Q    Set                                                              
+ 1/2 tasks · 1 agent · 0 claims · 0 open queries                                                    
+ No task is in progress.                                                                            
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+Tab Switch tabs  1-5 Jump  ↑↓ Scroll  Alt+r Refresh  Alt+s Status  Alt+q Queries                    

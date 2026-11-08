@@ -16,7 +16,7 @@ pub const WIZARD_DELETE: &str = "Alt+d";
 pub const WIZARD_FILTER: &str = "Alt+f";
 pub const WIZARD_HELP: &str = "Alt+h";
 
-pub const CLICK_ACTIONS: [&str; 12] = [
+pub const CLICK_ACTIONS: [&str; 14] = [
     "help",
     "add-agent",
     "prev",
@@ -29,9 +29,11 @@ pub const CLICK_ACTIONS: [&str; 12] = [
     "quit",
     "restart",
     "resize",
+    "sidebar",
+    "settings",
 ];
 
-const MACOS_OPTION_CHARS: [(&str, char); 13] = [
+const MACOS_OPTION_CHARS: [(&str, char); 15] = [
     ("h", '\u{02d9}'),
     ("s", '\u{00df}'),
     ("q", '\u{0153}'),
@@ -45,6 +47,8 @@ const MACOS_OPTION_CHARS: [(&str, char); 13] = [
     ("d", '\u{2202}'),
     ("x", '\u{2248}'),
     ("z", '\u{03a9}'),
+    ("b", '\u{222b}'),
+    (",", '\u{2264}'),
 ];
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -81,6 +85,7 @@ fn canonical_base_key(base: &str) -> Result<String, KeyParseError> {
         "tab" => Ok("Tab".to_string()),
         "space" => Ok("Space".to_string()),
         "backspace" => Ok("Backspace".to_string()),
+        "comma" => Ok(",".to_string()),
         _ => {
             if low.starts_with('f') && low.len() > 1 && low[1..].chars().all(|c| c.is_ascii_digit())
             {
@@ -328,7 +333,7 @@ pub fn default_keymap() -> Vec<Binding> {
         Binding::new(
             "Alt+Up",
             "Tabs",
-            "previous agent in this column",
+            "previous agent (sidebar order), shown alone",
             "Prev",
             "run-shell -b \"{tandem} tab prev\"",
         )
@@ -336,7 +341,7 @@ pub fn default_keymap() -> Vec<Binding> {
         Binding::new(
             "Alt+Down",
             "Tabs",
-            "next agent in this column",
+            "next agent (sidebar order), shown alone",
             "Next",
             "run-shell -b \"{tandem} tab next\"",
         )
@@ -360,16 +365,16 @@ pub fn default_keymap() -> Vec<Binding> {
         Binding::new(
             "Alt+1",
             "Columns",
-            "focus planners",
-            "Planners",
+            "show last planner",
+            "Planner",
             "run-shell -b \"{tandem} focus planner\"",
         )
         .unwrap(),
         Binding::new(
             "Alt+2",
             "Columns",
-            "focus implementers",
-            "Implementers",
+            "show last implementer",
+            "Implementer",
             "run-shell -b \"{tandem} focus implementer\"",
         )
         .unwrap(),
@@ -405,6 +410,22 @@ pub fn default_keymap() -> Vec<Binding> {
             "switch-client -T tandem-resize",
         )
         .unwrap(),
+        Binding::new(
+            "Alt+b",
+            "Sidebar",
+            "focus the sidebar (popup when hidden)",
+            "Sidebar",
+            "run-shell -b \"{tandem} focus sidebar\"",
+        )
+        .unwrap(),
+        Binding::new(
+            "Alt+,",
+            "Settings",
+            "open Settings (grid, sidebar, Reset UI)",
+            "Settings",
+            "run-shell -b \"{tandem} focus settings\"",
+        )
+        .unwrap(),
     ]
 }
 
@@ -422,6 +443,8 @@ pub fn action_index(action: &str) -> Option<usize> {
         "quit" => Some(9),
         "restart" => Some(10),
         "resize" => Some(11),
+        "sidebar" | "focus-sidebar" => Some(12),
+        "settings" | "focus-settings" => Some(13),
         _ => None,
     }
 }
@@ -437,8 +460,22 @@ pub fn keymap(env: Option<&HashMap<String, String>>) -> Result<Vec<Binding>, Key
     }
 
     let mut bindings = default_keymap();
-    for part in trimmed.split(',') {
-        let item = part.trim();
+    let raw_parts: Vec<&str> = trimmed.split(',').collect();
+    let mut parts: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < raw_parts.len() {
+        let part = raw_parts[i];
+        if (part.ends_with('+') || part.ends_with('-')) && i + 1 < raw_parts.len() {
+            parts.push(format!("{},{}", part, raw_parts[i + 1]));
+            i += 2;
+        } else {
+            parts.push(part.to_string());
+            i += 1;
+        }
+    }
+
+    for item_str in &parts {
+        let item = item_str.trim();
         if item.is_empty() {
             continue;
         }
@@ -532,16 +569,9 @@ pub fn expand_command(command: &str, launcher: &str) -> String {
         .replace("{tandem}", &dq(launcher))
 }
 
-pub fn launcher_for(
-    self_cmd: Option<&[&str]>,
-    workspace: Option<&str>,
-    python: Option<&str>,
-) -> String {
+pub fn launcher_for(self_cmd: Option<&[&str]>, workspace: Option<&str>) -> String {
     let base = if let Some(cmd) = self_cmd {
         self_command(Some(cmd))
-    } else if let Some(py) = python {
-        let py_cmd = [py, "-m", "tandem"];
-        self_command(Some(&py_cmd))
     } else {
         self_command(None)
     };
@@ -602,10 +632,9 @@ pub fn mouse_commands(
     self_cmd: Option<&[&str]>,
     workspace: Option<&str>,
     _platform: &str,
-    python: Option<&str>,
     km: &[Binding],
 ) -> Vec<Vec<String>> {
-    let launcher = launcher_for(self_cmd, workspace, python);
+    let launcher = launcher_for(self_cmd, workspace);
 
     let click1_status = vec![
         "bind-key".to_string(),
@@ -624,18 +653,27 @@ pub fn mouse_commands(
         mouse3_menu_cmd(&launcher, km),
     ];
 
-    let border_sub = "click-tab #{q:pane_id}";
     let click1_border = vec![
         "bind-key".to_string(),
         "-n".to_string(),
         "MouseDown1Border".to_string(),
-        format!("select-pane -t = ; {}", run_shell(&launcher, border_sub)),
+        "select-pane -t =".to_string(),
+    ];
+    let dclick1_border = vec![
+        "bind-key".to_string(),
+        "-n".to_string(),
+        "DoubleClick1Border".to_string(),
+        format!(
+            "select-pane -t = ; {}",
+            run_shell(&launcher, "equalize #{q:pane_id}")
+        ),
     ];
 
     vec![
         click1_status,
         click3_pane,
         click1_border,
+        dclick1_border,
         vec![
             "unbind-key".to_string(),
             "-q".to_string(),
@@ -657,13 +695,9 @@ pub fn mouse_commands(
     ]
 }
 
-pub fn resize_commands(
-    self_cmd: Option<&[&str]>,
-    workspace: Option<&str>,
-    python: Option<&str>,
-) -> Vec<Vec<String>> {
+pub fn resize_commands(self_cmd: Option<&[&str]>, workspace: Option<&str>) -> Vec<Vec<String>> {
     let stay = format!("switch-client -T {RESIZE_TABLE}");
-    let launcher = launcher_for(self_cmd, workspace, python);
+    let launcher = launcher_for(self_cmd, workspace);
     let bindings = [
         (
             "Left",
@@ -681,6 +715,10 @@ pub fn resize_commands(
         (
             "=",
             format!("{} ; {stay}", run_shell(&launcher, "reset-layout")),
+        ),
+        (
+            "e",
+            format!("{} ; {stay}", run_shell(&launcher, "equalize")),
         ),
         ("Enter", "switch-client -T root".to_string()),
         ("Escape", "switch-client -T root".to_string()),
@@ -704,10 +742,9 @@ pub fn bind_commands(
     self_cmd: Option<&[&str]>,
     workspace: Option<&str>,
     platform: &str,
-    python: Option<&str>,
     km: &[Binding],
 ) -> Vec<Vec<String>> {
-    let launcher = launcher_for(self_cmd, workspace, python);
+    let launcher = launcher_for(self_cmd, workspace);
     let mut result = Vec::new();
 
     for b in km {
@@ -728,6 +765,31 @@ pub fn bind_commands(
             ]);
         }
     }
+
+    result.push(vec![
+        "bind-key".to_string(),
+        "-n".to_string(),
+        "M-PageDown".to_string(),
+        run_shell(&launcher, "grid-scroll 1"),
+    ]);
+    result.push(vec![
+        "bind-key".to_string(),
+        "-n".to_string(),
+        "M-NPage".to_string(),
+        run_shell(&launcher, "grid-scroll 1"),
+    ]);
+    result.push(vec![
+        "bind-key".to_string(),
+        "-n".to_string(),
+        "M-PageUp".to_string(),
+        run_shell(&launcher, "grid-scroll -1"),
+    ]);
+    result.push(vec![
+        "bind-key".to_string(),
+        "-n".to_string(),
+        "M-PPage".to_string(),
+        run_shell(&launcher, "grid-scroll -1"),
+    ]);
 
     result
 }
@@ -769,14 +831,25 @@ pub fn help_lines(platform: &str, km: &[Binding]) -> Vec<String> {
     let d = |raw: &str| display_shortcut(raw, platform).unwrap_or_else(|_| raw.to_string());
     let resize_k = d(&key_for("resize", km));
     let mut lines = vec![
-        "tandem keys (planners = left column, implementers = right column)".to_string(),
+        "tandem keys (agents in sidebar, main grid, status below)".to_string(),
         String::new(),
     ];
     lines.extend(global_help_lines(platform, km));
     lines.push(String::new());
     lines.extend([
+        "Sidebar & Grid".to_string(),
+        format!(
+            "  Grid      {} / {} scroll the grid one row",
+            d("Alt+PgUp"),
+            d("Alt+PgDn")
+        ),
+        format!(
+            "  Equalize  double-click a border, or {} then e",
+            d("Ctrl+Alt+z")
+        ),
+        String::new(),
         "Status & Queries window".to_string(),
-        "  Status    Tab          switch between the Status and Queries tabs".to_string(),
+        "  Status    Tab          switch between tabs (1-6 direct)".to_string(),
         format!("            {:<12} refresh the status now", d(STATUS_REFRESH)),
         format!(
             "            {:<12} go to the highlighted or asking agent's pane",
@@ -802,10 +875,12 @@ pub fn help_lines(platform: &str, km: &[Binding]) -> Vec<String> {
         "            Esc          back or cancel".to_string(),
         String::new(),
         "Mouse".to_string(),
+        format!(
+            "            click agent = show · Shift/{}+click = add to grid · right-click menu",
+            alt_name(platform)
+        ),
+        "            double-click a border to equalize".to_string(),
         "            click a status-bar hint = press its key".to_string(),
-        "            click a column title to pick one of its agents from a menu".to_string(),
-        "            right-click a pane = context menu (focus, restart, close, new agent, …)"
-            .to_string(),
         "            click a pane to focus it; drag a border to resize; scroll wheel scrolls"
             .to_string(),
         format!(

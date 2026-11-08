@@ -46,7 +46,7 @@ impl UpdateBanner {
         } else {
             if let Some(ref client) = self.tmux {
                 let ws_str = self.workspace.to_string_lossy();
-                let launcher = launcher_for(None, Some(&ws_str), None);
+                let launcher = launcher_for(None, Some(&ws_str));
                 let cmd = format!("{launcher} whats-new");
                 let _ =
                     client.run_checked(&["display-popup", "-E", "-w", "70%", "-h", "70%", &cmd]);
@@ -102,7 +102,7 @@ impl OfferBanner {
     pub fn run_update_popup(&self) {
         if let Some(ref client) = self.tmux {
             let ws_str = self.workspace.to_string_lossy();
-            let launcher = launcher_for(None, Some(&ws_str), None);
+            let launcher = launcher_for(None, Some(&ws_str));
             let cmd = format!("{launcher} update --yes");
             let _ = client.run_checked(&["display-popup", "-E", "-w", "80%", "-h", "70%", &cmd]);
         }

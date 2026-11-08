@@ -35,6 +35,7 @@ SOURCE_REUSE=0
 EXP_VER=""
 SLUG=""
 MODE=""
+FRESH=0
 ANSWERS=""
 ANSWERS_SET=0
 CHECK_ONLY=0
@@ -57,12 +58,13 @@ Options:
   --check          Report status only; change nothing, launch nothing.
   --yes            Answer yes to every prompt.
   --no             Answer no to every prompt.
+  --fresh          Clear coordination directory and start tandem fresh.
   --answers y,n,.. Answer prompts in order from a list (automation); missing answers mean no.
   --no-update      Skip the launch-time workspace self-update check.
   -h, --help       Show this help.
 
 Environment:
-  TANDEM_RUNTIME         auto (default), binary, or source (build with cargo; "python" is a deprecated alias).
+  TANDEM_RUNTIME         auto (default), binary, or source (build with cargo).
                          In auto mode a build on this machine only happens after you say yes.
   TANDEM_AUTO_UPDATE=0   Disable launch-time auto-update permanently.
   TANDEM_UPDATE_SPEC     npm package spec to update from (default: hydrokat/agent-workspace).
@@ -84,6 +86,7 @@ parse_args() {
       --check) CHECK_ONLY=1 ;;
       --yes) MODE="yes" ;;
       --no) MODE="no" ;;
+      --fresh) FRESH=1 ;;
       --no-update) NO_UPDATE=1 ;;
       --fetch-runtime) FETCH_RUNTIME=1 ;;
       --answers)
@@ -552,10 +555,6 @@ select_runtime() {
   local target_runtime="${TANDEM_RUNTIME:-auto}"
   case "$target_runtime" in
     auto | binary | source) ;;
-    python)
-      printf 'TANDEM_RUNTIME=python is deprecated; tandem is now built from source with cargo. Use TANDEM_RUNTIME=source.\n' >&2
-      target_runtime="source"
-      ;;
     *) die 4 "Invalid TANDEM_RUNTIME: $target_runtime (must be auto, binary, or source)" ;;
   esac
 
@@ -852,12 +851,153 @@ maybe_update() {
   exec "$ROOT_DIR/run.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
 }
 
-remove_legacy_venvs() {
+remove_retired_runtime_state() {
   local venv
   for venv in "$TANDEM_STATE_DIR"/venv "$TANDEM_STATE_DIR"/venv-*; do
     [ -f "$venv/pyvenv.cfg" ] && rm -rf "$venv"
   done
   return 0
+}
+
+resolve_coord_dir() {
+  if [ -n "${TANDEM_COORD_DIR:-}" ]; then
+    printf '%s\n' "$TANDEM_COORD_DIR"
+  else
+    printf '%s/.agent-workspace/coordination\n' "$ROOT_DIR"
+  fi
+}
+
+collect_coord_files() {
+  local target="$1" entry
+  for entry in "$target"/* "$target"/.*; do
+    case "$entry" in
+      "$target"/\* | "$target"/'.' | "$target"/'..' | "$target"/.gitignore) continue ;;
+    esac
+    if [ -d "$entry" ] && ! [ -L "$entry" ]; then
+      collect_coord_files "$entry"
+    elif [ -f "$entry" ] || [ -L "$entry" ]; then
+      COORD_FILES+=("$entry")
+    fi
+  done
+}
+
+is_tandem_running() {
+  if tmux has-session -t tandem 2>/dev/null; then
+    return 0
+  fi
+  local sock_dir="${TMUX_TMPDIR:-${TMPDIR:-/tmp}}/tmux-$(id -u 2>/dev/null || true)"
+  if [ -d "$sock_dir" ]; then
+    local sock sname
+    for sock in "$sock_dir"/tandem* "$sock_dir"/*; do
+      if [ -S "$sock" ]; then
+        sname="$(basename "$sock")"
+        if tmux -L "$sname" has-session -t tandem 2>/dev/null; then
+          local ws_env pane_path
+          ws_env="$(tmux -L "$sname" show-environment -g -t tandem TANDEM_WORKSPACE 2>/dev/null | cut -d= -f2- || true)"
+          [ -n "$ws_env" ] && [ "$ws_env" = "$ROOT_DIR" ] && return 0
+          pane_path="$(tmux -L "$sname" display-message -p -t tandem '#{pane_current_path}' 2>/dev/null || true)"
+          [ -n "$pane_path" ] && [ "$pane_path" = "$ROOT_DIR" ] && return 0
+        fi
+      fi
+    done
+  fi
+  return 1
+}
+
+add_fresh_passthru() {
+  local has_fresh=0 a
+  for a in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
+    [ "$a" = "--fresh" ] && has_fresh=1
+  done
+  if [ "$has_fresh" -eq 0 ]; then
+    PASSTHRU=("--fresh" ${PASSTHRU[@]+"${PASSTHRU[@]}"})
+  fi
+}
+
+fresh_reset() {
+  [ "$FRESH" -eq 1 ] || return 0
+  local coord_dir
+  coord_dir="$(resolve_coord_dir)"
+
+  [ -L "$coord_dir" ] && die 4 "Refusing to operate on symlinked coordination directory: $coord_dir"
+  [ "$coord_dir" != "/" ] || die 4 "Unsafe coordination directory: $coord_dir"
+  [ -z "${HOME:-}" ] || [ "$coord_dir" != "$HOME" ] || die 4 "Unsafe coordination directory: $coord_dir"
+  [ "$coord_dir" != "$ROOT_DIR" ] || die 4 "Unsafe coordination directory: $coord_dir"
+
+  if [ -n "${TANDEM_COORD_DIR:-}" ]; then
+    [ "$coord_dir" = "$TANDEM_COORD_DIR" ] || die 4 "Coordination directory mismatch: $coord_dir"
+  else
+    case "$coord_dir" in
+      "$ROOT_DIR"/*) ;;
+      *) die 4 "Coordination directory is outside workspace: $coord_dir" ;;
+    esac
+  fi
+
+  local rel_coord="$coord_dir"
+  case "$coord_dir" in
+    "$ROOT_DIR"/*) rel_coord="${coord_dir#"$ROOT_DIR"/}" ;;
+  esac
+
+  if ! [ -e "$coord_dir" ]; then
+    mkdir -m 0700 -p "$coord_dir"
+    local sub
+    for sub in claims conversations queries sessions; do
+      mkdir -m 0700 -p "$coord_dir/$sub"
+    done
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+      printf 'Nothing to clear in %s. (No changes made.)\n' "$rel_coord"
+      return 0
+    fi
+    printf 'Nothing to clear in %s.\n' "$rel_coord"
+    add_fresh_passthru
+    return 0
+  fi
+
+  [ -d "$coord_dir" ] || die 4 "Coordination path is not a directory: $coord_dir"
+
+  COORD_FILES=()
+  collect_coord_files "$coord_dir"
+  local count="${#COORD_FILES[@]}"
+
+  if [ "$CHECK_ONLY" -eq 1 ]; then
+    if [ "$count" -eq 0 ]; then
+      printf 'Nothing to clear in %s. (No changes made.)\n' "$rel_coord"
+    else
+      printf 'Would delete %s files in %s. (No changes made.)\n' "$count" "$rel_coord"
+    fi
+    return 0
+  fi
+
+  if is_tandem_running; then
+    local opt_key="Ctrl+Alt+x"
+    [ "$(uname -s)" = "Darwin" ] && opt_key="Ctrl+Opt+x"
+    die 2 "tandem is running for this workspace. Quit it first ($opt_key → Save and exit), then run ./run.sh --fresh."
+  fi
+
+  if [ "$count" -eq 0 ]; then
+    printf 'Nothing to clear in %s.\n' "$rel_coord"
+    add_fresh_passthru
+    return 0
+  fi
+
+  ask "Fresh start: this deletes $count files in $rel_coord
+(sessions, claims, queries, conversations). Agents' saved session is replaced.
+Continue?" || die 2 "Declined clearing coordination directory."
+
+  local f
+  for f in "${COORD_FILES[@]}"; do
+    rm -f "$f"
+  done
+
+  local s
+  for s in claims conversations queries sessions; do
+    mkdir -m 0700 -p "$coord_dir/$s"
+    chmod 0700 "$coord_dir/$s" 2>/dev/null || true
+  done
+  chmod 0700 "$coord_dir" 2>/dev/null || true
+
+  printf 'Cleared %s files. Starting tandem fresh…\n' "$count"
+  add_fresh_passthru
 }
 
 source_exe_name() {
@@ -934,13 +1074,15 @@ main() {
   done
   report
   if [ "$CHECK_ONLY" -eq 1 ]; then
+    fresh_reset
     local code=0
     check_status_code || code=$?
     exit "$code"
   fi
   confirm_source_build
   act
-  remove_legacy_venvs
+  remove_retired_runtime_state
+  fresh_reset
   if [ "$RUNTIME" = "binary" ]; then
     export TANDEM_SELF="$TANDEM_STATE_DIR/bin/current/tandem/$(binary_exe_name "$SLUG")"
     exec "$TANDEM_SELF" ${PASSTHRU[@]+"${PASSTHRU[@]}"}

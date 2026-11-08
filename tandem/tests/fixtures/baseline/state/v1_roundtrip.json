@@ -1,0 +1,33 @@
+{
+  "active": {
+    "implementer": 2,
+    "planner": 1
+  },
+  "agents": [
+    {
+      "cli": "claude",
+      "conversation": null,
+      "cwd": "/mock/workspace",
+      "index": 1,
+      "model": "opus",
+      "role": "planner",
+      "skip_permissions": false
+    },
+    {
+      "cli": "agy",
+      "conversation": null,
+      "cwd": null,
+      "index": 2,
+      "model": "gemini-3.8-flash-high",
+      "role": "implementer",
+      "skip_permissions": true
+    }
+  ],
+  "clean": true,
+  "layout": {
+    "columns_percent": 45,
+    "status_rows": 8
+  },
+  "saved_at": 1700000000.0,
+  "version": 2
+}

@@ -1,0 +1,21 @@
+Usage: ./run.sh [options] [-- tandem-args...]
+
+Checks git, tmux, claude, and agy (plus cargo when tandem has to be built from source),
+asks before installing or updating anything, then launches tandem from the current directory.
+
+Options:
+  --check          Report status only; change nothing, launch nothing.
+  --yes            Answer yes to every prompt.
+  --no             Answer no to every prompt.
+  --fresh          Clear coordination directory and start tandem fresh.
+  --answers y,n,.. Answer prompts in order from a list (automation); missing answers mean no.
+  --no-update      Skip the launch-time workspace self-update check.
+  -h, --help       Show this help.
+
+Environment:
+  TANDEM_RUNTIME         auto (default), binary, or source (build with cargo).
+                         In auto mode a build on this machine only happens after you say yes.
+  TANDEM_AUTO_UPDATE=0   Disable launch-time auto-update permanently.
+  TANDEM_UPDATE_SPEC     npm package spec to update from (default: hydrokat/agent-workspace).
+
+Any other arguments are passed to tandem.

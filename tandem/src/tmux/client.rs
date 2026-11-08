@@ -176,6 +176,55 @@ impl TmuxClient {
         Ok(res.out)
     }
 
+    pub fn run_batch(&self, commands: &[Vec<String>]) -> std::result::Result<Result, ToSViolation> {
+        if commands.is_empty() {
+            return Ok(Result {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            });
+        }
+        for cmd in commands {
+            if cmd.is_empty() || !ALLOWED.contains(&cmd[0].as_str()) {
+                let first = if cmd.is_empty() {
+                    "(none)"
+                } else {
+                    cmd[0].as_str()
+                };
+                return Err(ToSViolation::SubcommandNotAllowed(first.to_string()));
+            }
+        }
+        let mut argv = vec!["tmux".to_string(), "-L".to_string(), self.socket.clone()];
+        if let Some(ref c) = self.conf {
+            argv.push("-f".to_string());
+            argv.push(c.to_string_lossy().into_owned());
+        }
+        for (i, cmd) in commands.iter().enumerate() {
+            if i > 0 {
+                argv.push(";".to_string());
+            }
+            argv.extend_from_slice(cmd);
+        }
+        Ok(self.runner.run(&argv))
+    }
+
+    pub fn run_batch_checked(
+        &self,
+        commands: &[Vec<String>],
+    ) -> std::result::Result<String, TmuxError> {
+        if commands.is_empty() {
+            return Ok(String::new());
+        }
+        let res = self.run_batch(commands)?;
+        if res.code != 0 {
+            return Err(TmuxError::Failed {
+                cmd: "batch".to_string(),
+                err: res.err.trim().to_string(),
+            });
+        }
+        Ok(res.out)
+    }
+
     pub fn pane_kind(&self, pane_id: &str) -> std::result::Result<String, ToSViolation> {
         if !is_valid_pane_id(pane_id) {
             return Err(ToSViolation::InvalidPaneId);

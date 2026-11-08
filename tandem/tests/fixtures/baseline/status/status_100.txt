@@ -1,0 +1,20 @@
+[ Sta ]  Spr    Spe    Tsk    Q    Set                                                              
+ 1/2 tasks · 1 agent · 0 claims · 0 open queries                                                    
+ In progress                                                                                        
+▶ impl-1  claude·sonnet  p-001 t-002  branch feat/baseline  stale [AGE]                        
+ in-progress.md: p-001-baseline — Task 002: Task Two                                                
+     Ongoing: Implementing                                                                          
+     Next step: Testing                                                                             
+ Sprint, Spec and Task have their own tabs                                                          
+ ▼ Repositories · * main checkout · → linked worktree                                               
+   workspace · not a git repository, or git is unavailable                                          
+                                                                                                    
+   No linked codebases. `init` can link sibling repos into codebase-symlinks/.                      
+ ▶ Conflicts                                                                                        
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+Tab Switch tabs  1-5 Jump  ↑↓ Move  Alt+g Go to agent  Alt+r Refresh  Alt+s Status  Alt+q Queries   

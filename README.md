@@ -276,10 +276,11 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 ## tandem: run several AI CLIs side by side
 
-`init` and `update` install `./run.sh` in your workspace (the tandem project goes under `.agent-workspace/tandem/`). `./run.sh` launches **tandem**: your `claude` and `agy` sessions in one tmux window, planners on the left, implementers on the right, with a status window that shows in-progress work, phase progress, branches/worktrees, and the questions your agents have asked.
+`init` and `update` install `./run.sh` in your workspace (the tandem project goes under `.agent-workspace/tandem/`). `./run.sh` launches **tandem**: your `claude` and `agy` sessions in one tmux window, an agent sidebar on the left, a responsive multi-agent grid in the main area, and a 6-tab status window below.
 
 ```bash
 ./run.sh            # check dependencies, ask before installing/updating, then launch
+./run.sh --fresh    # clear .agent-workspace/coordination/ and start fresh
 ./run.sh --check    # report only; change nothing
 ./run.sh --yes      # answer yes to every prompt (--no answers no)
 ./run.sh --no-update  # skip the launch-time update check this time
@@ -292,14 +293,14 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 |---|---|---|
 | `TANDEM_AUTO_UPDATE` | `1` | Set to `0` to disable the launch-time update check permanently. |
 | `TANDEM_UPDATE_SPEC` | `hydrokat/agent-workspace` | npm package spec to update from; set to `owner/repo` or `owner/repo#ref` when running from a fork. |
-| `TANDEM_RUNTIME` | `auto` | Runtime mode: `auto` (binary first, then build from source with cargo), `binary` (strict binary, exit 4 on failure), or `source` (skip the binary and build with cargo). `python` still works as a deprecated alias of `source`. |
+| `TANDEM_RUNTIME` | `auto` | Runtime mode: `auto` (binary first, then build from source with cargo), `binary` (strict binary, exit 4 on failure), or `source` (skip the binary and build with cargo). |
 | `TANDEM_RELEASE_BASE` | `https://github.com/hydrokat/agent-workspace/releases/download` | Base download URL for release binaries and checksums. |
 
 The version check waits at most 15 seconds, so an offline or slow network delays launch by that long at worst; set `TANDEM_AUTO_UPDATE=0` to skip it entirely. Pass `--no-update` for a single-launch opt-out. `--check` reports an available update without applying it. See `tandem/README.md` for the in-session update check that runs while tandem is open.
 
 ### Runtime: native binary and source fallback
 
-tandem is a native Rust binary, so it starts instantly and needs no Python. `./run.sh` fetches and verifies the binary for your platform from GitHub Releases. If the binary is unavailable (offline, checksum mismatch, blocked by Gatekeeper or `noexec`, or no prebuilt binary for your platform), `run.sh` offers to build tandem on your machine from the shipped sources with `cargo build --release --locked`. It never compiles without your yes (`--yes` answers it for you); declining exits with code 2, and non-interactive runs without `--yes` exit with code 6.
+tandem is a native Rust binary, so it starts instantly. `./run.sh` fetches and verifies the binary for your platform from GitHub Releases. If the binary is unavailable (offline, checksum mismatch, blocked by Gatekeeper or `noexec`, or no prebuilt binary for your platform), `run.sh` offers to build tandem on your machine from the shipped sources with `cargo build --release --locked`. It never compiles without your yes (`--yes` answers it for you); declining exits with code 2, and non-interactive runs without `--yes` exit with code 6.
 
 **Supported platforms:**
 - `linux-x86_64` and `linux-arm64` (static musl binaries; no glibc requirement)
@@ -314,7 +315,7 @@ Binaries are verified against `SHA256SUMS` and cached under `${XDG_STATE_HOME:-~
 - `TANDEM_RUNTIME=auto|binary|source`:
   - `auto` (default): tries the binary first; builds from source if it is unavailable.
   - `binary`: requires the binary; fails with exit code 4 if unavailable or the checksum fails.
-  - `source`: skips the binary and builds with cargo. `python` is a deprecated alias that prints a notice.
+  - `source`: skips the binary and builds with cargo.
 - `TANDEM_RELEASE_BASE`: base URL for binary release archives and `SHA256SUMS`.
 
 `run.sh` needs `git`, `tmux`, at least one of `claude` / `agy`, and, only when tandem has to be built from source, `cargo` (run.sh offers to install it through rustup). Rules:
@@ -329,14 +330,15 @@ macOS (Homebrew) is tested; Linux (apt, dnf) is covered by stubbed tests only.
 
 <p align="center"><img src="docs/images/overview.svg" alt="tandem: planner and implementer columns with a status window and quota line below" width="100%"></p>
 
-The window shows planners on the left, implementers on the right, and the status window below. The status window features five tabs:
+The window shows the agent sidebar on the left, the agent grid in the main area, and the status window below. The status window features six tabs:
 - **Status:** live agent sessions, active claims, repository branches and worktrees, and sprint progress summary.
 - **Sprint:** the active 1-week sprint in full, tracking capacity vs committed days, task progress, days left, and phase progress in MoSCoW order.
 - **Spec:** ongoing specification phases with their branch strategy, progress bar, task status ordered by task id with in-progress marker `▶`, and next-up labelling.
 - **Task:** ongoing tasks with objective checklist progress, owning session and pane, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to jump to the owning agent's tmux pane.
 - **Queries:** non-blocking questions queued by your agents.
+- **Settings:** UI layout preferences (grid columns, rows per page, fill order, sidebar mode) and interactive Reset UI.
 
-Navigate between tabs with `Tab` / `Shift+Tab`, number keys `1-5`, or mouse click; scroll tab content with `↑↓`, `PgUp`/`PgDn`, `Home`/`End`, and the mouse wheel. Global shortcuts `Alt+s` (focus Status window) and `Alt+q` (focus Queries tab) remain available.
+Navigate between tabs with `Tab` / `Shift+Tab`, number keys `1-6`, or mouse click; scroll tab content with `↑↓`, `PgUp`/`PgDn`, `Home`/`End`, and the mouse wheel. Global shortcuts `Alt+s` (focus Status window), `Alt+q` (focus Queries tab), and `Alt+,` (focus Settings tab) remain available.
 
 <p align="center"><img src="docs/images/status.svg" alt="Status tab with repositories, branches and worktrees" width="32%"> <img src="docs/images/task.svg" alt="Task tab with ongoing task, claim, and objective progress" width="32%"> <img src="docs/images/queries.svg" alt="Queries tab with an open question" width="32%"></p>
 

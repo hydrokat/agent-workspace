@@ -184,8 +184,8 @@ fn test_conversations_and_clean_flag_round_trip() {
     let mut active = BTreeMap::new();
     active.insert("planner".to_string(), 1);
 
-    let saved = SavedState {
-        agents: vec![AgentSpec {
+    let mut saved = SavedState::new(
+        vec![AgentSpec {
             cli: "claude".to_string(),
             role: "planner".to_string(),
             model: "opus".to_string(),
@@ -195,11 +195,11 @@ fn test_conversations_and_clean_flag_round_trip() {
             conversation: Some(CONV.to_string()),
         }],
         active,
-        columns_percent: None,
-        status_rows: None,
-        saved_at: 5.0,
-        clean: false,
-    };
+        None,
+        None,
+        5.0,
+    );
+    saved.clean = false;
 
     save(&path, &saved).unwrap();
     assert_eq!(load(&path), Some(saved));
@@ -237,8 +237,8 @@ fn test_bad_conversation_is_dropped_but_agent_kept() {
 
 #[test]
 fn test_describe_flags_unclean_exit_and_saved_chats() {
-    let saved = SavedState {
-        agents: vec![
+    let mut saved = SavedState::new(
+        vec![
             AgentSpec {
                 cli: "claude".to_string(),
                 role: "planner".to_string(),
@@ -258,12 +258,12 @@ fn test_describe_flags_unclean_exit_and_saved_chats() {
                 conversation: None,
             },
         ],
-        active: BTreeMap::new(),
-        columns_percent: None,
-        status_rows: None,
-        saved_at: 0.0,
-        clean: false,
-    };
+        BTreeMap::new(),
+        None,
+        None,
+        0.0,
+    );
+    saved.clean = false;
     let text = describe(&saved, None);
     assert!(text.contains("did not exit cleanly"));
     assert!(text.contains("claude·opus (conversation)"));

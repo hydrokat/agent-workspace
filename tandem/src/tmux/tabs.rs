@@ -90,7 +90,9 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
 }
 
 pub fn visible_pane<'a>(panes: &'a [PaneInfo], role: &str) -> Option<&'a PaneInfo> {
-    panes.iter().find(|p| p.role == role && p.window == "main")
+    panes
+        .iter()
+        .find(|p| p.role == role && (p.window == "main" || p.window == "tandem"))
 }
 
 pub fn agents_in<'a>(panes: &'a [PaneInfo], role: &str) -> Vec<&'a PaneInfo> {
@@ -148,30 +150,66 @@ pub fn tab_text(pane: &PaneInfo) -> String {
     }
 }
 
-pub fn render_title(panes: &[PaneInfo], role: &str) -> String {
-    let name = match role {
-        "planner" => "PLANNERS",
-        "implementer" => "IMPLEMENTERS",
-        other => other,
+pub fn render_agent_title(pane: &PaneInfo) -> String {
+    let active_marker = "#{?pane_active,▶ ,}";
+    let cli = if !pane.spec.is_empty() {
+        serde_json::from_str::<serde_json::Value>(&pane.spec)
+            .ok()
+            .and_then(|v| v.get("cli").and_then(|c| c.as_str()).map(|s| s.to_string()))
+    } else {
+        None
     };
-    let agents = agents_in(panes, role);
-    let head = format!("─ #{{?pane_active,▶ ,}}{name} ─");
-    if agents.is_empty() {
-        let add_key = display_shortcut(&key_for("add-agent", &default_keymap()), "linux")
-            .unwrap_or_else(|_| "Ctrl+Alt+n".to_string());
-        return format!("{head} No {role}s yet. Press {add_key} to add one");
-    }
-    let current = visible_pane(panes, role);
-    let mut tabs = Vec::new();
-    for p in agents {
-        let text = tab_text(p);
-        if let Some(c) = current
-            && p.id == c.id
-        {
-            tabs.push(format!("[{text}]"));
+    let cli_str = cli.unwrap_or_else(|| {
+        if pane.label.contains('·') {
+            pane.label
+                .split('·')
+                .next()
+                .unwrap_or(&pane.label)
+                .to_string()
         } else {
-            tabs.push(text);
+            pane.label.clone()
+        }
+    });
+    let safe_cli = safe_label(&cli_str);
+    let dead_suffix = if pane.dead {
+        match pane.dead_status {
+            Some(s) => format!(" (exited {s})"),
+            None => " (exited ?)".to_string(),
+        }
+    } else {
+        String::new()
+    };
+    format!(
+        "─ {active_marker}{}-{} · {safe_cli}{dead_suffix} ─",
+        pane.role, pane.index
+    )
+}
+
+pub fn render_title(panes: &[PaneInfo], role: &str) -> String {
+    let active_marker = "#{?pane_active,▶ ,}";
+    if role == "sidebar" {
+        return format!("─ {active_marker}tandem {} ↗ ─", env!("CARGO_PKG_VERSION"));
+    }
+    if role == "status" {
+        return format!("─ {active_marker}STATUS ─");
+    }
+    let shown = visible_pane(panes, role)
+        .filter(|p| p.kind == "agent")
+        .or_else(|| {
+            panes
+                .iter()
+                .find(|p| p.window == "main" && p.kind == "agent")
+        });
+    match shown {
+        Some(pane) => render_agent_title(pane),
+        None => {
+            let add_key = display_shortcut(&key_for("add-agent", &default_keymap()), "linux")
+                .unwrap_or_else(|_| "Ctrl+Alt+n".to_string());
+            if role == "agent" || role == "main" || role.is_empty() {
+                format!("─ {active_marker}No agent running. Press {add_key} to add one ─")
+            } else {
+                format!("─ {active_marker}No {role}s yet. Press {add_key} to add one ─")
+            }
         }
     }
-    format!("{head} {}", tabs.join("  "))
 }

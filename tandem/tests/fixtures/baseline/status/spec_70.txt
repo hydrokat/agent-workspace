@@ -1,0 +1,20 @@
+[1] [2] [3] Spec [4] [5] [6]                                          
+ 1/2 tasks · 1 agent · 0 claims · 0 open queries                      
+ p-001-baseline                                                       
+ ████░░░░  1 / 2 done                                                 
+   t-001 Done         Task One                                        
+   t-002 Pending      Task Two                                        
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+Tab Switch tabs  1-5 Jump  ↑↓ Scroll  Alt+r Refresh  Alt+s Status  …  

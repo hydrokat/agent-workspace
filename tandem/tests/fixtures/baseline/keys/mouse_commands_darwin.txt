@@ -1,0 +1,7 @@
+bind-key -n MouseDown1Status run-shell -b "env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem click #{q:mouse_status_range}"
+bind-key -n MouseDown3Pane select-pane -t = ; display-menu -O -T tandem -t = -x M -y M "Focus this pane" f "select-pane -t =" "#{?pane_dead,,-}Restart agent" r "run-shell -b \"env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem restart\"" "Close agent…" w "confirm-before -p 'Close this agent? (y/n)' \"run-shell -b \\\"env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem close-agent\\\"\"" "" "New agent" n "display-popup -E -w 90% -h 90% \"env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem add-agent\"" "Status" s "run-shell -b \"env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem focus status\"" "Queries" q "run-shell -b \"env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem focus queries\"" "Resize mode" z "switch-client -T tandem-resize" "Help" h "display-popup -E -w 70% -h 70% \"env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem help\""
+bind-key -n MouseDown1Border select-pane -t =
+bind-key -n DoubleClick1Border select-pane -t = ; run-shell -b "env TANDEM_WORKSPACE=/mock/workspace /usr/local/bin/tandem equalize #{q:pane_id}"
+unbind-key -q -n MouseDown3Status
+unbind-key -q -n MouseDown3StatusLeft
+unbind-key -q -n M-MouseDown3Pane

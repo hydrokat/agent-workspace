@@ -1,0 +1,12 @@
+{
+  "tandem": {
+    "lines_percent_floor": 82,
+    "baseline_lines_percent": 82.81,
+    "file_lines_percent_min": 80
+  },
+  "installer": {
+    "lines_percent_floor": 83,
+    "baseline_lines_percent": 83.59,
+    "file_lines_percent_min": 80
+  }
+}

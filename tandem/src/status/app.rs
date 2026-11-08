@@ -45,15 +45,17 @@ pub enum StatusTab {
     Spec,
     Task,
     Queries,
+    Settings,
 }
 
 impl StatusTab {
-    pub const ALL: [StatusTab; 5] = [
+    pub const ALL: [StatusTab; 6] = [
         StatusTab::Status,
         StatusTab::Sprint,
         StatusTab::Spec,
         StatusTab::Task,
         StatusTab::Queries,
+        StatusTab::Settings,
     ];
 
     pub fn index(&self) -> usize {
@@ -63,6 +65,7 @@ impl StatusTab {
             StatusTab::Spec => 2,
             StatusTab::Task => 3,
             StatusTab::Queries => 4,
+            StatusTab::Settings => 5,
         }
     }
 
@@ -73,6 +76,7 @@ impl StatusTab {
             2 => Some(StatusTab::Spec),
             3 => Some(StatusTab::Task),
             4 => Some(StatusTab::Queries),
+            5 => Some(StatusTab::Settings),
             _ => None,
         }
     }
@@ -83,17 +87,19 @@ impl StatusTab {
             StatusTab::Sprint => StatusTab::Spec,
             StatusTab::Spec => StatusTab::Task,
             StatusTab::Task => StatusTab::Queries,
-            StatusTab::Queries => StatusTab::Status,
+            StatusTab::Queries => StatusTab::Settings,
+            StatusTab::Settings => StatusTab::Status,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            StatusTab::Status => StatusTab::Queries,
+            StatusTab::Status => StatusTab::Settings,
             StatusTab::Sprint => StatusTab::Status,
             StatusTab::Spec => StatusTab::Sprint,
             StatusTab::Task => StatusTab::Spec,
             StatusTab::Queries => StatusTab::Task,
+            StatusTab::Settings => StatusTab::Queries,
         }
     }
 
@@ -110,6 +116,41 @@ impl StatusTab {
                     "Queries".to_string()
                 }
             }
+            StatusTab::Settings => "Settings".to_string(),
+        }
+    }
+
+    pub fn short_title(&self, open_queries: usize) -> String {
+        match self {
+            StatusTab::Status => "Sta".to_string(),
+            StatusTab::Sprint => "Spr".to_string(),
+            StatusTab::Spec => "Spe".to_string(),
+            StatusTab::Task => "Tsk".to_string(),
+            StatusTab::Queries => {
+                if open_queries > 0 {
+                    format!("Q {open_queries}")
+                } else {
+                    "Q".to_string()
+                }
+            }
+            StatusTab::Settings => "Set".to_string(),
+        }
+    }
+
+    pub fn number_title(&self, open_queries: usize) -> String {
+        match self {
+            StatusTab::Status => "1".to_string(),
+            StatusTab::Sprint => "2".to_string(),
+            StatusTab::Spec => "3".to_string(),
+            StatusTab::Task => "4".to_string(),
+            StatusTab::Queries => {
+                if open_queries > 0 {
+                    "5•".to_string()
+                } else {
+                    "5".to_string()
+                }
+            }
+            StatusTab::Settings => "6".to_string(),
         }
     }
 }
@@ -145,11 +186,13 @@ pub struct StatusApp {
     pub collapsible_conflicts: Collapsible,
 
     pub queries_tab: QueriesTab,
+    pub settings_tab: crate::status::settings_tab::SettingsTab,
     pub platform: String,
 
     pub last_refresh: f64,
     pub last_autosave: f64,
     pub last_update_check: f64,
+    pub dirty: bool,
 
     pub banner_area: Rect,
     pub tabs_area: Rect,
@@ -211,11 +254,13 @@ impl StatusApp {
             collapsible_conflicts: Collapsible::new("Conflicts", false),
 
             queries_tab,
+            settings_tab: crate::status::settings_tab::SettingsTab::default(),
             platform: "linux".to_string(),
 
             last_refresh: 0.0,
             last_autosave: 0.0,
             last_update_check: 0.0,
+            dirty: true,
 
             banner_area: Rect::default(),
             tabs_area: Rect::default(),
@@ -293,6 +338,7 @@ impl StatusApp {
         self.tab_bar = TabBar::from_tabs(&StatusTab::ALL, self.snapshot.open_queries(), self.tab);
 
         self.notifier.notify(&self.snapshot.queries);
+        self.dirty = true;
     }
 
     pub fn maybe_check_update(&mut self) {
@@ -337,6 +383,7 @@ impl StatusApp {
             self.workspace.clone(),
             self.tmux.clone(),
         ));
+        self.dirty = true;
         if let Some(ref tmux) = self.tmux
             && !self.notified_versions.contains(latest)
         {
@@ -359,6 +406,7 @@ impl StatusApp {
     pub fn set_tab(&mut self, tab: StatusTab) {
         self.tab = tab;
         self.tab_bar.selected = tab.index();
+        self.dirty = true;
     }
 
     pub fn action_show_status(&mut self) {
@@ -394,6 +442,33 @@ impl StatusApp {
         {
             let _ = tmux.run_checked(&["select-pane", "-t", pane]);
         }
+    }
+
+    pub fn apply_settings_changed(&mut self) {
+        if let Some(ref tmux) = self.tmux {
+            let layout = crate::tmux::layout::Layout::new(tmux);
+            let _ =
+                layout.save_grid_prefs(&self.settings_tab.prefs, self.settings_tab.sidebar_mode);
+            let _ = layout.reflow(0, 0);
+        }
+        if let Some(ref autosave) = self.autosave {
+            autosave();
+        }
+        self.dirty = true;
+    }
+
+    pub fn action_reset_ui(&mut self) {
+        if let Some(ref tmux) = self.tmux {
+            let layout = crate::tmux::layout::Layout::new(tmux);
+            let _ = layout.reset_ui();
+        }
+        self.settings_tab.prefs = crate::tmux::grid::GridPrefs::default();
+        self.settings_tab.sidebar_mode = crate::tmux::grid::SidebarMode::default();
+        self.set_tab(StatusTab::Status);
+        if let Some(ref autosave) = self.autosave {
+            autosave();
+        }
+        self.dirty = true;
     }
 
     pub fn tick_timers(&mut self) {
@@ -445,6 +520,16 @@ impl StatusApp {
             return;
         }
 
+        let is_alt_comma = (event.code == KeyCode::Char(',')
+            && event
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::ALT))
+            || event.code == KeyCode::Char('≤');
+        if is_alt_comma {
+            self.set_tab(StatusTab::Settings);
+            return;
+        }
+
         if let Ok(k_update) = crossterm_key(UPDATE_NOW_KEY)
             && event.code == k_update.code
             && event.modifiers == k_update.modifiers
@@ -487,6 +572,10 @@ impl StatusApp {
                     self.set_tab(StatusTab::Queries);
                     return;
                 }
+                KeyCode::Char('6') => {
+                    self.set_tab(StatusTab::Settings);
+                    return;
+                }
                 _ => {}
             }
         }
@@ -495,6 +584,25 @@ impl StatusApp {
             if self.queries_tab.handle_key(event) {
                 self.action_refresh_now();
             }
+            return;
+        }
+
+        if self.tab == StatusTab::Settings {
+            if !self.settings_tab.confirm_reset && event.code == KeyCode::Tab {
+                self.set_tab(self.tab.next());
+                return;
+            }
+            if let Some(action) = self.settings_tab.handle_key(event) {
+                match action {
+                    crate::status::settings_tab::SettingsAction::Changed => {
+                        self.apply_settings_changed();
+                    }
+                    crate::status::settings_tab::SettingsAction::ResetUi => {
+                        self.action_reset_ui();
+                    }
+                }
+            }
+            self.dirty = true;
             return;
         }
 
@@ -540,7 +648,7 @@ impl StatusApp {
                 let lines = task_tab::lines(&self.snapshot, view_w);
                 self.task_scroll.handle_key(event.code, lines.len(), view_h);
             }
-            StatusTab::Queries => {}
+            StatusTab::Queries | StatusTab::Settings => {}
         }
     }
 
@@ -608,6 +716,20 @@ impl StatusApp {
                         if self.queries_tab.handle_mouse(event, self.sessions_area) =>
                     {
                         self.action_refresh_now();
+                    }
+                    StatusTab::Settings => {
+                        if let Some(action) = self.settings_tab.handle_mouse(event, self.body_area)
+                        {
+                            match action {
+                                crate::status::settings_tab::SettingsAction::Changed => {
+                                    self.apply_settings_changed();
+                                }
+                                crate::status::settings_tab::SettingsAction::ResetUi => {
+                                    self.action_reset_ui();
+                                }
+                            }
+                            self.dirty = true;
+                        }
                     }
                     _ => {}
                 }
@@ -716,6 +838,9 @@ impl StatusApp {
                 }
                 StatusTab::Queries => {
                     self.queries_tab.render(chunks[3], buf);
+                }
+                StatusTab::Settings => {
+                    self.settings_tab.render(chunks[3], buf);
                 }
             }
         }
@@ -867,6 +992,12 @@ impl StatusApp {
                 items.push(FooterItem::new(d("Alt+s"), "Status"));
                 items.push(FooterItem::new(d("Alt+q"), "Queries"));
             }
+            StatusTab::Settings => {
+                items.push(FooterItem::new("↑↓", "Move"));
+                items.push(FooterItem::new("←→", "Change"));
+                items.push(FooterItem::new("Enter", "Activate"));
+                items.push(FooterItem::new("Tab", "Next tab"));
+            }
         }
         if self.offer_banner.is_some() {
             items.push(FooterItem::new(d(UPDATE_NOW_KEY), "Update now"));
@@ -882,7 +1013,10 @@ impl StatusApp {
         self.action_refresh_now();
         let mut last_tick = std::time::Instant::now();
         loop {
-            terminal.draw(|f| self.render(f.area(), f.buffer_mut()))?;
+            if self.dirty {
+                terminal.draw(|f| self.render(f.area(), f.buffer_mut()))?;
+                self.dirty = false;
+            }
             let timeout = Duration::from_millis(200);
             if crossterm::event::poll(timeout)? {
                 match crossterm::event::read()? {
@@ -895,9 +1029,14 @@ impl StatusApp {
                             break;
                         }
                         self.handle_key(&key);
+                        self.dirty = true;
                     }
                     crossterm::event::Event::Mouse(mouse) => {
                         self.handle_mouse(&mouse);
+                        self.dirty = true;
+                    }
+                    crossterm::event::Event::Resize(..) => {
+                        self.dirty = true;
                     }
                     _ => {}
                 }

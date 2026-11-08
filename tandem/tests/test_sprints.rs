@@ -486,11 +486,7 @@ fn compact_mode_keeps_the_sprint_token() {
 }
 
 fn python3() -> bool {
-    Command::new("python3")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    common::require_tool("python3")
 }
 
 fn sprints_py(ws: &Path, args: &[&str]) -> Option<serde_json::Value> {

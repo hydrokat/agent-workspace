@@ -25,6 +25,13 @@ case "$name" in
       upgrade) bump "$2"; exit 0;;
       outdated) [ -f "$STATE/brew.outdated.fail" ] && exit 1; [ -f "$STATE/outdated" ] && cat "$STATE/outdated"; exit 0;;
     esac;;
+  tmux)
+    case "$*" in
+      *has-session*)
+        if [ -f "$STATE/tmux.running" ]; then exit 0; fi
+        exit 1
+        ;;
+    esac;;
   sudo) exec "$@";;
   pacman)
     case "$1" in
@@ -924,14 +931,16 @@ describe('run.sh binary runtime selection', () => {
     assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
   });
 
-  it('keeps TANDEM_RUNTIME=python working as a deprecated alias of source', async () => {
+  it('rejects TANDEM_RUNTIME=python like any unknown runtime', async () => {
     const env = setup();
-    makeCachedBinary(env);
     const res = await run(env, [], { extraEnv: { TANDEM_RUNTIME: 'python' } });
-    assert.equal(res.code, 0);
-    assert.match(res.stderr, /TANDEM_RUNTIME=python is deprecated/);
-    assert.match(res.stdout, /runtime: source/);
-    assert.match(res.stdout, /TANDEM-SOURCE-RAN/);
+    assert.equal(res.code, 4);
+    assert.match(res.stderr, /must be auto, binary, or source/);
+  });
+
+  it('./run.sh --help contains no references to python', () => {
+    const out = execFileSync(join(ROOT, 'run.sh'), ['--help'], { encoding: 'utf8' });
+    assert.doesNotMatch(out, /python/i);
   });
 
   it('rejects an unknown TANDEM_RUNTIME value', async () => {
@@ -1022,5 +1031,145 @@ describe('run.sh Windows (MSYS2/Git Bash) support', () => {
     assert.equal(res.code, 0);
     assert.match(res.stdout, /runtime: binary 1\.4\.0 \(linux-x86_64\)/);
     assert.match(res.stdout, /TANDEM-BINARY-RAN/);
+  });
+});
+
+describe('run.sh --fresh', () => {
+  function setupCoord(env) {
+    const coord = join(env.pkg, '.agent-workspace', 'coordination');
+    for (const sub of ['claims', 'conversations', 'queries', 'sessions']) {
+      mkdirSync(join(coord, sub), { recursive: true });
+    }
+    writeFileSync(join(coord, '.gitignore'), '*\n!.gitignore\n');
+    writeFileSync(join(coord, '.DS_Store'), 'junk');
+    writeFileSync(join(coord, 'extra.txt'), 'extra');
+    writeFileSync(join(coord, 'claims', 'c-1.json'), '{"task":"t-1"}');
+    writeFileSync(join(coord, 'conversations', 'conv.log'), 'log data');
+    writeFileSync(join(coord, 'queries', 'q-1.json'), '{"q":"help?"}');
+    writeFileSync(join(coord, 'sessions', 's-1.json'), '{"sess":"impl"}');
+    return coord;
+  }
+
+  it('removes files under coordination dir and keeps subdirs plus .gitignore', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Cleared 6 files/);
+    assert.ok(existsSync(join(coord, '.gitignore')), '.gitignore must be kept');
+    assert.ok(!existsSync(join(coord, '.DS_Store')), '.DS_Store must be deleted');
+    assert.ok(!existsSync(join(coord, 'extra.txt')), 'extra.txt must be deleted');
+    assert.ok(!existsSync(join(coord, 'claims', 'c-1.json')), 'claim file deleted');
+    assert.ok(!existsSync(join(coord, 'conversations', 'conv.log')), 'conversation deleted');
+    assert.ok(!existsSync(join(coord, 'queries', 'q-1.json')), 'query deleted');
+    assert.ok(!existsSync(join(coord, 'sessions', 's-1.json')), 'session deleted');
+    for (const sub of ['claims', 'conversations', 'queries', 'sessions']) {
+      assert.ok(existsSync(join(coord, sub)), `subdir ${sub} must be kept`);
+    }
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=--fresh/);
+  });
+
+  it('forwards --fresh to tandem exactly once even if passed in options', async () => {
+    const env = setup();
+    setupCoord(env);
+    const r = await run(env, ['--fresh', '--yes', '--', '--fresh']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=--fresh\n/);
+  });
+
+  it('declined with --no exits 2 and deletes nothing', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    const r = await run(env, ['--fresh', '--no']);
+    assert.equal(r.code, 2, r.out);
+    assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file still exists');
+  });
+
+  it('declined with --answers n exits 2 and deletes nothing', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    const r = await run(env, ['--fresh', '--answers', 'n']);
+    assert.equal(r.code, 2, r.out);
+    assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file still exists');
+  });
+
+  it('non-interactive without --yes exits 6 and deletes nothing', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    const r = await run(env, ['--fresh']);
+    assert.equal(r.code, 6, r.out);
+    assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file still exists');
+  });
+
+  it('--check reports would delete and does not modify files', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    const r = await run(env, ['--fresh', '--check']);
+    assert.match(r.out, /Would delete 6 files in \.agent-workspace\/coordination/);
+    assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file untouched');
+  });
+
+  it('refuses to clear when tandem is running and exits 2', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    env.mark('tmux.running');
+    const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /tandem is running for this workspace/);
+    assert.match(r.out, /Quit it first/);
+    assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file untouched');
+  });
+
+  it('handles empty coordination directory (nothing to clear)', async () => {
+    const env = setup();
+    const coord = join(env.pkg, '.agent-workspace', 'coordination');
+    mkdirSync(join(coord, 'claims'), { recursive: true });
+    writeFileSync(join(coord, '.gitignore'), '*\n!.gitignore\n');
+    const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Nothing to clear/);
+  });
+
+  it('creates missing coordination directory and reports nothing to clear', async () => {
+    const env = setup();
+    const coord = join(env.pkg, '.agent-workspace', 'coordination');
+    if (existsSync(coord)) rmSync(coord, { recursive: true, force: true });
+    const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Nothing to clear/);
+    assert.ok(existsSync(coord), 'coordination directory created');
+  });
+
+  it('rejects symlinked coordination directory with exit 4', async () => {
+    const env = setup();
+    const outside = join(env.base, 'outside-coord');
+    mkdirSync(outside, { recursive: true });
+    const coord = join(env.pkg, '.agent-workspace', 'coordination');
+    mkdirSync(dirname(coord), { recursive: true });
+    if (existsSync(coord)) rmSync(coord, { recursive: true, force: true });
+    symlinkSync(outside, coord);
+    const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 4, r.out);
+  });
+
+  it('honors TANDEM_COORD_DIR', async () => {
+    const env = setup();
+    const custom = join(env.base, 'custom-coord');
+    for (const sub of ['claims', 'conversations', 'queries', 'sessions']) {
+      mkdirSync(join(custom, sub), { recursive: true });
+    }
+    writeFileSync(join(custom, '.gitignore'), '*\n');
+    writeFileSync(join(custom, 'claims', 'custom.json'), '{}');
+    const r = await run(env, ['--fresh', '--yes'], { extraEnv: { TANDEM_COORD_DIR: custom } });
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!existsSync(join(custom, 'claims', 'custom.json')));
+    assert.ok(existsSync(join(custom, '.gitignore')));
+  });
+
+  it('--help documents --fresh', async () => {
+    const env = setup();
+    const r = await run(env, ['--help']);
+    assert.equal(r.code, 0);
+    assert.match(r.out, /--fresh/);
   });
 });
