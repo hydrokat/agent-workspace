@@ -236,3 +236,48 @@ fn test_discover_ips_fallback_guarantees_localhost() {
     assert_eq!(discovered[0], default_localhost_candidate(true));
     assert!(discovered[0].preferred);
 }
+
+#[test]
+fn test_network_source_as_str() {
+    assert_eq!(NetworkSource::Tailscale.as_str(), "tailscale");
+    assert_eq!(NetworkSource::WireGuard.as_str(), "wireguard");
+    assert_eq!(NetworkSource::ZeroTier.as_str(), "zerotier");
+    assert_eq!(NetworkSource::Vpn.as_str(), "vpn");
+    assert_eq!(NetworkSource::Lan.as_str(), "lan");
+    assert_eq!(NetworkSource::Localhost.as_str(), "localhost");
+}
+
+#[test]
+fn test_parse_ipv4_octets_invalid() {
+    use tandem::net_interfaces::parse_ipv4_octets;
+    assert_eq!(parse_ipv4_octets("1.2.3"), None);
+    assert_eq!(parse_ipv4_octets("1.2.3.4.5"), None);
+    assert_eq!(parse_ipv4_octets("01.2.3.4"), None);
+    assert_eq!(parse_ipv4_octets("1..3.4"), None);
+    assert_eq!(parse_ipv4_octets("256.1.1.1"), None);
+    assert_eq!(parse_ipv4_octets("abc.def.ghi.jkl"), None);
+}
+
+#[test]
+fn test_discover_ips_dedup_replaces_with_higher_priority() {
+    let runner = MockRunner {
+        ip_output: Some(
+            r#"[
+            {"ifname": "en0", "addr_info": [{"family": "inet", "local": "192.168.1.10"}]},
+            {"ifname": "tailscale0", "addr_info": [{"family": "inet", "local": "192.168.1.10"}]}
+        ]"#
+            .to_string(),
+        ),
+        ifconfig_output: None,
+    };
+    let discovered = discover_ips_with(&runner);
+    let matched = discovered.iter().find(|c| c.ip == "192.168.1.10").unwrap();
+    assert_eq!(matched.source, NetworkSource::Tailscale);
+}
+
+#[test]
+fn test_discover_ips_live_system() {
+    let ips = tandem::net_interfaces::discover_ips();
+    assert!(!ips.is_empty());
+    assert!(ips.iter().any(|c| c.ip == "127.0.0.1"));
+}

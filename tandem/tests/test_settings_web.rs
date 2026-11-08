@@ -208,15 +208,24 @@ fn test_system_daemon_runner_and_lifecycle() {
     assert_eq!(loaded_empty.port, 3940);
     assert!(!loaded_empty.auth_token.is_empty());
 
+    // Invalid JSON returns Err
+    fs::write(&cfg_path, b"{ invalid json").unwrap();
+    assert!(load_web_config(&cfg_path).is_err());
+
     let runner = SystemDaemonRunner;
 
     // Disabled status
-    let mut config = WebConfig::default();
-    config.enabled = false;
-    assert_eq!(runner.status(&config, &tmp_dir), WebStatus::Off);
+    let config_off = WebConfig {
+        enabled: false,
+        ..Default::default()
+    };
+    assert_eq!(runner.status(&config_off, &tmp_dir), WebStatus::Off);
 
     // Enabled with no running daemon
-    config.enabled = true;
+    let config = WebConfig {
+        enabled: true,
+        ..Default::default()
+    };
     assert_eq!(runner.status(&config, &tmp_dir), WebStatus::Off);
 
     // Write a dummy stale pid
@@ -255,6 +264,14 @@ fn test_system_daemon_runner_and_lifecycle() {
     assert!(!pid_path.exists());
     let _ = child.kill();
     let _ = child.wait();
+
+    // Stop daemon when no pid file exists succeeds gracefully
+    runner
+        .stop_daemon(&tmp_dir)
+        .expect("stop on clean state should succeed");
+
+    assert_ne!(WebStatus::Off, WebStatus::Starting);
+    assert_ne!(WebStatus::Starting, WebStatus::Error("error".into()));
 
     // start_daemon fails when tandem-web directory is missing
     let err = runner
