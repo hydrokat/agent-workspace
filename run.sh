@@ -1074,8 +1074,24 @@ run_source() {
 
 start_web_if_requested() {
   [ "$WEB_MODE" -eq 1 ] || return 0
-  local web_dir="$ROOT_DIR/tandem-web"
-  [ -d "$web_dir" ] || return 0
+
+  local runner="local" SPEC="${TANDEM_UPDATE_SPEC:-hydrokat/agent-workspace}"
+  if [ -f "$ROOT_DIR/bin/agent-workspace.js" ]; then
+    if ! command -v node >/dev/null 2>&1; then
+      printf 'Skipping tandem-web launch (Node.js not found).\n'
+      return 0
+    fi
+  else
+    runner="npx"
+    if ! command -v npx >/dev/null 2>&1; then
+      printf 'Skipping tandem-web launch: it is not installed in this workspace and npx was not found. Install Node.js, then run: npx %s web\n' "$SPEC"
+      return 0
+    fi
+    if ! valid_spec "$SPEC"; then
+      printf '⚠ Invalid TANDEM_UPDATE_SPEC; skipping tandem-web launch.\n'
+      return 0
+    fi
+  fi
 
   if ! command -v bun >/dev/null 2>&1; then
     if ask "Install bun to run tandem-web remote interface?"; then
@@ -1091,7 +1107,11 @@ start_web_if_requested() {
   local web_args=(web)
   [ -z "$WEB_BIND" ] || web_args+=(--bind "$WEB_BIND")
   [ -z "$WEB_PORT" ] || web_args+=(--port "$WEB_PORT")
-  node "$ROOT_DIR/bin/agent-workspace.js" "${web_args[@]}" || true
+  if [ "$runner" = "local" ]; then
+    node "$ROOT_DIR/bin/agent-workspace.js" "${web_args[@]}" || true
+  else
+    npx --yes "$SPEC" "${web_args[@]}" || true
+  fi
 }
 
 main() {

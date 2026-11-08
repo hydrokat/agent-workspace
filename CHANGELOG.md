@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.11.1] — 2026-11-08
+
+### Fixed
+
+- **`./run.sh --web` silently did nothing in a normal workspace.** `init` does not ship `tandem-web`, and `run.sh` returned early when the folder was missing. It now installs `tandem-web` on first use: the bundled source is copied once into the state directory (`~/.local/state/tandem/tandem-web`, stamped with the package version and refreshed after an upgrade), then dependencies are installed and the app is built only if missing. Without a local CLI, `run.sh` launches through `npx --yes <TANDEM_UPDATE_SPEC> web` (spec validated). Missing `npx` or Node.js, an invalid spec, and a declined `bun` install each print a message instead of doing nothing.
+- The tandem Web tab now finds the installed copy as well as a `tandem-web` folder in the workspace, and says when it is not installed, not built, or from an older version, with the command to run (`agent-workspace web`).
+
+### Added (tests)
+
+- `test/run-sh-web.test.js`: end to end `./run.sh --web` with stub `bun`, `curl` and `npx` covering fresh install, partial installs, idempotence, version change, failures, bun missing/declined/accepted, and the init-style workspace.
+- Resolver and install unit tests (`test/web-launch.test.js`) and `tandem/tests/test_web_consent.rs`: the TUI first-time prompt says additional dependencies may be installed, nothing runs before consent, declining is asked again, consent is remembered across restarts, plus the Rust resolver and its error messages.
+
+### Fixed
+
+- **Test suite no longer scaffolds workspace files into the repository.** `test/baseline.test.js` launched the repo's own `run.sh` with updates enabled. In a checkout that has a `.agent-workspace/manifest.json`, and once a newer release is published, `run.sh` ran `npx agent-workspace update` in the current directory, creating `AGENTS.md`, `.agents/`, `specs/`, `sprints/`, `knowledgebase/` and `WORKFLOW.md`, and then made the `bad-runtime` scenario exit 1 instead of 4. `run.sh` is now started through a shared helper (`runRunSh`) that sets `TANDEM_SKIP_UPDATE=1` and uses a throwaway working directory, with a regression test (`test/run-sh-hermetic.test.js`) that proves it. Baseline scenarios also no longer hit the network.
+
 ## [1.11.0] — 2026-11-08
 
 ### Added: Web pane in tandem (Phase p-009)

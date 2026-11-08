@@ -1,11 +1,15 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { join, relative, sep, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+export const WEB_VERSION_STAMP = '.tandem-version';
+const COPY_EXCLUDE_TOP_LEVEL = new Set(['node_modules', '.next', 'tests', 'next-env.d.ts']);
 
 function getStateDir() {
   const xdg = process.env.XDG_STATE_HOME;
@@ -54,6 +58,57 @@ export function buildServerSpawn(cfg, baseEnv) {
       TANDEM_AUTH_TOKEN: cfg.auth_token,
     },
   };
+}
+
+export function packageVersion() {
+  return JSON.parse(readFileSync(join(MODULE_DIR, '..', '..', 'package.json'), 'utf8')).version;
+}
+
+export function bundledWebDir() {
+  return join(MODULE_DIR, '..', '..', 'tandem-web');
+}
+
+export function installedWebDir() {
+  return join(getStateDir(), 'tandem-web');
+}
+
+function hasWebSource(dir) {
+  return existsSync(join(dir, 'package.json'));
+}
+
+function installWebSource(bundledDir, installedDir, version) {
+  rmSync(installedDir, { recursive: true, force: true });
+  mkdirSync(installedDir, { recursive: true });
+  cpSync(bundledDir, installedDir, {
+    recursive: true,
+    filter: (src) => {
+      const rel = relative(bundledDir, src);
+      if (rel === '') return true;
+      const top = rel.split(sep)[0];
+      if (COPY_EXCLUDE_TOP_LEVEL.has(top)) return false;
+      return !rel.endsWith('.tsbuildinfo');
+    },
+  });
+  writeFileSync(join(installedDir, WEB_VERSION_STAMP), `${version}\n`);
+}
+
+export function resolveWebDir({ cwd, installedDir, bundledDir, version }) {
+  const local = join(cwd, 'tandem-web');
+  if (hasWebSource(local)) {
+    return { dir: local, source: 'workspace', installedNow: false };
+  }
+
+  const stampPath = join(installedDir, WEB_VERSION_STAMP);
+  const stamp = existsSync(stampPath) ? readFileSync(stampPath, 'utf8').trim() : '';
+  if (hasWebSource(installedDir) && stamp === version) {
+    return { dir: installedDir, source: 'installed', installedNow: false };
+  }
+
+  if (!hasWebSource(bundledDir)) {
+    throw new Error(`tandem-web source not found (looked in ${local} and ${bundledDir})`);
+  }
+  installWebSource(bundledDir, installedDir, version);
+  return { dir: installedDir, source: 'installed', installedNow: true };
 }
 
 export function needsInstall(webDir) {
@@ -255,10 +310,18 @@ export async function run(context) {
     }
   }
 
-  const tandemWebDir = join(context.cwd, 'tandem-web');
-  const webDir = existsSync(tandemWebDir) ? tandemWebDir : join(import.meta.dirname, '..', '..', 'tandem-web');
-
+  let webDir;
   try {
+    const resolved = resolveWebDir({
+      cwd: context.cwd,
+      installedDir: installedWebDir(),
+      bundledDir: bundledWebDir(),
+      version: packageVersion(),
+    });
+    webDir = resolved.dir;
+    if (resolved.installedNow) {
+      console.log(`Installed tandem-web into ${webDir}`);
+    }
     await bootstrapWeb(webDir);
   } catch (err) {
     console.error(err.message);

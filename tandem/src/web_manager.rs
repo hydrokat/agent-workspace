@@ -129,6 +129,22 @@ pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {
     .collect())
 }
 
+pub const WEB_VERSION_STAMP: &str = ".tandem-version";
+
+pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
+    let local = workspace.join("tandem-web");
+    if local.join("package.json").exists() {
+        return Some(local);
+    }
+
+    let installed = state_dir.join("tandem-web");
+    let stamp = fs::read_to_string(installed.join(WEB_VERSION_STAMP)).unwrap_or_default();
+    if installed.join("package.json").exists() && stamp.trim() == env!("CARGO_PKG_VERSION") {
+        return Some(installed);
+    }
+    None
+}
+
 pub fn web_is_built(web_dir: &Path) -> bool {
     web_dir.join(".next").join("BUILD_ID").exists()
 }
@@ -190,13 +206,12 @@ impl DaemonRunner for SystemDaemonRunner {
             return Ok(existing_pid);
         }
 
-        let web_dir = workspace.join("tandem-web");
-        if !web_dir.exists() {
+        let Some(web_dir) = resolve_web_dir(workspace, state_dir) else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "tandem-web directory not found",
+                "tandem-web is not installed (or is an older version); run `agent-workspace web` once to install it",
             ));
-        }
+        };
 
         if !web_is_built(&web_dir) {
             return Err(std::io::Error::new(

@@ -89,3 +89,130 @@ describe('web launcher bootstrap', () => {
     assert.deepEqual(calls, ['install --frozen-lockfile']);
   });
 });
+
+describe('tandem-web source resolution and install', () => {
+  async function fixture() {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const base = mkdtempSync(join(tmpdir(), 'tw-resolve-'));
+    const bundled = join(base, 'pkg', 'tandem-web');
+    mkdirSync(join(bundled, 'src', 'app'), { recursive: true });
+    mkdirSync(join(bundled, 'node_modules', 'left-pad'), { recursive: true });
+    mkdirSync(join(bundled, '.next'), { recursive: true });
+    mkdirSync(join(bundled, 'tests'), { recursive: true });
+    writeFileSync(join(bundled, 'package.json'), '{"name":"tandem-web"}');
+    writeFileSync(join(bundled, 'bun.lock'), 'lock');
+    writeFileSync(join(bundled, 'src', 'app', 'page.tsx'), 'export default 1');
+    writeFileSync(join(bundled, 'node_modules', 'left-pad', 'index.js'), 'x');
+    writeFileSync(join(bundled, '.next', 'BUILD_ID'), 'stale-dev-build');
+    writeFileSync(join(bundled, 'tests', 'a.test.ts'), 't');
+    writeFileSync(join(bundled, 'next-env.d.ts'), '');
+    writeFileSync(join(bundled, 'tsconfig.tsbuildinfo'), '');
+    const cwd = join(base, 'ws');
+    mkdirSync(cwd, { recursive: true });
+    return { base, bundled, cwd, installed: join(base, 'state', 'tandem-web') };
+  }
+
+  it('prefers a tandem-web directory inside the workspace (dev checkout)', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    mkdirSync(join(f.cwd, 'tandem-web'));
+    writeFileSync(join(f.cwd, 'tandem-web', 'package.json'), '{}');
+    const r = resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    assert.deepEqual(r, { dir: join(f.cwd, 'tandem-web'), source: 'workspace', installedNow: false });
+  });
+
+  it('ignores an empty tandem-web directory in the workspace', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { mkdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    mkdirSync(join(f.cwd, 'tandem-web'));
+    const r = resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    assert.equal(r.source, 'installed');
+  });
+
+  it('installs the bundled source into the state dir on first use and stamps the version', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { existsSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    const r = resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.2.3' });
+    assert.deepEqual(r, { dir: f.installed, source: 'installed', installedNow: true });
+    assert.equal(readFileSync(join(f.installed, '.tandem-version'), 'utf8').trim(), '1.2.3');
+    assert.ok(existsSync(join(f.installed, 'package.json')));
+    assert.ok(existsSync(join(f.installed, 'bun.lock')));
+    assert.ok(existsSync(join(f.installed, 'src', 'app', 'page.tsx')));
+  });
+
+  it('does not copy dev artifacts (node_modules, .next, tests, tsbuildinfo, next-env.d.ts)', async () => {
+    const { resolveWebDir, needsInstall, needsBuild } = await import('../src/commands/web.js');
+    const { existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    for (const p of ['node_modules', '.next', 'tests', 'next-env.d.ts', 'tsconfig.tsbuildinfo']) {
+      assert.equal(existsSync(join(f.installed, p)), false, `${p} must not be copied`);
+    }
+    assert.equal(needsInstall(f.installed), true);
+    assert.equal(needsBuild(f.installed), true);
+  });
+
+  it('reuses an installed copy of the same version without touching it', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { existsSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    writeFileSync(join(f.installed, 'SENTINEL'), 'keep me');
+    const r = resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    assert.deepEqual(r, { dir: f.installed, source: 'installed', installedNow: false });
+    assert.ok(existsSync(join(f.installed, 'SENTINEL')));
+  });
+
+  it('replaces an installed copy from a different version (fresh install and build)', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    mkdirSync(join(f.installed, 'node_modules'));
+    writeFileSync(join(f.installed, 'SENTINEL'), 'old');
+    const r = resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '2.0.0' });
+    assert.equal(r.installedNow, true);
+    assert.equal(existsSync(join(f.installed, 'SENTINEL')), false, 'old copy removed');
+    assert.equal(existsSync(join(f.installed, 'node_modules')), false, 'old dependencies removed');
+    assert.equal(readFileSync(join(f.installed, '.tandem-version'), 'utf8').trim(), '2.0.0');
+  });
+
+  it('treats an installed dir without a version stamp as stale', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    mkdirSync(f.installed, { recursive: true });
+    writeFileSync(join(f.installed, 'package.json'), '{"name":"mystery"}');
+    const r = resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: f.bundled, version: '1.0.0' });
+    assert.equal(r.installedNow, true);
+  });
+
+  it('fails with a clear error when no source can be found anywhere', async () => {
+    const { resolveWebDir } = await import('../src/commands/web.js');
+    const { join } = await import('node:path');
+    const f = await fixture();
+    assert.throws(
+      () => resolveWebDir({ cwd: f.cwd, installedDir: f.installed, bundledDir: join(f.base, 'missing'), version: '1.0.0' }),
+      /tandem-web source not found/,
+    );
+  });
+
+  it('exposes the package version used for the stamp', async () => {
+    const { packageVersion } = await import('../src/commands/web.js');
+    const { readFileSync } = await import('node:fs');
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    assert.equal(packageVersion(), pkg.version);
+  });
+});

@@ -152,6 +152,13 @@ npx hydrokat/agent-workspace web --stop
 npx hydrokat/agent-workspace web --list-ips
 ```
 
+**First use installs it.** `./run.sh --web` and `web` set up `tandem-web` the first time they run, and skip every step that is already done:
+- If your workspace has no `tandem-web` folder (the normal case after `init`), the bundled source is copied once into `~/.local/state/tandem/tandem-web` (or `$XDG_STATE_HOME/tandem/tandem-web`), stamped with the package version. It is replaced automatically after an upgrade. Nothing is written into your workspace.
+- Dependencies are installed (`bun install --frozen-lockfile`) and the dashboard is built (`bun run build`) only when missing.
+- If `bun` is missing, you are asked before it is installed from bun.sh. Declining skips the launch.
+- Without a local `bin/agent-workspace.js`, `./run.sh --web` runs `npx --yes <TANDEM_UPDATE_SPEC or hydrokat/agent-workspace> web`, so Node.js is required. If `npx` is missing you get a message saying so instead of a silent no-op.
+- Enabling web from the tandem **Web** tab shows a first-time prompt that says additional dependencies (bun, tandem-web packages, ttyd) may be installed. If tandem-web is not installed or built yet, the tab shows the command to run (`agent-workspace web`).
+
 What it does:
 1. Launches the responsive `tandem-web` dashboard on your chosen VPN or localhost IP address
 2. Lets you monitor multiple running `tandem` workspaces from phone or browser
