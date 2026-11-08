@@ -104,7 +104,7 @@ jobs:
         run: cargo llvm-cov --fail-under-lines 78 --summary-only
       - name: Node Installer Coverage
         run: |
-          COVERAGE_OUT=$(npm test -- --experimental-test-coverage)
+          COVERAGE_OUT=$(npm run test:coverage)
           echo "$COVERAGE_OUT"
           LINE_PCT=$(echo "$COVERAGE_OUT" | grep 'all files' | awk '{print $4}' | cut -d'.' -f1)
           echo "Total Line Coverage: $LINE_PCT%"
