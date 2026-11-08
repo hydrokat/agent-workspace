@@ -112,7 +112,7 @@ tandem keeps `.agent-workspace/tandem-session.json` (owner-only JSON) up to date
 - **Update tandem and workspace** (below).
 - **Quit and discard saved state** deletes the saved file and ends the session, so the next launch starts fresh without asking.
 
-The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank (new conversations) / [q]uit** (Enter resumes). If the last save was an autosave, the prompt says tandem did not exit cleanly. Non-interactive: `./run.sh -- --resume` or `--fresh`. A blank start replaces the saved file once the new session autosaves. An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
+The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / start [b]lank (new conversations) / [q]uit** (Enter resumes). If the last save was an autosave, the prompt says tandem did not exit cleanly. Non-interactive: `./run.sh -- --resume` or `--fresh`. A blank start replaces the saved file once the new session autosaves; `--fresh` deletes it immediately. An agent whose CLI is no longer installed is skipped, and a deleted folder falls back to the workspace.
 
 **Per-workspace builds:** source builds live under `${XDG_STATE_HOME:-~/.local/state}/tandem/build-<slug>`, one per workspace, so parallel workspaces never clobber each other. Leftover `venv` and `venv-*` folders from retired runtimes are removed on the first normal launch.
 

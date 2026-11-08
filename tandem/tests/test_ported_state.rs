@@ -270,3 +270,14 @@ fn test_describe_flags_unclean_exit_and_saved_chats() {
     assert!(text.contains("agy·m"));
     assert!(!text.contains("agy·m (conversation)"));
 }
+
+#[test]
+fn discard_removes_saved_session_and_tolerates_missing_file() {
+    let dir = TempDir::new();
+    let path = tandem::state::state_path(dir.path());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{}").unwrap();
+    tandem::state::discard(&path).unwrap();
+    assert!(!path.exists());
+    tandem::state::discard(&path).unwrap();
+}
