@@ -4,7 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanup, makeTmp, runCli } from './helpers.js';
+import { cleanup, makeTmp, runCli, runRunSh } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -43,10 +43,7 @@ function listFilesRecursive(dir, baseDir = dir) {
 
 describe('characterization baseline tests', () => {
   it('run.sh --help text matches golden snapshot', () => {
-    const out = execFileSync('/bin/bash', [join(ROOT, 'run.sh'), '--help'], {
-      encoding: 'utf8',
-      env: { ...process.env, NO_COLOR: '1' },
-    });
+    const { output: out } = runRunSh(['--help']);
     assertGolden('run-sh-help.txt', out);
   });
 
@@ -71,18 +68,7 @@ describe('characterization baseline tests', () => {
 
     const results = [];
     for (const s of scenarios) {
-      let code = 0;
-      let output = '';
-      try {
-        output = execFileSync('/bin/bash', [join(ROOT, 'run.sh'), ...s.args], {
-          encoding: 'utf8',
-          env: { ...process.env, NO_COLOR: '1', ...(s.env || {}) },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-      } catch (err) {
-        code = err.status ?? 1;
-        output = (err.stdout || '') + (err.stderr || '');
-      }
+      const { code, output } = runRunSh(s.args, { env: s.env });
       if (s.name === 'check') {
         assert.ok(code === 0 || code === 2, `Scenario check exit code ${code} should be 0 or 2`);
       } else {
