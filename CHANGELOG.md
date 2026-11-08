@@ -4,6 +4,12 @@
 
 - `AGENTS.md` template (Branch Protection): worktrees must be created inside the `worktrees/` directory at the workspace root, created first if missing.
 
+## [1.9.1] — 2026-11-08
+
+### Fixed
+
+- `run.sh --fresh --check` no longer creates the coordination directory when it is missing; `--check` now makes no changes, as it reports.
+
 ## [1.9.0] — 2026-11-08
 
 ### Responsive UI, Sidebar & Multi-Agent Grid (Phase p-006)

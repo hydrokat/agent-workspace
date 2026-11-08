@@ -939,15 +939,15 @@ fresh_reset() {
   esac
 
   if ! [ -e "$coord_dir" ]; then
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+      printf 'Nothing to clear in %s. (No changes made.)\n' "$rel_coord"
+      return 0
+    fi
     mkdir -m 0700 -p "$coord_dir"
     local sub
     for sub in claims conversations queries sessions; do
       mkdir -m 0700 -p "$coord_dir/$sub"
     done
-    if [ "$CHECK_ONLY" -eq 1 ]; then
-      printf 'Nothing to clear in %s. (No changes made.)\n' "$rel_coord"
-      return 0
-    fi
     printf 'Nothing to clear in %s.\n' "$rel_coord"
     add_fresh_passthru
     return 0
