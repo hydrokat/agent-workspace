@@ -8,7 +8,9 @@ use std::time::Instant;
 use crate::net_interfaces::IpCandidate;
 use crate::status::qr::{render_qr_lines, required_size};
 use crate::ui::text::truncate_to_width;
-use crate::web_manager::{WebConfig, WebStatus, access_url, generate_auth_token};
+use crate::web_manager::{
+    WebConfig, WebStatus, access_url, access_url_for_workspace, generate_auth_token,
+};
 
 pub const ROW_ENABLE: usize = 0;
 pub const ROW_BIND: usize = 1;
@@ -57,6 +59,7 @@ pub struct WebTab {
     pub deps_help: Option<Vec<String>>,
     pub installing: bool,
     pub flash_message: Option<(String, Instant)>,
+    pub workspace_socket: Option<String>,
 }
 
 impl Default for WebTab {
@@ -77,6 +80,7 @@ impl Default for WebTab {
             deps_help: None,
             installing: false,
             flash_message: None,
+            workspace_socket: None,
         }
     }
 }
@@ -88,6 +92,10 @@ fn is_loopback(ip: &str) -> bool {
 impl WebTab {
     pub fn set_web_config(&mut self, config: WebConfig) {
         self.web_config = config;
+    }
+
+    pub fn set_workspace_socket(&mut self, socket: Option<String>) {
+        self.workspace_socket = socket;
     }
 
     pub fn set_ip_candidates(&mut self, candidates: Vec<IpCandidate>) {
@@ -660,7 +668,7 @@ impl WebTab {
     }
 
     fn render_qr(&self, area: Rect, buf: &mut Buffer) {
-        let url = access_url(&self.web_config, true);
+        let url = access_url_for_workspace(&self.web_config, self.workspace_socket.as_deref());
         let (w, h) = required_size(&url);
         if w == 0 || area.width < w || area.height < h {
             let msg = format!("QR needs {w}x{h}, pane is {}x{}", area.width, area.height);
@@ -717,7 +725,7 @@ impl WebTab {
         );
         let lines = [
             (
-                "  Turning on tandem-web for the first time may install",
+                "  Turning on tandem-web-core-service on this host may install",
                 bold,
             ),
             (
@@ -729,7 +737,7 @@ impl WebTab {
         draw_modal(
             buf,
             (x, y, w, h),
-            "Enable tandem-web (First-Time Setup)",
+            "Enable tandem-web-core-service (First-Time Setup)",
             Color::Cyan,
             &lines,
         );

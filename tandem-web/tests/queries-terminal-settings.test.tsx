@@ -133,7 +133,46 @@ describe("Queries, Terminal, and Settings Suite (t-008)", () => {
         />
       );
       expect(enabledHtml).toContain("<iframe");
-      expect(enabledHtml).toContain("/api/workspaces/tandem-1234567890/terminal");
+      expect(enabledHtml).toContain("/api/workspaces/tandem-1234567890/terminal/pty/");
+    });
+
+    it("renders agent chips in header and highlights active agent", () => {
+      const panes = [
+        {
+          id: "p1",
+          window: "w1",
+          kind: "planner",
+          role: "planner-1",
+          index: 0,
+          label: "Planner A",
+          dead: false,
+          session: "planner-1",
+        },
+        {
+          id: "p2",
+          window: "w1",
+          kind: "implementer",
+          role: "implementer-1",
+          index: 1,
+          label: "Impl B",
+          dead: false,
+          session: "impl-1",
+        },
+      ];
+
+      const html = renderToStaticMarkup(
+        <TerminalAttachPanel
+          workspaceId="tandem-1234567890"
+          ttydEnabled={true}
+          panes={panes}
+          activePaneId="p1"
+          onSelectAgent={() => {}}
+        />
+      );
+
+      expect(html).toContain("Agents:");
+      expect(html).toContain("planner-1");
+      expect(html).toContain("impl-1");
     });
   });
 

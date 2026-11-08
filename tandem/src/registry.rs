@@ -110,6 +110,7 @@ pub fn register_or_heartbeat(
 ) -> Result<WorkspaceEntry, RegistryError> {
     let reg_path = default_registry_path(state_dir);
     let mut reg = load_registry(&reg_path).unwrap_or_default();
+    reg.workspaces.retain(|w| Path::new(&w.path).exists());
 
     let resolved = resolve_path(workspace);
     let socket = socket_for(&resolved);

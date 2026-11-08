@@ -10,9 +10,10 @@ interface AgentCardProps {
   pane: PaneInfo;
   isInGrid: boolean;
   onAction: (action: AllowedTandemAction, args: string[]) => Promise<void> | void;
+  onInteract?: (pane: PaneInfo) => Promise<void> | void;
 }
 
-export function AgentCard({ pane, isInGrid, onAction }: AgentCardProps) {
+export function AgentCard({ pane, isInGrid, onAction, onInteract }: AgentCardProps) {
   const statusGlyph = pane.dead ? "✕" : "●";
   const statusLabel = pane.dead
     ? `Exited (${pane.dead_status ?? "dead"})`
@@ -66,6 +67,7 @@ export function AgentCard({ pane, isInGrid, onAction }: AgentCardProps) {
         pane={pane}
         isInGrid={isInGrid}
         onAction={onAction}
+        onInteract={onInteract}
       />
     </Card>
   );

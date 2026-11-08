@@ -331,13 +331,13 @@ export async function ensureWebDeps({
   if (yes) {
     choice = 'install';
   } else if (!isTty) {
-    print(`bun is required for tandem-web but is not installed for ${label}, and there is no terminal to ask on.`);
+    print(`bun is required for tandem-web-core-service but is not installed for ${label}, and there is no terminal to ask on.`);
     print('Re-run with --yes to let tandem install it, or install it yourself:');
     for (const line of manualLines(plan, scriptPath).slice(1)) print(line);
     return { ok: false, action: 'manual' };
   } else {
     choice = await ask({
-      question: `tandem-web needs ${missing}, which ${plan.autoInstall.length > 1 ? 'are' : 'is'} not installed for ${label}.`,
+      question: `tandem-web-core-service manages all tandem sessions on this host over a single URL and port. It needs ${missing}, which ${plan.autoInstall.length > 1 ? 'are' : 'is'} not installed for ${label}.`,
       choices: [
         { value: 'install', label: 'Let tandem install it (runs the script shown)' },
         { value: 'manual', label: "I'll install it myself" },

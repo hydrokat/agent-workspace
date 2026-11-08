@@ -150,6 +150,7 @@ fn config() -> WebConfig {
         first_time_acknowledged: true,
         bind_ip: "100.101.102.103".into(),
         bind_source: NetworkSource::Tailscale,
+        ttyd_enabled: false,
         ..WebConfig::default()
     }
 }

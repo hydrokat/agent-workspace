@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { join, relative, sep, dirname } from 'node:path';
@@ -39,8 +39,12 @@ export function isLoopback(ip) {
   return typeof ip === 'string' && ip.startsWith('127.');
 }
 
-export function buildAccessUrl(cfg) {
-  return `http://${cfg.bind_ip}:${cfg.port}/?token=${cfg.auth_token}`;
+export function buildAccessUrl(cfg, workspaceSocket) {
+  const base = `http://${cfg.bind_ip}:${cfg.port}/?token=${cfg.auth_token}`;
+  if (workspaceSocket) {
+    return `${base}&workspace=${encodeURIComponent(workspaceSocket)}`;
+  }
+  return base;
 }
 
 export function buildServerSpawn(cfg, baseEnv) {
@@ -83,7 +87,33 @@ export function bundledWebDir() {
 }
 
 export function installedWebDir() {
-  return join(getStateDir(), 'tandem-web');
+  const coreDir = join(getStateDir(), 'tandem-web-core-service');
+  const legacyDir = join(getStateDir(), 'tandem-web');
+  if (existsSync(coreDir)) return coreDir;
+  if (existsSync(legacyDir)) return legacyDir;
+  return coreDir;
+}
+
+export function detectCurrentWorkspaceSocket(cwd = process.cwd(), stateDir = getStateDir()) {
+  const p = join(stateDir, 'workspaces.json');
+  if (!existsSync(p)) return undefined;
+  try {
+    const raw = JSON.parse(readFileSync(p, 'utf8'));
+    const list = Array.isArray(raw?.workspaces) ? raw.workspaces : [];
+    const realCwd = existsSync(cwd) ? realpathSync(cwd) : cwd;
+    const match = list.find((w) => {
+      if (!w?.path) return false;
+      try {
+        const realW = existsSync(w.path) ? realpathSync(w.path) : w.path;
+        return realW === realCwd || realCwd.startsWith(realW);
+      } catch {
+        return false;
+      }
+    });
+    return match?.id;
+  } catch {
+    return undefined;
+  }
 }
 
 function hasWebSource(dir) {
@@ -161,9 +191,11 @@ export async function renderQr(url) {
   return await new Promise((resolve) => qr.generate(url, { small: true }, resolve));
 }
 
-async function printAccess(cfg, flags, headline) {
-  const url = buildAccessUrl(cfg);
-  console.log(`${headline}\nAccess URL: ${url}`);
+async function printAccess(cfg, flags, headline, workspaceSocket) {
+  const url = buildAccessUrl(cfg, workspaceSocket);
+  console.log(
+    `${headline}\ntandem-web-core-service is installed on the host machine to manage all tandem sessions over a single shared URL and port.\nAccess URL: ${url}`
+  );
   if (flags.noQr) return;
   if (isLoopback(cfg.bind_ip)) {
     console.log('Bound to localhost: other devices cannot connect. Re-run with --bind <vpn-or-lan-ip> to get a QR code for your phone.');
@@ -206,7 +238,7 @@ function loadConfig() {
       bind_source: 'localhost',
       port: 3940,
       auth_token: generateAuthToken(),
-      ttyd_enabled: false,
+      ttyd_enabled: true,
     };
   }
   const cfg = JSON.parse(readFileSync(p, 'utf8'));
@@ -246,11 +278,21 @@ export async function run(context) {
       const pid = Number(readFileSync(pidFile, 'utf8').trim());
       if (pid && isPidAlive(pid)) {
         const cfg = loadConfig();
-        const url = buildAccessUrl(cfg);
+        const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);
+        const url = buildAccessUrl(cfg, workspaceSocket);
         if (flags.json) {
-          console.log(JSON.stringify({ status: 'running', pid, url, bind_ip: cfg.bind_ip, port: cfg.port }));
+          console.log(
+            JSON.stringify({
+              status: 'running',
+              pid,
+              url,
+              bind_ip: cfg.bind_ip,
+              port: cfg.port,
+              workspace: workspaceSocket || null,
+            })
+          );
         } else {
-          await printAccess(cfg, flags, `tandem-web is running (pid: ${pid})`);
+          await printAccess(cfg, flags, `tandem-web is running (pid: ${pid})`, workspaceSocket);
         }
         return;
       }
@@ -337,7 +379,8 @@ export async function run(context) {
   if (existsSync(pidFile)) {
     const pid = Number(readFileSync(pidFile, 'utf8').trim());
     if (pid && isPidAlive(pid)) {
-      await printAccess(cfg, flags, `tandem-web is already running (pid: ${pid})`);
+      const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);
+      await printAccess(cfg, flags, `tandem-web is already running (pid: ${pid})`, workspaceSocket);
       return;
     }
   }
@@ -374,9 +417,19 @@ export async function run(context) {
     writeFileSync(pidFile, String(child.pid) + '\n', { mode: 0o600 });
   }
 
+  const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);
   if (flags.json) {
-    console.log(JSON.stringify({ status: 'started', pid: child.pid, url: buildAccessUrl(cfg), bind_ip: cfg.bind_ip, port: cfg.port }));
+    console.log(
+      JSON.stringify({
+        status: 'started',
+        pid: child.pid,
+        url: buildAccessUrl(cfg, workspaceSocket),
+        bind_ip: cfg.bind_ip,
+        port: cfg.port,
+        workspace: workspaceSocket || null,
+      })
+    );
   } else {
-    await printAccess(cfg, flags, `tandem-web started (pid: ${child.pid})`);
+    await printAccess(cfg, flags, `tandem-web started (pid: ${child.pid})`, workspaceSocket);
   }
 }

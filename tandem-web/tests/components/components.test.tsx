@@ -115,12 +115,14 @@ describe("Tandem Web Components Suite", () => {
         pane={livePane}
         isInGrid={true}
         onAction={async () => {}}
+        onInteract={async () => {}}
       />
     );
 
     expect(html).toContain("Running");
     expect(html).toContain("planner-sess-1");
     expect(html).toContain("planner-1");
+    expect(html).toContain("Interact");
     expect(html).toContain("Focus");
     expect(html).toContain("In Grid");
     expect(html).toContain("Close");
@@ -147,6 +149,7 @@ describe("Tandem Web Components Suite", () => {
         pane={deadPane}
         isInGrid={false}
         onAction={async () => {}}
+        onInteract={async () => {}}
       />
     );
 
@@ -154,6 +157,7 @@ describe("Tandem Web Components Suite", () => {
     expect(html).toContain("impl-sess-2");
     expect(html).toContain("Restart");
     expect(html).not.toContain("Focus");
+    expect(html).not.toContain("Interact");
   });
 
   it("AgentGrid groups planners and implementers and displays Equalize button", () => {

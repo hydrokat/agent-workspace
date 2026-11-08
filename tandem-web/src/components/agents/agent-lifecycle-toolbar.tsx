@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Focus, Grid, RotateCcw, X } from "lucide-react";
+import { Focus, Grid, RotateCcw, Terminal, X } from "lucide-react";
 import type { PaneInfo } from "@/domain/models/snapshot";
 import type { AllowedTandemAction } from "@/domain/ports/tandem-gateway";
 
@@ -18,12 +18,14 @@ interface AgentLifecycleToolbarProps {
   pane: PaneInfo;
   isInGrid: boolean;
   onAction: (action: AllowedTandemAction, args: string[]) => Promise<void> | void;
+  onInteract?: (pane: PaneInfo) => Promise<void> | void;
 }
 
 export function AgentLifecycleToolbar({
   pane,
   isInGrid,
   onAction,
+  onInteract,
 }: AgentLifecycleToolbarProps) {
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -32,6 +34,16 @@ export function AgentLifecycleToolbar({
     try {
       setSubmitting(true);
       await onAction(action, args);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleInteract = async () => {
+    if (!onInteract) return;
+    try {
+      setSubmitting(true);
+      await onInteract(pane);
     } finally {
       setSubmitting(false);
     }
@@ -47,6 +59,19 @@ export function AgentLifecycleToolbar({
       <div className="flex flex-wrap items-center gap-1.5 pt-1">
         {!pane.dead ? (
           <>
+            {onInteract && (
+              <Button
+                variant="default"
+                size="sm"
+                className="min-h-11 sm:min-h-9 min-w-11 sm:min-w-9 gap-1.5 text-xs"
+                disabled={submitting}
+                onClick={handleInteract}
+                aria-label={`Interact with agent ${pane.session}`}
+              >
+                <Terminal className="h-3.5 w-3.5" />
+                <span>Interact</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

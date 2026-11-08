@@ -65,6 +65,22 @@ describe("auth gate", () => {
   it("still serves Next static assets without auth", () => {
     expect(handleAuth(req("/_next/static/chunk.js"), TOKEN)).toBeNull();
   });
+
+  it("exchanges a valid ?token= and preserves ?workspace= parameter", () => {
+    const ws = "tandem-1234567890";
+    const res = handleAuth(req(`/?token=${TOKEN}&workspace=${ws}`), TOKEN);
+    expect(res?.status).toBe(307);
+    const loc = res?.headers.get("location") ?? "";
+    expect(loc).toContain(`workspace=${ws}`);
+    expect(loc).not.toContain("token=");
+    expect(res?.headers.get("set-cookie")).toContain(`${AUTH_COOKIE_NAME}=${TOKEN}`);
+  });
+
+  it("serves PWA manifest, service worker, and icons without requiring auth", () => {
+    expect(handleAuth(req("/manifest.webmanifest"), TOKEN)).toBeNull();
+    expect(handleAuth(req("/sw.js"), TOKEN)).toBeNull();
+    expect(handleAuth(req("/icons/icon-192.svg"), TOKEN)).toBeNull();
+  });
 });
 
 describe("middleware wiring", () => {

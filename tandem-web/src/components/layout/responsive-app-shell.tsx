@@ -7,6 +7,7 @@ import { WorkspaceSwitcherSheet } from "../workspaces/workspace-switcher-sheet";
 import { WorkspaceCard } from "../workspaces/workspace-card";
 import { QuotaFooterBar } from "../views/quota-footer-bar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
@@ -20,6 +21,7 @@ interface ResponsiveAppShellProps {
   activeTab: NavTabId;
   onSelectTab: (tab: NavTabId) => void;
   onSelectWorkspace: (workspace: WorkspaceEntry) => void;
+  onOpenHostConnection?: () => void;
   unreadQueryCount?: number;
   children: React.ReactNode;
 }
@@ -33,6 +35,7 @@ export function ResponsiveAppShell({
   activeTab,
   onSelectTab,
   onSelectWorkspace,
+  onOpenHostConnection,
   unreadQueryCount = 0,
   children,
 }: ResponsiveAppShellProps) {
@@ -45,7 +48,27 @@ export function ResponsiveAppShell({
         settings={settings}
         connected={connected}
         onOpenDrawer={() => setDrawerOpen(true)}
+        onOpenHostConnection={onOpenHostConnection}
       />
+
+      {!connected && (
+        <div className="bg-destructive/15 border-b border-destructive/20 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-destructive">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">Offline:</span>
+            <span>Host unreachable. If the host machine&apos;s IP changed, reconfigure or scan the session QR code.</span>
+          </div>
+          {onOpenHostConnection && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onOpenHostConnection}
+              className="h-7 text-xs border-destructive/30 hover:bg-destructive/20 text-destructive shrink-0"
+            >
+              Reconfigure / Scan
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Tablet / Desktop Sidebar */}

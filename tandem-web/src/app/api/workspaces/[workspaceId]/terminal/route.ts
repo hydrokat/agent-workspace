@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { isValidWorkspaceId } from "@/domain/models/workspace";
-import { FileWebSettingsRepository } from "@/infrastructure/tandem/file-web-settings-repository";
 import { FileWorkspaceRegistry } from "@/infrastructure/tandem/file-workspace-registry";
 import { TtydProcessAdapter } from "@/infrastructure/tandem/ttyd-process-adapter";
 
@@ -18,7 +17,7 @@ export async function GET(
     );
   }
 
-  const status = ttydAdapter.getStatus();
+  const status = ttydAdapter.getStatus(workspaceId);
   return NextResponse.json(status);
 }
 
@@ -44,25 +43,22 @@ export async function POST(
       );
     }
 
-    const settingsRepo = new FileWebSettingsRepository();
-    const settings = await settingsRepo.getSettings();
-
     const body = await request.json().catch(() => ({}));
     const { action } = body;
 
     if (action === "stop") {
-      ttydAdapter.stop();
+      ttydAdapter.stop(workspaceId);
       return NextResponse.json({ running: false });
     }
 
-    const port = settings.port + 1;
     const res = await ttydAdapter.start(
       workspace.socket,
-      settings.bind_ip,
-      port,
-      process.env.TANDEM_AUTH_TOKEN ?? ""
+      "127.0.0.1",
+      0,
+      process.env.TANDEM_AUTH_TOKEN ?? "",
+      workspaceId
     );
-    return NextResponse.json({ running: true, port: res.port });
+    return NextResponse.json({ running: true, port: res.port, proxyPath: res.proxyPath });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
