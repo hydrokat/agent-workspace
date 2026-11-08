@@ -137,6 +137,29 @@ Exits with code `0` if everything passes, non-zero if anything fails — useful 
 npx hydrokat/agent-workspace doctor --json
 ```
 
+### `web` — remote multi-workspace web interface
+
+Start, stop, or check the status of the remote mobile/tablet web interface (`tandem-web`):
+
+```bash
+# Launch tandem with remote web enabled
+./run.sh --web
+
+# Or manage the daemon directly
+npx hydrokat/agent-workspace web
+npx hydrokat/agent-workspace web --status
+npx hydrokat/agent-workspace web --stop
+npx hydrokat/agent-workspace web --list-ips
+```
+
+What it does:
+1. Launches the responsive `tandem-web` dashboard on your chosen VPN or localhost IP address
+2. Lets you monitor multiple running `tandem` workspaces from phone or browser
+3. Provides live status, sprint, spec, and task tracking over Server-Sent Events (SSE)
+4. Lets you answer agent queries (`coord.py ask`) with one-tap quick-option chips or custom text
+5. Optionally attaches to the workspace's live `tmux` session via `ttyd` with touch modifier buttons
+6. Maintains a strict 100% ToS air-gap: zero keystroke injection or scraping into AI agent panes
+
 ---
 
 ## Flags
@@ -151,6 +174,11 @@ npx hydrokat/agent-workspace doctor --json
 | `--git` / `--no-git` | `init` | Create (or skip) a blank local git repo without asking |
 | `--commit` / `--no-commit` | `update` | Commit (or skip committing) the files the update changed without asking |
 | `--update-clis` / `--no-update-clis` | `update` | Update (or skip updating) the installed AI CLIs without asking |
+| `--bind <ip>` | `web` | Bind IP address for tandem-web (VPN or localhost) |
+| `--port <port>` | `web` | Port for tandem-web (default: 3940) |
+| `--status` | `web` | Check running state of tandem-web daemon |
+| `--stop` | `web` | Stop tandem-web daemon |
+| `--list-ips` | `web` | List detected host network IPs and source interfaces |
 | `--dry-run` | `init`, `update` | Show what would change without writing anything |
 | `--quiet` | all | Suppress per-file output; show only summaries |
 | `--verbose` | all | Show all actions, including unchanged files |

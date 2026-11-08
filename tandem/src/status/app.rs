@@ -451,6 +451,20 @@ impl StatusApp {
                 layout.save_grid_prefs(&self.settings_tab.prefs, self.settings_tab.sidebar_mode);
             let _ = layout.reflow(0, 0);
         }
+
+        let state_dir = crate::registry::resolve_state_dir();
+        let cfg_path = crate::web_manager::web_config_path(&state_dir);
+        let _ = crate::web_manager::save_web_config(&cfg_path, &self.settings_tab.web_config);
+
+        let daemon = crate::web_manager::SystemDaemonRunner;
+        use crate::web_manager::DaemonRunner;
+        if self.settings_tab.web_config.enabled {
+            let _ = daemon.start_daemon(&self.settings_tab.web_config, &self.workspace, &state_dir);
+        } else {
+            let _ = daemon.stop_daemon(&state_dir);
+        }
+        self.settings_tab.web_status = daemon.status(&self.settings_tab.web_config, &state_dir);
+
         if let Some(ref autosave) = self.autosave {
             autosave();
         }
@@ -1067,6 +1081,18 @@ pub fn run_status(workspace: &std::path::Path, config: &Config) -> Result<(), st
         Some(config.clone()),
     )
     .with_autosave(autosave, AUTOSAVE_SECONDS);
+
+    let state_dir = crate::registry::resolve_state_dir();
+    let cfg_path = crate::web_manager::web_config_path(&state_dir);
+    let web_cfg = crate::web_manager::load_web_config(&cfg_path).unwrap_or_default();
+    let ip_candidates = crate::net_interfaces::discover_ips();
+    app.settings_tab.set_web_config(web_cfg);
+    app.settings_tab.set_ip_candidates(ip_candidates);
+
+    let daemon = crate::web_manager::SystemDaemonRunner;
+    use crate::web_manager::DaemonRunner;
+    app.settings_tab.web_status = daemon.status(&app.settings_tab.web_config, &state_dir);
+
     run_app_in_terminal(&mut app)
 }
 

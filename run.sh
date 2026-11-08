@@ -36,6 +36,9 @@ EXP_VER=""
 SLUG=""
 MODE=""
 FRESH=0
+WEB_MODE=0
+WEB_BIND=""
+WEB_PORT=""
 ANSWERS=""
 ANSWERS_SET=0
 CHECK_ONLY=0
@@ -56,6 +59,9 @@ asks before installing or updating anything, then launches tandem from the curre
 
 Options:
   --check          Report status only; change nothing, launch nothing.
+  --web            Launch remote web interface (tandem-web) alongside tandem.
+  --bind <ip>      IP address to bind tandem-web to (default: auto-detected VPN or 127.0.0.1).
+  --port <port>    Port for tandem-web (default: 3940).
   --yes            Answer yes to every prompt.
   --no             Answer no to every prompt.
   --fresh          Clear coordination directory and start tandem fresh.
@@ -84,6 +90,17 @@ parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --check) CHECK_ONLY=1 ;;
+      --web) WEB_MODE=1 ;;
+      --bind)
+        [ "$#" -ge 2 ] || die 4 "--bind needs a value"
+        WEB_BIND="$2"
+        shift
+        ;;
+      --port)
+        [ "$#" -ge 2 ] || die 4 "--port needs a value"
+        WEB_PORT="$2"
+        shift
+        ;;
       --yes) MODE="yes" ;;
       --no) MODE="no" ;;
       --fresh) FRESH=1 ;;
@@ -1055,6 +1072,28 @@ run_source() {
   exec "$bin" ${PASSTHRU[@]+"${PASSTHRU[@]}"}
 }
 
+start_web_if_requested() {
+  [ "$WEB_MODE" -eq 1 ] || return 0
+  local web_dir="$ROOT_DIR/tandem-web"
+  [ -d "$web_dir" ] || return 0
+
+  if ! command -v bun >/dev/null 2>&1; then
+    if ask "Install bun to run tandem-web remote interface?"; then
+      curl -fsSL https://bun.sh/install | bash || die 4 "Failed to install bun"
+      add_cargo_bin_to_path
+      export PATH="$HOME/.bun/bin:$PATH"
+    else
+      printf 'Skipping tandem-web launch (bun installation declined).\n'
+      return 0
+    fi
+  fi
+
+  local web_args=(web)
+  [ -z "$WEB_BIND" ] || web_args+=(--bind "$WEB_BIND")
+  [ -z "$WEB_PORT" ] || web_args+=(--port "$WEB_PORT")
+  node "$ROOT_DIR/bin/agent-workspace.js" "${web_args[@]}" || true
+}
+
 main() {
   ORIG_ARGS=("$@")
   parse_args "$@"
@@ -1102,6 +1141,7 @@ main() {
   act
   remove_retired_runtime_state
   fresh_reset
+  start_web_if_requested
   if [ "$RUNTIME" = "binary" ]; then
     export TANDEM_SELF="$TANDEM_STATE_DIR/bin/current/tandem/$(binary_exe_name "$SLUG")"
     exec "$TANDEM_SELF" ${PASSTHRU[@]+"${PASSTHRU[@]}"}

@@ -59,7 +59,7 @@ The status window provides six tabs:
 - **Spec:** Ongoing spec phases with branch and merge target strategy, phase progress bar, and the task list ordered by task id with `▶` marking In Progress tasks. Shows `next up: ` when no task is in progress.
 - **Task:** Detailed ongoing task inspection with objective checklist progress, owning session and pane id, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to select the owning agent's tmux pane.
 - **Queries:** Questions queued by agents via `coord.py ask`.
-- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode) and interactive Reset UI.
+- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode), Remote Web (`tandem-web`) toggle with first-time dependency consent and IP selector, and interactive Reset UI.
 
 **Navigation:**
 - Cycle tabs with `Tab` and `Shift+Tab`.

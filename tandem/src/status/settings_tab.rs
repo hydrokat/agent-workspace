@@ -4,7 +4,9 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use std::time::Instant;
 
+use crate::net_interfaces::{IpCandidate, NetworkSource};
 use crate::tmux::grid::{FillOrder, GridCols, GridPrefs, GridRows, SidebarMode};
+use crate::web_manager::{WebConfig, WebStatus};
 
 pub const COLS_OPTIONS: [GridCols; 5] = [
     GridCols::Auto,
@@ -43,6 +45,11 @@ pub struct SettingsTab {
     pub confirm_reset: bool,
     pub modal_focus: usize,
     pub flash_message: Option<(String, Instant)>,
+    pub web_config: WebConfig,
+    pub ip_candidates: Vec<IpCandidate>,
+    pub confirm_web_modal: bool,
+    pub web_modal_focus: usize,
+    pub web_status: WebStatus,
 }
 
 impl Default for SettingsTab {
@@ -54,6 +61,11 @@ impl Default for SettingsTab {
             confirm_reset: false,
             modal_focus: 1,
             flash_message: None,
+            web_config: WebConfig::default(),
+            ip_candidates: Vec::new(),
+            confirm_web_modal: false,
+            web_modal_focus: 0,
+            web_status: WebStatus::Off,
         }
     }
 }
@@ -67,7 +79,33 @@ impl SettingsTab {
             confirm_reset: false,
             modal_focus: 1,
             flash_message: None,
+            web_config: WebConfig::default(),
+            ip_candidates: Vec::new(),
+            confirm_web_modal: false,
+            web_modal_focus: 0,
+            web_status: WebStatus::Off,
         }
+    }
+
+    pub fn set_ip_candidates(&mut self, candidates: Vec<IpCandidate>) {
+        if !candidates.is_empty()
+            && (!self.web_config.first_time_acknowledged
+                || self.web_config.bind_ip.is_empty()
+                || !candidates.iter().any(|c| c.ip == self.web_config.bind_ip))
+        {
+            if let Some(preferred) = candidates.iter().find(|c| c.preferred) {
+                self.web_config.bind_ip = preferred.ip.clone();
+                self.web_config.bind_source = preferred.source;
+            } else if let Some(first) = candidates.first() {
+                self.web_config.bind_ip = first.ip.clone();
+                self.web_config.bind_source = first.source;
+            }
+        }
+        self.ip_candidates = candidates;
+    }
+
+    pub fn set_web_config(&mut self, config: WebConfig) {
+        self.web_config = config;
     }
 
     pub fn flash(&mut self, msg: &str) {
@@ -75,7 +113,36 @@ impl SettingsTab {
     }
 
     pub fn handle_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
-        if self.confirm_reset {
+        if self.confirm_web_modal {
+            match key.code {
+                KeyCode::Esc => {
+                    self.confirm_web_modal = false;
+                    None
+                }
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Tab
+                | KeyCode::BackTab
+                | KeyCode::Char('h')
+                | KeyCode::Char('l') => {
+                    self.web_modal_focus = if self.web_modal_focus == 0 { 1 } else { 0 };
+                    None
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.confirm_web_modal = false;
+                    if self.web_modal_focus == 0 {
+                        self.web_config.first_time_acknowledged = true;
+                        self.web_config.enabled = true;
+                        self.flash("tandem-web enabled");
+                        Some(SettingsAction::Changed)
+                    } else {
+                        self.web_config.enabled = false;
+                        None
+                    }
+                }
+                _ => None,
+            }
+        } else if self.confirm_reset {
             match key.code {
                 KeyCode::Esc => {
                     self.confirm_reset = false;
@@ -105,14 +172,14 @@ impl SettingsTab {
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.focused_row = if self.focused_row == 0 {
-                        4
+                        6
                     } else {
                         self.focused_row - 1
                     };
                     None
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.focused_row = if self.focused_row == 4 {
+                    self.focused_row = if self.focused_row == 6 {
                         0
                     } else {
                         self.focused_row + 1
@@ -122,7 +189,7 @@ impl SettingsTab {
                 KeyCode::Left | KeyCode::Char('h') => self.cycle_option(false),
                 KeyCode::Right | KeyCode::Char('l') => self.cycle_option(true),
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    if self.focused_row == 4 {
+                    if self.focused_row == 6 {
                         self.confirm_reset = true;
                         self.modal_focus = 1;
                         None
@@ -193,12 +260,72 @@ impl SettingsTab {
                 self.flash("Settings saved");
                 Some(SettingsAction::Changed)
             }
+            4 => {
+                if !self.web_config.enabled {
+                    if !self.web_config.first_time_acknowledged {
+                        self.confirm_web_modal = true;
+                        self.web_modal_focus = 0;
+                        None
+                    } else {
+                        self.web_config.enabled = true;
+                        self.flash("tandem-web enabled");
+                        Some(SettingsAction::Changed)
+                    }
+                } else {
+                    self.web_config.enabled = false;
+                    self.flash("tandem-web disabled");
+                    Some(SettingsAction::Changed)
+                }
+            }
+            5 => {
+                if self.ip_candidates.is_empty() {
+                    return None;
+                }
+                let idx = self
+                    .ip_candidates
+                    .iter()
+                    .position(|c| c.ip == self.web_config.bind_ip)
+                    .unwrap_or(0);
+                let new_idx = if next {
+                    (idx + 1) % self.ip_candidates.len()
+                } else {
+                    (idx + self.ip_candidates.len() - 1) % self.ip_candidates.len()
+                };
+                let candidate = &self.ip_candidates[new_idx];
+                self.web_config.bind_ip = candidate.ip.clone();
+                self.web_config.bind_source = candidate.source;
+                self.flash("Bind IP updated");
+                Some(SettingsAction::Changed)
+            }
             _ => None,
         }
     }
 
     pub fn handle_mouse(&mut self, mouse: &MouseEvent, area: Rect) -> Option<SettingsAction> {
         if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+            return None;
+        }
+
+        if self.confirm_web_modal {
+            let modal_w = 64u16.min(area.width);
+            let modal_h = 7u16.min(area.height);
+            let modal_x = area.x + (area.width.saturating_sub(modal_w)) / 2;
+            let modal_y = area.y + (area.height.saturating_sub(modal_h)) / 2;
+
+            if mouse.row == modal_y + 5 {
+                if mouse.column >= modal_x + 12 && mouse.column <= modal_x + 34 {
+                    self.confirm_web_modal = false;
+                    self.web_config.first_time_acknowledged = true;
+                    self.web_config.enabled = true;
+                    self.flash("tandem-web enabled");
+                    return Some(SettingsAction::Changed);
+                } else if mouse.column >= modal_x + 36 && mouse.column <= modal_x + 48 {
+                    self.confirm_web_modal = false;
+                    self.web_config.enabled = false;
+                    return None;
+                }
+            }
+            self.confirm_web_modal = false;
             return None;
         }
 
@@ -242,6 +369,14 @@ impl SettingsTab {
             }
             6 => {
                 self.focused_row = 4;
+                self.cycle_option(true)
+            }
+            7 => {
+                self.focused_row = 5;
+                self.cycle_option(true)
+            }
+            9 => {
+                self.focused_row = 6;
                 self.confirm_reset = true;
                 self.modal_focus = 1;
                 None
@@ -258,15 +393,15 @@ impl SettingsTab {
         let header_style = Style::default().add_modifier(Modifier::BOLD);
         buf.set_string(area.x, area.y, "Grid layout", header_style);
 
-        let row_labels = ["Columns", "Rows per page", "Fill order", "Sidebar"];
-
-        for (idx, label) in row_labels.iter().enumerate() {
+        let grid_labels = ["Columns", "Rows per page", "Fill order", "Sidebar"];
+        for (idx, label) in grid_labels.iter().enumerate() {
             let row_y = area.y + 1 + idx as u16;
             if row_y >= area.y + area.height {
                 break;
             }
 
-            let is_focused = self.focused_row == idx && !self.confirm_reset;
+            let is_focused =
+                self.focused_row == idx && !self.confirm_reset && !self.confirm_web_modal;
             let prefix = if is_focused { "▶ " } else { "  " };
 
             let label_str = format!("{prefix}{label:<14} ");
@@ -326,9 +461,100 @@ impl SettingsTab {
             }
         }
 
-        let reset_y = area.y + 6;
+        let web_header_y = area.y + 5;
+        if web_header_y < area.y + area.height {
+            buf.set_string(
+                area.x,
+                web_header_y,
+                "Remote web (tandem-web)",
+                header_style,
+            );
+        }
+
+        let enable_y = area.y + 6;
+        if enable_y < area.y + area.height {
+            let is_focused =
+                self.focused_row == 4 && !self.confirm_reset && !self.confirm_web_modal;
+            let prefix = if is_focused { "▶ " } else { "  " };
+            let label_str = format!("{prefix}{:<14} ", "Enable web");
+            let label_style = if is_focused {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            buf.set_string(area.x, enable_y, &label_str, label_style);
+
+            let mut cur_x = area.x + label_str.len() as u16;
+            cur_x = render_option_badge(buf, cur_x, enable_y, "Off", !self.web_config.enabled);
+            cur_x = render_option_badge(buf, cur_x, enable_y, "On", self.web_config.enabled);
+
+            if let WebStatus::Running { ref url, .. } = self.web_status {
+                let status_str = format!("   ● Running on {url}");
+                buf.set_string(
+                    cur_x,
+                    enable_y,
+                    &status_str,
+                    Style::default().fg(Color::Green),
+                );
+            } else if self.web_config.enabled {
+                let status_str = format!(
+                    "   ● Configured (http://{}:{})",
+                    self.web_config.bind_ip, self.web_config.port
+                );
+                buf.set_string(
+                    cur_x,
+                    enable_y,
+                    &status_str,
+                    Style::default().fg(Color::Cyan),
+                );
+            }
+        }
+
+        let ip_y = area.y + 7;
+        if ip_y < area.y + area.height {
+            let is_focused =
+                self.focused_row == 5 && !self.confirm_reset && !self.confirm_web_modal;
+            let prefix = if is_focused { "▶ " } else { "  " };
+            let label_str = format!("{prefix}{:<14} ", "Bind IP");
+            let label_style = if is_focused {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            buf.set_string(area.x, ip_y, &label_str, label_style);
+
+            let mut cur_x = area.x + label_str.len() as u16;
+            if area.width < 100 {
+                let name = format!(
+                    "{} [{}]",
+                    self.web_config.bind_ip,
+                    self.web_config.bind_source.as_str()
+                );
+                let display = format!("← (•{name}) →");
+                buf.set_string(
+                    cur_x,
+                    ip_y,
+                    &display,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                );
+            } else {
+                for candidate in &self.ip_candidates {
+                    let is_active = candidate.ip == self.web_config.bind_ip;
+                    let name = format!("{} [{}]", candidate.ip, candidate.source.as_str());
+                    if cur_x + name.len() as u16 + 6 > area.x + area.width {
+                        break;
+                    }
+                    cur_x = render_option_badge(buf, cur_x, ip_y, &name, is_active);
+                }
+            }
+        }
+
+        let reset_y = area.y + 9;
         if reset_y < area.y + area.height {
-            let is_focused = self.focused_row == 4 && !self.confirm_reset;
+            let is_focused =
+                self.focused_row == 6 && !self.confirm_reset && !self.confirm_web_modal;
             let reset_prefix = if is_focused { "▶ " } else { "  " };
             let reset_btn = format!(
                 "{reset_prefix}[ Reset UI ]   restores layout, sizes, grid and sidebar to defaults"
@@ -341,7 +567,7 @@ impl SettingsTab {
             buf.set_string(area.x, reset_y, &reset_btn, style);
         }
 
-        let about_y = area.y + 8;
+        let about_y = area.y + 11;
         if about_y < area.y + area.height {
             let ver = env!("CARGO_PKG_VERSION");
             let about = format!("tandem {ver} · github.com/hydrokat/agent-workspace ↗");
@@ -360,7 +586,16 @@ impl SettingsTab {
             buf.set_string(area.x, flash_y, msg, flash_style);
         }
 
-        if self.confirm_reset {
+        if self.confirm_web_modal {
+            render_web_consent_modal(
+                area,
+                buf,
+                self.web_modal_focus,
+                &self.web_config.bind_ip,
+                self.web_config.bind_source,
+                self.web_config.port,
+            );
+        } else if self.confirm_reset {
             render_modal(area, buf, self.modal_focus);
         }
     }
@@ -371,13 +606,99 @@ fn render_option_badge(buf: &mut Buffer, x: u16, y: u16, label: &str, is_active:
     let text = format!("({bullet}{label}) ");
     let style = if is_active {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(Color::White)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
     buf.set_string(x, y, &text, style);
     x + text.len() as u16
+}
+
+fn render_web_consent_modal(
+    area: Rect,
+    buf: &mut Buffer,
+    modal_focus: usize,
+    bind_ip: &str,
+    bind_source: NetworkSource,
+    port: u16,
+) {
+    let width = 64u16.min(area.width);
+    let height = 7u16.min(area.height);
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+
+    for r in y..y + height {
+        for c in x..x + width {
+            if let Some(cell) = buf.cell_mut((c, r)) {
+                cell.set_symbol(" ");
+                cell.set_style(Style::default().bg(Color::Black));
+            }
+        }
+    }
+
+    let top = format!(
+        "┌ Enable tandem-web (First-Time Setup) {:─<width$}┐",
+        "",
+        width = (width as usize).saturating_sub(40)
+    );
+    buf.set_string(
+        x,
+        y,
+        &top[..width as usize],
+        Style::default().fg(Color::Cyan),
+    );
+
+    let line1 = "  Turning on tandem-web for the first time may install";
+    let line2 = "  additional dependencies (bun, tandem-web packages, ttyd).";
+    let line3 = format!(
+        "  Bind IP: {bind_ip} [{}] · Port: {port}",
+        bind_source.as_str()
+    );
+
+    buf.set_string(
+        x,
+        y + 1,
+        line1,
+        Style::default().add_modifier(Modifier::BOLD),
+    );
+    buf.set_string(
+        x,
+        y + 2,
+        line2,
+        Style::default().add_modifier(Modifier::BOLD),
+    );
+    buf.set_string(x, y + 3, &line3, Style::default().fg(Color::Yellow));
+
+    let enable_style = if modal_focus == 0 {
+        Style::default()
+            .add_modifier(Modifier::REVERSED)
+            .fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Green)
+    };
+    let cancel_style = if modal_focus == 1 {
+        Style::default()
+            .add_modifier(Modifier::REVERSED)
+            .fg(Color::White)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
+    buf.set_string(x + 14, y + 5, "[ Install & Enable ]", enable_style);
+    buf.set_string(x + 38, y + 5, "[ Cancel ]", cancel_style);
+
+    let bottom = format!(
+        "└{:─<width$}┘",
+        "",
+        width = (width as usize).saturating_sub(2)
+    );
+    buf.set_string(
+        x,
+        y + 6,
+        &bottom[..width as usize],
+        Style::default().fg(Color::Cyan),
+    );
 }
 
 fn render_modal(area: Rect, buf: &mut Buffer, modal_focus: usize) {

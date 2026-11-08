@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+tandem-web/node_modules/
+tandem-web/.next/
 
 # Environment
 .env

@@ -5,6 +5,9 @@ asks before installing or updating anything, then launches tandem from the curre
 
 Options:
   --check          Report status only; change nothing, launch nothing.
+  --web            Launch remote web interface (tandem-web) alongside tandem.
+  --bind <ip>      IP address to bind tandem-web to (default: auto-detected VPN or 127.0.0.1).
+  --port <port>    Port for tandem-web (default: 3940).
   --yes            Answer yes to every prompt.
   --no             Answer no to every prompt.
   --fresh          Clear coordination directory and start tandem fresh.
