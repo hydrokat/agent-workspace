@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Test suite no longer scaffolds workspace files into the repository.** `test/baseline.test.js` launched the repo's own `run.sh` with updates enabled. In a checkout that has a `.agent-workspace/manifest.json`, and once a newer release is published, `run.sh` ran `npx agent-workspace update` in the current directory, creating `AGENTS.md`, `.agents/`, `specs/`, `sprints/`, `knowledgebase/` and `WORKFLOW.md`, and then made the `bad-runtime` scenario exit 1 instead of 4. `run.sh` is now started through a shared helper (`runRunSh`) that sets `TANDEM_SKIP_UPDATE=1` and uses a throwaway working directory, with a regression test (`test/run-sh-hermetic.test.js`) that proves it. Baseline scenarios also no longer hit the network.
+
 ## [1.11.0] — 2026-11-08
 
 ### Added: Web pane in tandem (Phase p-009)
