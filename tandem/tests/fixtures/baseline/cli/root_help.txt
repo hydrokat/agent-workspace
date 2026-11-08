@@ -32,6 +32,9 @@ Commands:
   gridbar       run the grid overflow scrollbar
   equalize      equalize pane split or reset border to default
   reset-ui      reset UI layout, sizes, grid and sidebar to defaults
+  snapshot      output workspace snapshot in JSON format
+  answer-query  answer an agent coordination query
+  list-ips      list host network IPs and active workspaces
 
 Options:
       --resume   resume the saved session without asking

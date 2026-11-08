@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Remote Multi-Workspace Web Interface (`tandem-web`) (Phase p-007)
+
+- **Remote Multi-Workspace Web Dashboard (`tandem-web`)**:
+  - Web dashboard built with Bun, Next.js (App Router), Tailwind CSS, and shadcn/ui.
+  - Multi-workspace switcher: discover, monitor, and switch across running `tandem` workspaces from phone or browser.
+  - Responsive ergonomics: sticky 5-tab thumb-zone bottom navigation bar on phone (`<768px`) with `44px` minimum touch targets; persistent split-pane sidebar on tablet and desktop (`≥768px`).
+  - Real-time updates: live Status, Sprint, Spec, Task, and Quota metrics streamed via Server-Sent Events (SSE).
+  - 100% ToS Air-Gap: zero network imports or shell strings in the `tandem` Rust crate (`tests/tos_guard.rs` clean); agent controls (`Focus`, `Toggle Grid`, `Restart`, `Close`, `Equalize`, `Reset UI`) invoke existing allow-listed CLI subcommands with zero scraping or keystroke injection into AI panes.
+  - Touch-first Queries inbox: answer agent questions (`coord.py ask`) from your phone with one-tap quick-option chips or freeform text.
+  - Optional `ttyd` terminal attachment: attach directly to the workspace tmux session with a touch-friendly modifier toolbar (`Opt`/`Alt`, `Ctrl`, `Esc`, `Tab`, arrows, and tandem shortcuts).
+  - Settings Tab integration: Remote Web toggle in TUI Tab 6 Settings with first-time dependency consent modal, IP discovery, and network source badges (`tailscale`, `wireguard`, `zerotier`, `vpn`, `lan`, `localhost`).
+  - Strict security guardrails: opaque `tandem-<10-hex-hash>` routing, timing-safe CSPRNG token authentication, blocked `0.0.0.0` wildcard binding, and comprehensive 8-category OWASP security test suite.
+  - CLI entrypoints: `./run.sh --web [--bind <ip>] [--port <port>]` and `agent-workspace web [--status] [--stop] [--list-ips]`.
 - `AGENTS.md` template (Branch Protection): worktrees must be created inside the `worktrees/` directory at the workspace root, created first if missing.
 
 ## [1.9.4] — 2026-11-08

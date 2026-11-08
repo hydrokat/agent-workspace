@@ -284,6 +284,11 @@ pub fn start(
     }
 
     autosave(&layout, workspace);
+    let _ = crate::registry::register_or_heartbeat(
+        &config.state_dir,
+        workspace,
+        Some(std::process::id()),
+    );
     attach(workspace);
     Ok(())
 }
@@ -556,13 +561,21 @@ pub fn autosave(layout: &Layout, workspace: &Path) -> bool {
     if snapshot.agents.is_empty() || is_closing(layout) {
         return false;
     }
-    state::save(&state::state_path(workspace), &snapshot).is_ok()
+    let saved = state::save(&state::state_path(workspace), &snapshot).is_ok();
+    if saved {
+        let state_dir = crate::registry::resolve_state_dir();
+        let _ =
+            crate::registry::register_or_heartbeat(&state_dir, workspace, Some(std::process::id()));
+    }
+    saved
 }
 
 pub fn save_exit(layout: &Layout, workspace: &Path) {
     let _ = layout
         .client
         .run_checked(&["set-option", "-t", SESSION, CLOSING, "1"]);
+    let state_dir = crate::registry::resolve_state_dir();
+    let _ = crate::registry::remove(&state_dir, workspace);
     let snapshot = match save_state(layout, workspace, true) {
         Ok(s) => s,
         Err(e) => {
@@ -586,6 +599,8 @@ pub fn discard_exit(layout: &Layout, workspace: &Path) {
     let _ = layout
         .client
         .run_checked(&["set-option", "-t", SESSION, CLOSING, "1"]);
+    let state_dir = crate::registry::resolve_state_dir();
+    let _ = crate::registry::remove(&state_dir, workspace);
     let sp = state::state_path(workspace);
     let _ = std::fs::remove_file(sp);
     let _ = layout.client.run_checked(&["kill-session", "-t", SESSION]);
@@ -1319,4 +1334,155 @@ pub fn quota_line(workspace: &Path, config: &Config) {
     let cli_refs: Vec<&str> = clis.iter().map(|s| s.as_str()).collect();
     let line = quota::format_line(&cli_refs, claude.as_ref(), now);
     let _ = io::stdout().write_all(line.as_bytes());
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotPayload {
+    pub workspace_id: String,
+    pub workspace_path: String,
+    pub snapshot: crate::snapshot::StatusSnapshot,
+    pub panes: Vec<crate::tmux::tabs::PaneInfo>,
+    pub selected: Vec<String>,
+    pub quota_line: String,
+}
+
+pub fn collect_snapshot_json(
+    workspace: &Path,
+    config: &Config,
+) -> Result<SnapshotPayload, anyhow::Error> {
+    let resolved = crate::tmux::client::resolve_path(workspace);
+    let workspace_id = crate::tmux::client::socket_for(&resolved);
+    let workspace_path = resolved.to_string_lossy().to_string();
+
+    let coord_dir = coord_dir_for(workspace, config);
+    let store = crate::coordination::store::CoordStore::new(coord_dir.clone());
+    let snapshot =
+        crate::snapshot::collect(workspace, &store, std::time::Duration::from_millis(500));
+
+    let layout = make_layout(workspace, config);
+    let panes = if layout.exists() {
+        layout.panes().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let selected = if layout.exists() {
+        layout.get_selected_from(&panes)
+    } else {
+        Vec::new()
+    };
+
+    let mut clis = Vec::new();
+    for pane in &panes {
+        if pane.kind != "agent" {
+            continue;
+        }
+        if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&pane.spec)
+            && let Some(cli) = raw.get("cli").and_then(|v| v.as_str())
+            && !clis.contains(&cli.to_string())
+        {
+            clis.push(cli.to_string());
+        }
+    }
+
+    let now = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let claude = if clis.iter().any(|c| c == "claude") {
+        quota::read_claude(&coord_dir)
+    } else {
+        None
+    };
+
+    let cli_refs: Vec<&str> = clis.iter().map(|s| s.as_str()).collect();
+    let quota_line = quota::format_line(&cli_refs, claude.as_ref(), now);
+
+    Ok(SnapshotPayload {
+        workspace_id,
+        workspace_path,
+        snapshot,
+        panes,
+        selected,
+        quota_line,
+    })
+}
+
+pub fn snapshot_json(workspace: &Path, config: &Config) {
+    match collect_snapshot_json(workspace, config) {
+        Ok(payload) => {
+            if let Ok(json) = serde_json::to_string_pretty(&payload) {
+                let _ = io::stdout().write_all(json.as_bytes());
+                let _ = io::stdout().write_all(b"\n");
+            }
+        }
+        Err(e) => {
+            eprintln!("Error collecting snapshot: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn answer_query_inner(
+    workspace: &Path,
+    config: &Config,
+    id: &str,
+    answer: &str,
+) -> Result<(), anyhow::Error> {
+    if !crate::coordination::store::is_valid_query_id(id) {
+        anyhow::bail!("Invalid query ID '{id}'");
+    }
+    let trimmed_answer = answer.trim();
+    if trimmed_answer.is_empty() {
+        anyhow::bail!("Answer text cannot be empty");
+    }
+
+    let coord_dir = coord_dir_for(workspace, config);
+    let store = crate::coordination::store::CoordStore::new(coord_dir);
+    store
+        .answer(id, trimmed_answer, "cli")
+        .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+pub fn answer_query_cmd(workspace: &Path, config: &Config, id: &str, answer: &str) {
+    match answer_query_inner(workspace, config, id, answer) {
+        Ok(()) => {
+            let res = serde_json::json!({
+                "ok": true,
+                "id": id,
+            });
+            let _ =
+                io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
+            let _ = io::stdout().write_all(b"\n");
+        }
+        Err(e) => {
+            eprintln!("Error answering query: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ListIpsPayload {
+    pub ips: Vec<crate::net_interfaces::IpCandidate>,
+    pub workspaces: Vec<crate::registry::WorkspaceEntry>,
+}
+
+pub fn list_ips_payload(_workspace: &Path) -> ListIpsPayload {
+    let ips = crate::net_interfaces::discover_ips();
+    let state_dir = crate::registry::resolve_state_dir();
+    let reg_path = crate::registry::default_registry_path(&state_dir);
+    let workspaces = crate::registry::load_registry(&reg_path)
+        .map(|r| r.workspaces)
+        .unwrap_or_default();
+
+    ListIpsPayload { ips, workspaces }
+}
+
+pub fn list_ips_json(workspace: &Path) {
+    let payload = list_ips_payload(workspace);
+    if let Ok(json) = serde_json::to_string_pretty(&payload) {
+        let _ = io::stdout().write_all(json.as_bytes());
+        let _ = io::stdout().write_all(b"\n");
+    }
 }

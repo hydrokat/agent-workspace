@@ -7,6 +7,17 @@ Options:
   -h, --help  Print help
 
 
+=== SUBCOMMAND: answer-query ===
+answer an agent coordination query
+
+Usage: answer-query --id <ID> --answer <ANSWER>
+
+Options:
+      --id <ID>          query ID to answer
+      --answer <ANSWER>  answer text
+  -h, --help             Print help
+
+
 === SUBCOMMAND: click ===
 dispatch a status-bar or pane-menu click action
 
@@ -110,6 +121,16 @@ show the key help
 Usage: help
 
 Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: list-ips ===
+list host network IPs and active workspaces
+
+Usage: list-ips [OPTIONS]
+
+Options:
+      --json  output candidate IPs in JSON format
   -h, --help  Print help
 
 
@@ -246,6 +267,16 @@ run the agent sidebar
 Usage: sidebar
 
 Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: snapshot ===
+output workspace snapshot in JSON format
+
+Usage: snapshot [OPTIONS]
+
+Options:
+      --json  output snapshot in JSON format
   -h, --help  Print help
 
 

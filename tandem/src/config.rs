@@ -189,6 +189,13 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self::from_env_source(&HashMap::<String, String>::new())
+            .expect("default config from empty env is always valid")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

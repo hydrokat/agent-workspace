@@ -14,6 +14,7 @@ Commands:
   init      Initialize the current directory as an agent workspace
   update    Update an existing workspace with latest skills, agents, and guidelines
   doctor    Verify workspace correctness
+  web       Start, stop, or query the remote web interface (tandem-web)
 
 Options:
   --yes                  Non-interactive; accept all defaults
@@ -28,6 +29,11 @@ Options:
   --git / --no-git       init: create (or skip creating) a local git repo without asking
   --commit / --no-commit update: commit (or skip committing) the files the update changed without asking
   --update-clis / --no-update-clis update: update (or skip updating) the installed AI CLIs (claude, agy, codex) without asking
+  --bind <ip>            web: bind IP address (e.g. VPN or localhost)
+  --port <port>          web: port (default: 3940)
+  --list-ips             web: list available network IPs and sources
+  --status               web: check if tandem-web daemon is running
+  --stop                 web: stop tandem-web daemon
   --version              Print version
   --help                 Print this help
 
@@ -36,6 +42,8 @@ Examples:
   npx hydrokat/agent-workspace init --yes --providers claude,codex --name "my-project"
   npx hydrokat/agent-workspace update
   npx hydrokat/agent-workspace doctor
+  npx hydrokat/agent-workspace web
+  npx hydrokat/agent-workspace web --status
 `.trim();
 
 function parseArgs(argv) {
@@ -53,6 +61,11 @@ function parseArgs(argv) {
     commit: null,
     version: false,
     help: false,
+    bind: null,
+    port: null,
+    listIps: false,
+    status: false,
+    stop: false,
   };
   const positional = [];
 
@@ -73,6 +86,13 @@ function parseArgs(argv) {
     else if (arg === '--no-update-clis') { flags.updateClis = false; }
     else if (arg === '--version') { flags.version = true; }
     else if (arg === '--help' || arg === '-h') { flags.help = true; }
+    else if (arg === '--list-ips') { flags.listIps = true; }
+    else if (arg === '--status') { flags.status = true; }
+    else if (arg === '--stop') { flags.stop = true; }
+    else if (arg === '--bind' && argv[i + 1]) { flags.bind = argv[++i]; }
+    else if (arg.startsWith('--bind=')) { flags.bind = arg.slice(7); }
+    else if (arg === '--port' && argv[i + 1]) { flags.port = argv[++i]; }
+    else if (arg.startsWith('--port=')) { flags.port = arg.slice(7); }
     else if (arg === '--providers' && argv[i + 1]) { flags.providers = argv[++i].split(',').map(p => p.trim()); }
     else if (arg.startsWith('--providers=')) { flags.providers = arg.slice(12).split(',').map(p => p.trim()); }
     else if (arg === '--name' && argv[i + 1]) { flags.name = argv[++i]; }
@@ -117,6 +137,11 @@ export async function main(argv) {
       const { run } = await import('./commands/doctor.js');
       const ok = await run(context);
       if (!ok) process.exit(1);
+      break;
+    }
+    case 'web': {
+      const { run } = await import('./commands/web.js');
+      await run(context);
       break;
     }
     default:

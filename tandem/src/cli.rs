@@ -133,6 +133,39 @@ pub enum Command {
 
     #[command(about = "reset UI layout, sizes, grid and sidebar to defaults")]
     ResetUi,
+
+    #[command(about = "output workspace snapshot in JSON format")]
+    Snapshot(SnapshotArgs),
+
+    #[command(about = "answer an agent coordination query")]
+    AnswerQuery(AnswerQueryArgs),
+
+    #[command(about = "list host network IPs and active workspaces")]
+    ListIps(ListIpsArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct SnapshotArgs {
+    #[arg(long, default_value_t = true, help = "output snapshot in JSON format")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct AnswerQueryArgs {
+    #[arg(long, help = "query ID to answer")]
+    pub id: String,
+    #[arg(long, help = "answer text")]
+    pub answer: String,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct ListIpsArgs {
+    #[arg(
+        long,
+        default_value_t = true,
+        help = "output candidate IPs in JSON format"
+    )]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -285,6 +318,15 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
         }
         Some(Command::Gridbar) => {
             crate::gridbar::run_gridbar(&workspace, &config)?;
+        }
+        Some(Command::Snapshot(_)) => {
+            crate::commands::snapshot_json(&workspace, &config);
+        }
+        Some(Command::AnswerQuery(args)) => {
+            crate::commands::answer_query_cmd(&workspace, &config, &args.id, &args.answer);
+        }
+        Some(Command::ListIps(_)) => {
+            crate::commands::list_ips_json(&workspace);
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;

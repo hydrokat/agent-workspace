@@ -130,23 +130,31 @@ fn test_settings_tab_navigation_and_option_cycling() {
     tab.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     assert_eq!(tab.sidebar_mode, SidebarMode::Wide);
 
-    // Down to Reset UI button
+    // Down to Enable web
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 4);
+
+    // Down to Bind IP
+    tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(tab.focused_row, 5);
+
+    // Down to Reset UI button
+    tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(tab.focused_row, 6);
 
     // Down wraps to 0
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 0);
 
-    // Up wraps to 4
+    // Up wraps to 6
     tab.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    assert_eq!(tab.focused_row, 4);
+    assert_eq!(tab.focused_row, 6);
 }
 
 #[test]
 fn test_settings_tab_confirm_reset_modal_lifecycle() {
     let mut tab = SettingsTab {
-        focused_row: 4, // Reset UI button
+        focused_row: 6, // Reset UI button
         ..Default::default()
     };
 
