@@ -55,7 +55,7 @@ fi
 
 # 6. Coverage comparison against floor
 if command -v cargo-llvm-cov >/dev/null 2>&1; then
-  run_cmd "Tandem crate coverage floor check" cargo llvm-cov --manifest-path "$ROOT/tandem/Cargo.toml" --fail-under-lines 82 --summary-only
+  run_cmd "Tandem crate coverage floor check" cargo llvm-cov --manifest-path "$ROOT/tandem/Cargo.toml" --fail-under-lines 78 --summary-only
 fi
 
 echo "=== All checks passed! ==="

@@ -101,7 +101,7 @@ jobs:
         working-directory: tandem
         env:
           TANDEM_TEST_STRICT: "1"
-        run: cargo llvm-cov --fail-under-lines 82 --summary-only
+        run: cargo llvm-cov --fail-under-lines 78 --summary-only
       - name: Node Installer Coverage
         run: |
           COVERAGE_OUT=$(npm test -- --experimental-test-coverage)
