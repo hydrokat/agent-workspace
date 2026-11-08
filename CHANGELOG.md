@@ -4,6 +4,12 @@
 
 - `AGENTS.md` template (Branch Protection): worktrees must be created inside the `worktrees/` directory at the workspace root, created first if missing.
 
+## [1.9.4] — 2026-11-08
+
+### Changed
+
+- `--fresh` now ends a tandem session that is already running for the workspace and starts from a clean state, instead of refusing (1.9.3) or attaching to it (1.9.2 and earlier). `./run.sh --fresh` asks first (skip with `--yes`), then ends the session, clears the coordination directory and discards the saved session. Declining leaves everything untouched (exit 2).
+
 ## [1.9.3] — 2026-11-08
 
 ### Fixed

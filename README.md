@@ -280,7 +280,7 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 ```bash
 ./run.sh            # check dependencies, ask before installing/updating, then launch
-./run.sh --fresh    # clear .agent-workspace/coordination/, discard the saved session and start fresh
+./run.sh --fresh    # end a running tandem session, clear .agent-workspace/coordination/, discard the saved session and start fresh
 ./run.sh --check    # report only; change nothing
 ./run.sh --yes      # answer yes to every prompt (--no answers no)
 ./run.sh --no-update  # skip the launch-time update check this time

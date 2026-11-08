@@ -265,7 +265,7 @@ fn quota_feed_survives_garbage_and_oversized_input() {
 }
 
 #[test]
-fn fresh_refuses_to_attach_to_a_running_session() {
+fn fresh_terminates_a_running_session_instead_of_attaching() {
     if !common::require_tool("tmux") {
         return;
     }
@@ -293,11 +293,32 @@ fn fresh_refuses_to_attach_to_a_running_session() {
         .output()
         .unwrap();
 
+    let still_there = Command::new("tmux")
+        .args(["-L", &socket, "has-session", "-t", "tandem", "sleep"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let original_alive = Command::new("tmux")
+        .args([
+            "-L",
+            &socket,
+            "list-panes",
+            "-t",
+            "tandem",
+            "-F",
+            "#{pane_current_command}",
+        ])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("sleep"))
+        .unwrap_or(false);
     let _ = Command::new("tmux")
         .args(["-L", &socket, "kill-server"])
         .status();
 
-    assert_eq!(out.status.code(), Some(2), "{out:?}");
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("already running"), "{err}");
+    assert!(err.contains("Ending the running tandem session"), "{err}");
+    assert!(
+        !original_alive || !still_there,
+        "old session survived: {err}"
+    );
 }

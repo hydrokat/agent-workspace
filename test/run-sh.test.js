@@ -31,6 +31,10 @@ case "$name" in
         if [ -f "$STATE/tmux.running" ]; then exit 0; fi
         exit 1
         ;;
+      *kill-session*)
+        rm -f "$STATE/tmux.running"
+        exit 0
+        ;;
     esac;;
   sudo) exec "$@";;
   pacman)
@@ -1117,23 +1121,34 @@ describe('run.sh --fresh', () => {
     assert.ok(!existsSync(coord), 'coordination dir must not be created by --check');
   });
 
-  it('refuses to clear when tandem is running and exits 2', async () => {
+  it('terminates a running tandem session, clears files and starts fresh', async () => {
     const env = setup();
     const coord = setupCoord(env);
     env.mark('tmux.running');
     const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Ending the running tandem session/);
+    assert.match(readFileSync(join(env.state, 'calls.log'), 'utf8'), /tmux .*kill-session -t tandem/);
+    assert.ok(!existsSync(join(coord, 'claims', 'c-1.json')), 'files cleared');
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=--fresh/);
+  });
+
+  it('keeps the running session and the files when termination is declined', async () => {
+    const env = setup();
+    const coord = setupCoord(env);
+    env.mark('tmux.running');
+    const r = await run(env, ['--fresh', '--no']);
     assert.equal(r.code, 2, r.out);
-    assert.match(r.out, /tandem is running for this workspace/);
-    assert.match(r.out, /Quit it first/);
+    assert.ok(!/kill-session/.test(readFileSync(join(env.state, 'calls.log'), 'utf8')));
     assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file untouched');
   });
 
-  it('refuses when tandem is running even if the coordination dir does not exist yet', async () => {
+  it('terminates a running session even if the coordination dir does not exist yet', async () => {
     const env = setup();
     env.mark('tmux.running');
     const r = await run(env, ['--fresh', '--yes']);
-    assert.equal(r.code, 2, r.out);
-    assert.match(r.out, /tandem is running for this workspace/);
+    assert.equal(r.code, 0, r.out);
+    assert.match(readFileSync(join(env.state, 'calls.log'), 'utf8'), /kill-session -t tandem/);
   });
 
   it('handles empty coordination directory (nothing to clear)', async () => {

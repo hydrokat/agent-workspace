@@ -885,7 +885,10 @@ real_path() {
   (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
 }
 
+RUNNING_SOCKET=""
+
 is_tandem_running() {
+  RUNNING_SOCKET=""
   if tmux has-session -t tandem 2>/dev/null; then
     return 0
   fi
@@ -898,14 +901,25 @@ is_tandem_running() {
         if tmux -L "$sname" has-session -t tandem 2>/dev/null; then
           local ws_env pane_path
           ws_env="$(tmux -L "$sname" show-environment -g -t tandem TANDEM_WORKSPACE 2>/dev/null | cut -d= -f2- || true)"
-          [ -n "$ws_env" ] && [ "$(real_path "$ws_env")" = "$(real_path "$ROOT_DIR")" ] && return 0
+          [ -n "$ws_env" ] && [ "$(real_path "$ws_env")" = "$(real_path "$ROOT_DIR")" ] && { RUNNING_SOCKET="$sname"; return 0; }
           pane_path="$(tmux -L "$sname" display-message -p -t tandem '#{pane_current_path}' 2>/dev/null || true)"
-          [ -n "$pane_path" ] && [ "$(real_path "$pane_path")" = "$(real_path "$ROOT_DIR")" ] && return 0
+          [ -n "$pane_path" ] && [ "$(real_path "$pane_path")" = "$(real_path "$ROOT_DIR")" ] && { RUNNING_SOCKET="$sname"; return 0; }
         fi
       fi
     done
   fi
   return 1
+}
+
+terminate_running_tandem() {
+  local sock_args=() i
+  [ -z "$RUNNING_SOCKET" ] || sock_args=(-L "$RUNNING_SOCKET")
+  tmux ${sock_args[@]+"${sock_args[@]}"} kill-session -t tandem 2>/dev/null || true
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    is_tandem_running || return 0
+    sleep 0.2
+  done
+  die 2 "Could not end the running tandem session. Quit it from its menu, then run ./run.sh --fresh again."
 }
 
 add_fresh_passthru() {
@@ -943,9 +957,10 @@ fresh_reset() {
   esac
 
   if [ "$CHECK_ONLY" -eq 0 ] && is_tandem_running; then
-    local opt_key="Ctrl+Alt+x"
-    [ "$(uname -s)" = "Darwin" ] && opt_key="Ctrl+Opt+x"
-    die 2 "tandem is running for this workspace. Quit it first ($opt_key → Save and exit), then run ./run.sh --fresh."
+    ask "tandem is running for this workspace. --fresh ends that session (its agents stop) and starts from a clean state.
+Continue?" || die 2 "Declined ending the running tandem session."
+    terminate_running_tandem
+    printf 'Ending the running tandem session…\n'
   fi
 
   if ! [ -e "$coord_dir" ]; then
