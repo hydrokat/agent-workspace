@@ -1,5 +1,6 @@
 pub mod golden;
 pub mod parity;
+pub mod ready_deps;
 pub mod tools;
 pub mod topology;
 

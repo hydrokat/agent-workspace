@@ -74,7 +74,8 @@ fn fixture(config: WebConfig) -> Fixture {
     fs::create_dir_all(&state).unwrap();
     let daemon = Arc::new(FakeDaemon::default());
     let mut app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None)
-        .with_web_daemon(daemon.clone(), state.clone());
+        .with_web_daemon(daemon.clone(), state.clone())
+        .with_deps_runtime(Arc::new(common::ready_deps::ReadyDeps));
     app.web_tab.set_web_config(config);
     app.set_tab(StatusTab::Web);
     Fixture {

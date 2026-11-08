@@ -470,3 +470,23 @@ fn locate_bun_prefers_path_then_the_default_install_dir() {
     exe(&s.bin.join("bun"));
     assert_eq!(locate_bun(&env_for(&s)), Some(s.bin.join("bun")));
 }
+
+#[test]
+fn every_test_that_drives_the_web_daemon_also_fakes_the_dependency_check() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut offenders = Vec::new();
+    for entry in fs::read_dir(&dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let body = fs::read_to_string(&path).unwrap();
+        if body.contains(".with_web_daemon(") && !body.contains(".with_deps_runtime(") {
+            offenders.push(path.file_name().unwrap().to_string_lossy().to_string());
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "these tests enable web through the real host check and would fail on a machine without bun: {offenders:?}"
+    );
+}
