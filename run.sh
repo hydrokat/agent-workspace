@@ -881,6 +881,10 @@ collect_coord_files() {
   done
 }
 
+real_path() {
+  (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
+}
+
 is_tandem_running() {
   if tmux has-session -t tandem 2>/dev/null; then
     return 0
@@ -894,9 +898,9 @@ is_tandem_running() {
         if tmux -L "$sname" has-session -t tandem 2>/dev/null; then
           local ws_env pane_path
           ws_env="$(tmux -L "$sname" show-environment -g -t tandem TANDEM_WORKSPACE 2>/dev/null | cut -d= -f2- || true)"
-          [ -n "$ws_env" ] && [ "$ws_env" = "$ROOT_DIR" ] && return 0
+          [ -n "$ws_env" ] && [ "$(real_path "$ws_env")" = "$(real_path "$ROOT_DIR")" ] && return 0
           pane_path="$(tmux -L "$sname" display-message -p -t tandem '#{pane_current_path}' 2>/dev/null || true)"
-          [ -n "$pane_path" ] && [ "$pane_path" = "$ROOT_DIR" ] && return 0
+          [ -n "$pane_path" ] && [ "$(real_path "$pane_path")" = "$(real_path "$ROOT_DIR")" ] && return 0
         fi
       fi
     done
@@ -938,6 +942,12 @@ fresh_reset() {
     "$ROOT_DIR"/*) rel_coord="${coord_dir#"$ROOT_DIR"/}" ;;
   esac
 
+  if [ "$CHECK_ONLY" -eq 0 ] && is_tandem_running; then
+    local opt_key="Ctrl+Alt+x"
+    [ "$(uname -s)" = "Darwin" ] && opt_key="Ctrl+Opt+x"
+    die 2 "tandem is running for this workspace. Quit it first ($opt_key → Save and exit), then run ./run.sh --fresh."
+  fi
+
   if ! [ -e "$coord_dir" ]; then
     if [ "$CHECK_ONLY" -eq 1 ]; then
       printf 'Nothing to clear in %s. (No changes made.)\n' "$rel_coord"
@@ -966,12 +976,6 @@ fresh_reset() {
       printf 'Would delete %s files in %s. (No changes made.)\n' "$count" "$rel_coord"
     fi
     return 0
-  fi
-
-  if is_tandem_running; then
-    local opt_key="Ctrl+Alt+x"
-    [ "$(uname -s)" = "Darwin" ] && opt_key="Ctrl+Opt+x"
-    die 2 "tandem is running for this workspace. Quit it first ($opt_key → Save and exit), then run ./run.sh --fresh."
   fi
 
   if [ "$count" -eq 0 ]; then

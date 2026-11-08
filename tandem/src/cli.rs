@@ -383,6 +383,13 @@ pub fn launch(
     fresh: bool,
 ) -> Result<(), anyhow::Error> {
     let layout = crate::commands::make_layout(workspace, config);
+    if fresh && layout.exists() {
+        eprintln!(
+            "tandem is already running for this workspace, so --fresh cannot start a fresh state. \
+             Quit it first (Quit and exit from its menu), then run --fresh again."
+        );
+        std::process::exit(2);
+    }
     if layout.exists() {
         if let Some(notice) = crate::notice::read_notice(workspace)
             && !notice.seen

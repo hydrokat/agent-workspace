@@ -263,3 +263,41 @@ fn quota_feed_survives_garbage_and_oversized_input() {
         "no feed from bad input"
     );
 }
+
+#[test]
+fn fresh_refuses_to_attach_to_a_running_session() {
+    if !common::require_tool("tmux") {
+        return;
+    }
+    let ws = Scratch::new();
+    let socket = socket_for(ws.path());
+    let started = Command::new("tmux")
+        .args([
+            "-L",
+            &socket,
+            "new-session",
+            "-d",
+            "-s",
+            "tandem",
+            "sleep",
+            "60",
+        ])
+        .status()
+        .unwrap();
+    assert!(started.success());
+
+    let out = tandem()
+        .arg("--fresh")
+        .current_dir(ws.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    let _ = Command::new("tmux")
+        .args(["-L", &socket, "kill-server"])
+        .status();
+
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("already running"), "{err}");
+}
