@@ -182,6 +182,13 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
     }
 }
 
+pub fn discard(path: &Path) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
 pub fn save(path: &Path, state: &SavedState) -> Result<(), StateError> {
     if state.saved_at.is_nan() || state.saved_at.is_infinite() {
         return Err(StateError::Invalid(

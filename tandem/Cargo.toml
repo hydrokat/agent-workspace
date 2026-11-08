@@ -1,6 +1,6 @@
 [package]
 name = "tandem"
-version = "1.9.1"
+version = "1.9.2"
 edition = "2024"
 authors = []
 description = "Launch planner and implementer AI CLIs side-by-side in tmux."

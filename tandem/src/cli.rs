@@ -393,6 +393,9 @@ pub fn launch(
     }
     note_legacy_session();
     let mut saved = if fresh {
+        if let Err(e) = crate::state::discard(&crate::state::state_path(workspace)) {
+            eprintln!("Could not discard the saved session: {e}");
+        }
         None
     } else {
         crate::state::load(&crate::state::state_path(workspace))
