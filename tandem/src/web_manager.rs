@@ -139,6 +139,30 @@ pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {
 
 pub const WEB_VERSION_STAMP: &str = ".tandem-version";
 
+pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str == "node_modules"
+            || name_str == ".next"
+            || name_str.ends_with(".tsbuildinfo")
+            || name_str == ".DS_Store"
+        {
+            continue;
+        }
+        if ty.is_dir() {
+            copy_dir_all(&path, &dst.join(&name))?;
+        } else {
+            fs::copy(&path, dst.join(&name))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
     let local = workspace.join("tandem-web");
     if local.join("package.json").exists() {
@@ -147,7 +171,8 @@ pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
 
     let core_service = state_dir.join("tandem-web-core-service");
     let stamp_core = fs::read_to_string(core_service.join(WEB_VERSION_STAMP)).unwrap_or_default();
-    if core_service.join("package.json").exists() && stamp_core.trim() == env!("CARGO_PKG_VERSION") {
+    if core_service.join("package.json").exists() && stamp_core.trim() == env!("CARGO_PKG_VERSION")
+    {
         return Some(core_service);
     }
 
@@ -157,6 +182,108 @@ pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
         return Some(installed);
     }
     None
+}
+
+pub fn ensure_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
+    if let Some(dir) = resolve_web_dir(workspace, state_dir) {
+        return Some(dir);
+    }
+
+    let core_service = state_dir.join("tandem-web-core-service");
+    let legacy = state_dir.join("tandem-web");
+
+    if core_service.join("package.json").exists() {
+        let _ = fs::write(
+            core_service.join(WEB_VERSION_STAMP),
+            format!("{}\n", env!("CARGO_PKG_VERSION")),
+        );
+        return Some(core_service);
+    }
+
+    if legacy.join("package.json").exists() {
+        let _ = copy_dir_all(&legacy, &core_service);
+        if core_service.join("package.json").exists() {
+            let _ = fs::write(
+                core_service.join(WEB_VERSION_STAMP),
+                format!("{}\n", env!("CARGO_PKG_VERSION")),
+            );
+            return Some(core_service);
+        }
+        let _ = fs::write(
+            legacy.join(WEB_VERSION_STAMP),
+            format!("{}\n", env!("CARGO_PKG_VERSION")),
+        );
+        return Some(legacy);
+    }
+
+    let symlinked = workspace
+        .join("codebase-symlinks")
+        .join("agent-workspace-package")
+        .join("tandem-web");
+    if symlinked.join("package.json").exists() {
+        let _ = copy_dir_all(&symlinked, &core_service);
+        if core_service.join("package.json").exists() {
+            let _ = fs::write(
+                core_service.join(WEB_VERSION_STAMP),
+                format!("{}\n", env!("CARGO_PKG_VERSION")),
+            );
+            return Some(core_service);
+        }
+    }
+
+    resolve_web_dir(workspace, state_dir)
+}
+
+pub fn build_web_if_needed(web_dir: &Path) -> Result<(), String> {
+    if web_is_built(web_dir) {
+        return Ok(());
+    }
+
+    let bun = crate::web_deps::locate_bun(&crate::web_deps::DepsEnv::from_process())
+        .unwrap_or_else(|| PathBuf::from("bun"));
+
+    if !web_dir.join("node_modules").exists() {
+        let install_status = std::process::Command::new(&bun)
+            .args(["install", "--frozen-lockfile"])
+            .current_dir(web_dir)
+            .output();
+        if let Ok(out) = install_status
+            && !out.status.success()
+        {
+            let _ = std::process::Command::new(&bun)
+                .args(["install"])
+                .current_dir(web_dir)
+                .output();
+        }
+    }
+
+    let build_status = std::process::Command::new(&bun)
+        .args(["run", "build"])
+        .current_dir(web_dir)
+        .output();
+
+    if web_is_built(web_dir) {
+        let _ = fs::write(
+            web_dir.join(WEB_VERSION_STAMP),
+            format!("{}\n", env!("CARGO_PKG_VERSION")),
+        );
+        Ok(())
+    } else {
+        match build_status {
+            Ok(out) if !out.status.success() => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let combined = format!("{stderr}\n{stdout}").trim().to_string();
+                if combined.is_empty() {
+                    Err("build exited with non-zero status".to_string())
+                } else {
+                    Err(combined.lines().take(2).collect::<Vec<_>>().join("; "))
+                }
+            }
+            Err(e) => Err(format!("could not invoke bun: {e}")),
+            _ => Err("run `agent-workspace web` once to install and build it".to_string()),
+        }
+    }
 }
 
 pub fn web_is_built(web_dir: &Path) -> bool {
@@ -220,17 +347,21 @@ impl DaemonRunner for SystemDaemonRunner {
             return Ok(existing_pid);
         }
 
-        let Some(web_dir) = resolve_web_dir(workspace, state_dir) else {
+        let Some(web_dir) = ensure_web_dir(workspace, state_dir) else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "tandem-web is not installed (or is an older version); run `agent-workspace web` once to install it",
             ));
         };
 
-        if !web_is_built(&web_dir) {
+        if !web_is_built(&web_dir)
+            && let Err(err) = build_web_if_needed(&web_dir)
+        {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "tandem-web is not built; run `agent-workspace web` once to install and build it",
+                format!(
+                    "tandem-web is not built ({err}); run `agent-workspace web` once to install and build it"
+                ),
             ));
         }
 
