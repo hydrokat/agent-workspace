@@ -1246,3 +1246,55 @@ fn test_status_app_dirty_flag_lifecycle() {
     app.action_refresh_now();
     assert!(app.dirty);
 }
+
+#[test]
+fn test_status_app_quit_menu_hook() {
+    let temp = TempDir::new();
+    let ws = setup_workspace(temp.path());
+    let store = CoordStore::new(temp.path().join("coord"));
+    let (tmux, _) = create_mock_tmux();
+
+    let quit_called = Arc::new(Mutex::new(0));
+    let quit_called_clone = Arc::clone(&quit_called);
+    let autosave_called = Arc::new(Mutex::new(0));
+    let autosave_called_clone = Arc::clone(&autosave_called);
+
+    let mut app = StatusApp::new(ws.clone(), store.clone(), Some(tmux.clone()), None)
+        .with_quit_menu(Arc::new(move || {
+            *quit_called_clone.lock().unwrap() += 1;
+        }))
+        .with_autosave(
+            Arc::new(move || {
+                *autosave_called_clone.lock().unwrap() += 1;
+            }),
+            100.0,
+        );
+
+    app.set_tab(StatusTab::Settings);
+    app.settings_tab.focused_row = 7;
+
+    // Key activation: Enter
+    app.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(*quit_called.lock().unwrap(), 1);
+    assert_eq!(*autosave_called.lock().unwrap(), 0);
+    assert_eq!(app.tab, StatusTab::Settings);
+
+    // Mouse activation on row 0 (body_area height > 0)
+    app.body_area = ratatui::layout::Rect::new(0, 3, 80, 10);
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 14,
+        row: 3, // rel_y = 0
+        modifiers: KeyModifiers::NONE,
+    };
+    app.handle_mouse(&click);
+    assert_eq!(*quit_called.lock().unwrap(), 2);
+    assert_eq!(*autosave_called.lock().unwrap(), 0);
+    assert_eq!(app.tab, StatusTab::Settings);
+
+    // Activation with no hook does not panic
+    let mut app_no_hook = StatusApp::new(ws, store, Some(tmux), None);
+    app_no_hook.set_tab(StatusTab::Settings);
+    app_no_hook.settings_tab.focused_row = 7;
+    app_no_hook.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+}

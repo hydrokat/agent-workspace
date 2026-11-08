@@ -32,10 +32,13 @@ pub const SIDEBAR_OPTIONS: [SidebarMode; 4] = [
     SidebarMode::Hidden,
 ];
 
+pub const QUIT_ROW: usize = 7;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsAction {
     Changed,
     ResetUi,
+    QuitMenu,
 }
 
 pub struct SettingsTab {
@@ -172,14 +175,14 @@ impl SettingsTab {
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.focused_row = if self.focused_row == 0 {
-                        6
+                        QUIT_ROW
                     } else {
                         self.focused_row - 1
                     };
                     None
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.focused_row = if self.focused_row == 6 {
+                    self.focused_row = if self.focused_row == QUIT_ROW {
                         0
                     } else {
                         self.focused_row + 1
@@ -189,7 +192,9 @@ impl SettingsTab {
                 KeyCode::Left | KeyCode::Char('h') => self.cycle_option(false),
                 KeyCode::Right | KeyCode::Char('l') => self.cycle_option(true),
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    if self.focused_row == 6 {
+                    if self.focused_row == QUIT_ROW {
+                        Some(SettingsAction::QuitMenu)
+                    } else if self.focused_row == 6 {
                         self.confirm_reset = true;
                         self.modal_focus = 1;
                         None
@@ -351,6 +356,14 @@ impl SettingsTab {
 
         let rel_y = mouse.row.saturating_sub(area.y);
         match rel_y {
+            0 => {
+                if mouse.column >= area.x + 14 && mouse.column <= area.x + 22 {
+                    self.focused_row = QUIT_ROW;
+                    Some(SettingsAction::QuitMenu)
+                } else {
+                    None
+                }
+            }
             1 => {
                 self.focused_row = 0;
                 self.cycle_option(true)
@@ -392,6 +405,28 @@ impl SettingsTab {
 
         let header_style = Style::default().add_modifier(Modifier::BOLD);
         buf.set_string(area.x, area.y, "Grid layout", header_style);
+
+        if area.width >= 23 {
+            let is_focused = self.focused_row == QUIT_ROW
+                && !self.confirm_reset
+                && !self.confirm_web_modal;
+            let quit_style = if is_focused {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            buf.set_string(area.x + 14, area.y, "[ Quit… ]", quit_style);
+
+            if area.width >= 60 {
+                let desc_style = Style::default().fg(Color::DarkGray);
+                buf.set_string(
+                    area.x + 25,
+                    area.y,
+                    "save, detach, update, discard",
+                    desc_style,
+                );
+            }
+        }
 
         let grid_labels = ["Columns", "Rows per page", "Fill order", "Sidebar"];
         for (idx, label) in grid_labels.iter().enumerate() {
