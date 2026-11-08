@@ -36,7 +36,7 @@ impl Default for WebConfig {
             bind_source: NetworkSource::Localhost,
             port: DEFAULT_WEB_PORT,
             auth_token: generate_auth_token(),
-            ttyd_enabled: false,
+            ttyd_enabled: true,
         }
     }
 }
@@ -108,6 +108,14 @@ pub fn access_url(config: &WebConfig, include_token: bool) -> String {
     }
 }
 
+pub fn access_url_for_workspace(config: &WebConfig, workspace_socket: Option<&str>) -> String {
+    let base = access_url(config, true);
+    match workspace_socket {
+        Some(ws) if !ws.is_empty() => format!("{base}&workspace={ws}"),
+        _ => base,
+    }
+}
+
 pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {
     if config.bind_ip == "0.0.0.0" || config.bind_ip == "::" {
         return Err("refusing to bind tandem-web to a wildcard address".to_string());
@@ -135,6 +143,12 @@ pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
     let local = workspace.join("tandem-web");
     if local.join("package.json").exists() {
         return Some(local);
+    }
+
+    let core_service = state_dir.join("tandem-web-core-service");
+    let stamp_core = fs::read_to_string(core_service.join(WEB_VERSION_STAMP)).unwrap_or_default();
+    if core_service.join("package.json").exists() && stamp_core.trim() == env!("CARGO_PKG_VERSION") {
+        return Some(core_service);
     }
 
     let installed = state_dir.join("tandem-web");

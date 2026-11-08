@@ -11,11 +11,13 @@ import { TaskProgressPanel } from "@/components/views/task-progress-panel";
 import { QueriesInboxList } from "@/components/queries/queries-inbox-list";
 import { TerminalAttachPanel } from "@/components/terminal/terminal-attach-panel";
 import { WebSettingsPanel } from "@/components/settings/web-settings-panel";
+import { HostConnectionDialog } from "@/components/connection/host-connection-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceStream } from "@/hooks/use-workspace-stream";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
 import type { IpCandidate } from "@/domain/models/network";
+import type { PaneInfo } from "@/domain/models/snapshot";
 import type { AllowedTandemAction } from "@/domain/ports/tandem-gateway";
 
 export default function DashboardPage() {
@@ -35,6 +37,8 @@ export default function DashboardPage() {
   const [candidates, setCandidates] = useState<IpCandidate[]>([]);
   const [activeTab, setActiveTab] = useState<NavTabId>("status");
   const [desktopTab, setDesktopTab] = useState<string>("status");
+  const [activePaneId, setActivePaneId] = useState<string | null>(null);
+  const [hostDialogOpen, setHostDialogOpen] = useState(false);
 
   const { snapshot, connected } = useWorkspaceStream(activeWorkspace?.id ?? null);
 
@@ -43,9 +47,22 @@ export default function DashboardPage() {
       const res = await fetch("/api/workspaces");
       if (res.ok) {
         const data = await res.json();
-        setWorkspaces(data.workspaces || []);
-        if (!activeWorkspace && data.workspaces && data.workspaces.length > 0) {
-          setActiveWorkspace(data.workspaces[0]);
+        const list = data.workspaces || [];
+        setWorkspaces(list);
+
+        const urlParams =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search)
+            : null;
+        const initialWsId = urlParams?.get("workspace");
+        const targetWs = initialWsId
+          ? list.find((w: WorkspaceEntry) => w.id === initialWsId)
+          : null;
+
+        if (targetWs) {
+          setActiveWorkspace(targetWs);
+        } else if (!activeWorkspace && list.length > 0) {
+          setActiveWorkspace(list[0]);
         }
       }
     } catch {
@@ -121,6 +138,13 @@ export default function DashboardPage() {
     await handleAction("reset-ui", []);
   };
 
+  const handleInteractAgent = async (pane: PaneInfo) => {
+    setActivePaneId(pane.id);
+    await handleAction("show", [pane.id]);
+    setActiveTab("terminal");
+    setDesktopTab("terminal");
+  };
+
   const unreadQueries = snapshot?.snapshot?.queries?.length || 0;
 
   return (
@@ -140,6 +164,7 @@ export default function DashboardPage() {
         }
       }}
       onSelectWorkspace={(ws) => setActiveWorkspace(ws)}
+      onOpenHostConnection={() => setHostDialogOpen(true)}
       unreadQueryCount={unreadQueries}
     >
       {/* Tablet / Desktop Tabs Bar */}
@@ -176,6 +201,7 @@ export default function DashboardPage() {
               panes={snapshot?.panes || []}
               selected={snapshot?.selected || []}
               onAction={handleAction}
+              onInteract={handleInteractAgent}
             />
             <StatusOverviewPanel snapshot={snapshot?.snapshot || null} />
           </div>
@@ -232,6 +258,9 @@ export default function DashboardPage() {
           <TerminalAttachPanel
             workspaceId={activeWorkspace?.id || "tandem-default"}
             ttydEnabled={Boolean(settings?.ttyd_enabled)}
+            panes={snapshot?.panes || []}
+            activePaneId={activePaneId}
+            onSelectAgent={handleInteractAgent}
           />
         )}
 
@@ -245,6 +274,17 @@ export default function DashboardPage() {
           />
         )}
       </div>
+
+      <HostConnectionDialog
+        open={hostDialogOpen}
+        onOpenChange={setHostDialogOpen}
+        currentHost={settings?.bind_ip}
+        currentPort={settings?.port}
+        onSelectWorkspace={(wsId) => {
+          const found = workspaces.find((w) => w.id === wsId);
+          if (found) setActiveWorkspace(found);
+        }}
+      />
     </ResponsiveAppShell>
   );
 }

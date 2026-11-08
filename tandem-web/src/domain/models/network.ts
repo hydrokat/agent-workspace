@@ -22,3 +22,7 @@ export function isValidIpv4(ip: string): boolean {
     return num >= 0 && num <= 255 && (part === "0" || !part.startsWith("0"));
   });
 }
+
+export function isValidPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1024 && port <= 65535;
+}

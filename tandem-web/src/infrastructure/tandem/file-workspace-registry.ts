@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +23,7 @@ export class FileWorkspaceRegistry implements IWorkspaceRegistry {
       if (!data.trim()) return [];
       const parsed = JSON.parse(data);
       const workspaces: WorkspaceEntry[] = parsed.workspaces || [];
-      return workspaces;
+      return workspaces.filter((w) => existsSync(w.path));
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return [];

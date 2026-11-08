@@ -10,15 +10,23 @@ interface AgentGridProps {
   panes: PaneInfo[];
   selected: string[];
   onAction: (action: AllowedTandemAction, args: string[]) => Promise<void> | void;
+  onInteract?: (pane: PaneInfo) => Promise<void> | void;
 }
 
-export function AgentGrid({ panes, selected, onAction }: AgentGridProps) {
+export function AgentGrid({ panes, selected, onAction, onInteract }: AgentGridProps) {
   const selectedSet = new Set(selected);
 
-  const planners = panes.filter(
+  const agentPanes = panes.filter(
+    (p) =>
+      p.kind !== "own" &&
+      p.role?.toLowerCase() !== "sidebar" &&
+      p.role?.toLowerCase() !== "status"
+  );
+
+  const planners = agentPanes.filter(
     (p) => p.role?.toLowerCase().includes("planner") || p.kind?.toLowerCase().includes("planner")
   );
-  const implementers = panes.filter(
+  const implementers = agentPanes.filter(
     (p) => !p.role?.toLowerCase().includes("planner") && !p.kind?.toLowerCase().includes("planner")
   );
 
@@ -27,7 +35,7 @@ export function AgentGrid({ panes, selected, onAction }: AgentGridProps) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-            Agents ({panes.length})
+            Agents ({agentPanes.length})
           </h2>
         </div>
         <div className="flex items-center gap-2">
@@ -54,7 +62,7 @@ export function AgentGrid({ panes, selected, onAction }: AgentGridProps) {
         </div>
       </div>
 
-      {panes.length === 0 ? (
+      {agentPanes.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           No active agent panes in this workspace.
         </div>
@@ -72,6 +80,7 @@ export function AgentGrid({ panes, selected, onAction }: AgentGridProps) {
                     pane={pane}
                     isInGrid={selectedSet.has(pane.id)}
                     onAction={onAction}
+                    onInteract={onInteract}
                   />
                 ))}
               </div>
@@ -90,6 +99,7 @@ export function AgentGrid({ panes, selected, onAction }: AgentGridProps) {
                     pane={pane}
                     isInGrid={selectedSet.has(pane.id)}
                     onAction={onAction}
+                    onInteract={onInteract}
                   />
                 ))}
               </div>

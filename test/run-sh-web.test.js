@@ -323,7 +323,7 @@ describe('run.sh --web installs tandem-web when it is not installed yet', () => 
 
   describe('when the workspace has no tandem-web (what `init` creates)', () => {
     const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
-    const stateWeb = () => join(realpathSync(sandbox), 'state', 'tandem', 'tandem-web');
+    const stateWeb = () => join(realpathSync(sandbox), 'state', 'tandem', 'tandem-web-core-service');
 
     it('installs tandem-web into the state directory, then installs, builds and starts it there', () => {
       makeWorkspace({ webDirPresent: false, localCli: false });

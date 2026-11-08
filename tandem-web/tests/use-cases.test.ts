@@ -1,9 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { AnswerAgentQueryUseCase } from "../src/application/use-cases/answer-query";
 import { GetWorkspaceSnapshotUseCase } from "../src/application/use-cases/get-snapshot";
 import { ListWorkspacesUseCase } from "../src/application/use-cases/list-workspaces";
 import { ManageSettingsUseCase } from "../src/application/use-cases/manage-settings";
 import { RunWorkspaceActionUseCase } from "../src/application/use-cases/run-action";
+import { FileWorkspaceRegistry } from "../src/infrastructure/tandem/file-workspace-registry";
+import { resolveTandemBinary } from "../src/infrastructure/tandem/cli-tandem-gateway";
 import type { WorkspaceSnapshotPayload } from "../src/domain/models/snapshot";
 import type { WorkspaceEntry } from "../src/domain/models/workspace";
 import type { AllowedTandemAction, ITandemGateway, ListIpsResult } from "../src/domain/ports/tandem-gateway";
@@ -177,5 +182,66 @@ describe("Application Use Cases", () => {
       "Invalid IPv4 address format"
     );
     expect(useCase.updateSettings({ port: 80 })).rejects.toThrow("Port must be an integer");
+  });
+
+  it("resolveTandemBinary resolves custom TANDEM_BIN and TANDEM_SELF if present on disk", () => {
+    const testDir = join(tmpdir(), `tandem-bin-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+    const dummyBin = join(testDir, "tandem");
+    writeFileSync(dummyBin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    const prevBin = process.env.TANDEM_BIN;
+    const prevSelf = process.env.TANDEM_SELF;
+    try {
+      process.env.TANDEM_BIN = dummyBin;
+      expect(resolveTandemBinary()).toBe(dummyBin);
+
+      delete process.env.TANDEM_BIN;
+      process.env.TANDEM_SELF = dummyBin;
+      expect(resolveTandemBinary()).toBe(dummyBin);
+    } finally {
+      if (prevBin) process.env.TANDEM_BIN = prevBin;
+      else delete process.env.TANDEM_BIN;
+      if (prevSelf) process.env.TANDEM_SELF = prevSelf;
+      else delete process.env.TANDEM_SELF;
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("FileWorkspaceRegistry filters out non-existent workspace paths", async () => {
+    const testDir = join(tmpdir(), `tandem-reg-test-${Date.now()}`);
+    const validWs = join(testDir, "valid-ws");
+    const deadWs = join(testDir, "dead-ws");
+    mkdirSync(validWs, { recursive: true });
+
+    const regData = {
+      workspaces: [
+        {
+          id: "tandem-dead123456",
+          name: "dead",
+          path: deadWs,
+          socket: "tandem-dead123456",
+          updated_at: 100,
+        },
+        {
+          id: "tandem-live123456",
+          name: "live",
+          path: validWs,
+          socket: "tandem-live123456",
+          updated_at: 200,
+        },
+      ],
+    };
+    writeFileSync(join(testDir, "workspaces.json"), JSON.stringify(regData));
+
+    try {
+      const reg = new FileWorkspaceRegistry(testDir);
+      const active = await reg.listActive();
+      expect(active).toHaveLength(1);
+      expect(active[0].id).toBe("tandem-live123456");
+      expect(active[0].path).toBe(validWs);
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 });

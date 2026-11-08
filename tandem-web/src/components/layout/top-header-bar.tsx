@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { QrCode } from "lucide-react";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
 
@@ -10,6 +11,7 @@ interface TopHeaderBarProps {
   settings: WebSettings | null;
   connected: boolean;
   onOpenDrawer: () => void;
+  onOpenHostConnection?: () => void;
 }
 
 export function TopHeaderBar({
@@ -17,6 +19,7 @@ export function TopHeaderBar({
   settings,
   connected,
   onOpenDrawer,
+  onOpenHostConnection,
 }: TopHeaderBarProps) {
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -43,6 +46,18 @@ export function TopHeaderBar({
       </div>
 
       <div className="flex items-center gap-2">
+        {onOpenHostConnection && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onOpenHostConnection}
+            className="min-h-9 px-2.5 gap-1.5 text-xs font-medium"
+            title="Scan session QR or reconfigure host connection"
+          >
+            <QrCode className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Host / QR</span>
+          </Button>
+        )}
         {settings && (
           <Badge variant="outline" className="text-xs font-mono">
             {settings.bind_ip} [{settings.bind_source}]

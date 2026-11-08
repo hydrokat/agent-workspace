@@ -234,11 +234,11 @@ fn navigation_keys_do_not_leak_while_editing_port() {
 fn terminal_toggle_flips_ttyd() {
     let mut t = tab();
     t.focused_row = ROW_TERMINAL;
-    assert!(!t.web_config.ttyd_enabled);
-    assert_eq!(t.handle_key(&key(KeyCode::Enter)), Some(WebAction::Changed));
     assert!(t.web_config.ttyd_enabled);
     assert_eq!(t.handle_key(&key(KeyCode::Enter)), Some(WebAction::Changed));
     assert!(!t.web_config.ttyd_enabled);
+    assert_eq!(t.handle_key(&key(KeyCode::Enter)), Some(WebAction::Changed));
+    assert!(t.web_config.ttyd_enabled);
 }
 
 #[test]
@@ -440,7 +440,7 @@ fn mouse_click_selects_and_activates_rows() {
         t.handle_mouse(&click(10, 5 + ROW_TERMINAL as u16), area),
         Some(WebAction::Changed)
     );
-    assert!(t.web_config.ttyd_enabled);
+    assert!(!t.web_config.ttyd_enabled);
     t.handle_mouse(&click(10, 5 + ROW_REGENERATE as u16), area);
     assert!(t.confirm_regenerate);
 }

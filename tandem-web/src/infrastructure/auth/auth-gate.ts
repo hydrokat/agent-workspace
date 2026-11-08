@@ -5,7 +5,13 @@ import { AUTH_COOKIE_NAME, TokenGuard } from "./token-guard";
 const COOKIE_MAX_AGE_SECONDS = 2592000;
 
 function isPublicAsset(pathname: string): boolean {
-  return pathname.startsWith("/_next/") || pathname === "/favicon.ico";
+  return (
+    pathname.startsWith("/_next/") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/sw.js" ||
+    pathname.startsWith("/icons/")
+  );
 }
 
 function deny(pathname: string, status: 401 | 503, message: string): NextResponse {
