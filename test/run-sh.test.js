@@ -1128,6 +1128,14 @@ describe('run.sh --fresh', () => {
     assert.ok(existsSync(join(coord, 'claims', 'c-1.json')), 'file untouched');
   });
 
+  it('refuses when tandem is running even if the coordination dir does not exist yet', async () => {
+    const env = setup();
+    env.mark('tmux.running');
+    const r = await run(env, ['--fresh', '--yes']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /tandem is running for this workspace/);
+  });
+
   it('handles empty coordination directory (nothing to clear)', async () => {
     const env = setup();
     const coord = join(env.pkg, '.agent-workspace', 'coordination');
