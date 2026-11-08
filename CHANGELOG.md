@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-11-08
+
 ### Added: Web pane in tandem (Phase p-009)
 
 - New **Web** status tab (key `6`; **Settings is now tab `7`**) that owns all `tandem-web` configuration, moved out of Settings: Enable/disable with the first-time dependency consent, live status (Running / Starting / Error), Bind IP and source, **Port** (editable, 1024-65535), **Terminal** (`ttyd`) toggle, **Token** (masked, show/hide), **Connect** and **Regenerate token** (with confirmation).
