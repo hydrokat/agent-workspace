@@ -65,7 +65,8 @@ fn fixture() -> Fixture {
     std::fs::create_dir_all(&state).unwrap();
     let daemon = Arc::new(FakeDaemon::default());
     let app = StatusApp::new(ws, CoordStore::new(tmp.path().join("c")), None, None)
-        .with_web_daemon(daemon.clone(), state.clone());
+        .with_web_daemon(daemon.clone(), state.clone())
+        .with_deps_runtime(Arc::new(common::ready_deps::ReadyDeps));
     Fixture {
         _tmp: tmp,
         state,

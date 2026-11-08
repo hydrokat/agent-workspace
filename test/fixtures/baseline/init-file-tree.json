@@ -73,6 +73,7 @@
   ".agent-workspace/tandem/src/update_check.rs",
   ".agent-workspace/tandem/src/updater.rs",
   ".agent-workspace/tandem/src/versions.rs",
+  ".agent-workspace/tandem/src/web_deps.rs",
   ".agent-workspace/tandem/src/web_manager.rs",
   ".agent-workspace/tandem/src/wizard/app.rs",
   ".agent-workspace/tandem/src/wizard/flow.rs",

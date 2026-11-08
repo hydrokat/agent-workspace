@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { join, relative, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureWebDeps } from './web-deps.js';
 import { spawn, spawnSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -49,6 +50,18 @@ export function buildServerSpawn(cfg, baseEnv) {
   if (!cfg.auth_token) {
     throw new Error('Refusing to start tandem-web without an auth token.');
   }
+  const defaultTandemBin = join(
+    getStateDir(),
+    'bin',
+    'current',
+    'tandem',
+    process.platform === 'win32' ? 'tandem.exe' : 'tandem'
+  );
+  const tandemBin =
+    baseEnv?.TANDEM_BIN ||
+    baseEnv?.TANDEM_SELF ||
+    (existsSync(defaultTandemBin) ? defaultTandemBin : undefined);
+
   return {
     args: ['run', 'start', '--', '-H', cfg.bind_ip, '-p', String(cfg.port)],
     env: {
@@ -56,6 +69,7 @@ export function buildServerSpawn(cfg, baseEnv) {
       PORT: String(cfg.port),
       HOSTNAME: cfg.bind_ip,
       TANDEM_AUTH_TOKEN: cfg.auth_token,
+      ...(tandemBin ? { TANDEM_BIN: tandemBin } : {}),
     },
   };
 }
@@ -119,9 +133,9 @@ export function needsBuild(webDir) {
   return !existsSync(join(webDir, '.next', 'BUILD_ID'));
 }
 
-function runBun(webDir) {
+function runBun(webDir, bun = 'bun') {
   return (args) => {
-    const r = spawnSync('bun', args, { cwd: webDir, stdio: 'inherit' });
+    const r = spawnSync(bun, args, { cwd: webDir, stdio: 'inherit' });
     return r.status ?? 1;
   };
 }
@@ -298,6 +312,24 @@ export async function run(context) {
     cfg.port = portNum;
   }
 
+  const alreadyRunning = (() => {
+    if (!existsSync(pidFile)) return false;
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    return Boolean(pid) && isPidAlive(pid);
+  })();
+
+  let bunPath = 'bun';
+  if (!alreadyRunning) {
+    const deps = await ensureWebDeps({
+      stateDir,
+      yes: Boolean(flags.yes),
+      noInstall: Boolean(flags.noInstallDeps),
+      needTerminal: Boolean(cfg.ttyd_enabled),
+    });
+    if (!deps.ok) process.exit(1);
+    bunPath = deps.bunPath ?? 'bun';
+  }
+
   cfg.enabled = true;
   cfg.first_time_acknowledged = true;
   saveConfig(cfg);
@@ -322,14 +354,14 @@ export async function run(context) {
     if (resolved.installedNow) {
       console.log(`Installed tandem-web into ${webDir}`);
     }
-    await bootstrapWeb(webDir);
+    await bootstrapWeb(webDir, runBun(webDir, bunPath));
   } catch (err) {
     console.error(err.message);
     process.exit(1);
   }
 
   const { args, env } = buildServerSpawn(cfg, process.env);
-  const child = spawn('bun', args, {
+  const child = spawn(bunPath, args, {
     cwd: webDir,
     detached: true,
     stdio: 'ignore',

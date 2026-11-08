@@ -12,7 +12,7 @@ eval "$(sed '$d' "$1")"
 set +e +u +o pipefail
 ROOT_DIR="$FAKE_ROOT"
 WEB_MODE="\${HARNESS_WEB_MODE:-1}"
-MODE="\${HARNESS_MODE:-yes}"
+MODE="\${HARNESS_MODE-yes}"
 WEB_BIND="\${HARNESS_BIND:-}"
 WEB_PORT="\${HARNESS_PORT:-}"
 `;
@@ -24,6 +24,11 @@ function writeExecutable(path, body) {
 
 const BUN_STUB = (log) => `#!/bin/sh
 echo "$(pwd -P) :: $*" >> "${log}"
+if [ "$1" = "--version" ]; then
+  [ "$BUN_BROKEN" = "1" ] && exit 126
+  echo "1.3.3"
+  exit 0
+fi
 if [ "$1" = "install" ]; then
   [ "$BUN_FAIL" = "install" ] && exit 1
   mkdir -p node_modules
@@ -113,12 +118,16 @@ describe('run.sh --web installs tandem-web when it is not installed yet', () => 
     assert.fail('tandem-web reported started but the server command never ran (detached child did not log within 5s)');
   }
 
-  function bunCalls() {
+  function allBunCalls() {
     if (!existsSync(bunLog)) return [];
     return readFileSync(bunLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => {
       const [cwd, args] = l.split(' :: ');
       return { cwd, args };
     });
+  }
+
+  function bunCalls() {
+    return allBunCalls().filter((c) => c.args !== '--version');
   }
 
   before(() => {
@@ -251,25 +260,64 @@ describe('run.sh --web installs tandem-web when it is not installed yet', () => 
     assert.doesNotMatch(r.output, /tandem-web/);
   });
 
-  describe('when bun itself is missing', () => {
-    it('asks before installing bun and skips the launch when declined', () => {
+  describe('dependency check before enabling (bun for this host)', () => {
+    const stateScript = () => join(realpathSync(sandbox), 'state', 'tandem', 'install-web-deps.sh');
+
+    it('checks that bun actually runs on this host, and generates nothing when it does', () => {
       makeWorkspace();
-      const r = runWeb({ mode: 'no', withBun: false });
-      assert.match(r.output, /Install bun to run tandem-web remote interface\?/);
-      assert.match(r.output, /Skipping tandem-web launch \(bun installation declined\)/);
-      assert.equal(existsSync(curlLog), false, 'must not download anything when declined');
-      assert.deepEqual(bunCalls(), []);
+      const r = runWeb({ bind: '100.64.0.2', port: '4100' });
+      assert.ok(allBunCalls().some((c) => c.args === '--version'), 'bun --version must be run');
+      assert.equal(existsSync(stateScript()), false, 'no installer script when nothing is missing');
+      assert.doesNotMatch(r.output, /Installing bun|not installed for/);
     });
 
-    it('installs bun from bun.sh when accepted, then installs and builds tandem-web', () => {
+    it('treats a bun binary that does not run on this host as missing', () => {
+      makeWorkspace();
+      const r = runWeb({ mode: 'no', env: { BUN_BROKEN: '1' } });
+      assert.match(r.output, /Not installing dependencies automatically/);
+      assert.match(r.output, /bun/);
+      assert.equal(bunCalls().some((c) => c.args.startsWith('run start')), false);
+    });
+
+    it('when the user declines automatic install: nothing is downloaded or started, but the manual steps and a reviewable script are provided', () => {
+      makeWorkspace();
+      const r = runWeb({ mode: 'no', withBun: false });
+      assert.match(r.output, /Not installing dependencies automatically/);
+      assert.match(r.output, /curl -fsSL https:\/\/bun\.com\/install \| bash/);
+      assert.match(r.output, /install-web-deps\.sh/);
+      assert.equal(existsSync(curlLog), false, 'must not download anything when declined');
+      assert.deepEqual(bunCalls(), []);
+      assert.match(readFileSync(stateScript(), 'utf8'), /^#!\/usr\/bin\/env bash\n/);
+    });
+
+    it('when the user lets tandem install: runs the generated script from bun.com, then installs and starts tandem-web', () => {
       makeWorkspace();
       const r = runWeb({ mode: 'yes', withBun: false, bind: '100.64.0.2', port: '4100' });
-      assert.match(readFileSync(curlLog, 'utf8'), /https:\/\/bun\.sh\/install/);
+      assert.match(readFileSync(curlLog, 'utf8'), /https:\/\/bun\.com\/install/);
+      assert.doesNotMatch(readFileSync(curlLog, 'utf8'), /bun\.sh\/install/);
+      assert.match(r.output, /Installing bun for /);
       assert.deepEqual(
         bunCalls().map((c) => c.args),
         ['install --frozen-lockfile', 'run build', 'run start -- -H 100.64.0.2 -p 4100'],
         r.output,
       );
+      assert.match(readFileSync(stateScript(), 'utf8'), /set -euo pipefail/);
+    });
+
+    it('uses the freshly installed bun from ~/.bun/bin even though it is not on PATH', () => {
+      makeWorkspace();
+      runWeb({ mode: 'yes', withBun: false, bind: '100.64.0.2', port: '4100' });
+      assert.ok(existsSync(join(home, '.bun', 'bin', 'bun')));
+      assert.ok(bunCalls().length >= 3);
+    });
+
+    it('with no terminal and no --yes it neither prompts nor installs (run.sh interactive mode)', () => {
+      makeWorkspace();
+      const r = runWeb({ mode: '', withBun: false });
+      assert.match(r.output, /no terminal to ask on/);
+      assert.match(r.output, /--yes/);
+      assert.equal(existsSync(curlLog), false);
+      assert.deepEqual(bunCalls(), []);
     });
   });
 
@@ -297,7 +345,7 @@ describe('run.sh --web installs tandem-web when it is not installed yet', () => 
     it('reaches the CLI through npx with the configured spec and forwards --bind and --port', () => {
       makeWorkspace({ webDirPresent: false, localCli: false });
       runWeb({ bind: '100.64.0.2', port: '4100' });
-      assert.equal(readFileSync(npxLog, 'utf8').trim(), '--yes hydrokat/agent-workspace web --bind 100.64.0.2 --port 4100');
+      assert.equal(readFileSync(npxLog, 'utf8').trim(), '--yes hydrokat/agent-workspace web --bind 100.64.0.2 --port 4100 --yes');
     });
 
     it('never writes tandem-web into the workspace itself', () => {

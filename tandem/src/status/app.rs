@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
@@ -200,6 +201,8 @@ pub struct StatusApp {
     pub web_tab: crate::status::web_tab::WebTab,
     pub web_daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
     pub web_state_dir: Option<PathBuf>,
+    pub deps: Arc<dyn crate::web_deps::DepsRuntime>,
+    pub deps_install_rx: Option<Receiver<crate::web_deps::InstallOutcome>>,
     pub platform: String,
 
     pub last_refresh: f64,
@@ -272,6 +275,8 @@ impl StatusApp {
             web_tab: crate::status::web_tab::WebTab::default(),
             web_daemon: Arc::new(crate::web_manager::SystemDaemonRunner),
             web_state_dir: None,
+            deps: Arc::new(crate::web_deps::SystemDepsRuntime),
+            deps_install_rx: None,
             platform: "linux".to_string(),
 
             last_refresh: 0.0,
@@ -308,6 +313,11 @@ impl StatusApp {
     ) -> Self {
         self.web_daemon = daemon;
         self.web_state_dir = Some(state_dir);
+        self
+    }
+
+    pub fn with_deps_runtime(mut self, deps: Arc<dyn crate::web_deps::DepsRuntime>) -> Self {
+        self.deps = deps;
         self
     }
 
@@ -496,8 +506,152 @@ impl StatusApp {
         self.dirty = true;
     }
 
+    fn handle_web_action(&mut self, action: Option<crate::status::web_tab::WebAction>) {
+        use crate::status::web_tab::WebAction;
+        match action {
+            Some(WebAction::Changed) | Some(WebAction::Regenerated) => self.apply_web_changed(),
+            Some(WebAction::InstallDeps) => self.start_deps_install(),
+            Some(WebAction::ManualInstall) => self.show_manual_install(),
+            None => {}
+        }
+    }
+
+    fn dependencies_ready(&mut self, state_dir: &std::path::Path) -> bool {
+        use crate::status::web_tab::DepsPrompt;
+        use crate::web_deps::{BUN_DOCS_URL, manual_lines, plan_from_facts, platform_label};
+        let ttyd_enabled = self.web_tab.web_config.ttyd_enabled;
+        let report = self.deps.check(ttyd_enabled);
+        let plan = plan_from_facts(&report.facts);
+        if !plan.bun_missing {
+            if plan.ttyd_missing {
+                let hint = plan
+                    .manual
+                    .iter()
+                    .find(|m| m.dep == "ttyd")
+                    .and_then(|m| m.commands.first().cloned())
+                    .unwrap_or_default();
+                self.web_tab.flash(&format!(
+                    "ttyd is not installed, so terminal attach is unavailable: {hint}"
+                ));
+            }
+            return true;
+        }
+
+        self.web_tab.web_config.enabled = false;
+        let cfg_path = crate::web_manager::web_config_path(state_dir);
+        let _ = crate::web_manager::save_web_config(&cfg_path, &self.web_tab.web_config);
+        self.web_tab.web_status = crate::web_manager::WebStatus::Off;
+        self.dirty = true;
+
+        let label = platform_label(&report.facts.platform);
+        if !plan.supported {
+            self.web_tab.deps_help = Some(vec![
+                format!(
+                    "bun is required for tandem-web but is not available for {label}: {}.",
+                    plan.unsupported_reason.clone().unwrap_or_default()
+                ),
+                format!("See {BUN_DOCS_URL}"),
+            ]);
+            return false;
+        }
+        if !plan.can_auto_install {
+            let mut lines = vec![format!(
+                "bun is required for tandem-web and tandem cannot install it for you on {label}."
+            )];
+            lines.extend(manual_lines(&plan, None));
+            self.web_tab.deps_help = Some(lines);
+            return false;
+        }
+
+        let script_path = plan
+            .script
+            .as_ref()
+            .and_then(|s| self.deps.write_script(state_dir, s).ok());
+        let preview = plan
+            .auto_install
+            .iter()
+            .filter_map(|dep| plan.manual.iter().find(|m| &m.dep == dep))
+            .filter_map(|m| m.commands.first().cloned())
+            .collect::<Vec<_>>()
+            .join(" ; ");
+        self.web_tab.deps_prompt = Some(DepsPrompt {
+            platform_label: label,
+            missing: plan.auto_install.join(", "),
+            script_path,
+            preview,
+            focus: 0,
+        });
+        false
+    }
+
+    fn start_deps_install(&mut self) {
+        let Some(prompt) = self.web_tab.deps_prompt.take() else {
+            return;
+        };
+        let Some(script) = prompt.script_path else {
+            self.web_tab.web_status = crate::web_manager::WebStatus::Error(
+                "could not write the installer script".to_string(),
+            );
+            return;
+        };
+        let log = self.web_state_dir().join("install-web-deps.log");
+        self.web_tab.installing = true;
+        self.web_tab.flash("Installing dependencies…");
+        self.deps_install_rx = Some(self.deps.start_install(&script, &log));
+        self.dirty = true;
+    }
+
+    fn show_manual_install(&mut self) {
+        use crate::web_deps::{manual_lines, plan_from_facts};
+        let script_path = self.web_tab.deps_prompt.take().and_then(|p| p.script_path);
+        let report = self.deps.check(self.web_tab.web_config.ttyd_enabled);
+        let plan = plan_from_facts(&report.facts);
+        self.web_tab.deps_help = Some(manual_lines(&plan, script_path.as_deref()));
+        self.dirty = true;
+    }
+
+    fn poll_deps_install(&mut self) {
+        use crate::web_deps::plan_from_facts;
+        use crate::web_manager::WebStatus;
+        let Some(rx) = self.deps_install_rx.as_ref() else {
+            return;
+        };
+        let outcome = match rx.try_recv() {
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => None,
+            Ok(outcome) => Some(outcome),
+        };
+        self.deps_install_rx = None;
+        self.web_tab.installing = false;
+        self.dirty = true;
+
+        match outcome {
+            None => {
+                self.web_tab.web_status =
+                    WebStatus::Error("the installer stopped unexpectedly".to_string());
+            }
+            Some(o) if !o.success => {
+                self.web_tab.web_status = WebStatus::Error(o.message);
+            }
+            Some(_) => {
+                let report = self.deps.check(self.web_tab.web_config.ttyd_enabled);
+                if plan_from_facts(&report.facts).bun_missing {
+                    self.web_tab.web_status = WebStatus::Error(
+                        "the installer finished, but bun is still not available; open a new terminal or check that ~/.bun/bin is on your PATH".to_string(),
+                    );
+                } else {
+                    self.web_tab.web_config.enabled = true;
+                    self.apply_web_changed();
+                }
+            }
+        }
+    }
+
     pub fn apply_web_changed(&mut self) {
         let state_dir = self.web_state_dir();
+        if self.web_tab.web_config.enabled && !self.dependencies_ready(&state_dir) {
+            return;
+        }
         let cfg_path = crate::web_manager::web_config_path(&state_dir);
         let cfg = self.web_tab.web_config.clone();
         let _ = crate::web_manager::save_web_config(&cfg_path, &cfg);
@@ -532,6 +686,7 @@ impl StatusApp {
     }
 
     pub fn tick_timers(&mut self) {
+        self.poll_deps_install();
         let now = self.now();
         if now - self.last_refresh >= self.refresh_seconds {
             self.action_refresh_now();
@@ -657,9 +812,8 @@ impl StatusApp {
                 self.set_tab(self.tab.next());
                 return;
             }
-            if self.web_tab.handle_key(event).is_some() {
-                self.apply_web_changed();
-            }
+            let action = self.web_tab.handle_key(event);
+            self.handle_web_action(action);
             self.dirty = true;
             return;
         }
@@ -800,9 +954,8 @@ impl StatusApp {
                         self.action_refresh_now();
                     }
                     StatusTab::Web => {
-                        if self.web_tab.handle_mouse(event, self.body_area).is_some() {
-                            self.apply_web_changed();
-                        }
+                        let action = self.web_tab.handle_mouse(event, self.body_area);
+                        self.handle_web_action(action);
                         self.dirty = true;
                     }
                     StatusTab::Settings => {
@@ -907,7 +1060,7 @@ impl StatusApp {
             chunks[2].x + 1,
             chunks[2].y,
             &summary_text,
-            chunks[2].width as usize - 2,
+            chunks[2].width.saturating_sub(2) as usize,
             summary_style,
         );
 

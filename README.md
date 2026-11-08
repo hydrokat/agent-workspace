@@ -155,7 +155,12 @@ npx hydrokat/agent-workspace web --list-ips
 **First use installs it.** `./run.sh --web` and `web` set up `tandem-web` the first time they run, and skip every step that is already done:
 - If your workspace has no `tandem-web` folder (the normal case after `init`), the bundled source is copied once into `~/.local/state/tandem/tandem-web` (or `$XDG_STATE_HOME/tandem/tandem-web`), stamped with the package version. It is replaced automatically after an upgrade. Nothing is written into your workspace.
 - Dependencies are installed (`bun install --frozen-lockfile`) and the dashboard is built (`bun run build`) only when missing.
-- If `bun` is missing, you are asked before it is installed from bun.sh. Declining skips the launch.
+- **Dependency check.** Before enabling, tandem checks that `bun` is installed *and runs on this host* (`bun --version`), looking on `PATH`, `$BUN_INSTALL/bin` and `~/.bun/bin`. If `terminal attach` is on it also notes whether `ttyd` is installed (optional, never blocks).
+- **If something is missing, you choose.** tandem asks whether it should install it or whether you will. *Let tandem install* generates a script for your platform from the [official bun guide](https://bun.com/docs/installation), saves it as `install-web-deps.sh` (or `.ps1`) in the state directory, shows its path, runs it, then re-checks that bun works before enabling. *I'll install it myself* keeps the script for review and prints the exact commands. The script never uses `sudo`.
+  - macOS and Linux: `curl -fsSL https://bun.com/install | bash` (Linux needs `unzip`; macOS 13+; x64 CPUs need SSE4.2). Windows: `powershell -c "irm bun.sh/install.ps1|iex"`.
+  - Missing prerequisites (`curl`, `unzip`) and unsupported platforms are explained with the right command for your package manager instead of offering an install that cannot work.
+  - `ttyd` is installed automatically only on macOS with Homebrew; elsewhere you get the command.
+  - Flags: `--yes` installs without asking; `--no-install-deps` never installs and prints how to; with no terminal and no `--yes` nothing is installed.
 - Without a local `bin/agent-workspace.js`, `./run.sh --web` runs `npx --yes <TANDEM_UPDATE_SPEC or hydrokat/agent-workspace> web`, so Node.js is required. If `npx` is missing you get a message saying so instead of a silent no-op.
 - Enabling web from the tandem **Web** tab shows a first-time prompt that says additional dependencies (bun, tandem-web packages, ttyd) may be installed. If tandem-web is not installed or built yet, the tab shows the command to run (`agent-workspace web`).
 
@@ -186,6 +191,7 @@ What it does:
 | `--status` | `web` | Check running state of tandem-web daemon |
 | `--stop` | `web` | Stop tandem-web daemon |
 | `--no-qr` | `web` | Do not print the connect QR code |
+| `--no-install-deps` | `web` | Never install bun or other dependencies; print how to install them |
 | `--list-ips` | `web` | List detected host network IPs and source interfaces |
 | `--dry-run` | `init`, `update` | Show what would change without writing anything |
 | `--quiet` | all | Suppress per-file output; show only summaries |

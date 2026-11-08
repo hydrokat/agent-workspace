@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added: dependency check when enabling tandem-web
+
+- Enabling tandem-web (the tandem **Web** tab, `./run.sh --web` and `agent-workspace web`) now checks that **bun runs on the current host** (not just that a file named `bun` exists) and, when the terminal feature is on, whether `ttyd` is installed.
+- If bun is missing, tandem **asks**: *Let tandem install* or *I'll install it myself*. Installing generates a platform script from the official bun guide (`curl -fsSL https://bun.com/install | bash` on macOS/Linux, the PowerShell one-liner on Windows), saves it as `install-web-deps.sh` / `.ps1` in the state directory, shows its path, runs it (in the background in the TUI, with progress and errors shown in the pane), and verifies bun works before enabling. Choosing to install it yourself keeps the script for review and lists the commands. Scripts never use `sudo`.
+- Platform handling: Linux glibc/musl and x64/arm64, macOS 13+, Windows. Missing `curl`/`unzip` and unsupported platforms or hosts (old macOS, x64 CPU without SSE4.2, no official build) are explained with the right package-manager command instead of an install that cannot work. `ttyd` is auto-installed only via Homebrew on macOS and is otherwise manual; it never blocks enabling.
+- New flags for `agent-workspace web`: `--yes` installs without asking, `--no-install-deps` never installs. `run.sh` passes them from its own `--yes` / `--no` modes and no longer downloads bun itself (it used the legacy `bun.sh` URL).
+- After an install, tandem finds bun in `$BUN_INSTALL/bin` or `~/.bun/bin` without requiring a PATH change, in both the Node launcher and the TUI.
+- The Node and Rust planners are pinned to each other by a shared 16-case fixture (`tandem/tests/fixtures/parity/web-deps.json`).
+
+### Fixed
+
+- **The web CLI tests could stop a real tandem-web.** `test/web.test.js` ran `web --status` and `web --stop` against the real state directory, so with a server running two tests failed and `--stop` terminated the server and rewrote its config. They now use a throwaway state directory, with a regression test (`test/web-hermetic.test.js`).
+- tandem no longer panics when the status pane is narrower than 2 columns (summary line width underflow).
+
 ## [1.11.1] — 2026-11-08
 
 ### Fixed

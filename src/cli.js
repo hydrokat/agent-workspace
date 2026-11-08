@@ -35,6 +35,7 @@ Options:
   --status               web: check if tandem-web daemon is running
   --stop                 web: stop tandem-web daemon
   --no-qr                web: do not print the connect QR code
+  --no-install-deps      web: never install bun or other dependencies; print how to install them
   --version              Print version
   --help                 Print this help
 
@@ -66,6 +67,7 @@ function parseArgs(argv) {
     port: null,
     listIps: false,
     noQr: false,
+    noInstallDeps: false,
     status: false,
     stop: false,
   };
@@ -91,6 +93,7 @@ function parseArgs(argv) {
     else if (arg === '--list-ips') { flags.listIps = true; }
     else if (arg === '--status') { flags.status = true; }
     else if (arg === '--no-qr') { flags.noQr = true; }
+    else if (arg === '--no-install-deps') { flags.noInstallDeps = true; }
     else if (arg === '--stop') { flags.stop = true; }
     else if (arg === '--bind' && argv[i + 1]) { flags.bind = argv[++i]; }
     else if (arg.startsWith('--bind=')) { flags.bind = arg.slice(7); }
