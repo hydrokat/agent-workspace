@@ -8,13 +8,17 @@
 - **QR overlay:** the Connect row opens a full QR code for the access URL (black on white, readable on any terminal theme). It never prints the token as text. If the pane is too small it reports the size it needs; loopback binds explain that a VPN or LAN IP is required.
 - Changing the bind IP, port, terminal toggle or token while the server is running now **restarts it**, so the change takes effect. Before, the running server was left untouched.
 - Start failures (for example "tandem-web is not built") are **shown in the pane** instead of being silently dropped.
-- Settings tab now has only the grid options and Reset UI (Reset UI is now visible at the default pane height). `tandem focus settings` selects tab `7`.
+- Settings tab now has only the grid options, the Quit button and Reset UI (Reset UI is now visible at the default pane height). `tandem focus settings` selects tab `7`.
 - Number-key hint in the footer and help window corrected to `1-7`. Golden snapshots for the tab bar, footer and key help were regenerated for the extra tab; no other lines changed.
 - New dependency: `qrcodegen` 1.8 (no transitive dependencies).
 
 ### Fixed
 
 - Settings-tab Changed events no longer start or stop the web daemon as a side effect.
+
+### Added: Quit button (Phase p-008)
+
+- **Quit button in tandem Settings tab**: Added a `[ Quit… ]` button on body row 0 of the tandem Settings tab beside the `Grid layout` header. Activating via Enter, Space, or left click opens the exit menu (save and exit, detach, update tandem, discard, cancel), providing full keyboard and mouse parity with `Ctrl+Alt+x` directly inside the Settings tab.
 
 ## [1.10.0] — 2026-11-08
 

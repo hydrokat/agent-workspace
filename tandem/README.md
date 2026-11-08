@@ -60,7 +60,7 @@ The status window provides six tabs:
 - **Task:** Detailed ongoing task inspection with objective checklist progress, owning session and pane id, heartbeat age, branch, worktree, claimed paths, and next step from `in-progress.md`. Press `Alt+g` to select the owning agent's tmux pane.
 - **Queries:** Questions queued by agents via `coord.py ask`.
 - **Web:** Remote Web (`tandem-web`) on/off with first-time dependency consent, live status, bind IP and source selector, port, `ttyd` terminal toggle, masked auth token (show/hide, regenerate with confirmation), and a full QR code overlay for connecting a phone. Changing any setting while running restarts the server; start errors appear in the pane. The QR needs about 37x19 cells; a smaller pane tells you the size it needs.
-- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode) and interactive Reset UI.
+- **Settings:** UI layout options (grid columns, rows per page, fill order, sidebar mode), Quit button (`[ Quit… ]` opens the exit menu), and interactive Reset UI.
 
 **Navigation:**
 - Cycle tabs with `Tab` and `Shift+Tab`.
