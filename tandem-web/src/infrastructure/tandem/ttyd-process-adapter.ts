@@ -83,6 +83,31 @@ export function findTtydBinary(): string | null {
   return null;
 }
 
+export function findTmuxBinary(): string {
+  const customBin = process.env.TMUX_BIN;
+  if (customBin && existsSync(customBin)) return customBin;
+
+  const candidates = [
+    "/opt/homebrew/bin/tmux",
+    "/usr/local/bin/tmux",
+    "/usr/bin/tmux",
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+
+  try {
+    const out = execSync("which tmux", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+    if (out && existsSync(out)) return out;
+  } catch {
+    // Fallback to PATH lookup inside child process
+  }
+
+  return "tmux";
+}
+
 interface GlobalTtydStore {
   sessions: Map<string, LoopbackTtydSession>;
   startingPromises: Map<string, Promise<{ port: number; proxyPath: string }>>;
@@ -118,15 +143,20 @@ export class TtydProcessAdapter {
 
     const wsId = workspaceId || socketOrWorkspaceId;
     const socket = workspaceId ? socketOrWorkspaceId : socketOrWorkspaceId;
-    const existing = globalStore.sessions.get(wsId);
+    const existing = this.getSession(wsId);
     if (existing) {
       return { port: existing.port, proxyPath: existing.proxyPath };
     }
 
     const ttydBin = findTtydBinary() || "ttyd";
+    const tmuxBin = findTmuxBinary();
 
     const targetPort = port && port > 0 ? port : await getAvailablePort();
     const proxyPath = `/api/workspaces/${wsId}/terminal/pty/`;
+
+    const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+    const currentPaths = (process.env.PATH || "").split(":").filter(Boolean);
+    const mergedPath = Array.from(new Set([...currentPaths, ...extraPaths])).join(":");
 
     const child = spawn(
       ttydBin,
@@ -140,7 +170,7 @@ export class TtydProcessAdapter {
         "-c",
         `tandem:${credential}`,
         "-W",
-        "tmux",
+        tmuxBin,
         "-L",
         socket,
         "attach-session",
@@ -149,6 +179,11 @@ export class TtydProcessAdapter {
       ],
       {
         stdio: "ignore",
+        env: {
+          ...process.env,
+          PATH: mergedPath,
+          TERM: process.env.TERM || "xterm-256color",
+        },
       }
     );
 
@@ -256,7 +291,12 @@ export class TtydProcessAdapter {
   }
 
   getSession(workspaceId: string): LoopbackTtydSession | undefined {
-    return globalStore.sessions.get(workspaceId);
+    const session = globalStore.sessions.get(workspaceId);
+    if (session?.process && (session.process.exitCode !== null || session.process.killed)) {
+      globalStore.sessions.delete(workspaceId);
+      return undefined;
+    }
+    return session;
   }
 
   registerMockSession(workspaceId: string, socket: string, port: number): void {

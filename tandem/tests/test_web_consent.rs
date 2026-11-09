@@ -357,4 +357,53 @@ mod web_dir_resolution {
         let msg = start_error(&ws, &state);
         assert!(msg.contains("agent-workspace web"), "{msg}");
     }
+
+    #[test]
+    fn ensure_web_dir_refuses_to_overwrite_stale_stamp_when_no_fresh_source_exists() {
+        let (_t, ws, state) = dirs();
+        let core = state.join("tandem-web-core-service");
+        write_web(&core, Some("0.0.1"));
+        fs::write(core.join("server.ts"), "old-server").unwrap();
+        assert_eq!(tandem::web_manager::ensure_web_dir(&ws, &state), None);
+        assert_eq!(
+            fs::read_to_string(core.join(".tandem-version"))
+                .unwrap()
+                .trim(),
+            "0.0.1"
+        );
+    }
+
+    #[test]
+    fn ensure_web_dir_refreshes_stale_core_service_from_bundled_runtime_dir() {
+        let (_t, ws, state) = dirs();
+        let core = state.join("tandem-web-core-service");
+        write_web(&core, Some("0.0.1"));
+        fs::write(core.join("server.ts"), "old-server").unwrap();
+        fs::create_dir_all(core.join(".next")).unwrap();
+        fs::write(core.join(".next").join("BUILD_ID"), "old-build").unwrap();
+        fs::create_dir_all(core.join("node_modules").join("dep")).unwrap();
+
+        let bundled = state
+            .join("bin")
+            .join("current")
+            .join("tandem")
+            .join("tandem-web");
+        write_web(&bundled, Some(env!("CARGO_PKG_VERSION")));
+        fs::write(bundled.join("server.ts"), "new-bun-serve").unwrap();
+
+        let resolved = tandem::web_manager::ensure_web_dir(&ws, &state);
+        assert_eq!(resolved, Some(core.clone()));
+        assert_eq!(
+            fs::read_to_string(core.join("server.ts")).unwrap(),
+            "new-bun-serve"
+        );
+        assert!(!core.join(".next").exists());
+        assert!(core.join("node_modules").join("dep").exists());
+        assert_eq!(
+            fs::read_to_string(core.join(".tandem-version"))
+                .unwrap()
+                .trim(),
+            env!("CARGO_PKG_VERSION")
+        );
+    }
 }

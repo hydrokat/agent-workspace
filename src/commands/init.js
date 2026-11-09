@@ -9,6 +9,7 @@ import { ensureDirs, initStarterFiles } from '../core/scaffold.js';
 import { installCanonicalAssets, syncAllProviders } from '../core/sync.js';
 import { load as loadManifest, save as saveManifest, create as createManifest } from '../core/manifest.js';
 import { installRuntime } from '../core/runtime.js';
+import { refreshInstalledWebOnUpdate } from './web.js';
 import { linkCodebases } from '../core/link-codebases.js';
 import { repoState, initRepo, gitAvailable } from '../core/git.js';
 import { confirm } from '../core/prompts.js';
@@ -42,6 +43,7 @@ export async function run({ flags, cwd }) {
   installCanonicalAssets(cwd, manifest, flags.dryRun);
 
   installRuntime(cwd, manifest, flags.dryRun);
+  refreshInstalledWebOnUpdate({ dryRun: flags.dryRun });
 
   syncAllProviders(cwd, providers, manifest, flags.dryRun);
 

@@ -194,6 +194,30 @@ describe('build.sh archives', () => {
       `tandem-${VERSION}-linux-arm64.tar.gz.sha256`,
     ]);
   });
+
+  it('bundles tandem-web source into tandem/tandem-web when sibling tandem-web exists', () => {
+    const env = setup();
+    const webDir = join(env.tmp, 'tandem-web');
+    mkdirSync(join(webDir, 'src'), { recursive: true });
+    mkdirSync(join(webDir, 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(join(webDir, '.next'), { recursive: true });
+    mkdirSync(join(webDir, 'tests'), { recursive: true });
+    writeFileSync(join(webDir, 'package.json'), '{"name":"tandem-web"}');
+    writeFileSync(join(webDir, 'server.ts'), 'Bun.serve({})');
+    writeFileSync(join(webDir, 'src', 'index.ts'), 'export {}');
+    writeFileSync(join(webDir, '.next', 'BUILD_ID'), 'old');
+
+    const res = build(env, ['--target', 'aarch64-apple-darwin']);
+    assert.equal(res.code, 0, res.stderr);
+    const archive = join(env.out, `tandem-${VERSION}-darwin-arm64.tar.gz`);
+    const names = listTar(archive).map(n => n.replace(/\/$/, ''));
+    assert.ok(names.includes('tandem/tandem-web/package.json'));
+    assert.ok(names.includes('tandem/tandem-web/server.ts'));
+    assert.ok(names.includes('tandem/tandem-web/.tandem-version'));
+    assert.ok(!names.some(n => n.includes('node_modules')));
+    assert.ok(!names.some(n => n.includes('.next')));
+    assert.ok(!names.some(n => n.includes('/tests')));
+  });
 });
 
 describe('build.sh failure modes', () => {

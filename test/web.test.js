@@ -1,9 +1,14 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, makeTmp, runCli as runCliIn } from './helpers.js';
-import { buildAccessUrl, detectCurrentWorkspaceSocket, installedWebDir } from '../src/commands/web.js';
+import {
+  buildAccessUrl,
+  detectCurrentWorkspaceSocket,
+  packageVersion,
+  refreshInstalledWebOnUpdate,
+} from '../src/commands/web.js';
 
 describe('agent-workspace web command', () => {
   let stateRoot;
@@ -87,5 +92,29 @@ describe('agent-workspace web command', () => {
     const socket = detectCurrentWorkspaceSocket(wsDir, stateDir);
     assert.equal(socket, 'tandem-9999999999');
     cleanup(tmp);
+  });
+
+  it('refreshInstalledWebOnUpdate upgrades stale tandem-web-core-service source and clears .next', () => {
+    const tmp = makeTmp();
+    const prevXdg = process.env.XDG_STATE_HOME;
+    try {
+      process.env.XDG_STATE_HOME = tmp;
+      const coreDir = join(tmp, 'tandem', 'tandem-web-core-service');
+      mkdirSync(join(coreDir, '.next'), { recursive: true });
+      writeFileSync(join(coreDir, 'package.json'), '{}');
+      writeFileSync(join(coreDir, 'server.ts'), 'old-http-server');
+      writeFileSync(join(coreDir, '.tandem-version'), '0.0.1\n');
+      writeFileSync(join(coreDir, '.next', 'BUILD_ID'), 'old-build');
+
+      const updated = refreshInstalledWebOnUpdate({ dryRun: false });
+      assert.equal(updated, true);
+      assert.equal(readFileSync(join(coreDir, '.tandem-version'), 'utf8').trim(), packageVersion());
+      assert.ok(readFileSync(join(coreDir, 'server.ts'), 'utf8').includes('Bun.serve'));
+      assert.equal(existsSync(join(coreDir, '.next', 'BUILD_ID')), false);
+    } finally {
+      if (prevXdg === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = prevXdg;
+      cleanup(tmp);
+    }
   });
 });

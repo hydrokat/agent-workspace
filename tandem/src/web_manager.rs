@@ -138,6 +138,11 @@ pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {
 }
 
 pub const WEB_VERSION_STAMP: &str = ".tandem-version";
+pub const WEB_DAEMON_VERSION_FILE_NAME: &str = "tandem-web.version";
+
+pub fn web_daemon_version_path(state_dir: &Path) -> PathBuf {
+    state_dir.join(WEB_DAEMON_VERSION_FILE_NAME)
+}
 
 pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
@@ -161,6 +166,25 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn copy_web_source_clean(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if dst.exists() {
+        for entry in fs::read_dir(dst)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            if name.to_string_lossy() == "node_modules" {
+                continue;
+            }
+            let path = entry.path();
+            if entry.file_type()?.is_dir() {
+                let _ = fs::remove_dir_all(&path);
+            } else {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+    copy_dir_all(src, dst)
 }
 
 pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
@@ -192,7 +216,31 @@ pub fn ensure_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
     let core_service = state_dir.join("tandem-web-core-service");
     let legacy = state_dir.join("tandem-web");
 
-    if core_service.join("package.json").exists() {
+    let bundled = state_dir
+        .join("bin")
+        .join("current")
+        .join("tandem")
+        .join("tandem-web");
+    let symlinked = workspace
+        .join("codebase-symlinks")
+        .join("agent-workspace-package")
+        .join("tandem-web");
+
+    for candidate in [&bundled, &symlinked] {
+        if candidate.join("package.json").exists() {
+            let _ = copy_web_source_clean(candidate, &core_service);
+            if core_service.join("package.json").exists() {
+                let _ = fs::write(
+                    core_service.join(WEB_VERSION_STAMP),
+                    format!("{}\n", env!("CARGO_PKG_VERSION")),
+                );
+                return Some(core_service);
+            }
+        }
+    }
+
+    if core_service.join("package.json").exists() && !core_service.join(WEB_VERSION_STAMP).exists()
+    {
         let _ = fs::write(
             core_service.join(WEB_VERSION_STAMP),
             format!("{}\n", env!("CARGO_PKG_VERSION")),
@@ -200,28 +248,8 @@ pub fn ensure_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
         return Some(core_service);
     }
 
-    if legacy.join("package.json").exists() {
-        let _ = copy_dir_all(&legacy, &core_service);
-        if core_service.join("package.json").exists() {
-            let _ = fs::write(
-                core_service.join(WEB_VERSION_STAMP),
-                format!("{}\n", env!("CARGO_PKG_VERSION")),
-            );
-            return Some(core_service);
-        }
-        let _ = fs::write(
-            legacy.join(WEB_VERSION_STAMP),
-            format!("{}\n", env!("CARGO_PKG_VERSION")),
-        );
-        return Some(legacy);
-    }
-
-    let symlinked = workspace
-        .join("codebase-symlinks")
-        .join("agent-workspace-package")
-        .join("tandem-web");
-    if symlinked.join("package.json").exists() {
-        let _ = copy_dir_all(&symlinked, &core_service);
+    if legacy.join("package.json").exists() && !legacy.join(WEB_VERSION_STAMP).exists() {
+        let _ = copy_web_source_clean(&legacy, &core_service);
         if core_service.join("package.json").exists() {
             let _ = fs::write(
                 core_service.join(WEB_VERSION_STAMP),
@@ -232,6 +260,34 @@ pub fn ensure_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
     }
 
     resolve_web_dir(workspace, state_dir)
+}
+
+pub fn daemon_needs_restart(workspace: &Path, state_dir: &Path) -> bool {
+    if SystemDaemonRunner::read_pid(state_dir).is_none() {
+        return true;
+    }
+    let ver_path = web_daemon_version_path(state_dir);
+    if ver_path.exists() {
+        let ver = fs::read_to_string(&ver_path).unwrap_or_default();
+        if ver.trim() != env!("CARGO_PKG_VERSION") {
+            return true;
+        }
+    }
+    let core_stamp = state_dir
+        .join("tandem-web-core-service")
+        .join(WEB_VERSION_STAMP);
+    if core_stamp.exists() {
+        let stamp = fs::read_to_string(&core_stamp).unwrap_or_default();
+        if stamp.trim() != env!("CARGO_PKG_VERSION") {
+            return true;
+        }
+    }
+    if let Some(web_dir) = resolve_web_dir(workspace, state_dir)
+        && !web_is_built(&web_dir)
+    {
+        return true;
+    }
+    false
 }
 
 pub fn build_web_if_needed(web_dir: &Path) -> Result<(), String> {
@@ -344,7 +400,10 @@ impl DaemonRunner for SystemDaemonRunner {
         state_dir: &Path,
     ) -> Result<u32, std::io::Error> {
         if let Some(existing_pid) = Self::read_pid(state_dir) {
-            return Ok(existing_pid);
+            if !daemon_needs_restart(workspace, state_dir) {
+                return Ok(existing_pid);
+            }
+            let _ = self.stop_daemon(state_dir);
         }
 
         let Some(web_dir) = ensure_web_dir(workspace, state_dir) else {
@@ -402,6 +461,10 @@ impl DaemonRunner for SystemDaemonRunner {
         let pid = child.id();
         let pid_path = web_pid_path(state_dir);
         let _ = fs::write(&pid_path, format!("{pid}\n"));
+        let _ = fs::write(
+            web_daemon_version_path(state_dir),
+            format!("{}\n", env!("CARGO_PKG_VERSION")),
+        );
 
         Ok(pid)
     }
@@ -417,6 +480,7 @@ impl DaemonRunner for SystemDaemonRunner {
             }
         }
         let _ = fs::remove_file(&pid_path);
+        let _ = fs::remove_file(web_daemon_version_path(state_dir));
         Ok(())
     }
 

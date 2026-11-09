@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.14.2] — 2026-11-09
+
+### Fixed: stale `tandem-web-core-service` daemon & source on update (`Press ⏎ to Reconnect`)
+
+- **Stale `tandem-web-core-service` version stamp in `ensure_web_dir`**: Previously, when `~/.local/state/tandem/tandem-web-core-service` had an older `.tandem-version` stamp, `ensure_web_dir` overwrote `.tandem-version` with the new version without copying updated `tandem-web` source or invalidating `.next`, leaving the old `node:http` `server.ts` active and causing the browser terminal WebSocket handshake to fail with `Press ⏎ to Reconnect`. `ensure_web_dir` now refreshes `tandem-web-core-service` from the bundled runtime copy (`bin/current/tandem/tandem-web`) or workspace symlink, clears stale `.next` builds, and refuses to overwrite a mismatched version stamp when no fresh source is available.
+- **Bundled `tandem-web` in release archives**: `tandem/packaging/build.sh` now packages `tandem/tandem-web` alongside the `tandem` binary in release archives so `run.sh --fetch-runtime` and binary installations always carry the matching `tandem-web` source.
+- **Automatic `tandem-web-core-service` refresh and daemon restart on update**: `agent-workspace update`, `agent-workspace init`, `agent-workspace web`, and `tandem status` now track the running daemon version (`tandem-web.version`), refresh `tandem-web-core-service` source on version changes, rebuild `.next`, and restart any stale running `tandem-web` daemon automatically.
+- **Explicit `tmux` binary resolution & PATH in `TtydProcessAdapter`**: Added `findTmuxBinary` and enriched `PATH`/`TERM` when spawning `ttyd` so `tmux` attachment succeeds even when `tandem-web` is launched with a minimal daemon environment.
+
 ## [1.14.1] — 2026-11-09
 
 ### Fixed: web Interact reconnect loop, production Next.js build, and mobile quota overlap
