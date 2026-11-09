@@ -394,6 +394,7 @@ impl DaemonRunner for SystemDaemonRunner {
             .env("HOSTNAME", &config.bind_ip)
             .env("TANDEM_AUTH_TOKEN", &config.auth_token)
             .env("TANDEM_BIN", &tandem_bin)
+            .env("NODE_ENV", "production")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;
