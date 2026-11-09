@@ -7,6 +7,8 @@ import {
   parseServerArgs,
   parseTerminalPtyUrl,
   isIncomingAuthorized,
+  isDevMode,
+  createCoreProxyServer,
 } from "../server";
 
 describe("tandem-web server argument parsing and URL routing", () => {
@@ -212,5 +214,112 @@ describe("ToS & Hardening Guard in tandem-web codebase", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+});
+
+describe("production mode selection", () => {
+  it("defaults to production when NODE_ENV is unset", () => {
+    expect(isDevMode({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(isDevMode({ NODE_ENV: "production" } as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  it("only enters dev mode when explicitly requested", () => {
+    expect(isDevMode({ NODE_ENV: "development" } as NodeJS.ProcessEnv)).toBe(true);
+    expect(isDevMode({ TANDEM_WEB_DEV: "1" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+  });
+});
+
+describe("single-port core proxy websocket bridge", () => {
+  const token = "tandem_0123456789abcdef0123456789abcdef";
+  const basic = `Basic ${Buffer.from(`tandem:${token}`).toString("base64")}`;
+
+  it("relays pty http and websocket traffic to ttyd and the rest to next", async () => {
+    const seenAuth: Array<string | null> = [];
+    const mockTtyd = Bun.serve<{ protocol: string | null }>({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req, srv) {
+        seenAuth.push(req.headers.get("authorization"));
+        if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+          if (req.headers.get("authorization") !== basic) {
+            return new Response("denied", { status: 401 });
+          }
+          srv.upgrade(req, {
+            data: { protocol: req.headers.get("sec-websocket-protocol") },
+            headers: { "Sec-WebSocket-Protocol": "tty" },
+          });
+          return undefined as unknown as Response;
+        }
+        return new Response("ttyd-index");
+      },
+      websocket: {
+        message(ws, message) {
+          ws.send(typeof message === "string" ? `text:${message}` : new Uint8Array([...message, 33]));
+        },
+      },
+    });
+
+    const adapter = new TtydProcessAdapter();
+    const wsId = "tandem-proxy-test-01";
+    adapter.registerMockSession(wsId, "sock", mockTtyd.port as number);
+
+    const port = await getAvailablePort();
+    const { server, nextServer } = await createCoreProxyServer(
+      { bindIp: "127.0.0.1", port, authToken: token },
+      adapter,
+      {
+        nextHandler: (_req, res) => {
+          res.statusCode = 200;
+          res.end("next-app");
+        },
+      }
+    );
+
+    try {
+      const base = `127.0.0.1:${port}`;
+      const ptyBase = `/api/workspaces/${wsId}/terminal/pty/`;
+
+      expect((await fetch(`http://${base}/`)).status).toBe(200);
+      expect(await (await fetch(`http://${base}/`)).text()).toBe("next-app");
+
+      expect((await fetch(`http://${base}${ptyBase}`)).status).toBe(401);
+
+      const authed = await fetch(`http://${base}${ptyBase}?token=${token}`);
+      expect(authed.status).toBe(200);
+      expect(await authed.text()).toBe("ttyd-index");
+      expect(seenAuth.at(-1)).toBe(basic);
+
+      const echoed = await new Promise<{ protocol: string; data: number[] }>((resolve, reject) => {
+        const ws = new WebSocket(`ws://${base}${ptyBase}ws?token=${token}`, ["tty"]);
+        ws.binaryType = "arraybuffer";
+        const timer = setTimeout(() => reject(new Error("ws timeout")), 4000);
+        ws.onopen = () => ws.send(new Uint8Array([48, 49]));
+        ws.onmessage = (e) => {
+          clearTimeout(timer);
+          const protocol = ws.protocol;
+          ws.close();
+          resolve({ protocol, data: Array.from(new Uint8Array(e.data as ArrayBuffer)) });
+        };
+        ws.onerror = () => reject(new Error("ws error"));
+      });
+      expect(echoed.protocol).toBe("tty");
+      expect(echoed.data).toEqual([48, 49, 33]);
+
+      const rejected = await new Promise<boolean>((resolve) => {
+        const ws = new WebSocket(`ws://${base}${ptyBase}ws`, ["tty"]);
+        ws.onopen = () => {
+          ws.close();
+          resolve(false);
+        };
+        ws.onerror = () => resolve(true);
+        ws.onclose = () => resolve(true);
+      });
+      expect(rejected).toBe(true);
+    } finally {
+      server.stop(true);
+      nextServer.close();
+      mockTtyd.stop(true);
+      adapter.stopAll();
+    }
   });
 });

@@ -28,6 +28,7 @@ describe('web launcher hardening', () => {
     const cfg = { bind_ip: '100.64.0.2', port: 4000, auth_token: generateAuthToken() };
     const { args, env } = buildServerSpawn(cfg, { PATH: '/bin' });
     assert.equal(env.TANDEM_AUTH_TOKEN, cfg.auth_token);
+    assert.equal(env.NODE_ENV, 'production');
     assert.equal(env.HOSTNAME, '100.64.0.2');
     assert.equal(env.PORT, '4000');
     const hi = args.indexOf('-H');

@@ -73,6 +73,7 @@ export function buildServerSpawn(cfg, baseEnv) {
       PORT: String(cfg.port),
       HOSTNAME: cfg.bind_ip,
       TANDEM_AUTH_TOKEN: cfg.auth_token,
+      NODE_ENV: 'production',
       ...(tandemBin ? { TANDEM_BIN: tandemBin } : {}),
     },
   };

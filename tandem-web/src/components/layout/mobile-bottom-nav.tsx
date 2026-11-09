@@ -34,7 +34,7 @@ export function MobileBottomNav({
   return (
     <nav
       aria-label="Mobile Navigation"
-      className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden"
+      className="fixed bottom-0 left-0 right-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-center justify-around border-t pb-[env(safe-area-inset-bottom)] bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden"
     >
       {items.map((item) => {
         const Icon = item.icon;

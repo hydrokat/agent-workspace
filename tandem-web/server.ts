@@ -92,136 +92,268 @@ export function isIncomingAuthorized(
   return false;
 }
 
-export async function createCoreProxyServer(config: ServerConfig, customTtydAdapter?: TtydProcessAdapter) {
+interface PtyWsData {
+  port: number;
+  path: string;
+  protocols: string[];
+  upstream?: WebSocket;
+  pending: Array<string | Uint8Array>;
+}
+
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function relayRequestHeaders(source: Headers, overrides: Record<string, string> = {}): Headers {
+  const out = new Headers();
+  source.forEach((value, key) => {
+    if (!HOP_BY_HOP.has(key.toLowerCase())) out.set(key, value);
+  });
+  out.set("accept-encoding", "identity");
+  for (const [k, v] of Object.entries(overrides)) out.set(k, v);
+  return out;
+}
+
+function relayResponse(upstream: Response): Response {
+  const headers = new Headers();
+  upstream.headers.forEach((value, key) => {
+    if (!HOP_BY_HOP.has(key.toLowerCase())) headers.append(key, value);
+  });
+  const cookies = upstream.headers.getSetCookie?.() ?? [];
+  if (cookies.length > 0) {
+    headers.delete("set-cookie");
+    for (const c of cookies) headers.append("set-cookie", c);
+  }
+  if (headers.has("content-encoding")) {
+    headers.delete("content-encoding");
+    headers.delete("content-length");
+  }
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers,
+  });
+}
+
+function jsonError(status: number, code: string, message: string, extra?: HeadersInit): Response {
+  return new Response(JSON.stringify({ error: { code, message } }), {
+    status,
+    headers: { "Content-Type": "application/json", ...(extra as Record<string, string>) },
+  });
+}
+
+function toAuthShape(req: Request): { headers: Record<string, string>; url: string } {
+  const url = new URL(req.url);
+  const headers: Record<string, string> = {};
+  req.headers.forEach((value, key) => {
+    headers[key.toLowerCase()] = value;
+  });
+  return { headers, url: `${url.pathname}${url.search}` };
+}
+
+export function isDevMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.TANDEM_WEB_DEV === "1" || env.NODE_ENV === "development";
+}
+
+export interface CoreProxyOptions {
+  nextHandler?: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+}
+
+export async function createCoreProxyServer(
+  config: ServerConfig,
+  customTtydAdapter?: TtydProcessAdapter,
+  options: CoreProxyOptions = {}
+) {
   const ttydAdapter = customTtydAdapter ?? new TtydProcessAdapter();
-  const dev = process.env.NODE_ENV !== "production";
-  const app = next({ dev, hostname: config.bindIp, port: config.port });
-  const handle = app.getRequestHandler();
+  let app: ReturnType<typeof next> | null = null;
+  let handle = options.nextHandler;
+  if (!handle) {
+    app = next({ dev: isDevMode(), hostname: config.bindIp, port: config.port });
+    const nextHandle = app.getRequestHandler();
+    await app.prepare();
+    handle = (req, res) => {
+      nextHandle(req, res, parse(req.url || "/", true));
+    };
+  }
 
-  await app.prepare();
+  const nextServer = http.createServer((req, res) => {
+    handle(req, res);
+  });
+  await new Promise<void>((resolve, reject) => {
+    nextServer.once("error", reject);
+    nextServer.listen(0, "127.0.0.1", () => resolve());
+  });
+  const nextPort = (nextServer.address() as net.AddressInfo).port;
 
-  const server = http.createServer(async (req, res) => {
-    const ptyInfo = parseTerminalPtyUrl(req.url);
-    if (ptyInfo) {
-      if (!isIncomingAuthorized(req, config.authToken)) {
-        res.writeHead(401, {
-          "Content-Type": "application/json",
+  const resolveSession = async (workspaceId: string) => {
+    const existing = ttydAdapter.getSession(workspaceId);
+    if (existing) return existing;
+    return ttydAdapter.ensureSession(workspaceId, config.authToken);
+  };
+
+  const ttydAuthHeader = `Basic ${Buffer.from(`tandem:${config.authToken}`).toString("base64")}`;
+
+  const proxyToNext = async (req: Request): Promise<Response> => {
+    const url = new URL(req.url);
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    try {
+      const upstream = await fetch(`http://127.0.0.1:${nextPort}${url.pathname}${url.search}`, {
+        method: req.method,
+        headers: relayRequestHeaders(req.headers),
+        body: hasBody ? req.body : undefined,
+        redirect: "manual",
+        signal: req.signal,
+      } as RequestInit);
+      return relayResponse(upstream);
+    } catch (err) {
+      return jsonError(502, "BAD_GATEWAY", (err as Error).message);
+    }
+  };
+
+  const proxyToTtyd = async (
+    req: Request,
+    port: number,
+    pathAndQuery: string
+  ): Promise<Response> => {
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    try {
+      const upstream = await fetch(`http://127.0.0.1:${port}${pathAndQuery}`, {
+        method: req.method,
+        headers: relayRequestHeaders(req.headers, {
+          host: `127.0.0.1:${port}`,
+          authorization: ttydAuthHeader,
+        }),
+        body: hasBody ? req.body : undefined,
+        redirect: "manual",
+        signal: req.signal,
+      } as RequestInit);
+      return relayResponse(upstream);
+    } catch (err) {
+      return jsonError(502, "BAD_GATEWAY", (err as Error).message);
+    }
+  };
+
+  const server = Bun.serve<PtyWsData>({
+    hostname: config.bindIp,
+    port: config.port,
+    idleTimeout: 0,
+    async fetch(req, srv) {
+      const url = new URL(req.url);
+      const pathAndQuery = `${url.pathname}${url.search}`;
+      const ptyInfo = parseTerminalPtyUrl(pathAndQuery);
+      if (!ptyInfo) return proxyToNext(req);
+
+      if (!isIncomingAuthorized(toAuthShape(req) as unknown as http.IncomingMessage, config.authToken)) {
+        return jsonError(401, "UNAUTHORIZED", "Unauthorized", {
           "WWW-Authenticate": 'Basic realm="tandem"',
         });
-        res.end(JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }));
-        return;
       }
 
-      let session = ttydAdapter.getSession(ptyInfo.workspaceId);
-      if (!session) {
-        try {
-          session = await ttydAdapter.ensureSession(ptyInfo.workspaceId, config.authToken);
-        } catch (err) {
-          res.writeHead(503, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              error: {
-                code: "NOT_RUNNING",
-                message: (err as Error).message || "Terminal is not running for this workspace",
-              },
-            })
-          );
-          return;
-        }
+      let session;
+      try {
+        session = await resolveSession(ptyInfo.workspaceId);
+      } catch (err) {
+        return jsonError(
+          503,
+          "NOT_RUNNING",
+          (err as Error).message || "Terminal is not running for this workspace"
+        );
       }
 
-      const proxyReq = http.request(
-        {
-          hostname: "127.0.0.1",
-          port: session.port,
-          path: req.url,
-          method: req.method,
-          headers: {
-            ...req.headers,
-            host: `127.0.0.1:${session.port}`,
-            authorization: `Basic ${Buffer.from(`tandem:${config.authToken}`).toString("base64")}`,
-          },
-        },
-        (proxyRes) => {
-          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-          proxyRes.pipe(res);
-        }
-      );
-
-      proxyReq.on("error", (err) => {
-        if (!res.headersSent) {
-          res.writeHead(502, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: { code: "BAD_GATEWAY", message: err.message } }));
-        }
-      });
-
-      req.pipe(proxyReq);
-      return;
-    }
-
-    const parsedUrl = parse(req.url || "/", true);
-    handle(req, res, parsedUrl);
-  });
-
-  server.on("upgrade", async (req, socket, head) => {
-    const ptyInfo = parseTerminalPtyUrl(req.url);
-    if (ptyInfo) {
-      if (!isIncomingAuthorized(req, config.authToken)) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
+      if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        const protocols = (req.headers.get("sec-websocket-protocol") || "")
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean);
+        const upgraded = srv.upgrade(req, {
+          data: { port: session.port, path: pathAndQuery, protocols, pending: [] },
+          headers: protocols.length > 0 ? { "Sec-WebSocket-Protocol": protocols[0] } : undefined,
+        });
+        if (upgraded) return undefined as unknown as Response;
+        return jsonError(400, "BAD_UPGRADE", "WebSocket upgrade failed");
       }
 
-      let session = ttydAdapter.getSession(ptyInfo.workspaceId);
-      if (!session) {
-        try {
-          session = await ttydAdapter.ensureSession(ptyInfo.workspaceId, config.authToken);
-        } catch {
-          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-          socket.destroy();
-          return;
-        }
-      }
-
-      const proxySocket = net.connect(session.port, "127.0.0.1", () => {
-        const raw = req.rawHeaders;
-        const headers: string[] = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
-        for (let i = 0; i < raw.length; i += 2) {
-          const key = raw[i];
-          const val = raw[i + 1];
-          if (key.toLowerCase() === "host") {
-            headers.push(`Host: 127.0.0.1:${session.port}`);
-          } else if (key.toLowerCase() !== "authorization") {
-            headers.push(`${key}: ${val}`);
+      return proxyToTtyd(req, session.port, pathAndQuery);
+    },
+    websocket: {
+      open(ws) {
+        const data = ws.data;
+        const BunWebSocket = WebSocket as unknown as new (
+          url: string,
+          options: { protocols: string[]; headers: Record<string, string> }
+        ) => WebSocket;
+        const upstream = new BunWebSocket(`ws://127.0.0.1:${data.port}${data.path}`, {
+          protocols: data.protocols,
+          headers: { Authorization: ttydAuthHeader },
+        });
+        upstream.binaryType = "arraybuffer";
+        data.upstream = upstream;
+        upstream.onopen = () => {
+          for (const m of data.pending.splice(0)) upstream.send(m);
+        };
+        upstream.onmessage = (event) => {
+          const payload = event.data;
+          if (typeof payload === "string") ws.send(payload);
+          else ws.send(new Uint8Array(payload as ArrayBuffer));
+        };
+        upstream.onclose = () => {
+          try {
+            ws.close();
+          } catch {
+            // client already gone
           }
+        };
+        upstream.onerror = () => {
+          try {
+            ws.close();
+          } catch {
+            // client already gone
+          }
+        };
+      },
+      message(ws, message) {
+        const data = ws.data;
+        const payload = typeof message === "string" ? message : new Uint8Array(message);
+        if (data.upstream && data.upstream.readyState === WebSocket.OPEN) {
+          data.upstream.send(payload);
+        } else {
+          data.pending.push(payload);
         }
-        const authVal = Buffer.from(`tandem:${config.authToken}`).toString("base64");
-        headers.push(`Authorization: Basic ${authVal}`);
-
-        proxySocket.write(headers.join("\r\n") + "\r\n\r\n");
-        if (head && head.length > 0) {
-          proxySocket.write(head);
+      },
+      close(ws) {
+        try {
+          ws.data.upstream?.close();
+        } catch {
+          // upstream already closed
         }
-        proxySocket.pipe(socket);
-        socket.pipe(proxySocket);
-      });
-
-      proxySocket.on("error", () => socket.destroy());
-      socket.on("error", () => proxySocket.destroy());
-      return;
-    }
+      },
+    },
   });
 
-  return { server, app };
+  return { server, app, nextServer, ttydAdapter };
 }
 
 if (import.meta.main || (process.argv[1] && process.argv[1].endsWith("server.ts"))) {
   try {
     const config = parseServerArgs();
-    const { server } = await createCoreProxyServer(config);
-    server.listen(config.port, config.bindIp, () => {
-      console.log(`tandem-web-core-service listening on http://${config.bindIp}:${config.port}`);
-    });
+    const { server, nextServer, ttydAdapter } = await createCoreProxyServer(config);
+    console.log(`tandem-web-core-service listening on http://${config.bindIp}:${server.port}`);
+    const shutdown = () => {
+      ttydAdapter.stopAll();
+      server.stop(true);
+      nextServer.close();
+      process.exit(0);
+    };
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+    process.on("exit", () => ttydAdapter.stopAll());
   } catch (err) {
     console.error((err as Error).message);
     process.exit(1);

@@ -42,7 +42,7 @@ export function ResponsiveAppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh w-screen flex-col overflow-hidden bg-background text-foreground">
       <TopHeaderBar
         activeWorkspace={activeWorkspace}
         settings={settings}
@@ -108,8 +108,8 @@ export function ResponsiveAppShell({
         </aside>
 
         {/* Main Content Area */}
-        <main className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 pb-24 md:p-6 md:pb-6">
+        <main className="flex flex-1 flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6">
             <div className="mx-auto max-w-5xl flex flex-col gap-6">
               {children}
             </div>
