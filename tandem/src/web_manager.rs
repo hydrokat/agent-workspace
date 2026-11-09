@@ -365,6 +365,19 @@ impl DaemonRunner for SystemDaemonRunner {
             ));
         }
 
+        if config.ttyd_enabled {
+            let env = crate::web_deps::DepsEnv::from_process();
+            let has_ttyd = crate::web_deps::find_executable("ttyd", &env.path, &[]).is_some();
+            if !has_ttyd
+                && cfg!(target_os = "macos")
+                && crate::web_deps::find_executable("brew", &env.path, &[]).is_some()
+            {
+                let _ = std::process::Command::new("brew")
+                    .args(["install", "ttyd"])
+                    .output();
+            }
+        }
+
         let args = web_server_args(config)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
 

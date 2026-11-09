@@ -34,6 +34,9 @@ export class FileWorkspaceRegistry implements IWorkspaceRegistry {
 
   async findById(id: string): Promise<WorkspaceEntry | null> {
     const active = await this.listActive();
+    if (!id || id === "tandem-default") {
+      return active[0] || null;
+    }
     return active.find((w) => w.id === id) || null;
   }
 }
