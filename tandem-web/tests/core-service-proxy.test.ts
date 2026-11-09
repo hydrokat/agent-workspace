@@ -141,6 +141,18 @@ describe("TtydProcessAdapter multi-workspace loopback pool", () => {
     await expect(adapter.start("tandem-1234567890", "::", 3941, "tok")).rejects.toThrow(/wildcard/);
     await expect(adapter.start("tandem-1234567890", "127.0.0.1", 3941, "")).rejects.toThrow(/credential/);
   });
+
+  it("shares sessions globally across distinct adapter instances via globalThis", () => {
+    const adapter1 = new TtydProcessAdapter();
+    const adapter2 = new TtydProcessAdapter();
+    const ws = "tandem-shared-001";
+
+    adapter1.registerMockSession(ws, "sock-shared", 48999);
+    expect(adapter2.getSession(ws)?.port).toBe(48999);
+
+    adapter2.stop(ws);
+    expect(adapter1.getSession(ws)).toBeUndefined();
+  });
 });
 
 describe("ToS & Hardening Guard in tandem-web codebase", () => {

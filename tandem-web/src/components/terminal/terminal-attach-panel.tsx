@@ -182,13 +182,13 @@ export function TerminalAttachPanel({
 
       <div className="relative h-[480px] w-full bg-black">
         {starting && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-muted-foreground gap-2 text-xs">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-muted-foreground gap-2 text-xs z-10">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>Connecting terminal stream...</span>
           </div>
         )}
-        {startError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/95 p-4 text-center gap-2">
+        {startError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/95 p-4 text-center gap-2 z-20">
             <AlertCircle className="h-6 w-6 text-destructive" />
             <span className="text-sm font-medium text-destructive">{startError}</span>
             <Button
@@ -202,7 +202,12 @@ export function TerminalAttachPanel({
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ action: "start" }),
                 })
-                  .then((r) => r.ok || r.json().then((d) => Promise.reject(new Error(d?.error?.message))))
+                  .then(async (r) => {
+                    if (!r.ok) {
+                      const d = await r.json().catch(() => ({}));
+                      throw new Error(d?.error?.message || "Failed to start terminal session");
+                    }
+                  })
                   .catch((e) => setStartError((e as Error).message))
                   .finally(() => setStarting(false));
               }}
@@ -210,13 +215,14 @@ export function TerminalAttachPanel({
               Retry
             </Button>
           </div>
+        ) : (
+          <iframe
+            id="tandem-terminal-iframe"
+            src={`/api/workspaces/${workspaceId}/terminal/pty/`}
+            title={`Terminal session for ${workspaceId}`}
+            className="h-full w-full border-0"
+          />
         )}
-        <iframe
-          id="tandem-terminal-iframe"
-          src={`/api/workspaces/${workspaceId}/terminal/pty/`}
-          title={`Terminal session for ${workspaceId}`}
-          className="h-full w-full border-0"
-        />
       </div>
 
       <MobileModifierBar onSendKey={handleSendKey} />

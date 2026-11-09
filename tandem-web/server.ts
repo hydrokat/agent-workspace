@@ -100,7 +100,7 @@ export async function createCoreProxyServer(config: ServerConfig, customTtydAdap
 
   await app.prepare();
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const ptyInfo = parseTerminalPtyUrl(req.url);
     if (ptyInfo) {
       if (!isIncomingAuthorized(req, config.authToken)) {
@@ -112,18 +112,22 @@ export async function createCoreProxyServer(config: ServerConfig, customTtydAdap
         return;
       }
 
-      const session = ttydAdapter.getSession(ptyInfo.workspaceId);
+      let session = ttydAdapter.getSession(ptyInfo.workspaceId);
       if (!session) {
-        res.writeHead(503, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error: {
-              code: "NOT_RUNNING",
-              message: "Terminal is not running for this workspace",
-            },
-          })
-        );
-        return;
+        try {
+          session = await ttydAdapter.ensureSession(ptyInfo.workspaceId, config.authToken);
+        } catch (err) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: {
+                code: "NOT_RUNNING",
+                message: (err as Error).message || "Terminal is not running for this workspace",
+              },
+            })
+          );
+          return;
+        }
       }
 
       const proxyReq = http.request(
@@ -159,7 +163,7 @@ export async function createCoreProxyServer(config: ServerConfig, customTtydAdap
     handle(req, res, parsedUrl);
   });
 
-  server.on("upgrade", (req, socket, head) => {
+  server.on("upgrade", async (req, socket, head) => {
     const ptyInfo = parseTerminalPtyUrl(req.url);
     if (ptyInfo) {
       if (!isIncomingAuthorized(req, config.authToken)) {
@@ -168,11 +172,15 @@ export async function createCoreProxyServer(config: ServerConfig, customTtydAdap
         return;
       }
 
-      const session = ttydAdapter.getSession(ptyInfo.workspaceId);
+      let session = ttydAdapter.getSession(ptyInfo.workspaceId);
       if (!session) {
-        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-        socket.destroy();
-        return;
+        try {
+          session = await ttydAdapter.ensureSession(ptyInfo.workspaceId, config.authToken);
+        } catch {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
       }
 
       const proxySocket = net.connect(session.port, "127.0.0.1", () => {

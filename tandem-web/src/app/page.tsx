@@ -256,7 +256,7 @@ export default function DashboardPage() {
         {/* Terminal tab */}
         {((desktopTab === "terminal" && isDesktop) || activeTab === "terminal") && (
           <TerminalAttachPanel
-            workspaceId={activeWorkspace?.id || "tandem-default"}
+            workspaceId={activeWorkspace?.id || workspaces[0]?.id || "tandem-default"}
             ttydEnabled={Boolean(settings?.ttyd_enabled)}
             panes={snapshot?.panes || []}
             activePaneId={activePaneId}
