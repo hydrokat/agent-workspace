@@ -134,9 +134,13 @@ fn test_settings_tab_navigation_and_option_cycling() {
     tab.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     assert_eq!(tab.sidebar_mode, SidebarMode::Wide);
 
-    // Down to Reset UI button
+    // Down to Workspace name row
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(tab.focused_row, 4);
+
+    // Down to Reset UI button
+    tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(tab.focused_row, 5);
 
     // Down to Quit button
     tab.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
@@ -154,7 +158,7 @@ fn test_settings_tab_navigation_and_option_cycling() {
 #[test]
 fn test_settings_tab_confirm_reset_modal_lifecycle() {
     let mut tab = SettingsTab {
-        focused_row: 4, // Reset UI button
+        focused_row: 5, // Reset UI button (RESET_ROW)
         ..Default::default()
     };
 
@@ -244,7 +248,7 @@ fn test_settings_tab_quit_button() {
         ..Default::default()
     };
 
-    assert_eq!(QUIT_ROW, 5);
+    assert_eq!(QUIT_ROW, 6);
 
     // Left and Right on the Quit row return None
     assert_eq!(

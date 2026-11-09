@@ -33,7 +33,23 @@ export function TopHeaderBar({
         >
           <span className="text-lg">☰</span>
         </Button>
-        <div className="flex flex-col">
+        <div
+          className="flex flex-col md:cursor-default cursor-pointer select-none"
+          onClick={() => {
+            if (typeof window !== "undefined" && window.innerWidth < 768) {
+              onOpenDrawer();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpenDrawer();
+            }
+          }}
+          aria-label="Current workspace (click to switch on mobile)"
+        >
           <span className="font-semibold text-sm leading-tight text-foreground">
             {activeWorkspace?.name || "tandem-web"}
           </span>

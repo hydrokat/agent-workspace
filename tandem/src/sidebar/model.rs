@@ -15,6 +15,7 @@ pub enum SidebarRow {
         role: String,
         index: usize,
         label: String,
+        name: String,
         cli: String,
         model: String,
         glyph: char,
@@ -164,12 +165,23 @@ fn build_agent_row(
         format!("{}-{}", p.role, p.index)
     };
 
+    let name = if !p.name.is_empty() {
+        p.name.clone()
+    } else if let Some(s) = sess
+        && !s.name.is_empty()
+    {
+        s.name.clone()
+    } else {
+        String::new()
+    };
+
     SidebarRow::Agent {
         pane_id: p.id.clone(),
         session_id,
         role: p.role.clone(),
         index: p.index,
         label: display_label,
+        name,
         cli,
         model,
         glyph,

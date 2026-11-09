@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ResponsiveAppShell } from "@/components/layout/responsive-app-shell";
 import { type NavTabId } from "@/components/layout/mobile-bottom-nav";
 import { AgentGrid } from "@/components/agents/agent-grid";
@@ -40,35 +40,69 @@ export default function DashboardPage() {
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
 
+  const initialWorkspaceResolvedRef = useRef(false);
+  const activeWorkspaceIdRef = useRef<string | null>(null);
+  activeWorkspaceIdRef.current = activeWorkspace?.id ?? null;
+
   const { snapshot, connected } = useWorkspaceStream(activeWorkspace?.id ?? null);
+
+  const handleSelectWorkspace = useCallback((ws: WorkspaceEntry) => {
+    setActiveWorkspace(ws);
+    setActivePaneId(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("workspace", ws.id);
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
 
   const fetchWorkspaces = useCallback(async () => {
     try {
       const res = await fetch("/api/workspaces");
       if (res.ok) {
         const data = await res.json();
-        const list = data.workspaces || [];
+        const list: WorkspaceEntry[] = data.workspaces || [];
         setWorkspaces(list);
 
-        const urlParams =
-          typeof window !== "undefined"
-            ? new URLSearchParams(window.location.search)
+        if (!initialWorkspaceResolvedRef.current) {
+          initialWorkspaceResolvedRef.current = true;
+          const urlParams =
+            typeof window !== "undefined"
+              ? new URLSearchParams(window.location.search)
+              : null;
+          const initialWsId = urlParams?.get("workspace");
+          const targetWs = initialWsId
+            ? list.find((w: WorkspaceEntry) => w.id === initialWsId)
             : null;
-        const initialWsId = urlParams?.get("workspace");
-        const targetWs = initialWsId
-          ? list.find((w: WorkspaceEntry) => w.id === initialWsId)
-          : null;
 
-        if (targetWs) {
-          setActiveWorkspace(targetWs);
-        } else if (!activeWorkspace && list.length > 0) {
+          if (targetWs) {
+            setActiveWorkspace(targetWs);
+            return;
+          }
+          if (list.length > 0) {
+            setActiveWorkspace(list[0]);
+            return;
+          }
+        }
+
+        const currentId = activeWorkspaceIdRef.current;
+        if (currentId) {
+          const updated = list.find((w) => w.id === currentId);
+          if (updated) {
+            setActiveWorkspace(updated);
+          } else if (list.length > 0) {
+            setActiveWorkspace(list[0]);
+          } else {
+            setActiveWorkspace(null);
+          }
+        } else if (list.length > 0) {
           setActiveWorkspace(list[0]);
         }
       }
     } catch {
       // Ignore initial network error; SSE or retry will handle it
     }
-  }, [activeWorkspace]);
+  }, []);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -98,6 +132,20 @@ export default function DashboardPage() {
     fetchWorkspaces();
     fetchSettings();
     fetchIps();
+
+    const interval = setInterval(() => {
+      fetchWorkspaces();
+    }, 5000);
+
+    const onFocus = () => {
+      fetchWorkspaces();
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [fetchWorkspaces, fetchSettings, fetchIps]);
 
   const handleAction = async (action: AllowedTandemAction, args: string[]) => {
@@ -138,6 +186,12 @@ export default function DashboardPage() {
     await handleAction("reset-ui", []);
   };
 
+  const handleRenameWorkspace = async (newName: string) => {
+    if (!activeWorkspace) return;
+    await handleAction("rename-workspace", [newName]);
+    await fetchWorkspaces();
+  };
+
   const handleInteractAgent = async (pane: PaneInfo) => {
     setActivePaneId(pane.id);
     await handleAction("show", [pane.id]);
@@ -163,7 +217,7 @@ export default function DashboardPage() {
           setDesktopTab(tab);
         }
       }}
-      onSelectWorkspace={(ws) => setActiveWorkspace(ws)}
+      onSelectWorkspace={handleSelectWorkspace}
       onOpenHostConnection={() => setHostDialogOpen(true)}
       unreadQueryCount={unreadQueries}
     >
@@ -269,8 +323,10 @@ export default function DashboardPage() {
           <WebSettingsPanel
             settings={settings}
             candidates={candidates}
+            activeWorkspace={activeWorkspace}
             onUpdateSettings={handleUpdateSettings}
             onResetUI={handleResetUI}
+            onRenameWorkspace={handleRenameWorkspace}
           />
         )}
       </div>
@@ -282,7 +338,7 @@ export default function DashboardPage() {
         currentPort={settings?.port}
         onSelectWorkspace={(wsId) => {
           const found = workspaces.find((w) => w.id === wsId);
-          if (found) setActiveWorkspace(found);
+          if (found) handleSelectWorkspace(found);
         }}
       />
     </ResponsiveAppShell>

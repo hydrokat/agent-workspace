@@ -36,6 +36,7 @@ fn default_snap() -> StatusSnapshot {
 fn make_session(overrides: impl FnOnce(&mut Session)) -> Session {
     let mut s = Session {
         id: "implementer-1".to_string(),
+        name: String::new(),
         cli: "claude".to_string(),
         role: "implementer".to_string(),
         model: "sonnet".to_string(),

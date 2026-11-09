@@ -1,4 +1,4 @@
-import { isValidWorkspaceId } from "../../domain/models/workspace";
+import { isValidWorkspaceId, isValidCustomName } from "../../domain/models/workspace";
 import type { AllowedTandemAction, ITandemGateway } from "../../domain/ports/tandem-gateway";
 import type { IWorkspaceRegistry } from "../../domain/ports/workspace-registry";
 
@@ -9,6 +9,8 @@ const ALLOWED_ACTIONS: Set<AllowedTandemAction> = new Set([
   "close-agent",
   "equalize",
   "reset-ui",
+  "rename-workspace",
+  "rename-agent",
 ]);
 
 export class RunWorkspaceActionUseCase {
@@ -28,6 +30,20 @@ export class RunWorkspaceActionUseCase {
 
     if (!ALLOWED_ACTIONS.has(action)) {
       throw new Error(`Forbidden action: '${action}'`);
+    }
+
+    if (action === "rename-workspace") {
+      if (args.length !== 1 || !isValidCustomName(args[0])) {
+        throw new Error(
+          `Invalid workspace rename argument: must be 1-32 alphanumeric characters [a-zA-Z0-9]`
+        );
+      }
+    } else if (action === "rename-agent") {
+      if (args.length !== 2 || !isValidCustomName(args[1])) {
+        throw new Error(
+          `Invalid agent rename argument: target and 1-32 alphanumeric characters [a-zA-Z0-9] required`
+        );
+      }
     }
 
     for (const arg of args) {

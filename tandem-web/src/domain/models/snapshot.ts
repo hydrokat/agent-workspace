@@ -7,6 +7,7 @@ export interface PaneInfo {
   role: string;
   index: number;
   label: string;
+  name?: string;
   dead: boolean;
   dead_status?: number | null;
   session: string;
@@ -115,6 +116,7 @@ export interface StatusSnapshot {
 
 export interface WorkspaceSnapshotPayload {
   workspace_id: string;
+  workspace_name?: string;
   workspace_path: string;
   snapshot: StatusSnapshot;
   panes: PaneInfo[];

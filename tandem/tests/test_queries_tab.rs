@@ -95,6 +95,7 @@ fn make_query(
 fn make_session(sid: &str, pane: &str) -> Session {
     Session {
         id: sid.to_string(),
+        name: String::new(),
         cli: "claude".to_string(),
         role: "implementer".to_string(),
         model: "sonnet".to_string(),

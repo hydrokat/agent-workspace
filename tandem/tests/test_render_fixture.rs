@@ -68,6 +68,7 @@ fn test_render_parity_fixture() {
         entries: Vec::new(),
         sessions: vec![Session {
             id: "implementer-1".to_string(),
+            name: String::new(),
             cli: "claude".to_string(),
             role: "implementer".to_string(),
             model: "sonnet".to_string(),

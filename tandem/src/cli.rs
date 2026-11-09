@@ -142,6 +142,26 @@ pub enum Command {
 
     #[command(about = "list host network IPs and active workspaces")]
     ListIps(ListIpsArgs),
+
+    #[command(about = "rename the current workspace to a custom alphanumeric name")]
+    RenameWorkspace(RenameWorkspaceArgs),
+
+    #[command(about = "rename an agent to a custom alphanumeric name")]
+    RenameAgent(RenameAgentArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct RenameWorkspaceArgs {
+    #[arg(help = "new alphanumeric name (1..=32 chars, or empty to reset to default)")]
+    pub name: Option<String>,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct RenameAgentArgs {
+    #[arg(help = "pane id (%...) or session id (role-index) to rename")]
+    pub target: String,
+    #[arg(help = "new alphanumeric name (1..=32 chars, or empty to reset to default)")]
+    pub name: Option<String>,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -327,6 +347,17 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
         }
         Some(Command::ListIps(_)) => {
             crate::commands::list_ips_json(&workspace);
+        }
+        Some(Command::RenameWorkspace(args)) => {
+            crate::commands::rename_workspace_cmd(&workspace, args.name.as_deref());
+        }
+        Some(Command::RenameAgent(args)) => {
+            crate::commands::rename_agent_cmd(
+                &workspace,
+                &config,
+                &args.target,
+                args.name.as_deref(),
+            );
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;

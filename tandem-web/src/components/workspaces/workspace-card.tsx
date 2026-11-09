@@ -24,6 +24,7 @@ export function WorkspaceCard({
     <Card
       role="button"
       tabIndex={0}
+      aria-current={isActive ? "true" : undefined}
       onClick={() => onSelect(workspace)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {

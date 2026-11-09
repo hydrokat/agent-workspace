@@ -105,6 +105,7 @@ pub fn agent_launch(
         session_id: session_id(&spec),
         spec: spec_json,
         cli_version,
+        name: spec.name.clone().unwrap_or_default(),
     }
 }
 
@@ -137,6 +138,7 @@ pub fn placeholder_launch(
         session_id: String::new(),
         spec: String::new(),
         cli_version: String::new(),
+        name: String::new(),
     }
 }
 
@@ -165,6 +167,7 @@ pub fn status_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> L
         session_id: String::new(),
         spec: String::new(),
         cli_version: String::new(),
+        name: String::new(),
     }
 }
 
@@ -193,6 +196,7 @@ pub fn sidebar_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> 
         session_id: String::new(),
         spec: String::new(),
         cli_version: String::new(),
+        name: String::new(),
     }
 }
 
@@ -466,6 +470,11 @@ pub fn pane_spec(pane: &PaneInfo, coord_dir: Option<&Path>) -> Option<AgentSpec>
         None
     };
     let conv = live.or_else(|| raw_conv.and_then(conversations::valid_id));
+    let name = if !pane.name.is_empty() {
+        Some(pane.name.clone())
+    } else {
+        None
+    };
     Some(AgentSpec {
         cli,
         role: pane.role.clone(),
@@ -474,6 +483,7 @@ pub fn pane_spec(pane: &PaneInfo, coord_dir: Option<&Path>) -> Option<AgentSpec>
         skip_permissions,
         cwd,
         conversation: conv,
+        name,
     })
 }
 
@@ -1344,6 +1354,8 @@ pub struct SnapshotPayload {
     pub panes: Vec<crate::tmux::tabs::PaneInfo>,
     pub selected: Vec<String>,
     pub quota_line: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
 }
 
 pub fn collect_snapshot_json(
@@ -1353,6 +1365,21 @@ pub fn collect_snapshot_json(
     let resolved = crate::tmux::client::resolve_path(workspace);
     let workspace_id = crate::tmux::client::socket_for(&resolved);
     let workspace_path = resolved.to_string_lossy().to_string();
+
+    let state_file = crate::state::state_path(&resolved);
+    let workspace_name = if state_file.exists() {
+        std::fs::read(&state_file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|val| {
+                val.get("workspace_name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+                    .map(ToString::to_string)
+            })
+    } else {
+        None
+    };
 
     let coord_dir = coord_dir_for(workspace, config);
     let store = crate::coordination::store::CoordStore::new(coord_dir.clone());
@@ -1405,6 +1432,7 @@ pub fn collect_snapshot_json(
         panes,
         selected,
         quota_line,
+        workspace_name,
     })
 }
 
@@ -1485,4 +1513,157 @@ pub fn list_ips_json(workspace: &Path) {
         let _ = io::stdout().write_all(json.as_bytes());
         let _ = io::stdout().write_all(b"\n");
     }
+}
+
+pub fn rename_workspace_cmd(workspace: &Path, name: Option<&str>) {
+    let clean_name = name.map(str::trim).filter(|s| !s.is_empty());
+    if clean_name.is_some_and(|n| !crate::adapters::base::is_valid_custom_name(n)) {
+        eprintln!("Invalid workspace name: must be 1-32 alphanumeric characters");
+        std::process::exit(1);
+    }
+
+    let state_dir = crate::registry::resolve_state_dir();
+    let reg_path = crate::registry::default_registry_path(&state_dir);
+    let resolved = crate::tmux::client::resolve_path(workspace);
+    let target_id = crate::tmux::client::socket_for(&resolved);
+
+    let default_name = resolved
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "workspace".to_string());
+
+    let final_name = clean_name.unwrap_or(&default_name).to_string();
+
+    if let Ok(mut reg) = crate::registry::load_registry(&reg_path) {
+        let entry_opt = reg
+            .workspaces
+            .iter_mut()
+            .find(|w| w.id == target_id || w.socket == target_id);
+        if let Some(entry) = entry_opt {
+            entry.name = final_name.clone();
+            let _ = crate::registry::save_registry(&reg_path, &reg);
+        }
+    }
+
+    let session_file = crate::state::state_path(&resolved);
+    let mut file_val = std::fs::read(&session_file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    if let Some(obj) = file_val.as_mut().and_then(|v| v.as_object_mut()) {
+        if let Some(n) = clean_name {
+            obj.insert("workspace_name".to_string(), serde_json::json!(n));
+        } else {
+            obj.remove("workspace_name");
+        }
+        if let Ok(mut file) = std::fs::File::create(&session_file) {
+            let _ = serde_json::to_writer_pretty(&mut file, &file_val);
+        }
+    }
+
+    let res = serde_json::json!({
+        "ok": true,
+        "workspace_id": target_id,
+        "name": final_name,
+    });
+    let _ = io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
+    let _ = io::stdout().write_all(b"\n");
+}
+
+pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: Option<&str>) {
+    let clean_name = name.map(str::trim).filter(|s| !s.is_empty());
+    if clean_name.is_some_and(|n| !crate::adapters::base::is_valid_custom_name(n)) {
+        eprintln!("Invalid agent name: must be 1-32 alphanumeric characters");
+        std::process::exit(1);
+    }
+
+    let resolved = crate::tmux::client::resolve_path(workspace);
+    let layout = make_layout(workspace, config);
+    let panes = if layout.exists() {
+        layout.panes().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let target_pane = panes.iter().find(|p| {
+        p.id == target || p.session == target || format!("{}-{}", p.role, p.index) == target
+    });
+
+    let pane_id = target_pane.map(|p| p.id.as_str());
+    let session_id = target_pane
+        .map(|p| {
+            if !p.session.is_empty() {
+                p.session.as_str()
+            } else {
+                ""
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or(target);
+
+    let name_val = clean_name.unwrap_or("");
+
+    if let Some(pid) = pane_id {
+        let _ =
+            layout
+                .client
+                .run_checked(&["set-option", "-p", "-t", pid, "@tandem_name", name_val]);
+        let _ = layout.refresh();
+    }
+
+    let session_file = crate::state::state_path(&resolved);
+    let mut session_val = std::fs::read(&session_file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    if let Some(agents) = session_val
+        .as_mut()
+        .and_then(|v| v.get_mut("agents"))
+        .and_then(|a| a.as_array_mut())
+    {
+        for a in agents {
+            let role = a.get("role").and_then(|r| r.as_str()).unwrap_or("");
+            let index = a.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+            let a_session = format!("{role}-{index}");
+            let matches_target = a_session == target
+                || (target_pane.is_some()
+                    && target_pane.unwrap().role == role
+                    && target_pane.unwrap().index == index as usize);
+            if matches_target {
+                if let Some(n) = clean_name {
+                    a["name"] = serde_json::json!(n);
+                } else if let Some(obj) = a.as_object_mut() {
+                    obj.remove("name");
+                }
+            }
+        }
+        if let Ok(mut file) = std::fs::File::create(&session_file) {
+            let _ = serde_json::to_writer_pretty(&mut file, &session_val);
+        }
+    }
+
+    let coord_dir = coord_dir_for(workspace, config);
+    let session_path = std::path::PathBuf::from(&coord_dir)
+        .join("sessions")
+        .join(format!("{session_id}.json"));
+    let mut coord_val = std::fs::read(&session_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    if let Some(ref mut val) = coord_val {
+        if let Some(n) = clean_name {
+            val["name"] = serde_json::json!(n);
+        } else if let Some(obj) = val.as_object_mut() {
+            obj.remove("name");
+        }
+        if let Ok(mut file) = std::fs::File::create(&session_path) {
+            let _ = serde_json::to_writer_pretty(&mut file, val);
+        }
+    }
+
+    let res = serde_json::json!({
+        "ok": true,
+        "target": target,
+        "name": name_val,
+    });
+    let _ = io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
+    let _ = io::stdout().write_all(b"\n");
 }

@@ -21,7 +21,8 @@ pub const ROWS_OPTIONS: [GridRows; 4] = [
     GridRows::Fixed(3),
 ];
 
-pub const RESET_ROW: usize = 4;
+pub const WORKSPACE_NAME_ROW: usize = 4;
+pub const RESET_ROW: usize = 5;
 
 pub const FILL_OPTIONS: [FillOrder; 2] = [FillOrder::RowFirst, FillOrder::ColumnFirst];
 
@@ -32,13 +33,14 @@ pub const SIDEBAR_OPTIONS: [SidebarMode; 4] = [
     SidebarMode::Hidden,
 ];
 
-pub const QUIT_ROW: usize = 5;
+pub const QUIT_ROW: usize = 6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsAction {
     Changed,
     ResetUi,
     QuitMenu,
+    RenameWorkspace(String),
 }
 
 pub struct SettingsTab {
@@ -48,6 +50,8 @@ pub struct SettingsTab {
     pub confirm_reset: bool,
     pub modal_focus: usize,
     pub flash_message: Option<(String, Instant)>,
+    pub workspace_name: String,
+    pub editing_workspace_name: Option<String>,
 }
 
 impl Default for SettingsTab {
@@ -59,6 +63,8 @@ impl Default for SettingsTab {
             confirm_reset: false,
             modal_focus: 1,
             flash_message: None,
+            workspace_name: String::new(),
+            editing_workspace_name: None,
         }
     }
 }
@@ -72,6 +78,8 @@ impl SettingsTab {
             confirm_reset: false,
             modal_focus: 1,
             flash_message: None,
+            workspace_name: String::new(),
+            editing_workspace_name: None,
         }
     }
 
@@ -80,7 +88,29 @@ impl SettingsTab {
     }
 
     pub fn handle_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
-        if self.confirm_reset {
+        if let Some(ref mut buf) = self.editing_workspace_name {
+            match key.code {
+                KeyCode::Esc => {
+                    self.editing_workspace_name = None;
+                    None
+                }
+                KeyCode::Backspace => {
+                    buf.pop();
+                    None
+                }
+                KeyCode::Char(c) if c.is_ascii_alphanumeric() && buf.len() < 32 => {
+                    buf.push(c);
+                    None
+                }
+                KeyCode::Enter => {
+                    let new_name = self.editing_workspace_name.take().unwrap_or_default();
+                    self.workspace_name = new_name.clone();
+                    self.flash("Workspace renamed");
+                    Some(SettingsAction::RenameWorkspace(new_name))
+                }
+                _ => None,
+            }
+        } else if self.confirm_reset {
             match key.code {
                 KeyCode::Esc => {
                     self.confirm_reset = false;
@@ -132,6 +162,9 @@ impl SettingsTab {
                     } else if self.focused_row == RESET_ROW {
                         self.confirm_reset = true;
                         self.modal_focus = 1;
+                        None
+                    } else if self.focused_row == WORKSPACE_NAME_ROW {
+                        self.editing_workspace_name = Some(self.workspace_name.clone());
                         None
                     } else {
                         self.cycle_option(true)
@@ -255,6 +288,11 @@ impl SettingsTab {
                 self.focused_row = 3;
                 self.cycle_option(true)
             }
+            5 => {
+                self.focused_row = WORKSPACE_NAME_ROW;
+                self.editing_workspace_name = Some(self.workspace_name.clone());
+                None
+            }
             6 => {
                 self.focused_row = RESET_ROW;
                 self.confirm_reset = true;
@@ -357,6 +395,62 @@ impl SettingsTab {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        let name_y = area.y + 5;
+        if name_y < area.y + area.height {
+            let is_focused = self.focused_row == WORKSPACE_NAME_ROW && !self.confirm_reset;
+            let prefix = if is_focused { "▶ " } else { "  " };
+            let label_str = format!("{prefix}{:<14} ", "Workspace name");
+            let label_style = if is_focused {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            buf.set_string(area.x, name_y, &label_str, label_style);
+
+            let cur_x = area.x + label_str.len() as u16;
+            if let Some(ref buf_text) = self.editing_workspace_name {
+                let edit_str = format!("{buf_text}_");
+                let edit_style = Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD);
+                buf.set_string(cur_x, name_y, &edit_str, edit_style);
+                let hint_x = cur_x + edit_str.len() as u16 + 2;
+                if hint_x < area.x + area.width {
+                    buf.set_string(
+                        hint_x,
+                        name_y,
+                        "Enter save · Esc cancel · A-Z, 0-9",
+                        Style::default().fg(Color::DarkGray),
+                    );
+                }
+            } else {
+                let disp = if self.workspace_name.is_empty() {
+                    "(default)"
+                } else {
+                    &self.workspace_name
+                };
+                let val_style = if is_focused {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::UNDERLINED)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+                buf.set_string(cur_x, name_y, disp, val_style);
+                if is_focused {
+                    let hint_x = cur_x + disp.len() as u16 + 2;
+                    if hint_x < area.x + area.width {
+                        buf.set_string(
+                            hint_x,
+                            name_y,
+                            "Enter rename",
+                            Style::default().fg(Color::DarkGray),
+                        );
+                    }
+                }
             }
         }
 

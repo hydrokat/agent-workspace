@@ -39,6 +39,8 @@ pub struct AgentSpec {
     pub cwd: Option<String>,
     #[serde(default)]
     pub conversation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl AgentSpec {
@@ -51,8 +53,13 @@ impl AgentSpec {
             skip_permissions: false,
             cwd: None,
             conversation: None,
+            name: None,
         }
     }
+}
+
+pub fn is_valid_custom_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 pub fn validate_model_id(model: &str) -> Result<String, AdapterError> {
@@ -97,4 +104,22 @@ pub trait Adapter: Send + Sync {
         log_file: Option<&str>,
     ) -> Result<Vec<String>, AdapterError>;
     fn list_models(&self) -> Result<Vec<Model>, AdapterError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_custom_name() {
+        assert!(is_valid_custom_name("AlphaNumeric123"));
+        assert!(is_valid_custom_name("a"));
+        assert!(is_valid_custom_name("12345678901234567890123456789012")); // 32 chars
+        assert!(!is_valid_custom_name(""));
+        assert!(!is_valid_custom_name("has space"));
+        assert!(!is_valid_custom_name("with-dash"));
+        assert!(!is_valid_custom_name("with_underscore"));
+        assert!(!is_valid_custom_name("with.dot"));
+        assert!(!is_valid_custom_name("123456789012345678901234567890123")); // 33 chars
+    }
 }

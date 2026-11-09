@@ -42,6 +42,8 @@ pub struct Session {
     pub worktree: String,
     pub task: String,
     pub heartbeat: f64,
+    #[serde(default)]
+    pub name: String,
 }
 
 impl Session {
@@ -61,6 +63,7 @@ impl Session {
             worktree: extract_str(d, "worktree"),
             task: extract_str(d, "task"),
             heartbeat: extract_num(d, "heartbeat"),
+            name: extract_str(d, "name"),
         })
     }
 }

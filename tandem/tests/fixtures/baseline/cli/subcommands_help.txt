@@ -200,6 +200,31 @@ Options:
   -h, --help  Print help
 
 
+=== SUBCOMMAND: rename-agent ===
+rename an agent to a custom alphanumeric name
+
+Usage: rename-agent <TARGET> [NAME]
+
+Arguments:
+  <TARGET>  pane id (%...) or session id (role-index) to rename
+  [NAME]    new alphanumeric name (1..=32 chars, or empty to reset to default)
+
+Options:
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: rename-workspace ===
+rename the current workspace to a custom alphanumeric name
+
+Usage: rename-workspace [NAME]
+
+Arguments:
+  [NAME]  new alphanumeric name (1..=32 chars, or empty to reset to default)
+
+Options:
+  -h, --help  Print help
+
+
 === SUBCOMMAND: reset-layout ===
 reset pane sizes to the defaults
 

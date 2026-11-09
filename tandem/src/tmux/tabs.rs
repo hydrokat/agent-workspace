@@ -1,6 +1,6 @@
 use crate::tmux::keys::{default_keymap, display_shortcut, key_for};
 
-pub const FORMAT: &str = "#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}";
+pub const FORMAT: &str = "#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}\t#{@tandem_name}";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PaneInfo {
@@ -15,6 +15,8 @@ pub struct PaneInfo {
     pub session: String,
     pub spec: String,
     pub cli_version: String,
+    #[serde(default)]
+    pub name: String,
 }
 
 impl PaneInfo {
@@ -41,6 +43,7 @@ impl PaneInfo {
             session: String::new(),
             spec: String::new(),
             cli_version: String::new(),
+            name: String::new(),
         }
     }
 }
@@ -49,7 +52,7 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
     let mut panes = Vec::new();
     for line in text.lines() {
         let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 9 || parts.len() > 11 || parts[2].is_empty() || parts[3].is_empty() {
+        if parts.len() < 9 || parts.len() > 12 || parts[2].is_empty() || parts[3].is_empty() {
             continue;
         }
         let id = parts[0].to_string();
@@ -66,8 +69,13 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
         } else {
             String::new()
         };
-        let cli_version = if parts.len() == 11 {
+        let cli_version = if parts.len() >= 11 {
             parts[10].to_string()
+        } else {
+            String::new()
+        };
+        let name = if parts.len() >= 12 {
+            parts[11].to_string()
         } else {
             String::new()
         };
@@ -84,6 +92,7 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
             session,
             spec,
             cli_version,
+            name,
         });
     }
     panes
@@ -138,7 +147,16 @@ pub fn safe_label(text: &str) -> String {
 }
 
 pub fn tab_text(pane: &PaneInfo) -> String {
-    let base = format!("{} {}", pane.index, safe_label(&pane.label));
+    let base = if !pane.name.is_empty() {
+        format!(
+            "{} {} {}",
+            pane.index,
+            safe_label(&pane.name),
+            safe_label(&pane.label)
+        )
+    } else {
+        format!("{} {}", pane.index, safe_label(&pane.label))
+    };
     if pane.dead {
         let status = match pane.dead_status {
             Some(s) => s.to_string(),
@@ -179,10 +197,12 @@ pub fn render_agent_title(pane: &PaneInfo) -> String {
     } else {
         String::new()
     };
-    format!(
-        "─ {active_marker}{}-{} · {safe_cli}{dead_suffix} ─",
-        pane.role, pane.index
-    )
+    let name_prefix = if !pane.name.is_empty() {
+        format!("{} ({}-{})", safe_label(&pane.name), pane.role, pane.index)
+    } else {
+        format!("{}-{}", pane.role, pane.index)
+    };
+    format!("─ {active_marker}{name_prefix} · {safe_cli}{dead_suffix} ─",)
 }
 
 pub fn render_title(panes: &[PaneInfo], role: &str) -> String {

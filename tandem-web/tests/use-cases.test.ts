@@ -146,6 +146,28 @@ describe("Application Use Cases", () => {
     expect(
       useCase.execute("tandem-2222222222", "restart", ["%1; cat /etc/passwd"])
     ).rejects.toThrow("Argument contains invalid characters");
+
+    // Renaming actions with valid alphanumeric inputs
+    await useCase.execute("tandem-2222222222", "rename-workspace", ["ProjectAlpha123"]);
+    expect(gateway.executedActions.at(-1)?.action).toBe("rename-workspace");
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["ProjectAlpha123"]);
+
+    await useCase.execute("tandem-2222222222", "rename-agent", ["%1", "AgentOne"]);
+    expect(gateway.executedActions.at(-1)?.action).toBe("rename-agent");
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["%1", "AgentOne"]);
+
+    // Rejects non-alphanumeric rename inputs
+    expect(
+      useCase.execute("tandem-2222222222", "rename-workspace", ["project-alpha"])
+    ).rejects.toThrow("Invalid workspace rename argument");
+
+    expect(
+      useCase.execute("tandem-2222222222", "rename-workspace", ["project alpha"])
+    ).rejects.toThrow("Invalid workspace rename argument");
+
+    expect(
+      useCase.execute("tandem-2222222222", "rename-agent", ["%1", "agent_invalid"])
+    ).rejects.toThrow("Invalid agent rename argument");
   });
 
   it("ManageSettingsUseCase validates IP and port ranges", async () => {

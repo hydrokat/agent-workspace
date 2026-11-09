@@ -29,6 +29,7 @@ pub struct Launch {
     pub session_id: String,
     pub spec: String,
     pub cli_version: String,
+    pub name: String,
 }
 
 impl Launch {
@@ -44,6 +45,7 @@ impl Launch {
             session_id: String::new(),
             spec: String::new(),
             cli_version: String::new(),
+            name: String::new(),
         }
     }
 }
@@ -124,6 +126,7 @@ impl Layout {
             ("argv", argv_json.as_str()),
             ("spec", launch.spec.as_str()),
             ("cli_version", launch.cli_version.as_str()),
+            ("name", launch.name.as_str()),
         ];
         let mut batch = Vec::with_capacity(tags.len());
         for (name, val) in tags {
@@ -148,8 +151,20 @@ impl Layout {
             let model = self.model_of(launch);
             let cli = launch.argv.first().map(|s| s.as_str()).unwrap_or("");
             let cwd = launch.cwd.as_deref().unwrap_or("");
-            let _ =
-                coord.write_session(&launch.session_id, cli, &launch.role, pane_id, cwd, &model);
+            let name_opt = if !launch.name.is_empty() {
+                Some(launch.name.as_str())
+            } else {
+                None
+            };
+            let _ = coord.write_session_with_name(
+                &launch.session_id,
+                cli,
+                &launch.role,
+                pane_id,
+                cwd,
+                &model,
+                name_opt,
+            );
         }
     }
 
@@ -195,6 +210,7 @@ impl Layout {
                     session_id: String::new(),
                     spec: String::new(),
                     cli_version: String::new(),
+                    name: String::new(),
                 }
             };
             (sb, first.clone(), Some(second.clone()))

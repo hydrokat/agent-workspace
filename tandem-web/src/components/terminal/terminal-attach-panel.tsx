@@ -163,12 +163,12 @@ export function TerminalAttachPanel({
                       ? "bg-primary text-primary-foreground font-semibold"
                       : "bg-background hover:bg-muted text-foreground border border-border"
                   }`}
-                  aria-label={`Switch to agent ${p.session || p.label || p.id}`}
+                  aria-label={`Switch to agent ${p.name || p.session || p.label || p.id}`}
                 >
                   <span className={p.dead ? "text-destructive mr-1" : "text-emerald-500 mr-1"}>
                     {p.dead ? "✕" : "●"}
                   </span>
-                  {p.session || p.label || p.id}
+                  {p.name || p.session || p.label || p.id}
                 </button>
               );
             })}

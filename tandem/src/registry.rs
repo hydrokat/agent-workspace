@@ -115,11 +115,40 @@ pub fn register_or_heartbeat(
     let resolved = resolve_path(workspace);
     let socket = socket_for(&resolved);
     let id = socket.clone();
-    let name = resolved
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "workspace".to_string());
+
+    let existing_name = reg
+        .workspaces
+        .iter()
+        .find(|w| w.id == id)
+        .map(|w| w.name.clone());
+
+    let session_workspace_name = {
+        let state_file = crate::state::state_path(&resolved);
+        if state_file.exists() {
+            fs::read(&state_file)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|val| {
+                    val.get("workspace_name")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+                        .map(ToString::to_string)
+                })
+        } else {
+            None
+        }
+    };
+
+    let name = session_workspace_name
+        .or_else(|| existing_name.filter(|n| crate::adapters::base::is_valid_custom_name(n)))
+        .unwrap_or_else(|| {
+            resolved
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "workspace".to_string())
+        });
+
     let path_str = resolved.to_string_lossy().to_string();
     let now = current_timestamp();
 
@@ -140,6 +169,54 @@ pub fn register_or_heartbeat(
 
     save_registry(&reg_path, &reg)?;
     Ok(entry)
+}
+
+pub fn rename_workspace(
+    state_dir: &Path,
+    workspace: &Path,
+    new_name: &str,
+) -> Result<WorkspaceEntry, RegistryError> {
+    let reg_path = default_registry_path(state_dir);
+    let mut reg = load_registry(&reg_path).unwrap_or_default();
+    let resolved = resolve_path(workspace);
+    let target_id = socket_for(&resolved);
+
+    let default_name = resolved
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "workspace".to_string());
+
+    let final_name = if new_name.trim().is_empty() {
+        default_name
+    } else {
+        new_name.trim().to_string()
+    };
+
+    let now = current_timestamp();
+    if let Some(entry) = reg
+        .workspaces
+        .iter_mut()
+        .find(|w| w.id == target_id || w.socket == target_id)
+    {
+        entry.name = final_name.clone();
+        entry.updated_at = now;
+        let result = entry.clone();
+        save_registry(&reg_path, &reg)?;
+        Ok(result)
+    } else {
+        let entry = WorkspaceEntry {
+            id: target_id.clone(),
+            name: final_name,
+            path: resolved.to_string_lossy().to_string(),
+            socket: target_id,
+            updated_at: now,
+            pid: None,
+        };
+        reg.workspaces.push(entry.clone());
+        save_registry(&reg_path, &reg)?;
+        Ok(entry)
+    }
 }
 
 pub fn remove(state_dir: &Path, workspace: &Path) -> Result<(), RegistryError> {
