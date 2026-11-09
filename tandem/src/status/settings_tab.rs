@@ -293,7 +293,7 @@ impl SettingsTab {
                 self.editing_workspace_name = Some(self.workspace_name.clone());
                 None
             }
-            7 => {
+            6 => {
                 self.focused_row = RESET_ROW;
                 self.confirm_reset = true;
                 self.modal_focus = 1;
@@ -413,7 +413,9 @@ impl SettingsTab {
             let cur_x = area.x + label_str.len() as u16;
             if let Some(ref buf_text) = self.editing_workspace_name {
                 let edit_str = format!("{buf_text}_");
-                let edit_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+                let edit_style = Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD);
                 buf.set_string(cur_x, name_y, &edit_str, edit_style);
                 let hint_x = cur_x + edit_str.len() as u16 + 2;
                 if hint_x < area.x + area.width {
@@ -431,7 +433,9 @@ impl SettingsTab {
                     &self.workspace_name
                 };
                 let val_style = if is_focused {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED)
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::UNDERLINED)
                 } else {
                     Style::default().fg(Color::Cyan)
                 };
@@ -450,7 +454,7 @@ impl SettingsTab {
             }
         }
 
-        let reset_y = area.y + 7;
+        let reset_y = area.y + 6;
         if reset_y < area.y + area.height {
             let is_focused = self.focused_row == RESET_ROW && !self.confirm_reset;
             let reset_prefix = if is_focused { "▶ " } else { "  " };
@@ -465,7 +469,7 @@ impl SettingsTab {
             buf.set_string(area.x, reset_y, &reset_btn, style);
         }
 
-        let about_y = area.y + 9;
+        let about_y = area.y + 8;
         if about_y < area.y + area.height {
             let ver = env!("CARGO_PKG_VERSION");
             let about = format!("tandem {ver} · github.com/hydrokat/agent-workspace ↗");

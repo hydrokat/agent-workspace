@@ -148,7 +148,12 @@ pub fn safe_label(text: &str) -> String {
 
 pub fn tab_text(pane: &PaneInfo) -> String {
     let base = if !pane.name.is_empty() {
-        format!("{} {} {}", pane.index, safe_label(&pane.name), safe_label(&pane.label))
+        format!(
+            "{} {} {}",
+            pane.index,
+            safe_label(&pane.name),
+            safe_label(&pane.label)
+        )
     } else {
         format!("{} {}", pane.index, safe_label(&pane.label))
     };
@@ -197,9 +202,7 @@ pub fn render_agent_title(pane: &PaneInfo) -> String {
     } else {
         format!("{}-{}", pane.role, pane.index)
     };
-    format!(
-        "─ {active_marker}{name_prefix} · {safe_cli}{dead_suffix} ─",
-    )
+    format!("─ {active_marker}{name_prefix} · {safe_cli}{dead_suffix} ─",)
 }
 
 pub fn render_title(panes: &[PaneInfo], role: &str) -> String {

@@ -3,38 +3,40 @@ Launch planner and implementer AI CLIs side-by-side in tmux.
 Usage: tandem [OPTIONS] [COMMAND]
 
 Commands:
-  add-agent     add an agent to the running session (opened by the add-agent key)
-  tab           switch agent tab in the focused column
-  focus         focus a column or the status window
-  close-agent   close the focused agent
-  restart       restart an exited agent
-  refresh       redraw tab titles
-  reflow        re-stack columns for the terminal size
-  reset-layout  reset pane sizes to the defaults
-  quit          detach or quit
-  help          show the key help
-  first-run     open help once on first attach
-  status        run the status window
-  whats-new     show what changed in the last update
-  update        update tandem and the workspace; agents keep running (F10 menu)
-  click         dispatch a status-bar or pane-menu click action
-  click-tab     open the agent menu for a clicked column title
-  quota-feed    Claude Code statusline hook: record quota, then run your own statusline
-  quota-line    print the quota line shown under the window
-  save-exit     save the session state and end the session
-  discard-exit  end the session and delete the saved state
-  reload        restart tandem's own windows on the installed code
-  placeholder   empty-column placeholder
-  sidebar       run the agent sidebar
-  show          show an agent in the main window
-  select        select an agent or toggle it in the grid
-  grid-scroll   scroll the multi-agent grid
-  gridbar       run the grid overflow scrollbar
-  equalize      equalize pane split or reset border to default
-  reset-ui      reset UI layout, sizes, grid and sidebar to defaults
-  snapshot      output workspace snapshot in JSON format
-  answer-query  answer an agent coordination query
-  list-ips      list host network IPs and active workspaces
+  add-agent         add an agent to the running session (opened by the add-agent key)
+  tab               switch agent tab in the focused column
+  focus             focus a column or the status window
+  close-agent       close the focused agent
+  restart           restart an exited agent
+  refresh           redraw tab titles
+  reflow            re-stack columns for the terminal size
+  reset-layout      reset pane sizes to the defaults
+  quit              detach or quit
+  help              show the key help
+  first-run         open help once on first attach
+  status            run the status window
+  whats-new         show what changed in the last update
+  update            update tandem and the workspace; agents keep running (F10 menu)
+  click             dispatch a status-bar or pane-menu click action
+  click-tab         open the agent menu for a clicked column title
+  quota-feed        Claude Code statusline hook: record quota, then run your own statusline
+  quota-line        print the quota line shown under the window
+  save-exit         save the session state and end the session
+  discard-exit      end the session and delete the saved state
+  reload            restart tandem's own windows on the installed code
+  placeholder       empty-column placeholder
+  sidebar           run the agent sidebar
+  show              show an agent in the main window
+  select            select an agent or toggle it in the grid
+  grid-scroll       scroll the multi-agent grid
+  gridbar           run the grid overflow scrollbar
+  equalize          equalize pane split or reset border to default
+  reset-ui          reset UI layout, sizes, grid and sidebar to defaults
+  snapshot          output workspace snapshot in JSON format
+  answer-query      answer an agent coordination query
+  list-ips          list host network IPs and active workspaces
+  rename-workspace  rename the current workspace to a custom alphanumeric name
+  rename-agent      rename an agent to a custom alphanumeric name
 
 Options:
       --resume   resume the saved session without asking

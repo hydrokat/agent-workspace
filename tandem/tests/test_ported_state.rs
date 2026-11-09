@@ -16,6 +16,7 @@ fn spec_a() -> AgentSpec {
         skip_permissions: false,
         cwd: Some("/w".to_string()),
         conversation: None,
+        name: None,
     }
 }
 
@@ -28,6 +29,7 @@ fn spec_b() -> AgentSpec {
         skip_permissions: true,
         cwd: None,
         conversation: None,
+        name: None,
     }
 }
 
@@ -193,6 +195,7 @@ fn test_conversations_and_clean_flag_round_trip() {
             skip_permissions: false,
             cwd: None,
             conversation: Some(CONV.to_string()),
+            name: None,
         }],
         active,
         None,
@@ -247,6 +250,7 @@ fn test_describe_flags_unclean_exit_and_saved_chats() {
                 skip_permissions: false,
                 cwd: None,
                 conversation: Some(CONV.to_string()),
+                name: None,
             },
             AgentSpec {
                 cli: "agy".to_string(),
@@ -256,6 +260,7 @@ fn test_describe_flags_unclean_exit_and_saved_chats() {
                 skip_permissions: false,
                 cwd: None,
                 conversation: None,
+                name: None,
             },
         ],
         BTreeMap::new(),

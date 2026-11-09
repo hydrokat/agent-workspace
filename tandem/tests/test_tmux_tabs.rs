@@ -31,6 +31,7 @@ fn pane(
         session: String::new(),
         spec: String::new(),
         cli_version: String::new(),
+        name: String::new(),
     }
 }
 

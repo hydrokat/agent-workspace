@@ -170,6 +170,7 @@ fn test_ongoing_task_join_with_claim_and_entry() {
     let claims = vec![make_claim("p-001-core", "t-001", "s-123", 1_700_000_000.0)];
     let sessions = vec![Session {
         id: "s-123".to_string(),
+        name: String::new(),
         cli: "claude".to_string(),
         role: "implementer".to_string(),
         model: "sonnet".to_string(),

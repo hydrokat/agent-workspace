@@ -113,6 +113,7 @@
   "tandem-web/tests/queries-terminal-settings.test.tsx",
   "tandem-web/tests/token-guard.test.ts",
   "tandem-web/tests/use-cases.test.ts",
+  "tandem-web/tests/workspace-switching.test.tsx",
   "tandem-web/tsconfig.json",
   "tandem/Cargo.lock",
   "tandem/Cargo.toml",

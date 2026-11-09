@@ -352,7 +352,12 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
             crate::commands::rename_workspace_cmd(&workspace, args.name.as_deref());
         }
         Some(Command::RenameAgent(args)) => {
-            crate::commands::rename_agent_cmd(&workspace, &config, &args.target, args.name.as_deref());
+            crate::commands::rename_agent_cmd(
+                &workspace,
+                &config,
+                &args.target,
+                args.name.as_deref(),
+            );
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;

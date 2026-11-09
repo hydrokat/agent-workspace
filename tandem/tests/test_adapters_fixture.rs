@@ -39,6 +39,7 @@ fn test_adapters_parity_fixture() {
             skip_permissions,
             cwd: Some("/workspace".to_string()),
             conversation,
+            name: None,
         };
 
         let (adapter_claude, adapter_agy);

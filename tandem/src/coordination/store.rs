@@ -224,6 +224,7 @@ impl CoordStore {
         self.write_session_with_name(session_id, cli, role, pane, cwd, label, None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn write_session_with_name(
         &self,
         session_id: &str,

@@ -180,11 +180,10 @@ impl SidebarApp {
                 self.return_focus_to_agent();
             }
             KeyCode::Char('r') => {
-                if self.selected < self.rows.len() {
-                    if let SidebarRow::Agent { pane_id, name, .. } = &self.rows[self.selected] {
-                        self.editing_agent = Some((pane_id.clone(), name.clone()));
-                        self.dirty = true;
-                    }
+                if let Some(SidebarRow::Agent { pane_id, name, .. }) = self.rows.get(self.selected)
+                {
+                    self.editing_agent = Some((pane_id.clone(), name.clone()));
+                    self.dirty = true;
                 }
             }
             _ => {}
