@@ -13,7 +13,9 @@ export type AllowedTandemAction =
   | "restart"
   | "close-agent"
   | "equalize"
-  | "reset-ui";
+  | "reset-ui"
+  | "rename-workspace"
+  | "rename-agent";
 
 export interface ITandemGateway {
   getSnapshot(workspacePath: string): Promise<WorkspaceSnapshotPayload>;

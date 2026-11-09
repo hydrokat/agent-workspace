@@ -383,6 +383,19 @@ impl StatusApp {
             self.snapshot.sessions.clone(),
         );
 
+        if self.settings_tab.editing_workspace_name.is_none() {
+            let session_file = crate::state::state_path(&self.workspace);
+            if session_file.exists() {
+                if let Ok(bytes) = std::fs::read(&session_file) {
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        if let Some(wname) = val.get("workspace_name").and_then(|v| v.as_str()) {
+                            self.settings_tab.workspace_name = wname.to_string();
+                        }
+                    }
+                }
+            }
+        }
+
         self.tab_bar = TabBar::from_tabs(&StatusTab::ALL, self.snapshot.open_queries(), self.tab);
 
         self.notifier.notify(&self.snapshot.queries);
@@ -819,7 +832,10 @@ impl StatusApp {
         }
 
         if self.tab == StatusTab::Settings {
-            if !self.settings_tab.confirm_reset && event.code == KeyCode::Tab {
+            if !self.settings_tab.confirm_reset
+                && self.settings_tab.editing_workspace_name.is_none()
+                && event.code == KeyCode::Tab
+            {
                 self.set_tab(self.tab.next());
                 return;
             }
@@ -835,6 +851,9 @@ impl StatusApp {
                         if let Some(ref quit_menu) = self.quit_menu {
                             quit_menu();
                         }
+                    }
+                    crate::status::settings_tab::SettingsAction::RenameWorkspace(ref new_name) => {
+                        crate::commands::rename_workspace_cmd(&self.workspace, Some(new_name));
                     }
                 }
             }
@@ -972,6 +991,9 @@ impl StatusApp {
                                     if let Some(ref quit_menu) = self.quit_menu {
                                         quit_menu();
                                     }
+                                }
+                                crate::status::settings_tab::SettingsAction::RenameWorkspace(ref new_name) => {
+                                    crate::commands::rename_workspace_cmd(&self.workspace, Some(new_name));
                                 }
                             }
                             self.dirty = true;

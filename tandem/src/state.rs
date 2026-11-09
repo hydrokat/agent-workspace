@@ -86,6 +86,8 @@ pub struct SavedState {
     pub clean: bool,
     #[serde(default)]
     pub ui: UiState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
 }
 
 impl SavedState {
@@ -123,6 +125,7 @@ impl SavedState {
                 selected,
                 ..Default::default()
             },
+            workspace_name: None,
         }
     }
 }
@@ -138,7 +141,7 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
         .agents
         .iter()
         .map(|a| {
-            serde_json::json!({
+            let mut obj = serde_json::json!({
                 "cli": a.cli,
                 "role": a.role,
                 "model": a.model,
@@ -146,7 +149,11 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
                 "skip_permissions": a.skip_permissions,
                 "cwd": a.cwd,
                 "conversation": a.conversation,
-            })
+            });
+            if let Some(ref name) = a.name {
+                obj["name"] = serde_json::json!(name);
+            }
+            obj
         })
         .collect();
 
@@ -163,7 +170,7 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
             },
         })
     } else {
-        serde_json::json!({
+        let mut root = serde_json::json!({
             "version": STATE_VERSION,
             "saved_at": state.saved_at,
             "clean": state.clean,
@@ -178,7 +185,11 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
                 "status_rows": state.ui.status_rows,
                 "selected": state.ui.selected,
             },
-        })
+        });
+        if let Some(ref wname) = state.workspace_name {
+            root["workspace_name"] = serde_json::json!(wname);
+        }
+        root
     }
 }
 
@@ -257,6 +268,12 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
         .and_then(|v| v.as_str())
         .and_then(valid_id);
 
+    let name = obj
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+        .map(ToString::to_string);
+
     Some(AgentSpec {
         cli: cli.to_string(),
         role: role.to_string(),
@@ -265,6 +282,7 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
         skip_permissions,
         cwd,
         conversation,
+        name,
     })
 }
 
@@ -379,6 +397,11 @@ pub fn parse(data: &serde_json::Value) -> Option<SavedState> {
     let saved_at = obj.get("saved_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let clean = obj.get("clean").and_then(|v| v.as_bool()).unwrap_or(true);
     let effective_version = if version <= 2 { 2 } else { STATE_VERSION };
+    let workspace_name = obj
+        .get("workspace_name")
+        .and_then(|v| v.as_str())
+        .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+        .map(ToString::to_string);
 
     Some(SavedState {
         version: effective_version,
@@ -389,6 +412,7 @@ pub fn parse(data: &serde_json::Value) -> Option<SavedState> {
         saved_at,
         clean,
         ui,
+        workspace_name,
     })
 }
 

@@ -10,6 +10,7 @@ import { SprintProgressPanel } from "../../src/components/views/sprint-progress-
 import { SpecProgressPanel } from "../../src/components/views/spec-progress-panel";
 import { TaskProgressPanel } from "../../src/components/views/task-progress-panel";
 import { QuotaFooterBar } from "../../src/components/views/quota-footer-bar";
+import { WebSettingsPanel } from "../../src/components/settings/web-settings-panel";
 import type { WorkspaceEntry } from "../../src/domain/models/workspace";
 import type { WebSettings } from "../../src/domain/models/settings";
 import type { PaneInfo, StatusSnapshot, SprintView } from "../../src/domain/models/snapshot";
@@ -81,6 +82,7 @@ describe("Tandem Web Components Suite", () => {
     expect(activeHtml).toContain("agent-workspace");
     expect(activeHtml).toContain("tandem-1234567890");
     expect(activeHtml).toContain("Active");
+    expect(activeHtml).toContain("aria-current=\"true\"");
     expect(activeHtml).toContain("3 agents");
     expect(activeHtml).toContain("1 query");
 
@@ -93,6 +95,7 @@ describe("Tandem Web Components Suite", () => {
       />
     );
     expect(inactiveHtml).not.toContain("Active");
+    expect(inactiveHtml).not.toContain("aria-current=\"true\"");
     expect(inactiveHtml).toContain("0 agents");
   });
 
@@ -127,6 +130,35 @@ describe("Tandem Web Components Suite", () => {
     expect(html).toContain("In Grid");
     expect(html).toContain("Close");
     expect(html).not.toContain("Restart");
+  });
+
+  it("AgentCard displays custom agent name, session badge, and rename button", () => {
+    const customNamedPane: PaneInfo = {
+      id: "pane-custom",
+      window: "win-1",
+      kind: "planner",
+      role: "planner-1",
+      index: 0,
+      label: "Planner A",
+      name: "CustomAgentAlpha",
+      dead: false,
+      session: "plan-session-1",
+      spec: "p-011",
+      cli_version: "agy",
+    };
+
+    const html = renderToStaticMarkup(
+      <AgentCard
+        pane={customNamedPane}
+        isInGrid={true}
+        onAction={async () => {}}
+        onInteract={async () => {}}
+      />
+    );
+
+    expect(html).toContain("CustomAgentAlpha");
+    expect(html).toContain("plan-session-1");
+    expect(html).toContain("Rename");
   });
 
   it("AgentCard renders dead/exited agent with Restart button instead of Focus", () => {
@@ -313,5 +345,23 @@ describe("Tandem Web Components Suite", () => {
       <QuotaFooterBar quotaLine="Claude 5h: 18% · 7d: 42%" />
     );
     expect(html).toContain("Claude 5h: 18% · 7d: 42%");
+  });
+
+  it("WebSettingsPanel renders Workspace Identity card and alphanumeric rename form", () => {
+    const html = renderToStaticMarkup(
+      <WebSettingsPanel
+        settings={dummySettings}
+        candidates={[]}
+        activeWorkspace={dummyWorkspace}
+        onUpdateSettings={async () => {}}
+        onResetUI={async () => {}}
+        onRenameWorkspace={async () => {}}
+      />
+    );
+
+    expect(html).toContain("Workspace Identity");
+    expect(html).toContain("Save Workspace Name");
+    expect(html).toContain("Only letters and numbers (A-Z, a-z, 0-9) are allowed");
+    expect(html).toContain("tandem-1234567890");
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import manifest from "../src/app/manifest";
-import { parseTandemQrUrl, QrScannerView } from "../src/components/connection/qr-scanner-view";
+import { parseTandemQrUrl, decodeQrFromImageData, QrScannerView } from "../src/components/connection/qr-scanner-view";
 import { HostConnectionDialog } from "../src/components/connection/host-connection-dialog";
 import { TopHeaderBar } from "../src/components/layout/top-header-bar";
 
@@ -101,6 +101,28 @@ describe("HostConnectionDialog & Header Bar", () => {
     expect(html).toContain("Scan Session QR");
     expect(html).toContain("Reconfigure Host IP");
     expect(html).toContain("Capture or Upload QR Code");
+    expect(html).toContain("Take QR Photo / Upload");
+    expect(html).toContain("Live Camera");
     expect(html).toContain("Or paste Connect URL:");
+  });
+
+  it("pure-JS decodeQrFromImageData gracefully returns null for blank or random noise image data", () => {
+    // 50x50 blank RGBA image
+    const blankData = new Uint8ClampedArray(50 * 50 * 4);
+    expect(decodeQrFromImageData(blankData, 50, 50)).toBeNull();
+
+    // 50x50 white RGBA image
+    const whiteData = new Uint8ClampedArray(50 * 50 * 4);
+    whiteData.fill(255);
+    expect(decodeQrFromImageData(whiteData, 50, 50)).toBeNull();
+  });
+
+  it("renders QrScannerView with accessible buttons and touch targets", () => {
+    const html = renderToStaticMarkup(<QrScannerView onDetected={() => {}} />);
+    expect(html).toContain("Capture or Upload QR Code");
+    expect(html).toContain("Take QR Photo / Upload");
+    expect(html).toContain("Live Camera");
+    expect(html).toContain("min-h-11");
+    expect(html).toContain("Apply");
   });
 });

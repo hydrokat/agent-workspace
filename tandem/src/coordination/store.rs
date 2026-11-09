@@ -221,6 +221,19 @@ impl CoordStore {
         cwd: &str,
         label: &str,
     ) -> Result<(), CoordError> {
+        self.write_session_with_name(session_id, cli, role, pane, cwd, label, None)
+    }
+
+    pub fn write_session_with_name(
+        &self,
+        session_id: &str,
+        cli: &str,
+        role: &str,
+        pane: &str,
+        cwd: &str,
+        label: &str,
+        name: Option<&str>,
+    ) -> Result<(), CoordError> {
         if !is_valid_session_id(session_id) {
             return Err(CoordError::InvalidInput("invalid session id".to_string()));
         }
@@ -245,6 +258,9 @@ impl CoordStore {
         record.insert("branch".to_string(), Value::String(String::new()));
         record.insert("worktree".to_string(), Value::String(String::new()));
         record.insert("task".to_string(), Value::String(String::new()));
+        if let Some(n) = name.filter(|s| !s.is_empty()) {
+            record.insert("name".to_string(), Value::String(n.to_string()));
+        }
         if let Some(n) = serde_json::Number::from_f64(now) {
             record.insert("started".to_string(), Value::Number(n.clone()));
             record.insert("heartbeat".to_string(), Value::Number(n));

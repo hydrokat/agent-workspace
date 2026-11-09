@@ -28,6 +28,7 @@ pub struct SidebarApp {
     pub status_msg: Option<String>,
     pub dirty: bool,
     pub last_refresh: f64,
+    pub editing_agent: Option<(String, String)>,
 }
 
 impl SidebarApp {
@@ -43,6 +44,7 @@ impl SidebarApp {
             status_msg: None,
             dirty: true,
             last_refresh: 0.0,
+            editing_agent: None,
         };
         app.refresh();
         app
@@ -99,6 +101,35 @@ impl SidebarApp {
     }
 
     pub fn handle_key(&mut self, key: &KeyEvent) {
+        if let Some((target, mut buf)) = self.editing_agent.take() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.editing_agent = None;
+                    self.dirty = true;
+                }
+                KeyCode::Backspace => {
+                    buf.pop();
+                    self.editing_agent = Some((target, buf));
+                    self.dirty = true;
+                }
+                KeyCode::Char(c) if c.is_ascii_alphanumeric() && buf.len() < 32 => {
+                    buf.push(c);
+                    self.editing_agent = Some((target, buf));
+                    self.dirty = true;
+                }
+                KeyCode::Enter => {
+                    let cfg = crate::config::Config::from_env().unwrap_or_default();
+                    crate::commands::rename_agent_cmd(&self.workspace, &cfg, &target, Some(&buf));
+                    self.editing_agent = None;
+                    self.refresh();
+                }
+                _ => {
+                    self.editing_agent = Some((target, buf));
+                }
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.brand_focused {
@@ -147,6 +178,14 @@ impl SidebarApp {
             }
             KeyCode::Esc => {
                 self.return_focus_to_agent();
+            }
+            KeyCode::Char('r') => {
+                if self.selected < self.rows.len() {
+                    if let SidebarRow::Agent { pane_id, name, .. } = &self.rows[self.selected] {
+                        self.editing_agent = Some((pane_id.clone(), name.clone()));
+                        self.dirty = true;
+                    }
+                }
             }
             _ => {}
         }
@@ -329,6 +368,8 @@ impl SidebarApp {
                     );
                 }
                 SidebarRow::Agent {
+                    pane_id,
+                    name,
                     label,
                     cli,
                     glyph,
@@ -349,7 +390,18 @@ impl SidebarApp {
                         Color::DarkGray
                     };
 
-                    let line = format!("{prefix}{check}{glyph} {label:<10} {cli}");
+                    let line = if let Some((ref target, ref edit_buf)) = self.editing_agent
+                        && target == pane_id
+                    {
+                        format!("{prefix}{check}{glyph} {edit_buf}_")
+                    } else {
+                        let display_name = if !name.is_empty() {
+                            name.as_str()
+                        } else {
+                            label.as_str()
+                        };
+                        format!("{prefix}{check}{glyph} {display_name:<10} {cli}")
+                    };
                     let row_style = if is_selected {
                         Style::default().add_modifier(Modifier::REVERSED)
                     } else {
@@ -397,7 +449,17 @@ impl SidebarApp {
             }
         }
 
-        if let Some(ref msg) = self.status_msg
+        if self.editing_agent.is_some() && area.height > 1 {
+            let hint = "Rename (A-Z, 0-9) · Enter save · Esc cancel";
+            let status_y = area.y + area.height - 1;
+            let status_style = Style::default().fg(Color::Yellow);
+            buf.set_string(
+                area.x,
+                status_y,
+                truncate_to_width(hint, area.width as usize),
+                status_style,
+            );
+        } else if let Some(ref msg) = self.status_msg
             && area.height > 1
         {
             let status_y = area.y + area.height - 1;

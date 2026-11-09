@@ -9,9 +9,11 @@ export function useWorkspaceStream(workspaceId: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSnapshot(null);
+    setConnected(false);
+    setError(null);
+
     if (!workspaceId) {
-      setSnapshot(null);
-      setConnected(false);
       return;
     }
 
