@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-11-09
+
+### Fixed: web Interact reconnect loop, production Next.js build, and mobile quota overlap
+
+- **Interact showed only `Press ⏎ to Reconnect`**: Bun's `node:http` server never delivers writes on upgraded sockets, so the `ttyd` websocket handshake could not complete through the single-port proxy. `tandem-web/server.ts` now fronts everything with `Bun.serve`, bridges the terminal websocket (injecting the ttyd credential and echoing the `tty` subprotocol) and relays all other requests to the in-process Next.js handler on a loopback port.
+- **Next.js did not run in production mode**: the daemon was launched without `NODE_ENV`, so `server.ts` started Next in dev mode. Both the Rust daemon and the `agent-workspace web` launcher now set `NODE_ENV=production`, and `server.ts` only enters dev mode when `NODE_ENV=development` or `TANDEM_WEB_DEV=1`.
+- **Quota bar hidden behind the bottom navigation on mobile**: the shell now reserves the bottom-nav height (plus the safe-area inset) so the quota footer stays visible, and uses dynamic viewport height.
+- **Orphaned ttyd processes**: the core service now stops its `ttyd` children on `SIGTERM`/`SIGINT`.
+
 ## [1.14.0] — 2026-11-09
 
 ### Fixed: terminal attach stream and multi-process ttyd session pool
