@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-11-09
+
+### Fixed: terminal attach stream and multi-process ttyd session pool
+
+- **Shared TTYD Session Pool across Processes**: Stored active `ttyd` sessions and in-flight start promises on `globalThis.__TANDEM_TTYD_STORE__` so that Next.js Webpack API route chunks and the standalone Bun/Node proxy server (`server.ts`) share the exact same loopback session state without missing session records.
+- **On-Demand Terminal Startup in Core Proxy**: The HTTP reverse proxy and WebSocket upgrade handler in `server.ts` now automatically invoke `ensureSession` to spawn `ttyd` on demand for the requested workspace, preventing `503 Terminal is not running for this workspace` when attaching directly or navigating from the web UI.
+- **Socket Listen Readiness Gate**: Added `waitForPortReady` to wait until `ttyd` has bound and opened its loopback port before resolving startup, preventing `502 Bad Gateway (ECONNREFUSED)` race conditions during initial attachment.
+- **Automatic ttyd Detection & macOS Brew Auto-Install**: Added `findTtydBinary` with standard binary lookup paths (`/opt/homebrew/bin`, `/usr/local/bin`, `PATH`), actionable error messaging when `ttyd` is missing, and automated `brew install ttyd` in `start_daemon` when `ttyd_enabled` is active on macOS.
+- **Terminal Panel Connection & Error States**: Updated `TerminalAttachPanel` to display an inline connection loader and error screen with a `Retry` action rather than mounting a broken iframe upon attachment failures.
+- **Fallback Workspace Resolution**: `FileWorkspaceRegistry.findById` now resolves `"tandem-default"` and omitted workspace parameters to the primary active workspace, preventing 404 errors during initial load.
+
 ## [1.13.0] — 2026-11-09
 
 ### Added: tandem-web-core-service, per-agent Interact, single-port proxy, and PWA (Phase p-010)
