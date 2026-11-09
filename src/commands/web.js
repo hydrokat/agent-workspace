@@ -3,13 +3,14 @@ import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { join, relative, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureWebDeps } from './web-deps.js';
+import { checkWebDeps, ensureWebDeps } from './web-deps.js';
 import { spawn, spawnSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 export const WEB_VERSION_STAMP = '.tandem-version';
+export const WEB_DAEMON_VERSION_FILE = 'tandem-web.version';
 const COPY_EXCLUDE_TOP_LEVEL = new Set(['node_modules', '.next', 'tests', 'next-env.d.ts']);
 
 function getStateDir() {
@@ -25,6 +26,10 @@ function getWebConfigPath() {
 
 function getWebPidPath() {
   return join(getStateDir(), 'tandem-web.pid');
+}
+
+function getWebDaemonVersionPath() {
+  return join(getStateDir(), WEB_DAEMON_VERSION_FILE);
 }
 
 export function generateAuthToken() {
@@ -135,6 +140,60 @@ function installWebSource(bundledDir, installedDir, version) {
     },
   });
   writeFileSync(join(installedDir, WEB_VERSION_STAMP), `${version}\n`);
+}
+
+export function refreshInstalledWebOnUpdate({ dryRun = false } = {}) {
+  if (dryRun) return false;
+  const stateDir = getStateDir();
+  const coreDir = join(stateDir, 'tandem-web-core-service');
+  const bundledDir = bundledWebDir();
+  if (!hasWebSource(bundledDir)) return false;
+  if (!existsSync(coreDir) && !existsSync(getWebConfigPath())) return false;
+
+  const version = packageVersion();
+  const stampPath = join(coreDir, WEB_VERSION_STAMP);
+  const stamp = existsSync(stampPath) ? readFileSync(stampPath, 'utf8').trim() : '';
+  const sourceOutdated = !hasWebSource(coreDir) || stamp !== version;
+  if (sourceOutdated) {
+    installWebSource(bundledDir, coreDir, version);
+  }
+
+  const pidFile = getWebPidPath();
+  if (!process.env.NODE_TEST_CONTEXT && existsSync(pidFile)) {
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    const verPath = getWebDaemonVersionPath();
+    const daemonVer = existsSync(verPath) ? readFileSync(verPath, 'utf8').trim() : '';
+    if (pid && isPidAlive(pid) && (sourceOutdated || daemonVer !== version || needsBuild(coreDir))) {
+      const { bunPath } = checkWebDeps();
+      if (bunPath) {
+        try {
+          const run = runBun(coreDir, bunPath);
+          if (needsInstall(coreDir)) run(['install', '--frozen-lockfile']);
+          if (needsBuild(coreDir)) run(['run', 'build']);
+          if (!needsBuild(coreDir)) {
+            try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ }
+            const cfg = loadConfig();
+            const { args, env } = buildServerSpawn(cfg, process.env);
+            const child = spawn(bunPath, args, {
+              cwd: coreDir,
+              detached: true,
+              stdio: 'ignore',
+              env,
+            });
+            child.unref();
+            if (child.pid) {
+              writeFileSync(pidFile, `${child.pid}\n`, { mode: 0o600 });
+              writeFileSync(verPath, `${version}\n`, { mode: 0o600 });
+            }
+          }
+        } catch {
+          // Best-effort daemon refresh during workspace update
+        }
+      }
+    }
+  }
+
+  return sourceOutdated;
 }
 
 export function resolveWebDir({ cwd, installedDir, bundledDir, version }) {
@@ -321,6 +380,11 @@ export async function run(context) {
       } catch {
         // Ignore unlink failure
       }
+      try {
+        unlinkSync(getWebDaemonVersionPath());
+      } catch {
+        // Ignore unlink failure
+      }
       const cfg = loadConfig();
       cfg.enabled = false;
       saveConfig(cfg);
@@ -355,11 +419,21 @@ export async function run(context) {
     cfg.port = portNum;
   }
 
-  const alreadyRunning = (() => {
+  const targetVersion = packageVersion();
+  const currentInstalledDir = installedWebDir();
+  const isRunningDaemonCurrent = () => {
     if (!existsSync(pidFile)) return false;
     const pid = Number(readFileSync(pidFile, 'utf8').trim());
-    return Boolean(pid) && isPidAlive(pid);
-  })();
+    if (!pid || !isPidAlive(pid)) return false;
+    const verFile = getWebDaemonVersionPath();
+    if (existsSync(verFile) && readFileSync(verFile, 'utf8').trim() !== targetVersion) return false;
+    const stampFile = join(currentInstalledDir, WEB_VERSION_STAMP);
+    if (existsSync(stampFile) && readFileSync(stampFile, 'utf8').trim() !== targetVersion) return false;
+    if (hasWebSource(currentInstalledDir) && needsBuild(currentInstalledDir)) return false;
+    return true;
+  };
+
+  const alreadyRunning = isRunningDaemonCurrent();
 
   let bunPath = 'bun';
   if (!alreadyRunning) {
@@ -377,12 +451,26 @@ export async function run(context) {
   cfg.first_time_acknowledged = true;
   saveConfig(cfg);
 
-  if (existsSync(pidFile)) {
+  if (alreadyRunning) {
     const pid = Number(readFileSync(pidFile, 'utf8').trim());
-    if (pid && isPidAlive(pid)) {
-      const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);
-      await printAccess(cfg, flags, `tandem-web is already running (pid: ${pid})`, workspaceSocket);
-      return;
+    const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);
+    await printAccess(cfg, flags, `tandem-web is already running (pid: ${pid})`, workspaceSocket);
+    return;
+  }
+
+  if (existsSync(pidFile)) {
+    const stalePid = Number(readFileSync(pidFile, 'utf8').trim());
+    if (stalePid && isPidAlive(stalePid)) {
+      try {
+        process.kill(stalePid, 'SIGTERM');
+      } catch {
+        // Process already exited
+      }
+    }
+    try {
+      unlinkSync(pidFile);
+    } catch {
+      // Ignore unlink failure
     }
   }
 
@@ -390,9 +478,9 @@ export async function run(context) {
   try {
     const resolved = resolveWebDir({
       cwd: context.cwd,
-      installedDir: installedWebDir(),
+      installedDir: currentInstalledDir,
       bundledDir: bundledWebDir(),
-      version: packageVersion(),
+      version: targetVersion,
     });
     webDir = resolved.dir;
     if (resolved.installedNow) {
@@ -416,6 +504,7 @@ export async function run(context) {
 
   if (child.pid) {
     writeFileSync(pidFile, String(child.pid) + '\n', { mode: 0o600 });
+    writeFileSync(getWebDaemonVersionPath(), `${targetVersion}\n`, { mode: 0o600 });
   }
 
   const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);

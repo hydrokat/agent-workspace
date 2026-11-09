@@ -1342,7 +1342,13 @@ pub fn run_status(workspace: &std::path::Path, config: &Config) -> Result<(), st
     app.web_tab.set_web_config(web_cfg);
     app.web_tab.set_workspace_socket(Some(socket));
     app.web_tab.set_ip_candidates(ip_candidates);
-    app.web_tab.web_status = app.web_daemon.status(&app.web_tab.web_config, &state_dir);
+    if app.web_tab.web_config.enabled
+        && crate::web_manager::daemon_needs_restart(workspace, &state_dir)
+    {
+        app.apply_web_changed();
+    } else {
+        app.web_tab.web_status = app.web_daemon.status(&app.web_tab.web_config, &state_dir);
+    }
 
     run_app_in_terminal(&mut app)
 }

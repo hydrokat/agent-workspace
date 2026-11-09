@@ -164,6 +164,21 @@ main() {
   cp "$built" "$stage/$exe"
   chmod +x "$stage/$exe"
 
+  if [ -f "$crate_root/../tandem-web/package.json" ]; then
+    mkdir -p "$stage/tandem-web"
+    for item in "$crate_root/../tandem-web"/* "$crate_root/../tandem-web"/.*; do
+      local base
+      base="$(basename "$item")"
+      case "$base" in
+        . | .. | node_modules | .next | tests | next-env.d.ts | *.tsbuildinfo | .DS_Store) continue ;;
+      esac
+      [ -e "$item" ] || continue
+      cp -R "$item" "$stage/tandem-web/$base"
+    done
+    find "$stage/tandem-web" -name '.DS_Store' -exec rm -f {} + 2>/dev/null || true
+    printf '%s\n' "$version" > "$stage/tandem-web/.tandem-version"
+  fi
+
   if [ "$slug" = "$(host_slug 2>/dev/null || true)" ]; then
     smoke_test "$stage/$exe" "$version"
   fi
