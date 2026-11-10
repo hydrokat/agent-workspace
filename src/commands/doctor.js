@@ -70,6 +70,12 @@ export async function run({ flags, cwd }) {
         results.push(check(!!frontmatter.name, `[${providerName}] ${agentName}: has name`));
         results.push(check(!!frontmatter.description, `[${providerName}] ${agentName}: has description`));
         results.push(check(!!frontmatter.model, `[${providerName}] ${agentName}: has model`));
+        for (const [key, value] of Object.entries(provider.expectedFrontmatter ?? {})) {
+          results.push(check(
+            frontmatter[key] === value,
+            `[${providerName}] ${agentName}: ${key} is ${value}`
+          ));
+        }
 
         const expectedModel = resolveModel(agentName, providerName);
         if (expectedModel && frontmatter.model) {

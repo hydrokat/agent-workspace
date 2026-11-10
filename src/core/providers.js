@@ -23,6 +23,15 @@ function transformCodex(fm, agentName) {
   return out;
 }
 
+function transformOpencode(fm, agentName) {
+  const out = { ...fm };
+  delete out.tools;
+  out.mode = 'subagent';
+  const model = resolve(agentName, 'opencode');
+  if (model) out.model = model;
+  return out;
+}
+
 export const PROVIDERS = {
   claude: {
     doc: 'CLAUDE.md',
@@ -47,6 +56,16 @@ export const PROVIDERS = {
     native: true,
     nativeSkills: true,
     transformAgent: transformCodex,
+  },
+  opencode: {
+    doc: 'AGENTS.md',
+    agentsDir: '.opencode/agents',
+    skillsDir: '.agents/skills',
+    native: false,
+    nativeSkills: true,
+    userOwnedDir: true,
+    expectedFrontmatter: { mode: 'subagent' },
+    transformAgent: transformOpencode,
   },
 };
 

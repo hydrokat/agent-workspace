@@ -6,7 +6,7 @@ SOURCE_AGENTS_DIR=".agents/agents"
 SOURCE_SKILLS_DIR=".agents/skills"
 
 usage() {
-  echo "Usage: bash .agents/skills/workspace-sync/scripts/workspace-sync.sh [gemini] [claude] [codex]"
+  echo "Usage: bash .agents/skills/workspace-sync/scripts/workspace-sync.sh [gemini] [claude] [codex] [opencode]"
   echo "Provide one or more targets separated by spaces."
 }
 
@@ -19,7 +19,7 @@ normalize_targets() {
     item="${item//,/ }"
     for token in $item; do
       case "$token" in
-        gemini|claude|codex)
+        gemini|claude|codex|opencode)
           normalized+=("$token")
           ;;
         *)
@@ -170,6 +170,13 @@ sync_codex_workspace() {
   echo "Verified: $SOURCE_SKILLS_DIR remains the canonical skill directory."
 }
 
+sync_opencode_workspace() {
+  echo "opencode reads AGENTS.md and $SOURCE_SKILLS_DIR natively; no compat doc or skill copy is needed."
+  echo "Agent files in .opencode/agents carry per-agent models, so generate them with:"
+  echo "  npx hydrokat/agent-workspace update --providers opencode"
+  echo "(Nothing is written or deleted by this script for opencode.)"
+}
+
 main() {
   local -a targets
   local target
@@ -199,6 +206,9 @@ main() {
         ;;
       codex)
         sync_codex_workspace
+        ;;
+      opencode)
+        sync_opencode_workspace
         ;;
     esac
   done
