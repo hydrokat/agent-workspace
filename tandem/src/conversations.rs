@@ -34,6 +34,16 @@ pub fn valid_id(value: &str) -> Option<String> {
     Some(value.to_ascii_lowercase())
 }
 
+pub fn valid_opencode_session_id(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let ok = (8..=64).contains(&bytes.len())
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    ok.then(|| value.to_string())
+}
+
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }

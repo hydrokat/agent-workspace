@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::adapters::base::{AgentSpec, validate_model_id};
+use crate::adapters::base::{AgentSpec, validate_model_for_cli};
 
-pub const CLIS: [&str; 2] = ["claude", "agy"];
+pub use crate::state::CLIS;
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,16 +88,20 @@ impl WizardFlow {
     }
 
     pub fn choose_model(&mut self, model: &str) -> Result<(), WizardError> {
-        let validated =
-            validate_model_id(model).map_err(|_| WizardError::InvalidModel(model.to_string()))?;
+        let validated = validate_model_for_cli(&self.cli, model)
+            .map_err(|_| WizardError::InvalidModel(model.to_string()))?;
         self.model = validated;
         self.skip = false;
-        if self.cli == "agy" {
+        if self.asks_permissions() {
             self.step = Step::Perms;
         } else {
             self.after_perms();
         }
         Ok(())
+    }
+
+    fn asks_permissions(&self) -> bool {
+        matches!(self.cli.as_str(), "agy" | "opencode")
     }
 
     pub fn choose_skip_permissions(&mut self, skip: bool) {
@@ -188,7 +192,7 @@ impl WizardFlow {
                 self.step = Step::Model;
             }
             Step::Cwd => {
-                if self.cli == "agy" {
+                if self.asks_permissions() {
                     self.step = Step::Perms;
                 } else {
                     self.step = Step::Model;

@@ -7,7 +7,7 @@ No agents yet
                                                                                                     
 ▶ claude                                                                                            
   agy                                                                                               
-                                                                                                    
+  opencode  (not installed)                                                                         
                                                                                                     
                                                                                                     
                                                                                                     
