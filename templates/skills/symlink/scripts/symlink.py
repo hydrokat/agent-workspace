@@ -80,11 +80,14 @@ def list_siblings(root: Path, link_root: Path, linker: ModuleType | None) -> int
     for path in sorted(root.parent.iterdir(), key=lambda item: item.name.lower()):
         try:
             resolved = path.resolve()
+            if not path.is_dir() or resolved == root:
+                continue
         except OSError:
             continue
-        if not path.is_dir() or resolved == root:
-            continue
-        purpose = linker.summarize_repository(resolved)[0] if linker else path.name
+        try:
+            purpose = linker.summarize_repository(resolved)[0] if linker else path.name
+        except OSError:
+            purpose = path.name
         siblings.append({"name": path.name, "path": str(resolved), "purpose": purpose, "linked_as": linked.get(resolved)})
     return emit({"status": "ok", "workspace": str(root), "siblings": siblings})
 

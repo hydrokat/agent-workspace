@@ -1,9 +1,12 @@
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "templates/skills/symlink/scripts/symlink.py"
 
@@ -117,3 +120,17 @@ def test_siblings_lists_candidates_with_link_state(tmp_path: Path) -> None:
 def test_requires_a_path(tmp_path: Path) -> None:
     workspace, _ = make_layout(tmp_path)
     assert out(run(workspace), 1)["status"] == "refused"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_siblings_survives_unreadable_directory(tmp_path: Path) -> None:
+    workspace, _ = make_layout(tmp_path)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        siblings = {s["name"]: s for s in out(run(workspace, "--siblings"))["siblings"]}
+    finally:
+        locked.chmod(stat.S_IRWXU)
+    assert siblings["locked"]["purpose"] == "locked"
+    assert siblings["api-service"]["purpose"] == "Orders and billing API."
