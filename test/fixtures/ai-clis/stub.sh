@@ -6,7 +6,9 @@ case "$name" in
     case "$1" in
       view) cat "$STATE/npm.latest" 2>/dev/null || exit 1; exit 0;;
       root) echo "$STATE/npmroot/lib/node_modules"; exit 0;;
-      install) [ -f "$STATE/npm.install.fail" ] && { echo "EACCES" >&2; exit 1; }; cp "$STATE/codex.next" "$STATE/codex.version"; exit 0;;
+      install) [ -f "$STATE/npm.install.fail" ] && { echo "EACCES" >&2; exit 1; }
+        case "$3" in @opencode/*) n=opencode;; *) n=codex;; esac
+        cp "$STATE/$n.next" "$STATE/$n.version"; exit 0;;
     esac;;
   brew)
     case "$1" in

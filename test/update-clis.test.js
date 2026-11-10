@@ -32,6 +32,18 @@ describe('update: AI CLIs step', () => {
     writeFileSync(join(state, 'npm.latest'), `${latest}\n`);
   }
 
+  function installOpencodeViaNpm(version, next, latest) {
+    const real = join(state, 'npmroot/lib/node_modules/@opencode/cli/bin');
+    mkdirSync(real, { recursive: true });
+    copyFileSync(STUB, join(real, 'opencode'));
+    chmodSync(join(real, 'opencode'), 0o755);
+    symlinkSync(join(real, 'opencode'), join(bin, 'opencode'));
+    writeFileSync(join(state, 'opencode.version'), `opencode v${version}\n`);
+    writeFileSync(join(state, 'opencode.next'), `opencode v${next}\n`);
+    symlinkSync(join(state, 'stub.sh'), join(bin, 'npm'));
+    writeFileSync(join(state, 'npm.latest'), `${latest}\n`);
+  }
+
   async function init(providers = 'claude') {
     ws = join(dir, 'ws');
     mkdirSync(ws);
@@ -133,6 +145,35 @@ describe('update: AI CLIs step', () => {
     assert.match(stdout, /codex +0\.52\.0 .*0\.54\.1 available/);
     assert.ok(updates().includes('npm install -g @openai/codex@latest'));
     assert.match(stdout, /✔ codex +0\.52\.0 → 0\.54\.1/);
+  });
+
+  it('updates opencode through npm when it is a configured provider', async () => {
+    await init('opencode');
+    installOpencodeViaNpm('2.2.7', '2.3.0', '2.3.0');
+    const { code, stdout } = await update(['--yes']);
+    assert.equal(code, 0);
+    assert.match(stdout, /opencode +2\.2\.7 .*2\.3\.0 available/);
+    assert.ok(updates().includes('npm install -g @opencode/cli@latest'));
+    assert.match(stdout, /✔ opencode +2\.2\.7 → 2\.3\.0/);
+    assert.ok(!calls().includes('opencode upgrade'));
+  });
+
+  it('ignores an installed opencode when it is not a configured provider', async () => {
+    await init('claude');
+    installOpencodeViaNpm('2.2.7', '2.3.0', '2.3.0');
+    const { code, stdout } = await update(['--yes']);
+    assert.equal(code, 0);
+    assert.ok(!stdout.includes('opencode'));
+    assert.deepEqual(updates(), []);
+  });
+
+  it('--dry-run lists opencode without changing it', async () => {
+    await init('opencode');
+    installOpencodeViaNpm('2.2.7', '2.3.0', '2.3.0');
+    const { code, stdout } = await update(['--dry-run', '--yes']);
+    assert.equal(code, 0);
+    assert.match(stdout, /opencode +2\.2\.7/);
+    assert.ok(!updates().some((c) => c.startsWith('npm install')));
   });
 
   it('leaves out CLIs that are already current', async () => {

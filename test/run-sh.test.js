@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { makeTmp, cleanup } from './helpers.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip', 'gzip', 'chmod'];
+const CORE = ['sed', 'grep', 'cat', 'tr', 'mktemp', 'sleep', 'kill', 'cut', 'dirname', 'basename', 'rm', 'ln', 'sh', 'head', 'date', 'mv', 'tar', 'mkdir', 'cp', 'unzip', 'gzip', 'chmod', 'readlink'];
 const MIN = [
   '# test minimums', 'TANDEM_MIN_CARGO=1.89', 'TANDEM_MIN_GIT=2.30', 'TANDEM_MIN_TMUX=3.3',
-  'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', '',
+  'TANDEM_MIN_CLAUDE=2.1.301', 'TANDEM_MIN_AGY=1.3.6', 'TANDEM_MIN_OPENCODE=2.2.7', '',
 ].join('\n');
 
 const TOOL_SH = `#!/bin/sh
@@ -22,9 +22,11 @@ case "$name" in
   brew)
     case "$1" in
       install) install_pkg "$2"; exit 0;;
-      upgrade) bump "$2"; exit 0;;
+      upgrade) case "$2" in */opencode-v2) [ -f "$STATE/opencode.noupdate" ] || bump opencode;; *) bump "$2";; esac; exit 0;;
       outdated) [ -f "$STATE/brew.outdated.fail" ] && exit 1; [ -f "$STATE/outdated" ] && cat "$STATE/outdated"; exit 0;;
     esac;;
+  npm)
+    if [ "$1" = install ]; then [ -f "$STATE/opencode.noupdate" ] || bump opencode; fi; exit 0;;
   tmux)
     case "$*" in
       *has-session*)
@@ -1202,5 +1204,114 @@ describe('run.sh --fresh', () => {
     const r = await run(env, ['--help']);
     assert.equal(r.code, 0);
     assert.match(r.out, /--fresh/);
+  });
+});
+
+describe('run.sh opencode (optional AI CLI)', () => {
+  const oc = (v) => `opencode v${v}`;
+
+  function opencodeVia(env, kind) {
+    const dir = kind === 'npm'
+      ? join(env.state, 'npmroot/lib/node_modules/@opencode/cli/bin')
+      : join(env.state, 'Cellar/opencode-v2/2.2.7/bin');
+    mkdirSync(dir, { recursive: true });
+    copyFileSync(join(env.state, 'tool.sh'), join(dir, 'opencode'));
+    chmodSync(join(dir, 'opencode'), 0o755);
+    rmSync(join(env.bin, 'opencode'), { force: true });
+    symlinkSync(join(dir, 'opencode'), join(env.bin, 'opencode'));
+  }
+  const withNpm = (options) => setup({ managers: ['brew', 'npm'], ...options });
+
+  it('says nothing about opencode when it is not installed, and never installs it', async () => {
+    const env = setup();
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!/opencode/i.test(r.out), r.out);
+    assert.ok(!/opencode/i.test(r.calls), r.calls);
+  });
+
+  it('reports an installed opencode at or above the minimum and does not prompt', async () => {
+    const env = setup({ versions: ok({ opencode: oc('2.2.7') }) });
+    const r = await run(env, ['--check']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /✔ opencode +2\.2\.7 \(latest unknown\)/);
+    assert.ok(!r.out.includes('[y/N]'));
+  });
+
+  it('counts opencode as an AI CLI when claude and agy are missing', async () => {
+    const env = setup({ versions: ok({ claude: null, agy: null, opencode: oc('2.2.7') }) });
+    const checked = await run(env, ['--check']);
+    assert.equal(checked.code, 0, checked.out);
+    const launched = await run(env, ['--no']);
+    assert.equal(launched.code, 0, launched.out);
+    assert.match(launched.stdout, /TANDEM-BINARY-RAN/);
+    assert.ok(!/opencode/.test(launched.calls.split('\n').filter((c) => /install|curl/.test(c)).join('\n')));
+  });
+
+  it('still exits 2 with no AI CLI at all, and the message names opencode', async () => {
+    const env = setup({ versions: ok({ claude: null, agy: null }) });
+    const r = await run(env, ['--no']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /claude, agy, or opencode/);
+  });
+
+  it('warns about an opencode below the minimum in --check but never fails for it', async () => {
+    const env = setup({ versions: ok({ opencode: 'opencode 1.4.0' }) });
+    const r = await run(env, ['--check']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /⚠ opencode +1\.4\.0 below minimum 2\.2\.7/);
+  });
+
+  it('updates a below-minimum npm opencode on yes with the documented command and continues', async () => {
+    const env = withNpm({ versions: ok({ opencode: oc('2.0.0') }) });
+    opencodeVia(env, 'npm');
+    const r = await run(env, ['--answers', 'y']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Update opencode with `npm install -g @opencode\/cli@latest`/);
+    assert.match(r.calls, /^npm install -g @opencode\/cli@latest$/m);
+    assert.match(r.stdout, /TANDEM-BINARY-RAN/);
+  });
+
+  it('updates a below-minimum Homebrew opencode with brew upgrade of the formula', async () => {
+    const env = setup({ versions: ok({ opencode: oc('2.0.0') }) });
+    opencodeVia(env, 'brew');
+    const r = await run(env, ['--answers', 'y']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.calls, /^brew upgrade anomalyco\/tap\/opencode-v2$/m);
+  });
+
+  it('skips a below-minimum opencode when the update is declined, without exiting 3', async () => {
+    const env = withNpm({ versions: ok({ opencode: oc('2.0.0') }) });
+    opencodeVia(env, 'npm');
+    const r = await run(env, ['--answers', 'n']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /opencode skipped \(below the minimum 2\.2\.7\)/);
+    assert.ok(!r.calls.includes('npm install'));
+    assert.match(r.stdout, /TANDEM-BINARY-RAN/);
+  });
+
+  it('skips opencode, still exit 0, when the update does not reach the minimum', async () => {
+    const env = withNpm({ versions: ok({ opencode: oc('2.0.0') }) });
+    opencodeVia(env, 'npm');
+    env.mark('opencode.noupdate');
+    const r = await run(env, ['--answers', 'y']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /opencode skipped \(below the minimum 2\.2\.7\)/);
+  });
+
+  it('prints the install script for an opencode it cannot classify and never runs it', async () => {
+    const env = setup({ versions: ok({ opencode: oc('2.0.0') }) });
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /curl -fsSL https:\/\/opencode\.ai\/v2\/install \| bash/);
+    assert.ok(!/^curl .*opencode/m.test(r.calls), r.calls);
+    assert.match(r.out, /opencode skipped \(below the minimum 2\.2\.7\)/);
+  });
+
+  it('treats a v1 opencode as below the minimum', async () => {
+    const env = setup({ versions: ok({ opencode: 'opencode 1.14.2' }) });
+    const r = await run(env, ['--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /opencode skipped/);
   });
 });

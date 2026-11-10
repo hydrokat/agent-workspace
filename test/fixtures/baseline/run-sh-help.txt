@@ -2,6 +2,7 @@ Usage: ./run.sh [options] [-- tandem-args...]
 
 Checks git, tmux, claude, and agy (plus cargo when tandem has to be built from source),
 asks before installing or updating anything, then launches tandem from the current directory.
+opencode is optional: it is checked only when already installed, and run.sh never installs it.
 
 Options:
   --check          Report status only; change nothing, launch nothing.
