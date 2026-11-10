@@ -119,7 +119,7 @@ Boundary enforcement rules:
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.
 For Codex/OpenAI, prefer `gpt-5.5` for orchestration and reasoning-heavy work, `gpt-5.3-codex` for hands-on agentic coding, `gpt-5.4` for balanced professional tasks, and `gpt-5.4-mini` for fast, high-volume subagents.
-For opencode, model ids are `provider/model` (for example `anthropic/claude-sonnet-4-6`). The defaults mirror the Claude column under the `anthropic/` provider; run `opencode models` to see what you can use after logging in, and change an agent's `model:` in `.opencode/agents/` or the shipped defaults in `models.json`. `update` rewrites generated agent files and keeps a `.bak` of any edit.
+For opencode, model ids are `provider/model` (for example `anthropic/claude-sonnet-4-6`). The defaults mirror the Claude column under the `anthropic/` provider; run `opencode models` to see what you can use after logging in, and to use another model, edit `model:` in the agent's file under `.opencode/agents/`. `update` regenerates those files from the shipped defaults and keeps a `.bak` of your edit.
 
 | Agent | Claude | Antigravity | Codex (OpenAI) | opencode | Notes |
 |---|---|---|---|---|---|

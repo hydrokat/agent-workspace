@@ -732,7 +732,7 @@ check_status_code() {
       if [ "$tool" = "cargo" ] && cargo_optional_for_now; then continue; fi
       is_ai_tool "$tool" || code=2
     else
-      is_ai_tool "$tool" && have_ai=1
+      is_ai_tool "$tool" && ! { is_optional_tool "$tool" && below_min "$tool"; } && have_ai=1
       below_min "$tool" && ! is_optional_tool "$tool" && [ "$code" -eq 0 ] && code=3
     fi
   done

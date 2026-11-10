@@ -1255,6 +1255,12 @@ describe('run.sh opencode (optional AI CLI)', () => {
     assert.match(r.out, /claude, agy, or opencode/);
   });
 
+  it('does not count a below-minimum opencode as the only AI CLI in --check', async () => {
+    const env = setup({ versions: ok({ claude: null, agy: null, opencode: 'opencode 1.4.0' }) });
+    const r = await run(env, ['--check']);
+    assert.equal(r.code, 2, r.out);
+  });
+
   it('warns about an opencode below the minimum in --check but never fails for it', async () => {
     const env = setup({ versions: ok({ opencode: 'opencode 1.4.0' }) });
     const r = await run(env, ['--check']);
