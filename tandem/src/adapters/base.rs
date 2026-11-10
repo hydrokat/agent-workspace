@@ -78,6 +78,41 @@ pub fn validate_model_id(model: &str) -> Result<String, AdapterError> {
     Ok(model.to_string())
 }
 
+fn valid_opencode_part(part: &str) -> bool {
+    let bytes = part.as_bytes();
+    !bytes.is_empty()
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes[1..]
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+}
+
+pub fn validate_opencode_model_id(model: &str) -> Result<String, AdapterError> {
+    if model.len() > 100 {
+        return Err(AdapterError::InvalidModel);
+    }
+    let (base, variant) = match model.split_once('#') {
+        Some((base, variant)) => (base, Some(variant)),
+        None => (model, None),
+    };
+    let Some((provider, name)) = base.split_once('/') else {
+        return Err(AdapterError::InvalidModel);
+    };
+    let variant_ok = variant.is_none_or(valid_opencode_part);
+    if valid_opencode_part(provider) && valid_opencode_part(name) && variant_ok {
+        Ok(model.to_string())
+    } else {
+        Err(AdapterError::InvalidModel)
+    }
+}
+
+pub fn validate_model_for_cli(cli: &str, model: &str) -> Result<String, AdapterError> {
+    match cli {
+        "opencode" => validate_opencode_model_id(model),
+        _ => validate_model_id(model),
+    }
+}
+
 pub fn session_id(spec: &AgentSpec) -> String {
     format!("{}-{}", spec.role, spec.index)
 }
@@ -104,6 +139,9 @@ pub trait Adapter: Send + Sync {
         log_file: Option<&str>,
     ) -> Result<Vec<String>, AdapterError>;
     fn list_models(&self) -> Result<Vec<Model>, AdapterError>;
+    fn env(&self, _spec: &AgentSpec) -> Result<BTreeMap<String, String>, AdapterError> {
+        Ok(BTreeMap::new())
+    }
 }
 
 #[cfg(test)]

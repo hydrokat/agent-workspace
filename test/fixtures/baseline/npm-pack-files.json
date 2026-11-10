@@ -124,6 +124,7 @@
   "tandem/src/adapters/base.rs",
   "tandem/src/adapters/claude.rs",
   "tandem/src/adapters/mod.rs",
+  "tandem/src/adapters/opencode.rs",
   "tandem/src/cli.rs",
   "tandem/src/commands.rs",
   "tandem/src/config.rs",

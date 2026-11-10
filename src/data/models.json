@@ -2,66 +2,79 @@
   "tech-lead-orchestrator": {
     "claude": "claude-opus-4-7",
     "antigravity": "gemini-2.5-pro",
-    "codex": "gpt-5.5"
+    "codex": "gpt-5.5",
+    "opencode": "anthropic/claude-opus-4-7"
   },
   "codebase_investigator": {
     "claude": "claude-opus-4-7",
     "antigravity": "gemini-2.5-pro",
-    "codex": "gpt-5.5"
+    "codex": "gpt-5.5",
+    "opencode": "anthropic/claude-opus-4-7"
   },
   "security-auditor": {
     "claude": "claude-opus-4-7",
     "antigravity": "gemini-2.5-pro",
-    "codex": "gpt-5.5"
+    "codex": "gpt-5.5",
+    "opencode": "anthropic/claude-opus-4-7"
   },
   "api-pentester": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.4"
+    "codex": "gpt-5.4",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "code-reviewer": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.5-pro",
-    "codex": "gpt-5.5"
+    "codex": "gpt-5.5",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "senior-backend-dev": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.3-codex"
+    "codex": "gpt-5.3-codex",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "frontend-dev": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.3-codex"
+    "codex": "gpt-5.3-codex",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "qa-engineer": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.3-codex"
+    "codex": "gpt-5.3-codex",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "business-analyst": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.4"
+    "codex": "gpt-5.4",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "project-manager": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.5-pro",
-    "codex": "gpt-5.4"
+    "codex": "gpt-5.4",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "generalist": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.4-mini"
+    "codex": "gpt-5.4-mini",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "technical-writer": {
     "claude": "claude-sonnet-4-6",
     "antigravity": "gemini-2.0-flash",
-    "codex": "gpt-5.4"
+    "codex": "gpt-5.4",
+    "opencode": "anthropic/claude-sonnet-4-6"
   },
   "terminal-agent": {
     "claude": "claude-haiku-4-5",
     "antigravity": "gemini-2.0-flash-lite",
-    "codex": "gpt-5.4-mini"
+    "codex": "gpt-5.4-mini",
+    "opencode": "anthropic/claude-haiku-4-5"
   }
 }

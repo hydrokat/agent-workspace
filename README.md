@@ -6,7 +6,7 @@
 
 ## What it does
 
-When you work with AI coding assistants (Claude Code, Antigravity CLI, Codex), each conversation starts cold. The assistant has no knowledge of your team's standards, no understanding of what each role should do, and no shared guidelines to follow. You end up re-explaining the same things repeatedly.
+When you work with AI coding assistants (Claude Code, Antigravity CLI, Codex, opencode), each conversation starts cold. The assistant has no knowledge of your team's standards, no understanding of what each role should do, and no shared guidelines to follow. You end up re-explaining the same things repeatedly.
 
 `agent-workspace` solves that by giving you a structured directory that your AI provider reads automatically:
 
@@ -16,7 +16,7 @@ When you work with AI coding assistants (Claude Code, Antigravity CLI, Codex), e
 - **Live progress tracking** — `specs/in-progress.md` lists every task or spec an agent is actively working on, its next step, the owning spec (or `adhoc` if it has none), and the explicitly assigned agent and worktree to prevent collision, so you always know what's in flight; entries are removed as soon as the task completes
 - **Provider outputs** — each provider gets its own compatibility format (`.claude/`, `.gemini/`) auto-generated from a single source of truth
 
-Run one command. Get a workspace that works with Claude, Antigravity, or Codex out of the box.
+Run one command. Get a workspace that works with Claude, Antigravity, Codex, or opencode out of the box.
 
 ## Quick start
 
@@ -61,6 +61,12 @@ Example — set up for Claude and Codex, non-interactively:
 npx hydrokat/agent-workspace init --yes --providers claude,codex --name "payments-api"
 ```
 
+Set up for opencode (v2, `@opencode/cli`) next to Claude:
+
+```bash
+npx hydrokat/agent-workspace init --yes --providers claude,opencode --name "payments-api"
+```
+
 ---
 
 ### `update` — pull in the latest content
@@ -85,7 +91,7 @@ What it does:
 
 #### Updating your AI CLIs
 
-After the workspace files are updated, `update` looks at the AI CLIs this workspace uses: `claude`, `agy` (Antigravity), and `codex` when it is a configured provider, plus `claude` and `agy` always, because tandem launches them. Only CLIs already on your `PATH` are considered; `update` never installs one and never uses `sudo`.
+After the workspace files are updated, `update` looks at the AI CLIs this workspace uses: `claude`, `agy` (Antigravity), and `codex` or `opencode` when they are configured providers, plus `claude` and `agy` always, because tandem launches them. Only CLIs already on your `PATH` are considered; `update` never installs one and never uses `sudo`.
 
 ```
 ▶ AI CLIs
@@ -96,7 +102,7 @@ Check and apply these updates? [y/N]
   ✖ codex   update failed (exit 1) — run it yourself: npm install -g @openai/codex@latest
 ```
 
-- Each CLI is updated with its own documented command (`claude update`, `agy update`, and for codex `npm install -g @openai/codex@latest` or `brew upgrade --cask codex`). Where a CLI has no documented command that is safe to run, for example codex installed with its install script, `update` prints the command for you to run. It never pipes a download into a shell.
+- Each CLI is updated with its own documented command (`claude update`, `agy update`, and for codex `npm install -g @openai/codex@latest` or `brew upgrade --cask codex`; for opencode `npm install -g @opencode/cli@latest` or `brew upgrade anomalyco/tap/opencode-v2`). Where a CLI has no documented command that is safe to run, for example codex or opencode installed with their install scripts, `update` prints the command for you to run. It never pipes a download into a shell.
 - Where a read-only check exists (npm, Homebrew), a CLI that is already current is left out. `claude` and `agy` have no check-only mode, so they are listed as "latest unknown" and their updater decides.
 - **Consent:** one question, default No. `--update-clis` or `--yes` applies without asking; `--no-update-clis` skips (and wins over `--yes`); `--dry-run` only lists. With no terminal and no flag, it prints one line saying how to apply and does nothing. Set `AGENT_WORKSPACE_INTERACTIVE=1` to answer from piped input.
 - `DISABLE_UPDATES=1` is respected for claude: it is skipped with a note.
@@ -179,7 +185,7 @@ What it does:
 | Flag | Commands | Description |
 |---|---|---|
 | `--yes` | `init`, `update` | Skip all prompts and accept defaults |
-| `--providers <list>` | `init`, `update` | Comma-separated: `claude`, `antigravity`, `codex` |
+| `--providers <list>` | `init`, `update` | Comma-separated: `claude`, `antigravity`, `codex`, `opencode` |
 | `--name <name>` | `init` | Set the project name without prompting |
 | `--no-link` | `init` | Skip sibling codebase linking |
 | `--link-all` | `init` | Link all sibling codebases without prompting |
@@ -256,10 +262,13 @@ Each provider gets its own format generated from the same source agents:
 | **Claude** | `.claude/agents/*.md` | `CLAUDE.md` → symlink to `AGENTS.md` | `.claude/skills/` | `tools:` field removed; `model:` injected |
 | **Antigravity** | `.gemini/agents/*.md` | `GEMINI.md` → symlink to `AGENTS.md` | `.agents/skills/` (shared) | `tools: ["*"]` added; `model:` injected |
 | **Codex** | `.agents/agents/*/AGENT.md` | `AGENTS.md` (native) | `.agents/skills/` (shared) | `model:` injected in place |
+| **opencode** | `.opencode/agents/*.md` | `AGENTS.md` (native, no link created) | `.agents/skills/` (shared) | `tools:` removed; `mode: subagent` and `model: provider/model` set |
 
-The correct model is automatically assigned per agent per provider — for example, `tech-lead-orchestrator` gets `claude-opus-4-7` for Claude, `gemini-2.5-pro` for Antigravity, and `gpt-5.5` for Codex.
+The correct model is automatically assigned per agent per provider — for example, `tech-lead-orchestrator` gets `claude-opus-4-7` for Claude, `gemini-2.5-pro` for Antigravity, `gpt-5.5` for Codex, and `anthropic/claude-opus-4-7` for opencode (the opencode defaults mirror the Claude models under the `anthropic/` provider; run `opencode models` to see what is available to you).
 
-Antigravity reads skills from `.agents/skills/` directly (the canonical source), so no separate skills directory is created for it.
+Antigravity and opencode read skills from `.agents/skills/` directly (the canonical source), so no separate skills directory is created for them.
+
+`.opencode/` also holds your own opencode content (custom agents, skills, `opencode.json`, plugins). `update` only replaces or prunes the agent files it generated itself and never touches anything else there.
 
 ---
 
@@ -276,6 +285,7 @@ Antigravity reads skills from `.agents/skills/` directly (the canonical source),
 ### Things you should not edit manually
 
 - **`.claude/`** and **`.gemini/`** — these are fully regenerated on every `update`. Any manual edits will be overwritten (with a `.bak` backup). (`.gemini/` is the agent output directory for Antigravity.)
+- **`.opencode/agents/<agent>.md`** files that `update` generated are rewritten the same way (with a `.bak` backup). Your own agents, skills, `opencode.json`, and plugins in `.opencode/` are never touched.
 - **`.agents/agents/`** and **`.agents/skills/`** — these are managed library files. If you edit them locally, `update` will back them up and restore the shipped version.
 
 If you want to add a custom agent or skill that won't be overwritten, the right place is a separate directory outside `.agents/` (e.g., `my-agents/`), then reference it from your `AGENTS.md`.
@@ -284,7 +294,7 @@ If you want to add a custom agent or skill that won't be overwritten, the right 
 
 ## Slash commands for your AI
 
-Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, and Codex.
+Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, Codex, and opencode.
 
 | Command | What it does |
 |---|---|
@@ -319,7 +329,7 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 ## tandem: run several AI CLIs side by side
 
-`init` and `update` install `./run.sh` in your workspace (the tandem project goes under `.agent-workspace/tandem/`). `./run.sh` launches **tandem**: your `claude` and `agy` sessions in one tmux window, an agent sidebar on the left, a responsive multi-agent grid in the main area, and a 6-tab status window below.
+`init` and `update` install `./run.sh` in your workspace (the tandem project goes under `.agent-workspace/tandem/`). `./run.sh` launches **tandem**: your `claude`, `agy`, and (optionally) `opencode` sessions in one tmux window, an agent sidebar on the left, a responsive multi-agent grid in the main area, and a 6-tab status window below.
 
 ```bash
 ./run.sh            # check dependencies, ask before installing/updating, then launch
@@ -361,7 +371,7 @@ Binaries are verified against `SHA256SUMS` and cached under `${XDG_STATE_HOME:-~
   - `source`: skips the binary and builds with cargo.
 - `TANDEM_RELEASE_BASE`: base URL for binary release archives and `SHA256SUMS`.
 
-`run.sh` needs `git`, `tmux`, at least one of `claude` / `agy`, and, only when tandem has to be built from source, `cargo` (run.sh offers to install it through rustup). Rules:
+`run.sh` needs `git`, `tmux`, at least one of `claude` / `agy` / `opencode` (it offers to install `claude` and `agy` but never installs `opencode`; an installed opencode is only checked against `TANDEM_MIN_OPENCODE`, and an opencode below it is skipped with the update command to run, never a reason to stop), and, only when tandem has to be built from source, `cargo` (run.sh offers to install it through rustup). Rules:
 
 - Missing dependency: asks to install it. Declining stops (exit 2), except that declining one AI CLI is fine while the other is installed.
 - Installed but outdated (where a check exists): asks to update; declining continues with what you have.
@@ -390,9 +400,9 @@ Navigate between tabs with `Tab` / `Shift+Tab`, number keys `1-7`, or mouse clic
 
 <sub>The screenshots show a fictional demo project ("acme") with stand-in agents, rendered from a real tandem run. Regenerate them with `cargo build --release --manifest-path tandem/Cargo.toml && python3 docs/screenshots/make_screenshots.py` (needs tmux and python3); a test fails if a screenshot contains a home-directory path.</sub>
 
-**Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning.
+**Models** are asked at every launch (no hard-coded defaults). `claude` always runs with `--permission-mode auto`; `agy` runs with `--dangerously-skip-permissions` only if you answer **Yes** to the warning. `opencode` (v2) is optional: tandem offers it when it is on your `PATH`, lists models with `opencode models` (type an id such as `anthropic/claude-sonnet-5-5` if the list is empty), passes the model to opencode through its `OPENCODE_CONFIG_CONTENT` environment variable, and adds `--auto` only if you answer **Yes** to the same warning.
 
-**Save and resume.** tandem autosaves the session (agents, models, folders, layout and each agent's conversation ID) while it runs. After a crash or a clean `Ctrl+Alt+x` → *Save state and exit*, the next `./run.sh` asks whether to resume, which reopens every agent's conversation through `claude --resume` / `agy --conversation`, or to start blank. See `tandem/README.md` → *Save, resume and update*.
+**Save and resume.** tandem autosaves the session (agents, models, folders, layout and each agent's conversation ID) while it runs. After a crash or a clean `Ctrl+Alt+x` → *Save state and exit*, the next `./run.sh` asks whether to resume, which reopens every agent's conversation through `claude --resume` / `agy --conversation`, or to start blank. See `tandem/README.md` → *Save, resume and update*. opencode agents do not resume yet: tandem always starts a fresh opencode session (its session-id handling is not verified), so a restart or resume loses that agent's conversation history inside tandem; use opencode's own `--continue` in a shell if you need it.
 
 **Coordination.** The `agent-coordination` skill (`scripts/coord.py`) lets sessions register, claim spec tasks atomically, send heartbeats, and ask questions without blocking: an agent keeps working outside the blocked scope while the question waits in the **Queries** tab. Planners check running and planned work before planning; implementers claim before coding and use a worktree when another implementer is active. Without tandem, the same skill works from any CLI.
 
@@ -419,7 +429,7 @@ npx hydrokat/agent-workspace init --no-link
 
 ```
 1. init once          →  npx hydrokat/agent-workspace init
-2. open your AI tool  →  Claude Code, Antigravity CLI (`agy`), Codex, etc.
+2. open your AI tool  →  Claude Code, Antigravity CLI (`agy`), Codex, opencode, etc.
 3. agents are ready   →  the AI reads .claude/ or .gemini/ automatically
 4. update when needed →  npx hydrokat/agent-workspace update
 5. verify any time    →  npx hydrokat/agent-workspace doctor

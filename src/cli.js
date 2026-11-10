@@ -18,7 +18,7 @@ Commands:
 
 Options:
   --yes                  Non-interactive; accept all defaults
-  --providers <list>     Comma-separated providers: claude,antigravity,codex (default: claude)
+  --providers <list>     Comma-separated providers: claude,antigravity,codex,opencode (default: claude)
   --name <name>          Project name
   --no-link              Skip sibling codebase linking
   --link-all             Link all sibling codebases without prompting
@@ -28,7 +28,7 @@ Options:
   --dry-run              Show what would change without writing anything
   --git / --no-git       init: create (or skip creating) a local git repo without asking
   --commit / --no-commit update: commit (or skip committing) the files the update changed without asking
-  --update-clis / --no-update-clis update: update (or skip updating) the installed AI CLIs (claude, agy, codex) without asking
+  --update-clis / --no-update-clis update: update (or skip updating) the installed AI CLIs (claude, agy, codex, opencode) without asking
   --bind <ip>            web: bind IP address (e.g. VPN or localhost)
   --port <port>          web: port (default: 3940)
   --list-ips             web: list available network IPs and sources

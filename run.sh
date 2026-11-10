@@ -11,6 +11,7 @@ TANDEM_DIR="$ROOT_DIR/.agent-workspace/tandem"
 MIN_FILE="$TANDEM_DIR/min-versions.env"
 TOOLS="git tmux claude agy"
 AI_TOOLS="claude agy"
+OPTIONAL_AI_TOOLS="opencode"
 CLAUDE_INSTALL_URL="https://claude.ai/install.sh"
 AGY_INSTALL_URL="https://antigravity.google/cli/install.sh"
 RUSTUP_INSTALL_URL="https://sh.rustup.rs"
@@ -56,6 +57,7 @@ Usage: ./run.sh [options] [-- tandem-args...]
 
 Checks git, tmux, claude, and agy (plus cargo when tandem has to be built from source),
 asks before installing or updating anything, then launches tandem from the current directory.
+opencode is optional: it is checked only when already installed, and run.sh never installs it.
 
 Options:
   --check          Report status only; change nothing, launch nothing.
@@ -170,6 +172,37 @@ is_ai_tool() {
   return 1
 }
 
+is_optional_tool() {
+  case " $OPTIONAL_AI_TOOLS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+include_optional_tools() {
+  local tool
+  for tool in $OPTIONAL_AI_TOOLS; do
+    command -v "$tool" >/dev/null 2>&1 || continue
+    TOOLS="$TOOLS $tool"
+    AI_TOOLS="$AI_TOOLS $tool"
+  done
+}
+
+drop_optional_tool() {
+  TOOLS=" $TOOLS "
+  TOOLS="${TOOLS// $1 / }"
+  AI_TOOLS=" $AI_TOOLS "
+  AI_TOOLS="${AI_TOOLS// $1 / }"
+}
+
+opencode_channel() {
+  local bin target
+  bin="$(command -v opencode 2>/dev/null)" || return 0
+  target="$(readlink "$bin" 2>/dev/null || true)"
+  case "$bin $target" in
+    *"/node_modules/@opencode/cli"*) printf 'npm' ;;
+    *"/Cellar/opencode-v2/"*) printf 'brew' ;;
+  esac
+}
+
 # Runs a command with a time limit; output lands in CAP_OUT. Returns the command's status.
 capture() {
   local secs="$1" tmp pid watcher rc=0
@@ -246,7 +279,7 @@ below_min() {
 check_latest() {
   local tool="$1" rc=0 state="unknown"
   case "$tool" in
-    claude | agy) state="unknown" ;;
+    claude | agy | opencode) state="unknown" ;;
     cargo) state="unknown" ;;
     *)
       case "$PM" in
@@ -307,6 +340,13 @@ update_cmd() {
   case "$1" in
     claude) CMD=(claude update) ;;
     agy) CMD=(agy update) ;;
+    opencode)
+      CMD=()
+      case "$(opencode_channel)" in
+        npm) CMD=(npm install -g @opencode/cli@latest) ;;
+        brew) CMD=(brew upgrade anomalyco/tap/opencode-v2) ;;
+      esac
+      ;;
     cargo) CMD=(rustup update) ;;
     *)
       case "$PM" in
@@ -666,7 +706,7 @@ report() {
       case "$(get_var "LATEST_$tool")" in
         available) printf '  ↑ %-7s %s update available\n' "$tool" "$(display_ver "$tool")" ;;
         unknown)
-          if is_ai_tool "$tool"; then
+          if is_ai_tool "$tool" && ! is_optional_tool "$tool"; then
             printf '  ✔ %-7s %s (self-updating)\n' "$tool" "$(display_ver "$tool")"
           else
             printf '  ✔ %-7s %s (latest unknown)\n' "$tool" "$(display_ver "$tool")"
@@ -692,8 +732,8 @@ check_status_code() {
       if [ "$tool" = "cargo" ] && cargo_optional_for_now; then continue; fi
       is_ai_tool "$tool" || code=2
     else
-      is_ai_tool "$tool" && have_ai=1
-      below_min "$tool" && [ "$code" -eq 0 ] && code=3
+      is_ai_tool "$tool" && ! { is_optional_tool "$tool" && below_min "$tool"; } && have_ai=1
+      below_min "$tool" && ! is_optional_tool "$tool" && [ "$code" -eq 0 ] && code=3
     fi
   done
   [ "$have_ai" -eq 1 ] || code=2
@@ -710,6 +750,23 @@ install_tool() {
     return 0
   fi
   return 1
+}
+
+update_optional_tool() {
+  local tool="$1" min
+  min="$(min_for "$tool")"
+  printf '%s %s is below the minimum (%s).\n' "$tool" "$(display_ver "$tool")" "$min"
+  update_cmd "$tool"
+  if [ "${#CMD[@]}" -eq 0 ]; then
+    printf '  update it yourself: curl -fsSL https://opencode.ai/v2/install | bash\n'
+  elif ask "Update $tool with \`$(describe_cmd)\`?"; then
+    execute_cmd || printf '  updating %s failed\n' "$tool"
+    detect_tool "$tool"
+  fi
+  if below_min "$tool"; then
+    drop_optional_tool "$tool"
+    printf '  %s skipped (below the minimum %s)\n' "$tool" "$min"
+  fi
 }
 
 update_tool() {
@@ -735,6 +792,10 @@ act() {
       fi
       die 2 "Cannot continue without $tool. Exiting."
     fi
+    if is_optional_tool "$tool"; then
+      if below_min "$tool"; then update_optional_tool "$tool"; fi
+      continue
+    fi
     if below_min "$tool"; then
       printf '%s %s is below the minimum (%s) and may crash.\n' "$tool" "$(display_ver "$tool")" "$min"
       update_tool "$tool" || die 3 "Cannot continue with $tool $(display_ver "$tool"). Exiting."
@@ -747,7 +808,7 @@ act() {
   for tool in $AI_TOOLS; do
     [ "$(get_var "INST_$tool")" -eq 1 ] && have_ai=1
   done
-  [ "$have_ai" -eq 1 ] || die 2 "No AI CLI (claude or agy) is installed. Exiting."
+  [ "$have_ai" -eq 1 ] || die 2 "No AI CLI (claude, agy, or opencode) is installed. Exiting."
 }
 
 read_manifest_version() {
@@ -1137,6 +1198,7 @@ main() {
   load_min_versions
   detect_platform
   select_runtime
+  include_optional_tools
   local tool
   for tool in $TOOLS; do
     detect_tool "$tool"

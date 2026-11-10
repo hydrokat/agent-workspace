@@ -151,9 +151,11 @@ export function syncProvider(target, providerName, manifest, dryRun = false) {
   }
 
   if (!provider.native && !dryRun && existsSync(agentsDir)) {
+    const managed = new Set(manifest?.managedFiles ?? []);
     for (const entry of readdirSync(agentsDir)) {
       if (entry.endsWith('.bak')) continue;
       const p = join(agentsDir, entry);
+      if (provider.userOwnedDir && (!managed.has(relative(target, p)) || lstatSync(p).isDirectory())) continue;
       if (!writtenAgentFiles.has(p)) {
         unlinkSync(p);
         const rel = relative(target, p);
@@ -195,7 +197,7 @@ export function syncProvider(target, providerName, manifest, dryRun = false) {
     }
   } else {
     const providerRoot = dirname(provider.agentsDir);
-    if (providerRoot !== '.agents') {
+    if (providerRoot !== '.agents' && !provider.userOwnedDir) {
       const legacySkillsDir = join(target, providerRoot, 'skills');
       if (existsSync(legacySkillsDir)) {
         for (const entry of readdirSync(legacySkillsDir)) {
