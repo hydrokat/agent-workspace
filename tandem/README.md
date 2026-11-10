@@ -1,6 +1,6 @@
 # tandem
 
-The runtime of tandem (agent-workspace): run several AI CLIs (`claude`, `agy`) side by side in one tmux session: **planners** on the left, **implementers** on the right, and a live status window underneath. Start it with `./run.sh` from your workspace (see the package README).
+The runtime of tandem (agent-workspace): run several AI CLIs (`claude`, `agy`, `opencode`) side by side in one tmux session: **planners** on the left, **implementers** on the right, and a live status window underneath. Start it with `./run.sh` from your workspace (see the package README).
 
 tandem only **launches** the official CLIs exactly as you would from a shell, with their documented flags. It never types into them, reads their output, proxies their traffic, or touches their credentials. Coordination happens only because agents choose to read and write shared files through the `agent-coordination` skill.
 
@@ -123,6 +123,7 @@ The next `./run.sh` (or `tandem`) that finds a saved file asks **[R]esume / star
 |---|---|---|---|
 | `claude` | `--session-id <uuid>` (tandem picks the UUID) | `--resume <uuid>` | the `session_id` Claude Code passes to the statusline command tandem already sets, so `/clear` or `/resume` inside the pane is followed |
 | `agy` | `--log-file <coordination>/conversations/agy-<role>-<n>.log` | `--conversation <id>` | the last `Created/Streaming conversation <id>` line in that log (best effort: if the log format changes, the agent starts a new conversation) |
+| `opencode` | none (always a fresh session) | not yet | none. `opencode --session <id>` exists, but the id shape is unverified and learning it would need a process per autosave, so tandem does not resume opencode agents (see `knowledgebase/context-history/opencode-cli-surface.md` in the agent-workspace repo) |
 
 The conversations themselves stay in each CLI's own history; tandem stores only the IDs (in `tandem-session.json` and `<coordination>/conversations/`). Claude is only asked to `--resume` when its transcript exists (`$CLAUDE_CONFIG_DIR` or `~/.claude`, `projects/*/<uuid>.jsonl`); a session that never got a message starts fresh under the same ID. A Claude agent whose folder was deleted starts a new conversation, because Claude keeps conversations per folder. `Ctrl+Alt+r` on an exited agent reopens its conversation the same way.
 
@@ -159,10 +160,11 @@ Enter restarts the selected agents with `respawn-pane -k`, relaunching each with
 
 ## Quota line
 
-The second row of tmux's bottom bar shows subscription quota for the CLIs that have agents running, e.g. `Quota  claude: 5h 42% (resets 14:30) · 7d 12% (resets Mon 09:00)  │  agy: quota not available`. It refreshes every 10 seconds from local files.
+The second row of tmux's bottom bar shows subscription quota for the CLIs that have agents running, e.g. `Quota  claude: 5h 42% (resets 14:30) · 7d 12% (resets Mon 09:00)  │  agy: quota not available  │  opencode: quota not available`. It refreshes every 10 seconds from local files.
 
 - **Claude Code:** tandem starts each Claude session with `--settings` pointing the documented *statusline* at `tandem quota-feed`. Claude Code itself passes `rate_limits` (the 5-hour and weekly windows) to that command; tandem stores only the percentages and reset times under `<coordination>/quota/`. Your own statusline is not lost: the feed runs the one from your local, project or user settings on the same input and prints its output. Claude only supplies this for Pro/Max subscribers and after a session's first reply; otherwise the line says `quota not available`. An old reading is labelled `[as of HH:MM]`.
 - **Antigravity (`agy`):** always `quota not available`. Its only quota view is the interactive `/usage` panel, and Google has not said that third parties may read its statusline data.
+- **opencode:** always `quota not available`. tandem does not read opencode's usage.
 - **What tandem does not do:** read or type into a pane, read an OAuth token, or call a usage endpoint.
 
 ## Coordination
@@ -183,7 +185,7 @@ Minimum tool versions live in `min-versions.env` (read by `../run.sh` as data, n
 
 | Module | Role |
 |---|---|
-| `adapters/` | Build exact argv for `claude` / `agy`; list models |
+| `adapters/` | Build exact argv (and, for opencode, the model environment) for `claude` / `agy` / `opencode`; list models |
 | `wizard/` | Launch and add-agent screens |
 | `tmux/` | Allow-listed tmux client, layout, tabs, keymap |
 | `coordination/` | Typed reader/answer-writer for the protocol files |
