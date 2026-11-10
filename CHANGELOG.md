@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added: `/symlink` skill
+
+- **`/symlink [path] [--name <name>]`**: links one directory into `codebase-symlinks/` with a relative symlink and refreshes `knowledgebase/context-history/codebase-map.md`, so a codebase can be linked after `init` without re-running the sibling picker. With no path it lists sibling directories and whether each is linked. `scripts/symlink.py` refuses missing paths, files, the workspace itself, its parents (symlink loops), directories already inside the workspace, invalid names, and name clashes, and never replaces an existing link. Supports `--dry-run`.
+
 ## [1.14.2] — 2026-11-09
 
 ### Fixed: stale `tandem-web-core-service` daemon & source on update (`Press ⏎ to Reconnect`)

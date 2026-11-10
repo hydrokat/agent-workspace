@@ -53,6 +53,7 @@ describe('script-first skills ship their scripts and templates', () => {
     explain: { command: '/explain', files: ['scripts/locate.py', 'assets/technical.md', 'assets/non-technical.md'] },
     feasibility: { command: '/feasibility', files: ['assets/report.md'] },
     'code-cleanup': { command: '/code-cleanup', files: ['scripts/comments.py', 'assets/candidates.md'] },
+    symlink: { command: '/symlink', files: ['scripts/symlink.py'] },
   };
 
   const PM_SKILLS = {
@@ -88,6 +89,12 @@ describe('script-first skills ship their scripts and templates', () => {
       assert.ok(readFile(dir, `.agents/skills/${name}/agents/openai.yaml`).includes(`default_prompt: "${spec.command}"`));
     });
   }
+
+  it('symlink reuses the workspace-init map writer and never overwrites links', () => {
+    assert.ok(skill('symlink').includes('symlink.py --siblings'));
+    assert.ok(skill('symlink').includes('workspace-init/scripts/link_codebases.py'));
+    assert.match(skill('symlink'), /Never replace, retarget, or delete/);
+  });
 
   it('the new skills call each other by path and keep their read-only mandates', () => {
     assert.ok(skill('spec-explain').includes('spec-planner/scripts/specs.py'));
@@ -131,6 +138,7 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.deepEqual([task.task, task.delivery], ['t-001', 't-002']);
     assert.deepEqual(run('spec-planner/scripts/specs.py', 'waves', 'p-001').waves, [['t-001'], ['t-002']]);
     assert.equal(run('workspace-cleanup/scripts/scan_workspace.py').root.length > 0, true);
+    assert.ok(Array.isArray(run('symlink/scripts/symlink.py', '--siblings').siblings));
     assert.equal(run('pm-new-sprint/scripts/sprints.py', 'next-sprint').next, '001');
     const catalog = run('pm-new-sprint/scripts/sprints.py', 'commands');
     assert.ok(Array.isArray(catalog.commands) && catalog.commands.length >= 9);

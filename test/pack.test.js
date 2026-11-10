@@ -48,6 +48,7 @@ describe('npm pack contents', () => {
       'code-cleanup/SKILL.md', 'code-cleanup/agents/openai.yaml', 'code-cleanup/scripts/comments.py',
       'code-cleanup/assets/candidates.md', 'workspace-cleanup/scripts/scan_workspace.py',
       'workspace-cleanup/assets/candidates.md', 'pull-request/assets/pr-body.md',
+      'symlink/SKILL.md', 'symlink/agents/openai.yaml', 'symlink/scripts/symlink.py',
       'knowledge/assets/decision.md', 'knowledge/assets/context-note.md', 'knowledge/assets/best-practice.md',
       'knowledge/assets/business-flow.md',
       'test-failures/SKILL.md', 'test-failures/agents/openai.yaml', 'test-failures/scripts/run_tests.py',
