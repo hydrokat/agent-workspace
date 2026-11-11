@@ -1,4 +1,0 @@
-interface:
-  display_name: "Test failures"
-  short_description: "Run tests and see only what failed"
-  default_prompt: "Run the tests with the failed-tests-only runner"
