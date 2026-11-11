@@ -1,18 +1,15 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceEntry } from "../../domain/models/workspace";
 import type { IWorkspaceRegistry } from "../../domain/ports/workspace-registry";
+import { resolveStateDir } from "./state-dir";
 
 export class FileWorkspaceRegistry implements IWorkspaceRegistry {
   constructor(private readonly customStateDir?: string) {}
 
   private resolveRegistryPath(): string {
-    const stateDir =
-      this.customStateDir ||
-      process.env.XDG_STATE_HOME ||
-      join(homedir(), ".local", "state", "tandem");
+    const stateDir = this.customStateDir || resolveStateDir();
     return join(stateDir, "workspaces.json");
   }
 

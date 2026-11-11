@@ -3,6 +3,8 @@ import net from "node:net";
 import { parse } from "node:url";
 import next from "next";
 import { TtydProcessAdapter } from "./src/infrastructure/tandem/ttyd-process-adapter";
+import { TtydPidRegistry, reapOrphanedTtyd } from "./src/infrastructure/tandem/ttyd-pid-registry";
+import { getSnapshotBroker } from "./src/infrastructure/tandem/snapshot-broker";
 import { TokenGuard, AUTH_COOKIE_NAME } from "./src/infrastructure/auth/token-guard";
 
 export interface ServerConfig {
@@ -104,9 +106,11 @@ export const MAX_PENDING_BYTES = 1024 * 1024;
 const GZIP_MIN_BYTES = 1024;
 
 interface PtyWsData {
+  workspaceId: string;
   port: number;
   path: string;
   protocols: string[];
+  upstreamAuthHeader: string;
   upstream?: WebSocket;
   pending: Array<string | Uint8Array>;
   pendingBytes: number;
@@ -217,6 +221,14 @@ export async function createCoreProxyServer(
     };
   }
 
+  // Reap any ttyd processes left by a previous daemon before starting to listen.
+  try {
+    const registry = new TtydPidRegistry();
+    await reapOrphanedTtyd(registry);
+  } catch {
+    // Reaping is best-effort; never block startup on a ps failure
+  }
+
   const nextServer = http.createServer((req, res) => {
     handle(req, res);
   });
@@ -226,13 +238,13 @@ export async function createCoreProxyServer(
   });
   const nextPort = (nextServer.address() as net.AddressInfo).port;
 
+  // resolveSession is called only by the proxy path; it must never change the mode
+  // of a running session (mode changes are initiated via the terminal route).
   const resolveSession = async (workspaceId: string) => {
     const existing = ttydAdapter.getSession(workspaceId);
     if (existing) return existing;
-    return ttydAdapter.ensureSession(workspaceId, config.authToken);
+    return ttydAdapter.ensureSession(workspaceId);
   };
-
-  const ttydAuthHeader = `Basic ${Buffer.from(`tandem:${config.authToken}`).toString("base64")}`;
 
   const proxyToNext = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
@@ -258,9 +270,10 @@ export async function createCoreProxyServer(
 
   const proxyToTtyd = async (
     req: Request,
-    port: number,
+    session: { port: number; upstreamAuthHeader: string },
     pathAndQuery: string
   ): Promise<Response> => {
+    const { port, upstreamAuthHeader } = session;
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
     const browserAcceptsGzip = (req.headers.get("accept-encoding") ?? "").includes("gzip");
     try {
@@ -268,7 +281,7 @@ export async function createCoreProxyServer(
         method: req.method,
         headers: relayRequestHeaders(req.headers, {
           host: `127.0.0.1:${port}`,
-          authorization: ttydAuthHeader,
+          authorization: upstreamAuthHeader,
           // Bun 1.3.x fetch has no decompress:false option; keep identity so we
           // receive the raw body and optionally compress it ourselves below.
         }),
@@ -340,14 +353,22 @@ export async function createCoreProxyServer(
           .map((p) => p.trim())
           .filter(Boolean);
         const upgraded = srv.upgrade(req, {
-          data: { port: session.port, path: pathAndQuery, protocols, pending: [], pendingBytes: 0 },
+          data: {
+            workspaceId: ptyInfo.workspaceId,
+            port: session.port,
+            path: pathAndQuery,
+            protocols,
+            upstreamAuthHeader: session.upstreamAuthHeader,
+            pending: [],
+            pendingBytes: 0,
+          },
           headers: protocols.length > 0 ? { "Sec-WebSocket-Protocol": protocols[0] } : undefined,
         });
         if (upgraded) return undefined as unknown as Response;
         return jsonError(400, "BAD_UPGRADE", "WebSocket upgrade failed");
       }
 
-      return proxyToTtyd(req, session.port, pathAndQuery);
+      return proxyToTtyd(req, session, pathAndQuery);
     },
     websocket: {
       // perMessageDeflate is off: terminal frames are small and latency-sensitive;
@@ -366,13 +387,14 @@ export async function createCoreProxyServer(
       maxPayloadLength: 4 * 1024 * 1024,
       open(ws) {
         const data = ws.data;
+        ttydAdapter.clientOpened(data.workspaceId);
         const BunWebSocket = WebSocket as unknown as new (
           url: string,
           options: { protocols: string[]; headers: Record<string, string> }
         ) => WebSocket;
         const upstream = new BunWebSocket(`ws://127.0.0.1:${data.port}${data.path}`, {
           protocols: data.protocols,
-          headers: { Authorization: ttydAuthHeader },
+          headers: { Authorization: data.upstreamAuthHeader },
         });
         upstream.binaryType = "arraybuffer";
         data.upstream = upstream;
@@ -416,6 +438,7 @@ export async function createCoreProxyServer(
         data.pending.push(payload);
       },
       close(ws) {
+        ttydAdapter.clientClosed(ws.data.workspaceId);
         try {
           ws.data.upstream?.close();
         } catch {
@@ -433,15 +456,37 @@ if (import.meta.main || (process.argv[1] && process.argv[1].endsWith("server.ts"
     const config = parseServerArgs();
     const { server, nextServer, ttydAdapter } = await createCoreProxyServer(config);
     console.log(`tandem-web-core-service listening on http://${config.bindIp}:${server.port}`);
+
+    let shuttingDown = false;
+
     const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      try {
+        getSnapshotBroker().stopAll();
+      } catch {
+        // best-effort
+      }
       ttydAdapter.stopAll();
       server.stop(true);
       nextServer.close();
       process.exit(0);
     };
+
     process.on("SIGTERM", shutdown);
     process.on("SIGINT", shutdown);
+    process.on("SIGHUP", shutdown);
     process.on("exit", () => ttydAdapter.stopAll());
+
+    process.on("uncaughtException", (err) => {
+      console.error("uncaughtException:", err.message);
+      shutdown();
+    });
+
+    process.on("unhandledRejection", (reason) => {
+      console.error("unhandledRejection:", reason instanceof Error ? reason.message : String(reason));
+      shutdown();
+    });
   } catch (err) {
     console.error((err as Error).message);
     process.exit(1);

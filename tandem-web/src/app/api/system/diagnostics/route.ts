@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSnapshotBroker } from "@/infrastructure/tandem/snapshot-broker";
+import { TtydProcessAdapter } from "@/infrastructure/tandem/ttyd-process-adapter";
+
+const ttydAdapter = new TtydProcessAdapter();
 
 export async function GET() {
   const broker = getSnapshotBroker();
@@ -22,5 +25,6 @@ export async function GET() {
         restarts: w.restarts,
       })),
     },
+    terminals: ttydAdapter.getDiagnostics(),
   });
 }
