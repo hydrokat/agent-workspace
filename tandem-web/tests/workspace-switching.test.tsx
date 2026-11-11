@@ -413,58 +413,6 @@ describe("DashboardPage – workspace selection", () => {
     expect(activeCard?.textContent ?? "").toContain(B.id);
   });
 
-  it("15. a stale (slow) poll started before a click does not undo the click", async () => {
-    let resolveSlow!: (r: Response) => void;
-    const slowFetch = new Promise<Response>((r) => { resolveSlow = r; });
-    let callCount = 0;
-    (globalThis as unknown as { fetch: FetchMock }).fetch = async (input) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/api/workspaces") && !url.includes("/stream") && !url.includes("/actions")) {
-        callCount++;
-        if (callCount === 1) return slowFetch; // first call returns slowly
-        return makeWorkspacesResponse([A, B]);
-      }
-      if (url.includes("/api/system/settings")) return makeSettingsResponse();
-      if (url.includes("/api/system/ips")) return makeIpsResponse();
-      return new Response("{}", { status: 200 });
-    };
-
-    const DashboardPage = await loadPage();
-    render(<DashboardPage />);
-
-    // A appears selected after first poll resolves
-    await act(async () => {
-      resolveSlow(makeWorkspacesResponse([A, B]));
-      await new Promise((r) => setTimeout(r, 50));
-    });
-
-    // Now start a new slow poll (by advancing time slightly, then slow second fetch)
-    let resolveSecondSlow!: (r: Response) => void;
-    const secondSlowFetch = new Promise<Response>((r) => { resolveSecondSlow = r; });
-    (globalThis as unknown as { fetch: FetchMock }).fetch = async (input) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/api/workspaces") && !url.includes("/stream") && !url.includes("/actions")) {
-        return secondSlowFetch; // second poll runs slowly
-      }
-      if (url.includes("/api/system/settings")) return makeSettingsResponse();
-      if (url.includes("/api/system/ips")) return makeIpsResponse();
-      return new Response("{}", { status: 200 });
-    };
-
-    // The test: click B, THEN resolve the stale slow poll
-    // The stale poll should be ignored due to the request counter guard
-    // Since the page polls every 5s, we can't easily trigger that in test time.
-    // Instead we verify: after click, B is selected; second fetch with [A,B] does not undo it.
-    installFetchMock(() => Promise.resolve(makeWorkspacesResponse([A, B])));
-    await act(async () => {
-      resolveSecondSlow(makeWorkspacesResponse([A, B])); // stale poll arrives with original list
-      await new Promise((r) => setTimeout(r, 50));
-    });
-
-    // This is intentionally a lightweight verification: the selection holds
-    expect(true).toBe(true); // structural test: no crash, no infinite loop
-  });
-
   it("16. a poll without currentId shows missing banner and does not auto-select A", async () => {
     // Start with [A, B], select B, then poll returns [A] only
     installFetchMock(() => Promise.resolve(makeWorkspacesResponse([A, B])));
