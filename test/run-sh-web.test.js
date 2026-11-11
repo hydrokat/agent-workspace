@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cleanup, makeTmp } from './helpers.js';
+import { WEB_SOURCE_HASH_STAMP, WEB_BUILD_HASH_FILE } from '../src/commands/web.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const BASH_PRELUDE = `set +e
@@ -73,6 +74,10 @@ describe('run.sh --web installs tandem-web when it is not installed yet', () => 
   function markBuilt() {
     mkdirSync(join(webDir, '.next'), { recursive: true });
     writeFileSync(join(webDir, '.next', 'BUILD_ID'), 'prebuilt');
+    // Write matching hash stamps so needsBuild() returns false for this pre-built state.
+    const fakeHash = '0000000000000000000000000000000000000000000000000000000000000000';
+    writeFileSync(join(webDir, WEB_SOURCE_HASH_STAMP), `${fakeHash}\n`);
+    writeFileSync(join(webDir, '.next', WEB_BUILD_HASH_FILE), `${fakeHash}\n`);
   }
 
   function runWeb({ mode = 'yes', bind = '', port = '', withBun = true, env = {}, webMode = '1', npx = 'present' } = {}) {
