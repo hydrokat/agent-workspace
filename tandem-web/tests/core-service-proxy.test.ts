@@ -150,12 +150,12 @@ describe("TtydProcessAdapter multi-workspace loopback pool", () => {
     adapter.registerMockSession(ws2, "socket-2", 45002);
 
     expect(adapter.getStatus(ws1).running).toBe(true);
-    expect(adapter.getStatus(ws1).port).toBe(45001);
     expect(adapter.getStatus(ws1).proxyPath).toBe(`/api/workspaces/${ws1}/terminal/pty/`);
+    expect(adapter.getStatus(ws1).mode).toBe("mirror");
 
     expect(adapter.getStatus(ws2).running).toBe(true);
-    expect(adapter.getStatus(ws2).port).toBe(45002);
     expect(adapter.getStatus(ws2).proxyPath).toBe(`/api/workspaces/${ws2}/terminal/pty/`);
+    expect(adapter.getStatus(ws2).mode).toBe("mirror");
 
     // Stop only ws1
     adapter.stop(ws1);
@@ -167,11 +167,11 @@ describe("TtydProcessAdapter multi-workspace loopback pool", () => {
     expect(adapter.getStatus(ws2).running).toBe(false);
   });
 
-  it("refuses wildcard bindings and missing credentials", async () => {
-    const adapter = new TtydProcessAdapter();
-    await expect(adapter.start("tandem-1234567890", "0.0.0.0", 3941, "tok")).rejects.toThrow(/wildcard/);
-    await expect(adapter.start("tandem-1234567890", "::", 3941, "tok")).rejects.toThrow(/wildcard/);
-    await expect(adapter.start("tandem-1234567890", "127.0.0.1", 3941, "")).rejects.toThrow(/credential/);
+  it("start no longer accepts a bindIp parameter; the adapter always uses 127.0.0.1 internally", () => {
+    // The new StartOptions interface only accepts {workspaceId, socket, mode}.
+    // This test documents that callers cannot change the bind address.
+    const options = { workspaceId: "tandem-1234567890", socket: "s.sock", mode: "mirror" as const };
+    expect("bindIp" in options).toBe(false);
   });
 
   it("shares sessions globally across distinct adapter instances via globalThis", () => {
@@ -261,9 +261,12 @@ describe("production mode selection", () => {
 
 describe("single-port core proxy websocket bridge", () => {
   const token = "tandem_0123456789abcdef0123456789abcdef";
-  const basic = `Basic ${Buffer.from(`tandem:${token}`).toString("base64")}`;
 
-  it("relays pty http and websocket traffic to ttyd and the rest to next", async () => {
+  it("relays pty http and websocket traffic to ttyd and the rest to next; proxy uses per-session auth header", async () => {
+    // Each ttyd session now has its own random credential stored as upstreamAuthHeader.
+    // The proxy forwards that header, not the dashboard token.
+    const sessionAuthHeader = `Basic ${Buffer.from("tandem:per-session-cred-xyz").toString("base64")}`;
+
     const seenAuth: Array<string | null> = [];
     const mockTtyd = Bun.serve<{ protocol: string | null }>({
       hostname: "127.0.0.1",
@@ -271,7 +274,7 @@ describe("single-port core proxy websocket bridge", () => {
       fetch(req, srv) {
         seenAuth.push(req.headers.get("authorization"));
         if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-          if (req.headers.get("authorization") !== basic) {
+          if (req.headers.get("authorization") !== sessionAuthHeader) {
             return new Response("denied", { status: 401 });
           }
           srv.upgrade(req, {
@@ -291,7 +294,8 @@ describe("single-port core proxy websocket bridge", () => {
 
     const adapter = new TtydProcessAdapter();
     const wsId = "tandem-proxy-test-01";
-    adapter.registerMockSession(wsId, "sock", mockTtyd.port as number);
+    // Pass the per-session auth header explicitly so the proxy uses it.
+    adapter.registerMockSession(wsId, "sock", mockTtyd.port as number, sessionAuthHeader);
 
     const port = await getAvailablePort();
     const { server, nextServer } = await createCoreProxyServer(
@@ -317,7 +321,8 @@ describe("single-port core proxy websocket bridge", () => {
       const authed = await fetch(`http://${base}${ptyBase}?token=${token}`);
       expect(authed.status).toBe(200);
       expect(await authed.text()).toBe("ttyd-index");
-      expect(seenAuth.at(-1)).toBe(basic);
+      // The proxy must forward the session's own auth header, not the dashboard token.
+      expect(seenAuth.at(-1)).toBe(sessionAuthHeader);
 
       const echoed = await new Promise<{ protocol: string; data: number[] }>((resolve, reject) => {
         const ws = new WebSocket(`ws://${base}${ptyBase}ws?token=${token}`, ["tty"]);

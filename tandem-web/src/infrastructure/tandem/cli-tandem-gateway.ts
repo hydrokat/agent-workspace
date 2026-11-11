@@ -1,9 +1,9 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
+import { resolveStateDir } from "./state-dir";
 import type { WorkspaceSnapshotPayload } from "../../domain/models/snapshot";
 import type {
   AllowedTandemAction,
@@ -28,9 +28,7 @@ export function resolveTandemBinary(): string {
   if (process.env.TANDEM_SELF && existsSync(process.env.TANDEM_SELF)) {
     return process.env.TANDEM_SELF;
   }
-  const stateDir =
-    process.env.XDG_STATE_HOME ||
-    join(homedir(), ".local", "state", "tandem");
+  const stateDir = resolveStateDir();
   const candidate = join(
     stateDir,
     "bin",
