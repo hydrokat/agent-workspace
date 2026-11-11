@@ -2,8 +2,7 @@ use std::fs;
 use std::path::Path;
 use tandem::web_manager::{
     WEB_BUILD_HASH_FILE, WEB_SOURCE_HASH_STAMP, WEB_VERSION_STAMP, WebConfig, copy_dir_all,
-    copy_web_source_clean, ensure_web_dir, installed_is_current, web_is_built, web_server_args,
-    web_source_hash,
+    ensure_web_dir, installed_is_current, web_is_built, web_server_args, web_source_hash,
 };
 
 mod common;

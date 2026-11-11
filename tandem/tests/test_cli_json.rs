@@ -1,9 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use tandem::cli::parse_from;
-use tandem::commands::{
-    answer_query_inner, collect_snapshot_json, list_ips_payload, snapshot_json,
-};
+use tandem::commands::{answer_query_inner, collect_snapshot_json, list_ips_payload};
 use tandem::config::Config;
 use tandem::coordination::store::CoordStore;
 
