@@ -16,7 +16,6 @@ import type { AllowedTandemAction, ListIpsResult } from "../src/domain/ports/tan
 import { NextResponse } from "next/server";
 import { GET as streamGET } from "../src/app/api/workspaces/[workspaceId]/stream/route";
 
-// ─── Fake watcher ────────────────────────────────────────────────────────────
 interface WatchCall {
   workspacePath: string;
   handlers: SnapshotWatchHandlers;
@@ -30,7 +29,6 @@ class FakeWatch implements SnapshotWatch {
   }
 }
 
-// ─── Fake gateway ────────────────────────────────────────────────────────────
 class FakeGateway implements ITandemGateway {
   watchCalls: WatchCall[] = [];
   snapshotCalls = 0;
@@ -60,7 +58,6 @@ class FakeGateway implements ITandemGateway {
   async executeAction(): Promise<void> {}
 }
 
-// ─── Fake registry ───────────────────────────────────────────────────────────
 class FakeRegistry implements IWorkspaceRegistry {
   constructor(private readonly workspace: WorkspaceEntry | null = makeWorkspace()) {}
 
@@ -74,7 +71,6 @@ class FakeRegistry implements IWorkspaceRegistry {
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 function makeWorkspace(id = "tandem-1234567890"): WorkspaceEntry {
   return { id, name: "test", path: "/workspaces/test", socket: id, updated_at: 0 };
 }
@@ -106,12 +102,10 @@ function errorLine(msg = "oops"): string {
 
 const WORKSPACE_ID = "tandem-1234567890";
 
-// ─── Clock helpers ────────────────────────────────────────────────────────────
 let fakeNow = 0;
 function clock(): number { return fakeNow; }
 function advanceMs(ms: number): void { fakeNow += ms; }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
 describe("SnapshotBroker", () => {
   let gateway: FakeGateway;
   let registry: FakeRegistry;
@@ -128,7 +122,6 @@ describe("SnapshotBroker", () => {
     broker.stopAll();
   });
 
-  // 1. One watcher for many subscribers
   it("starts one watcher for many subscribers", async () => {
     const u1 = broker.subscribe(WORKSPACE_ID, () => {});
     const u2 = broker.subscribe(WORKSPACE_ID, () => {});
@@ -162,7 +155,6 @@ describe("SnapshotBroker", () => {
     u1(); u2();
   });
 
-  // 3. Forwards raw line unchanged
   it("forwards the raw line unchanged", async () => {
     const frames: BrokerFrame[] = [];
     const unsub = broker.subscribe(WORKSPACE_ID, (f) => frames.push(f));
@@ -218,7 +210,6 @@ describe("SnapshotBroker", () => {
     unsub();
   });
 
-  // 6. Stops the watcher after the grace period
   it("stops the watcher after the grace period", async () => {
     const unsub = broker.subscribe(WORKSPACE_ID, () => {});
     await Promise.resolve();
@@ -259,7 +250,6 @@ describe("SnapshotBroker", () => {
     u2();
   });
 
-  // 8. Restarts with backoff after unexpected exit
   it("restarts with backoff after an unexpected exit", async () => {
     const u1 = broker.subscribe(WORKSPACE_ID, () => {});
     await Promise.resolve();
@@ -282,7 +272,6 @@ describe("SnapshotBroker", () => {
     u1();
   });
 
-  // 9. Restarts a stalled watcher
   it("restarts a stalled watcher", async () => {
     const u1 = broker.subscribe(WORKSPACE_ID, () => {});
     await Promise.resolve();
@@ -298,7 +287,6 @@ describe("SnapshotBroker", () => {
     u1();
   });
 
-  // 10. Falls back to polling when --watch is rejected
   it("falls back to polling when --watch is rejected (exit code 2 within 2s)", async () => {
     // Gateway configured to exit with code 2 immediately
     gateway.exitCodeOnWatch = 2;
@@ -341,7 +329,6 @@ describe("SnapshotBroker", () => {
     broker2.stopAll();
   });
 
-  // 12. Unsubscribe is idempotent; a throwing listener is removed
   it("unsubscribe is idempotent and a throwing listener is removed without affecting others", async () => {
     const good: BrokerFrame[] = [];
     let throwCount = 0;
@@ -425,7 +412,6 @@ describe("stream route with SnapshotBroker", () => {
   });
 });
 
-// ─── Diagnostics auth test ─────────────────────────────────────────────────
 describe("diagnostics route", () => {
   const token = "tandem_0123456789abcdef0123456789abcdef";
 

@@ -6,6 +6,19 @@
 
 - **`/symlink [path] [--name <name>]`**: links one directory into `codebase-symlinks/` with a relative symlink and refreshes `knowledgebase/context-history/codebase-map.md`, so a codebase can be linked after `init` without re-running the sibling picker. With no path it lists sibling directories and whether each is linked. `scripts/symlink.py` refuses missing paths, files, the workspace itself, its parents (symlink loops), directories already inside the workspace, invalid names, and name clashes, and never replaces an existing link. Supports `--dry-run`.
 
+## [1.15.0] — 2026-11-11
+
+### Fixed: tandem-web performance, terminal latency, and workspace switching
+
+- **One snapshot watcher per workspace**: `tandem snapshot --json --watch [--interval-ms N]` streams compact NDJSON and prints a frame only when something other than the clock changed, with a heartbeat line after 5 s of silence. A snapshot tick now makes at most 2 tmux calls and no longer rewrites `tandem.tmux.conf`. One-shot `tandem snapshot --json` is compact by default; `--pretty` restores indentation. The payload gains an optional `window` size.
+- **Shared `SnapshotBroker` in tandem-web**: every browser tab shares one watcher per workspace, which stops 10 s after the last viewer leaves. The stream no longer leaks pollers when a client disconnects early, sends change-only frames with keep-alive comments, and the browser pauses the stream while the tab is hidden. `GET /api/system/diagnostics` (authenticated) reports broker, terminal, and memory statistics.
+- **Terminal proxy hardening**: explicit WebSocket options, a capped pre-connect queue (overflow closes with 1013), 1011 and 1000 close codes, gzip for the `ttyd` page, and abort propagation to upstream requests. A latency test holds proxy overhead under 15 ms p95.
+- **Host-safe terminal sizing**: the web terminal attaches with `tmux attach -f ignore-size` (Mirror host, default) so it cannot resize the host window; Fit screen keeps the compact layout for phones. Each `ttyd` gets a random credential, so the dashboard token is no longer in process arguments.
+- **`ttyd` lifecycle**: PIDs are recorded in `web-ttyd-pids.json` and orphans are reaped, after a command-name check, on daemon start. A `ttyd` with no clients for 5 minutes stops. Shutdown on `SIGTERM`, `SIGINT`, `SIGHUP`, and fatal errors stops every `ttyd` and watcher once.
+- **Terminal panel**: Mirror/Fit radiogroup with a confirmation for Fit, full-height layout, font fitting, and render isolation from snapshot updates.
+- **Content-addressed install**: the installed `tandem-web-core-service` source and build are stamped with a SHA-256 of the source tree (`.tandem-source-hash`, `.next/TANDEM_SOURCE_HASH`). A source change at the same version now triggers a re-copy, a rebuild, and a daemon restart. Rust and Node use the same algorithm, checked against a shared fixture.
+- **Workspace switching**: stopped workspaces show as stopped and cannot be selected, a vanished selection shows a banner instead of silently switching, and stale poll responses are dropped.
+
 ## [1.14.2] — 2026-11-09
 
 ### Fixed: stale `tandem-web-core-service` daemon & source on update (`Press ⏎ to Reconnect`)

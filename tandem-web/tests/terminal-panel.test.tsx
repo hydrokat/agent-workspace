@@ -12,9 +12,7 @@ import type { AgentChip, TerminalSizeMode } from "../src/domain/models/terminal"
 
 useDom();
 
-// ---------------------------------------------------------------------------
 // 1. Pure helper: mirrorFontSize
-// ---------------------------------------------------------------------------
 
 describe("mirrorFontSize", () => {
   it("1020 px × 170 cols → 10", () => {
@@ -32,9 +30,7 @@ describe("mirrorFontSize", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 2–3. useTerminalSizeMode hook
-// ---------------------------------------------------------------------------
 
 describe("useTerminalSizeMode", () => {
   const SIZE_MODE_KEY = "tandem.terminal.sizeMode";
@@ -103,9 +99,7 @@ describe("useTerminalSizeMode", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Panel tests (require DOM + fetch mock)
-// ---------------------------------------------------------------------------
 
 
 function makeOkResponse(body: object): Response {
@@ -283,7 +277,6 @@ describe("TerminalAttachPanel – phase state machine", () => {
     const dialog = container.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
 
-    // Cancel
     const cancelBtn = Array.from(container.querySelectorAll("button")).find((b) =>
       /cancel/i.test(b.textContent ?? "")
     ) as HTMLElement;
@@ -354,9 +347,7 @@ describe("TerminalAttachPanel – phase state machine", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 9. Render isolation
-// ---------------------------------------------------------------------------
 
 describe("TerminalAttachPanel – render isolation", () => {
   let origFetch: typeof globalThis.fetch;
@@ -440,9 +431,7 @@ describe("TerminalAttachPanel – render isolation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 10. Mirror too small hint
-// ---------------------------------------------------------------------------
 
 describe("TerminalAttachPanel – mirror hint", () => {
   let origFetch: typeof globalThis.fetch;
@@ -463,7 +452,6 @@ describe("TerminalAttachPanel – mirror hint", () => {
 
     // With a very wide host (cols=170) and a narrow container (~100px),
     // mirrorFontSize returns 7 (clamped) which still doesn't fit → show hint.
-    // We need to pass hostCols=170 and let the component compute via ResizeObserver.
     // Since ResizeObserver doesn't fire in happy-dom, we can stub the container width
     // by overriding ResizeObserver to call back immediately with a small width.
     const origResizeObserver = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver;
@@ -502,9 +490,7 @@ describe("TerminalAttachPanel – mirror hint", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 11. Session-ended detection
-// ---------------------------------------------------------------------------
 
 describe("TerminalAttachPanel – session ended polling", () => {
   let origFetch: typeof globalThis.fetch;
@@ -588,9 +574,7 @@ describe("TerminalAttachPanel – session ended polling", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 12. Existing regressions: disabled card and modifier bar key dispatch
-// ---------------------------------------------------------------------------
 
 describe("TerminalAttachPanel – regressions", () => {
   it("12a. renders ttyd disabled card when ttydEnabled is false (SSR)", async () => {

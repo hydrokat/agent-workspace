@@ -389,7 +389,6 @@ describe("proxy hardening: burst, isolation, idle, queue cap, close codes", () =
       const timer = setTimeout(() => reject(new Error("burst timeout")), 15_000);
       ws.onmessage = (e) => {
         const data = new Uint8Array(e.data as ArrayBuffer);
-        // First byte encodes the frame index (low byte)
         received.push(data[3]);
         if (received.length === FRAMES) {
           clearTimeout(timer);

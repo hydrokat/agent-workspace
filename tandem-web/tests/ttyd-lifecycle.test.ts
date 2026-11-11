@@ -27,9 +27,7 @@ import { resolveStateDir } from "../src/infrastructure/tandem/state-dir";
 import type { IWorkspaceRegistry } from "../src/domain/ports/workspace-registry";
 import type { WorkspaceEntry } from "../src/domain/models/workspace";
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 type FakeChild = ChildProcess & { _killed: boolean };
 
@@ -83,9 +81,7 @@ function fakeWorkspaceRegistry(ws: Partial<WorkspaceEntry> & { id: string }): IW
   };
 }
 
-// ---------------------------------------------------------------------------
 // Part A — Sizing modes (pure functions)
-// ---------------------------------------------------------------------------
 
 describe("tmuxAttachArgs", () => {
   it("mirror mode: attach-session -f ignore-size -t tandem in correct order", () => {
@@ -123,9 +119,7 @@ describe("isTerminalSizeMode", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Part A — Adapter: mirror/fit mode in spawn args
-// ---------------------------------------------------------------------------
 
 describe("TtydProcessAdapter sizing modes", () => {
   it("mirror mode spawn args contain attach-session -f ignore-size -t tandem in order", async () => {
@@ -234,9 +228,7 @@ describe("TtydProcessAdapter sizing modes", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Part B — Auth token never in spawn args; per-session random credential
-// ---------------------------------------------------------------------------
 
 describe("auth token isolation", () => {
   it("the dashboard auth token is never passed to spawn; each session gets a distinct random credential", async () => {
@@ -280,9 +272,7 @@ describe("auth token isolation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Part C — PID registry
-// ---------------------------------------------------------------------------
 
 describe("PID registry: record on spawn, remove on exit", () => {
   it("records the PID on start and removes it when the child exits", async () => {
@@ -402,9 +392,7 @@ describe("reapOrphanedTtyd", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Part D — Idle shutdown
-// ---------------------------------------------------------------------------
 
 describe("idle shutdown", () => {
   it("stops the session after the idle period when client count reaches zero", async () => {
@@ -461,9 +449,7 @@ describe("idle shutdown", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Part E — Robust start: fail fast when port never opens
-// ---------------------------------------------------------------------------
 
 describe("robust start failure", () => {
   it("throws Terminal backend did not start with stderr snippet and kills the child", async () => {
@@ -492,9 +478,7 @@ describe("robust start failure", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Part F — resolveStateDir matches Rust registry::resolve_state_dir
-// ---------------------------------------------------------------------------
 
 describe("resolveStateDir", () => {
   function withEnv(overrides: Record<string, string | undefined>, fn: () => void) {

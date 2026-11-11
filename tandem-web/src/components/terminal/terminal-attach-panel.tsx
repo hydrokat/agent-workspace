@@ -9,18 +9,14 @@ import { MobileModifierBar } from "./mobile-modifier-bar";
 import { mirrorFontSize } from "@/lib/terminal-font";
 import type { AgentChip, TerminalSizeMode } from "@/domain/models/terminal";
 
-// ---------------------------------------------------------------------------
 // Phase state machine
-// ---------------------------------------------------------------------------
 
 type Phase =
   | { kind: "starting" }
   | { kind: "ready"; nonce: number }
   | { kind: "error"; message: string };
 
-// ---------------------------------------------------------------------------
 // Font fitting helpers
-// ---------------------------------------------------------------------------
 
 function isMirrorTooSmall(containerWidthPx: number, cols: number): boolean {
   const CHAR_WIDTH_RATIO = 0.6;
@@ -42,9 +38,7 @@ function applyFontSize(iframe: HTMLIFrameElement, size: number): boolean {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Props
-// ---------------------------------------------------------------------------
 
 export interface TerminalAttachPanelProps {
   workspaceId: string;
@@ -61,9 +55,7 @@ export interface TerminalAttachPanelProps {
 // Poll interval for session-ended detection (ms)
 const STATUS_POLL_MS = 10_000;
 
-// ---------------------------------------------------------------------------
 // Implementation (exported for test render-count wrapping)
-// ---------------------------------------------------------------------------
 
 export function TerminalAttachPanelImpl({
   workspaceId,
@@ -82,9 +74,7 @@ export function TerminalAttachPanelImpl({
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // ---------------------------------------------------------------------------
   // Start terminal: POST then show iframe
-  // ---------------------------------------------------------------------------
 
   const startTerminal = useCallback(
     async (signal?: AbortSignal) => {
@@ -120,9 +110,7 @@ export function TerminalAttachPanelImpl({
     return () => controller.abort();
   }, [ttydEnabled, workspaceId, startTerminal]);
 
-  // ---------------------------------------------------------------------------
   // Session-ended polling (every 10 s while ready and visible)
-  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     if (phase.kind !== "ready" || !workspaceId) return;
@@ -146,9 +134,7 @@ export function TerminalAttachPanelImpl({
     return () => clearInterval(id);
   }, [phase.kind, workspaceId]);
 
-  // ---------------------------------------------------------------------------
   // Container width via ResizeObserver (for font fitting)
-  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     const el = containerRef.current;
@@ -162,9 +148,7 @@ export function TerminalAttachPanelImpl({
     return () => ro.disconnect();
   }, []);
 
-  // ---------------------------------------------------------------------------
   // Font fitting (mirror mode, after iframe load)
-  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     if (
@@ -195,9 +179,7 @@ export function TerminalAttachPanelImpl({
     return () => iframe.removeEventListener("load", onLoad);
   }, [phase.kind, mode, hostCols, containerWidth]);
 
-  // ---------------------------------------------------------------------------
   // Mode toggle handler
-  // ---------------------------------------------------------------------------
 
   const handleModeChange = useCallback(
     (next: TerminalSizeMode) => {
@@ -281,9 +263,7 @@ export function TerminalAttachPanelImpl({
     }
   };
 
-  // ---------------------------------------------------------------------------
   // Disabled state
-  // ---------------------------------------------------------------------------
 
   if (!ttydEnabled) {
     return (
@@ -307,9 +287,7 @@ export function TerminalAttachPanelImpl({
     );
   }
 
-  // ---------------------------------------------------------------------------
   // Font-fit hint (mirror mode, container too narrow for host window)
-  // ---------------------------------------------------------------------------
 
   const showMirrorHint =
     mode === "mirror" &&
@@ -317,18 +295,14 @@ export function TerminalAttachPanelImpl({
     containerWidth !== null &&
     isMirrorTooSmall(containerWidth, hostCols);
 
-  // ---------------------------------------------------------------------------
   // Iframe key — changes on workspace, mode, or restart nonce
-  // ---------------------------------------------------------------------------
 
   const iframeKey =
     phase.kind === "ready"
       ? `${workspaceId}:${mode}:${phase.nonce}`
       : undefined;
 
-  // ---------------------------------------------------------------------------
   // Render
-  // ---------------------------------------------------------------------------
 
   return (
     <>

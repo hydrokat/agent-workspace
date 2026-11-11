@@ -37,9 +37,7 @@ export function tmuxAttachArgs(socket: string, mode: TerminalSizeMode): string[]
   return args;
 }
 
-// ---------------------------------------------------------------------------
 // Port helpers
-// ---------------------------------------------------------------------------
 
 export function isLoopback(ip: string): boolean {
   return typeof ip === "string" && (ip.startsWith("127.") || ip === "localhost" || ip === "::1");
@@ -83,9 +81,7 @@ export async function getAvailablePort(): Promise<number> {
   });
 }
 
-// ---------------------------------------------------------------------------
 // Session interface
-// ---------------------------------------------------------------------------
 
 export interface LoopbackTtydSession {
   workspaceId: string;
@@ -100,9 +96,7 @@ export interface LoopbackTtydSession {
   process?: ChildProcess;
 }
 
-// ---------------------------------------------------------------------------
 // Binary lookup (cached)
-// ---------------------------------------------------------------------------
 
 function resolveTtydBinary(cache: { ttyd: string | null; tmux: string | null }): string {
   if (cache.ttyd !== null) return cache.ttyd;
@@ -181,9 +175,7 @@ function resolveTmuxBinary(cache: { ttyd: string | null; tmux: string | null }):
   return "tmux";
 }
 
-// ---------------------------------------------------------------------------
 // Global store
-// ---------------------------------------------------------------------------
 
 interface GlobalTtydStore {
   sessions: Map<string, LoopbackTtydSession>;
@@ -205,18 +197,14 @@ if (!g.__TANDEM_TTYD_STORE__) {
 
 const globalStore = g.__TANDEM_TTYD_STORE__;
 
-// ---------------------------------------------------------------------------
 // Idle-stop duration
-// ---------------------------------------------------------------------------
 
 const DEFAULT_IDLE_STOP_MS = (() => {
   const raw = parseInt(process.env.TANDEM_WEB_TTYD_IDLE_MS ?? "", 10);
   return isNaN(raw) ? 5 * 60 * 1000 : raw;
 })();
 
-// ---------------------------------------------------------------------------
 // Adapter options (injectable for tests)
-// ---------------------------------------------------------------------------
 
 type SpawnFn = (bin: string, args: string[], opts: SpawnOptions) => ChildProcess;
 
@@ -229,9 +217,7 @@ export interface AdapterDeps {
   idleStopMs?: number;
 }
 
-// ---------------------------------------------------------------------------
 // Adapter
-// ---------------------------------------------------------------------------
 
 export interface StartOptions {
   workspaceId: string;

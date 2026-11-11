@@ -1,6 +1,6 @@
 {
   "name": "agent-workspace",
-  "version": "1.14.2",
+  "version": "1.15.0",
   "description": "tandem (agent-workspace): initialize and maintain an AI agent workspace with multi-provider support, and run planners and implementers side by side.",
   "type": "module",
   "bin": {

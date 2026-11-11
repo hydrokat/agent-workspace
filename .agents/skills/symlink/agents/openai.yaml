@@ -1,0 +1,4 @@
+interface:
+  display_name: "Symlink"
+  short_description: "Link a directory into codebase-symlinks/"
+  default_prompt: "/symlink"

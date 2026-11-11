@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit"
+  short_description: "Prepare focused Git commits with a standard message format."
+  default_prompt: "Create focused Git commits using the workspace commit format."

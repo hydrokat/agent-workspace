@@ -43,9 +43,7 @@ afterEach(() => {
   FakeEventSource.reset();
 });
 
-// ---------------------------------------------------------------------------
 // 12. resolveActiveWorkspace — rule table
-// ---------------------------------------------------------------------------
 
 import {
   resolveActiveWorkspace,
@@ -159,9 +157,7 @@ describe("resolveActiveWorkspace", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 18. WorkspaceCard stopped state rendering
-// ---------------------------------------------------------------------------
 
 import { WorkspaceCard } from "../src/components/workspaces/workspace-card";
 
@@ -210,9 +206,7 @@ describe("WorkspaceCard stopped state", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // FileWorkspaceRegistry liveness: listActive marks alive/not-alive by pid
-// ---------------------------------------------------------------------------
 
 import { FileWorkspaceRegistry } from "../src/infrastructure/tandem/file-workspace-registry";
 
@@ -261,9 +255,7 @@ describe("FileWorkspaceRegistry liveness", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // 13-17. DashboardPage: fetch wiring, stale-response guard, missing banner
-// ---------------------------------------------------------------------------
 
 function makeWorkspacesResponse(workspaces: WorkspaceEntry[]): Response {
   return new Response(JSON.stringify({ workspaces }), {

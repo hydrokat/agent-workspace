@@ -197,7 +197,6 @@ fn legacy_install_without_hash_stamp_is_refreshed_once() {
     .unwrap();
     // No WEB_SOURCE_HASH_STAMP → not current
 
-    // First call: should NOT return the stale installed (missing stamp = not current)
     // ensure_web_dir will recopy from bundled
     let result = ensure_web_dir(&ws, &state);
     assert!(result.is_some(), "ensure_web_dir must find the dir");
@@ -236,7 +235,6 @@ fn web_is_built_false_when_build_hash_differs_from_source_hash() {
         "mismatched hashes must report not built"
     );
 
-    // Now make them match
     fs::write(web_dir.join(".next").join(WEB_BUILD_HASH_FILE), "aabbcc").unwrap();
     assert!(web_is_built(web_dir), "matching hashes must report built");
 }
@@ -319,7 +317,6 @@ fn ensure_web_dir_recopies_when_bundled_source_changes() {
     fs::write(bundled.join("package.json"), "{}").unwrap();
     fs::write(bundled.join("src/index.ts"), "version1").unwrap();
 
-    // First install
     ensure_web_dir(&ws, &state).unwrap();
     let hash1 = web_source_hash(&bundled).unwrap();
     let stamp1 = fs::read_to_string(installed.join(WEB_SOURCE_HASH_STAMP)).unwrap();

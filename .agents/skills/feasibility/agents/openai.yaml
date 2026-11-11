@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feasibility"
+  short_description: "Judge whether a feature can be built here, and how"
+  default_prompt: "/feasibility"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workspace Cleanup"
+  short_description: "Find and remove files that don't belong in the workspace"
+  default_prompt: "Use $workspace-cleanup to list files that may not belong to the workspace and confirm which to delete."

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Business Requirements Document - {{sprint_id}}</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a1a;
+      --muted: #595959;
+      --border: #e1e4e8;
+      --header-bg: #f6f8fa;
+      --accent: #0969da;
+      --badge-bg: #eaeef2;
+      --badge-text: #24292f;
+      --card-bg: #fbfcfd;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117;
+        --text: #c9d1d9;
+        --muted: #8b949e;
+        --border: #30363d;
+        --header-bg: #161b22;
+        --accent: #58a6ff;
+        --badge-bg: #21262d;
+        --badge-text: #f0f6fc;
+        --card-bg: #161b22;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+      background-color: var(--bg);
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+    header {
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .badge-group { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      background: var(--badge-bg);
+      color: var(--badge-text);
+      font-weight: 600;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+    }
+    .badge-primary { background: var(--accent); color: #fff; }
+    h1 { font-size: 2rem; margin: 0.5rem 0; line-height: 1.25; }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+      padding: 1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .meta-item { font-size: 0.9rem; }
+    .meta-label { font-weight: 600; color: var(--muted); display: block; }
+    nav {
+      background: var(--header-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 2rem;
+    }
+    nav ul { list-style: none; display: flex; flex-wrap: wrap; gap: 1rem; margin: 0; padding: 0; }
+    nav a { color: var(--accent); text-decoration: none; font-weight: 500; font-size: 0.9rem; }
+    nav a:hover, nav a:focus-visible { text-decoration: underline; }
+    section { margin-bottom: 2.5rem; }
+    h2 { border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; font-size: 1.4rem; margin-top: 2rem; }
+    h3 { font-size: 1.15rem; margin-top: 1.5rem; }
+    .table-container { width: 100%; overflow-x: auto; margin: 1rem 0; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+    caption { text-align: left; font-weight: 600; margin-bottom: 0.5rem; color: var(--muted); }
+    th, td { border: 1px solid var(--border); padding: 0.6rem 0.8rem; }
+    th { background: var(--header-bg); font-weight: 600; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-top: 1rem;
+    }
+    @media print {
+      body { max-width: 100%; padding: 0; font-size: 11pt; color: #000; background: #fff; }
+      nav, .nav-container { display: none !important; }
+      th, td { border: 1px solid #999; }
+      tr { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="badge-group">
+      <span class="badge badge-primary">BRD</span>
+      <span class="badge">Sprint {{sprint_id}}</span>
+      <span class="badge">State: {{status}}</span>
+    </div>
+    <h1>{{title}}</h1>
+    <div class="meta-grid">
+      <div class="meta-item"><span class="meta-label">Document</span>Business Requirements Document</div>
+      <div class="meta-item"><span class="meta-label">Window</span>1 Week (7 Days)</div>
+      <div class="meta-item"><span class="meta-label">Capacity Budget</span>[Capacity Budget Hours]</div>
+      <div class="meta-item"><span class="meta-label">Deliverables</span>[Deliverable List Summary]</div>
+    </div>
+  </header>
+
+  <nav class="nav-container" aria-label="Document Navigation">
+    <ul>
+      <li><a href="#summary">1. Executive Summary</a></li>
+      <li><a href="#priorities">2. Scope & Priorities</a></li>
+      <li><a href="#stakeholders">3. Stakeholder Needs</a></li>
+      <li><a href="#kpis">4. Business Rules & KPIs</a></li>
+      <li><a href="#backlog">5. Backlog & Governance</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="summary">
+      <h2>1. Executive Summary & Business Objectives</h2>
+      <div class="card">
+        <h3>Problem Statement</h3>
+        <p>[Problem statement explaining customer or organizational pain point]</p>
+        <h3>Target Outcome & Value Proposition</h3>
+        <p>[Target outcome, tangible business benefit, and value proposition]</p>
+        <h3>Non-Goals & Out-of-Scope Boundaries</h3>
+        <p>[Explicit non-goals and out-of-scope boundaries for this 1-week sprint]</p>
+      </div>
+    </section>
+
+    <section id="priorities">
+      <h2>2. Prioritized Sprint Scope (MoSCoW & RICE)</h2>
+      <p>[Overview of prioritized scope items committing capacity to this sprint]</p>
+      <div class="table-container">
+        <table>
+          <caption>Sprint Scope Prioritization</caption>
+          <thead>
+            <tr>
+              <th scope="col">Spec Phase</th>
+              <th scope="col">MoSCoW</th>
+              <th scope="col">Reach</th>
+              <th scope="col">Impact</th>
+              <th scope="col">Confidence</th>
+              <th scope="col">Effort</th>
+              <th scope="col">RICE</th>
+              <th scope="col">Spec Link</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>[Phase Directory]</td>
+              <td>Must Have</td>
+              <td>100</td>
+              <td>2.0</td>
+              <td>0.8</td>
+              <td>2.5d</td>
+              <td>64.00</td>
+              <td><a href="../../specs/[Phase Directory]/impl.md">impl.md</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="stakeholders">
+      <h2>3. Stakeholder Needs & Personas</h2>
+      <div class="card">
+        <h3>Primary Stakeholders</h3>
+        <ul>
+          <li><strong>Stakeholder Role</strong>: [Needs, expectations, and validation criteria]</li>
+        </ul>
+        <h3>Operational Requirements</h3>
+        <p>[Operational considerations including compatibility, reporting, and maintenance]</p>
+      </div>
+    </section>
+
+    <section id="kpis">
+      <h2>4. Business Rules & Measurable KPIs</h2>
+      <div class="table-container">
+        <table>
+          <caption>Measurable Success Metrics</caption>
+          <thead>
+            <tr>
+              <th scope="col">Metric / KPI</th>
+              <th scope="col">Baseline</th>
+              <th scope="col">Target Outcome</th>
+              <th scope="col">Measurement Method</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>[Success KPI Name]</td>
+              <td>[Baseline measurement]</td>
+              <td>[Target goal]</td>
+              <td>[Verification method]</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="backlog">
+      <h2>5. Deferred Backlog & Lock Governance</h2>
+      <div class="card">
+        <h3>Deferred Scope (Won't Have This Sprint)</h3>
+        <p>[List of deferred requirements intentionally pushed to upcoming sprints]</p>
+        <h3>Sprint Lock Governance</h3>
+        <p>This sprint operates under strict lock governance. Once implementation begins, all scope is locked. New feature additions must wait for the next sprint cycle. Emergency hotfixes require explicit justification and an audit log trail.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

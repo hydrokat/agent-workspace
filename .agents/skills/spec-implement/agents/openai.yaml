@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Implement"
+  short_description: "Implement spec tasks with agent delegation"
+  default_prompt: "/spec-implement"

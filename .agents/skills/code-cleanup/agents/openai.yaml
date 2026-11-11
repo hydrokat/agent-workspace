@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Cleanup"
+  short_description: "Find and remove unnecessary code comments"
+  default_prompt: "/code-cleanup"

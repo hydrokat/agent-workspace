@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Explain"
+  short_description: "Explain what a spec phase fixes and develops"
+  default_prompt: "/spec-explain"
