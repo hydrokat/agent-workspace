@@ -427,9 +427,25 @@ describe("stream route with SnapshotBroker", () => {
 
 // ─── Diagnostics auth test ─────────────────────────────────────────────────
 describe("diagnostics route", () => {
-  it("requires authentication (covered in security-sad-paths)", () => {
-    // The middleware covers all /api/system/* routes. Auth enforcement is
-    // validated by auth-gate.test.ts. This test asserts the route exists.
-    expect(true).toBe(true);
+  const token = "tandem_0123456789abcdef0123456789abcdef";
+
+  it("is rejected by the auth gate without a token", async () => {
+    const { NextRequest } = await import("next/server");
+    const { handleAuth } = await import("../src/infrastructure/auth/auth-gate");
+    const res = handleAuth(new NextRequest("http://127.0.0.1/api/system/diagnostics"), token);
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(401);
+  });
+
+  it("passes the auth gate with a valid bearer token", async () => {
+    const { NextRequest } = await import("next/server");
+    const { handleAuth } = await import("../src/infrastructure/auth/auth-gate");
+    const res = handleAuth(
+      new NextRequest("http://127.0.0.1/api/system/diagnostics", {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      token
+    );
+    expect(res).toBeNull();
   });
 });
