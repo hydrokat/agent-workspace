@@ -44,7 +44,7 @@ export default function DashboardPage() {
   const activeWorkspaceIdRef = useRef<string | null>(null);
   activeWorkspaceIdRef.current = activeWorkspace?.id ?? null;
 
-  const { snapshot, connected } = useWorkspaceStream(activeWorkspace?.id ?? null);
+  const { snapshot, connected, problem } = useWorkspaceStream(activeWorkspace?.id ?? null);
 
   const handleSelectWorkspace = useCallback((ws: WorkspaceEntry) => {
     setActiveWorkspace(ws);
@@ -221,6 +221,23 @@ export default function DashboardPage() {
       onOpenHostConnection={() => setHostDialogOpen(true)}
       unreadQueryCount={unreadQueries}
     >
+      {/* Problem banner */}
+      {problem && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-md border border-yellow-400/50 bg-yellow-50 px-4 py-2 text-sm text-yellow-800 dark:border-yellow-600/40 dark:bg-yellow-900/20 dark:text-yellow-200"
+        >
+          <span>⚠ Snapshot unavailable: {problem}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded border border-yellow-400/60 px-2 py-0.5 text-xs hover:bg-yellow-100 dark:hover:bg-yellow-800/40"
+            onClick={() => setActiveTab("status")}
+          >
+            Switch workspace
+          </button>
+        </div>
+      )}
+
       {/* Tablet / Desktop Tabs Bar */}
       <div className="hidden md:flex items-center justify-between border-b pb-2">
         <Tabs value={desktopTab} onValueChange={(val) => {
@@ -279,7 +296,6 @@ export default function DashboardPage() {
           <TaskProgressPanel
             claims={snapshot?.snapshot?.claims}
             ongoingTasks={snapshot?.snapshot?.ongoing_tasks}
-            now={snapshot?.snapshot?.now}
           />
         )}
 
@@ -294,7 +310,6 @@ export default function DashboardPage() {
             <TaskProgressPanel
               claims={snapshot?.snapshot?.claims}
               ongoingTasks={snapshot?.snapshot?.ongoing_tasks}
-              now={snapshot?.snapshot?.now}
             />
           </div>
         )}

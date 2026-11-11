@@ -332,12 +332,12 @@ describe("Tandem Web Components Suite", () => {
             claimed_at: 1000,
           },
         ]}
-        now={1030}
       />
     );
     expect(taskHtml).toContain("p-007 / t-007");
     expect(taskHtml).toContain("sess-1");
-    expect(taskHtml).toContain("30s ago");
+    // Age display is derived from the browser clock, not a server-supplied timestamp
+    expect(taskHtml).toContain("ago");
   });
 
   it("QuotaFooterBar renders quota line", () => {

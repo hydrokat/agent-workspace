@@ -1,10 +1,23 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { WorkspaceSnapshotPayload } from "../../domain/models/snapshot";
-import type { AllowedTandemAction, ITandemGateway, ListIpsResult } from "../../domain/ports/tandem-gateway";
+import type {
+  AllowedTandemAction,
+  ITandemGateway,
+  ListIpsResult,
+  SnapshotWatch,
+  SnapshotWatchHandlers,
+} from "../../domain/ports/tandem-gateway";
+
+const WATCH_INTERVAL_MS = (() => {
+  const raw = parseInt(process.env.TANDEM_WEB_SNAPSHOT_INTERVAL_MS ?? "1000", 10);
+  if (isNaN(raw)) return 1000;
+  return Math.min(60_000, Math.max(250, raw));
+})();
 
 const execFileAsync = promisify(execFile);
 
@@ -95,5 +108,27 @@ export class CliTandemGateway implements ITandemGateway {
         TANDEM_WORKSPACE: workspacePath,
       },
     });
+  }
+
+  watchSnapshot(workspacePath: string, handlers: SnapshotWatchHandlers): SnapshotWatch {
+    const child = spawn(
+      this.tandemBinaryPath,
+      ["snapshot", "--json", "--watch", "--interval-ms", String(WATCH_INTERVAL_MS)],
+      {
+        cwd: workspacePath,
+        env: { ...process.env, TANDEM_WORKSPACE: workspacePath },
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    );
+    const lines = createInterface({ input: child.stdout });
+    lines.on("line", handlers.onLine);
+    child.on("exit", (code) => handlers.onExit(code));
+    child.on("error", () => handlers.onExit(null));
+    return {
+      stop() {
+        lines.close();
+        child.kill("SIGTERM");
+      },
+    };
   }
 }
