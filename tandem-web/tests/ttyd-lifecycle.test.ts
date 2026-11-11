@@ -320,6 +320,34 @@ describe("registry write atomicity and permissions", () => {
 });
 
 describe("reapOrphanedTtyd", () => {
+  it("never signals a ttyd that the current daemon owns", async () => {
+    const stateDir = tmpStateDir();
+    const registry = new TtydPidRegistry(stateDir);
+    registry.add({ workspaceId: "ws-1", pid: 100, port: 1234, startedAt: Date.now() });
+    registry.add({ workspaceId: "ws-2", pid: 300, port: 1236, startedAt: Date.now() });
+
+    const killedPids: number[] = [];
+    const killSpy = spyOn(process, "kill").mockImplementation((pid: number) => {
+      killedPids.push(pid as number);
+      return true;
+    });
+    const fakeProcesses: ProcessInfo[] = [
+      { pid: 100, ppid: 999, command: "/usr/local/bin/ttyd -p 1234 -i 127.0.0.1" },
+      { pid: 300, ppid: 1, command: "/usr/local/bin/ttyd -p 1236 -i 127.0.0.1" },
+    ];
+
+    const reaped = await reapOrphanedTtyd(
+      registry,
+      () => Promise.resolve(fakeProcesses),
+      new Set([100])
+    );
+    killSpy.mockRestore();
+
+    expect(killedPids).toEqual([300]);
+    expect(reaped).toEqual([300]);
+    expect(registry.read().map((r) => r.pid)).toEqual([100]);
+  });
+
   it("signals only the ttyd PID (100), not the node PID (200), but clears both registry entries", async () => {
     const stateDir = tmpStateDir();
     const registry = new TtydPidRegistry(stateDir);
@@ -395,6 +423,30 @@ describe("reapOrphanedTtyd", () => {
 // Part D — Idle shutdown
 
 describe("idle shutdown", () => {
+  it("reports the remaining idle countdown in diagnostics", async () => {
+    jest.useFakeTimers();
+    const ws = "tandem-d100000009";
+    const adapter = new TtydProcessAdapter({
+      spawnFn: () => makeFakeChild(),
+      waitForPortFn: () => Promise.resolve(true),
+      getPortFn: () => Promise.resolve(49889),
+      idleStopMs: 5000,
+    });
+    await adapter.start({ workspaceId: ws, socket: "s.sock", mode: "mirror" });
+
+    expect(adapter.getDiagnostics().find((d) => d.workspace_id === ws)?.idle_stop_in_seconds).toBeNull();
+
+    adapter.clientOpened(ws);
+    adapter.clientClosed(ws);
+    jest.advanceTimersByTime(2000);
+    expect(adapter.getDiagnostics().find((d) => d.workspace_id === ws)?.idle_stop_in_seconds).toBe(3);
+
+    adapter.clientOpened(ws);
+    expect(adapter.getDiagnostics().find((d) => d.workspace_id === ws)?.idle_stop_in_seconds).toBeNull();
+
+    jest.useRealTimers();
+  });
+
   it("stops the session after the idle period when client count reaches zero", async () => {
     jest.useFakeTimers();
     const ws = "tandem-d100000001";

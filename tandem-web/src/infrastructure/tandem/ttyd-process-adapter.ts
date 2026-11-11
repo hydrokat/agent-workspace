@@ -93,6 +93,7 @@ export interface LoopbackTtydSession {
   startedAt: number;
   clientCount: number;
   idleTimer?: ReturnType<typeof setTimeout>;
+  idleDeadline?: number;
   process?: ChildProcess;
 }
 
@@ -393,6 +394,7 @@ export class TtydProcessAdapter {
     if (session.idleTimer !== undefined) {
       clearTimeout(session.idleTimer);
       session.idleTimer = undefined;
+      session.idleDeadline = undefined;
     }
   }
 
@@ -401,6 +403,7 @@ export class TtydProcessAdapter {
     if (!session) return;
     session.clientCount = Math.max(0, session.clientCount - 1);
     if (session.clientCount === 0) {
+      session.idleDeadline = Date.now() + this.idleStopMs;
       session.idleTimer = setTimeout(() => {
         const current = globalStore.sessions.get(workspaceId);
         if (current && current.clientCount === 0) {
@@ -417,6 +420,7 @@ export class TtydProcessAdapter {
     if (session.idleTimer !== undefined) {
       clearTimeout(session.idleTimer);
       session.idleTimer = undefined;
+      session.idleDeadline = undefined;
     }
 
     if (session.process && session.process.exitCode === null && !session.process.killed) {
@@ -443,6 +447,7 @@ export class TtydProcessAdapter {
       if (session.idleTimer !== undefined) {
         clearTimeout(session.idleTimer);
         session.idleTimer = undefined;
+      session.idleDeadline = undefined;
       }
       if (session.process) {
         session.process.kill("SIGTERM");
@@ -458,6 +463,7 @@ export class TtydProcessAdapter {
       if (session.idleTimer !== undefined) {
         clearTimeout(session.idleTimer);
         session.idleTimer = undefined;
+      session.idleDeadline = undefined;
       }
       if (session.process) {
         session.process.kill("SIGTERM");
@@ -488,6 +494,14 @@ export class TtydProcessAdapter {
     };
   }
 
+  livePids(): Set<number> {
+    const pids = new Set<number>();
+    for (const session of globalStore.sessions.values()) {
+      if (session.process?.pid !== undefined) pids.add(session.process.pid);
+    }
+    return pids;
+  }
+
   getDiagnostics(): Array<{
     workspace_id: string;
     mode: TerminalSizeMode;
@@ -499,11 +513,10 @@ export class TtydProcessAdapter {
     const result = [];
     for (const session of globalStore.sessions.values()) {
       const uptimeSec = Math.floor((now - session.startedAt) / 1000);
-      let idleStopIn: number | null = null;
-      if (session.idleTimer !== undefined && session.clientCount === 0) {
-        // Approximate: we don't store the timer deadline, so report null for now
-        idleStopIn = null;
-      }
+      const idleStopIn =
+        session.idleTimer !== undefined && session.idleDeadline !== undefined
+          ? Math.max(0, Math.round((session.idleDeadline - now) / 1000))
+          : null;
       result.push({
         workspace_id: session.workspaceId,
         mode: session.mode,

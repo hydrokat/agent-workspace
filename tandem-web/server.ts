@@ -40,6 +40,12 @@ export function parseServerArgs(
   return { bindIp, port, authToken };
 }
 
+export function stripDashboardToken(pathAndQuery: string): string {
+  const url = new URL(pathAndQuery, "http://localhost");
+  url.searchParams.delete("token");
+  return `${url.pathname}${url.search}`;
+}
+
 export function parseTerminalPtyUrl(urlStr?: string): { workspaceId: string; subpath: string } | null {
   if (!urlStr) return null;
   const match = urlStr.match(/^\/api\/workspaces\/([a-zA-Z0-9_-]+)\/terminal\/pty(\/.*)?$/);
@@ -224,7 +230,7 @@ export async function createCoreProxyServer(
   // Reap any ttyd processes left by a previous daemon before starting to listen.
   try {
     const registry = new TtydPidRegistry();
-    await reapOrphanedTtyd(registry);
+    await reapOrphanedTtyd(registry, undefined, ttydAdapter.livePids());
   } catch {
     // Reaping is best-effort; never block startup on a ps failure
   }
@@ -356,7 +362,7 @@ export async function createCoreProxyServer(
           data: {
             workspaceId: ptyInfo.workspaceId,
             port: session.port,
-            path: pathAndQuery,
+            path: stripDashboardToken(pathAndQuery),
             protocols,
             upstreamAuthHeader: session.upstreamAuthHeader,
             pending: [],
@@ -368,7 +374,7 @@ export async function createCoreProxyServer(
         return jsonError(400, "BAD_UPGRADE", "WebSocket upgrade failed");
       }
 
-      return proxyToTtyd(req, session, pathAndQuery);
+      return proxyToTtyd(req, session, stripDashboardToken(pathAndQuery));
     },
     websocket: {
       // perMessageDeflate is off: terminal frames are small and latency-sensitive;

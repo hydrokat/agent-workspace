@@ -8,6 +8,7 @@ import { TokenGuard, AUTH_COOKIE_NAME } from "../src/infrastructure/auth/token-g
 import {
   parseServerArgs,
   parseTerminalPtyUrl,
+  stripDashboardToken,
   isIncomingAuthorized,
   isDevMode,
   createCoreProxyServer,
@@ -40,6 +41,24 @@ function rawGet(
     req.on("error", reject);
   });
 }
+
+describe("stripDashboardToken", () => {
+  it("removes the dashboard token and keeps every other query parameter", () => {
+    expect(stripDashboardToken("/api/workspaces/tandem-abc/terminal/pty/ws?token=tandem_secret&arg=1")).toBe(
+      "/api/workspaces/tandem-abc/terminal/pty/ws?arg=1"
+    );
+  });
+
+  it("leaves a path with no query untouched", () => {
+    expect(stripDashboardToken("/api/workspaces/tandem-abc/terminal/pty/")).toBe(
+      "/api/workspaces/tandem-abc/terminal/pty/"
+    );
+  });
+
+  it("drops a lone token parameter entirely", () => {
+    expect(stripDashboardToken("/x/pty/ws?token=tandem_secret")).toBe("/x/pty/ws");
+  });
+});
 
 describe("tandem-web server argument parsing and URL routing", () => {
   const validToken = "tandem_0123456789abcdef0123456789abcdef";

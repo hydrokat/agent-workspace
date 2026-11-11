@@ -99,7 +99,8 @@ function commandBasename(command: string): string {
  */
 export async function reapOrphanedTtyd(
   registry: TtydPidRegistry,
-  listProcesses: () => Promise<ProcessInfo[]> = listProcessesWithPs
+  listProcesses: () => Promise<ProcessInfo[]> = listProcessesWithPs,
+  livePids: ReadonlySet<number> = new Set()
 ): Promise<number[]> {
   const processes = await listProcesses();
   const records = registry.read();
@@ -113,6 +114,7 @@ export async function reapOrphanedTtyd(
   const reaped: number[] = [];
 
   for (const record of records) {
+    if (livePids.has(record.pid)) continue;
     const proc = pidToProcess.get(record.pid);
     if (!proc) {
       registry.remove(record.pid);
@@ -132,7 +134,7 @@ export async function reapOrphanedTtyd(
   }
 
   for (const proc of processes) {
-    if (registeredPidSet.has(proc.pid)) continue;
+    if (registeredPidSet.has(proc.pid) || livePids.has(proc.pid)) continue;
     if (proc.ppid !== 1) continue;
     if (commandBasename(proc.command) !== "ttyd") continue;
     if (!ORPHAN_PTY_PATH.test(proc.command)) continue;
