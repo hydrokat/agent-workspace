@@ -7,6 +7,7 @@ const DEFAULT_TIMEOUT_MS = 300000;
 const PROBE_TIMEOUT_MS = 15000;
 
 const CODEX_SCRIPT = 'curl -fsSL https://chatgpt.com/codex/install.sh | sh';
+const OPENCODE_SCRIPT = 'curl -fsSL https://opencode.ai/v2/install | bash';
 
 /**
  * Update commands come from each CLI's own documentation (see knowledgebase/context-history/ai-cli-update-matrix.md).
@@ -39,6 +40,19 @@ export const AI_CLIS = {
       npm: ['npm', 'install', '-g', '@openai/codex@latest'],
       brew: ['brew', 'upgrade', '--cask', 'codex'],
       manual: CODEX_SCRIPT,
+    },
+  },
+  opencode: {
+    provider: 'opencode',
+    npmPackage: '@opencode/cli',
+    brewCasks: [],
+    brewFormulae: ['opencode-v2'],
+    minKey: 'TANDEM_MIN_OPENCODE',
+    optOutEnv: null,
+    update: {
+      npm: ['npm', 'install', '-g', '@opencode/cli@latest'],
+      brew: ['brew', 'upgrade', 'anomalyco/tap/opencode-v2'],
+      manual: OPENCODE_SCRIPT,
     },
   },
 };
@@ -110,9 +124,12 @@ function resolveDeps(deps = {}) {
 
 function channelOf(cli, realPath) {
   if (realPath.includes('/.local/share/claude/versions/')) return 'native';
-  if (realPath.includes('/Caskroom/') || realPath.includes('/Cellar/')) return 'brew';
-  const pkg = AI_CLIS[cli].npmPackage;
-  if (pkg && realPath.includes(`/node_modules/${pkg}/`)) return 'npm';
+  const entry = AI_CLIS[cli];
+  if (entry.brewFormulae?.length) {
+    if (entry.brewFormulae.some((f) => realPath.includes(`/Cellar/${f}/`))) return 'brew';
+  } else if (realPath.includes('/Caskroom/') || realPath.includes('/Cellar/')) return 'brew';
+  const pkg = entry.npmPackage;
+  if (pkg && (realPath.includes(`/node_modules/${pkg}/`) || realPath.includes(`/node_modules/${pkg}-`))) return 'npm';
   return cli === 'agy' ? 'self' : 'unknown';
 }
 
@@ -147,6 +164,12 @@ export function checkLatest(info, deps) {
     const latest = r.status === 0 ? parseVersion(r.stdout) : '';
     if (!latest) return unknown;
     return { state: info.version && versionGe(info.version, latest) ? 'current' : 'available', latest };
+  }
+  if (info.channel === 'brew' && entry.brewFormulae?.length) {
+    const env = { ...d.env, HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_ENV_HINTS: '1' };
+    const r = d.exec(['brew', 'outdated', '--quiet', ...entry.brewFormulae], { env });
+    if (r.status !== 0) return unknown;
+    return { state: r.stdout.trim() ? 'available' : 'current', latest: '' };
   }
   if (info.channel === 'brew' && entry.brewCasks.length) {
     const env = { ...d.env, HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_ENV_HINTS: '1' };

@@ -38,7 +38,7 @@ DEFAULT_STALE_DAYS = 14
 MAX_STATE_BYTES = 20_000_000
 SKIP_DIRS = {".git", "node_modules", "codebase-symlinks", STATE_DIR, ".venv", "venv", "__pycache__", ".tox"}
 USER_OWNED = ("specs", "sprints", "knowledgebase/business-flows", "knowledgebase/context-history")
-MANAGED_DIRS = {"specs", "sprints", "knowledgebase", ".agents", ".claude", ".gemini", ".codex", ".tmp", "codebase-symlinks", STATE_DIR}
+MANAGED_DIRS = {"specs", "sprints", "knowledgebase", ".agents", ".claude", ".gemini", ".codex", ".opencode", ".tmp", "codebase-symlinks", STATE_DIR}
 KNOWN_ROOT = {
     "AGENTS.md", "CLAUDE.md", "GEMINI.md", "WORKFLOW.md", ".gitignore", ".gitattributes", ".editorconfig",
     ".git", ".github", "src", "run.sh",

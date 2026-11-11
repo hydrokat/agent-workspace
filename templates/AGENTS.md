@@ -119,22 +119,23 @@ Boundary enforcement rules:
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.
 For Codex/OpenAI, prefer `gpt-5.5` for orchestration and reasoning-heavy work, `gpt-5.3-codex` for hands-on agentic coding, `gpt-5.4` for balanced professional tasks, and `gpt-5.4-mini` for fast, high-volume subagents.
+For opencode, model ids are `provider/model` (for example `anthropic/claude-sonnet-4-6`). The defaults mirror the Claude column under the `anthropic/` provider; run `opencode models` to see what you can use after logging in, and to use another model, edit `model:` in the agent's file under `.opencode/agents/`. `update` regenerates those files from the shipped defaults and keeps a `.bak` of your edit.
 
-| Agent | Claude | Antigravity | Codex (OpenAI) | Notes |
-|---|---|---|---|---|
-| `tech-lead-orchestrator` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | Orchestration + architecture; top reasoning tier |
-| `codebase_investigator` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | System-wide investigation; deep reasoning + long context |
-| `security-auditor` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | Threat analysis; strongest reasoning required |
-| `api-pentester` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Targeted security tests; balanced speed + tool-heavy analysis |
-| `code-reviewer` | Sonnet 4.6 | 2.5 Pro | `gpt-5.5` | Broad diffs; high-context reasoning and review quality |
-| `senior-backend-dev` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Implementation; agentic coding and tool use |
-| `frontend-dev` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Component + UI work; hands-on coding in Codex |
-| `qa-engineer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | Test generation, debugging, and validation workflows |
-| `business-analyst` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Requirements, specs, and structured documentation |
-| `project-manager` | Sonnet 4.6 | 2.5 Pro | `gpt-5.4` | Sprint governance, 1-week capacity planning, RICE/MoSCoW |
-| `generalist` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4-mini` | Batch/broad tasks; speed matters |
-| `technical-writer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | Writing quality; balanced polish and cost |
-| `terminal-agent` | Haiku 4.5 | 2.0 Flash Lite | `gpt-5.4-mini` | Fast shell execution; lightweight subagent fit |
+| Agent | Claude | Antigravity | Codex (OpenAI) | opencode | Notes |
+|---|---|---|---|---|---|
+| `tech-lead-orchestrator` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | `anthropic/claude-opus-4-7` | Orchestration + architecture; top reasoning tier |
+| `codebase_investigator` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | `anthropic/claude-opus-4-7` | System-wide investigation; deep reasoning + long context |
+| `security-auditor` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | `anthropic/claude-opus-4-7` | Threat analysis; strongest reasoning required |
+| `api-pentester` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | Targeted security tests; balanced speed + tool-heavy analysis |
+| `code-reviewer` | Sonnet 4.6 | 2.5 Pro | `gpt-5.5` | `anthropic/claude-sonnet-4-6` | Broad diffs; high-context reasoning and review quality |
+| `senior-backend-dev` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | `anthropic/claude-sonnet-4-6` | Implementation; agentic coding and tool use |
+| `frontend-dev` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | `anthropic/claude-sonnet-4-6` | Component + UI work; hands-on coding in Codex |
+| `qa-engineer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | `anthropic/claude-sonnet-4-6` | Test generation, debugging, and validation workflows |
+| `business-analyst` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | Requirements, specs, and structured documentation |
+| `project-manager` | Sonnet 4.6 | 2.5 Pro | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | Sprint governance, 1-week capacity planning, RICE/MoSCoW |
+| `generalist` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4-mini` | `anthropic/claude-sonnet-4-6` | Batch/broad tasks; speed matters |
+| `technical-writer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | Writing quality; balanced polish and cost |
+| `terminal-agent` | Haiku 4.5 | 2.0 Flash Lite | `gpt-5.4-mini` | `anthropic/claude-haiku-4-5` | Fast shell execution; lightweight subagent fit |
 <!-- managed:end -->
 
 ---

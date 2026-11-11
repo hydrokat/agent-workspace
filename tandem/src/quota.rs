@@ -265,6 +265,9 @@ where
     if clis.contains(&"agy") {
         parts.push(format!("agy: {NOT_AVAILABLE}"));
     }
+    if clis.contains(&"opencode") {
+        parts.push(format!("opencode: {NOT_AVAILABLE}"));
+    }
 
     let line = if !parts.is_empty() {
         format!("Quota  {}", parts.join("  │  "))

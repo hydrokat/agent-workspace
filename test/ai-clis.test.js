@@ -37,6 +37,12 @@ describe('selectClis', () => {
     assert.deepEqual(selectClis(['antigravity', 'claude']), ['claude', 'agy']);
     assert.deepEqual(selectClis(['codex', 'codex', 'nonsense']), ['claude', 'agy', 'codex']);
   });
+
+  it('adds opencode only when it is a configured provider, after codex', () => {
+    assert.deepEqual(selectClis(['opencode']), ['claude', 'agy', 'opencode']);
+    assert.deepEqual(selectClis(['opencode', 'codex']), ['claude', 'agy', 'codex', 'opencode']);
+    assert.ok(!selectClis(['claude', 'antigravity']).includes('opencode'));
+  });
 });
 
 describe('versions', () => {
@@ -74,6 +80,12 @@ describe('detect', () => {
       ['codex', '/usr/local/lib/node_modules/@openai/codex/bin/codex.js', 'npm'],
       ['codex', '/opt/homebrew/Caskroom/codex/0.52.0/codex', 'brew'],
       ['codex', '/home/u/.local/bin/codex', 'unknown'],
+      ['opencode', '/usr/local/lib/node_modules/@opencode/cli/bin/opencode.exe', 'npm'],
+      ['opencode', '/usr/local/lib/node_modules/@opencode/cli-darwin-arm64/bin/opencode', 'npm'],
+      ['opencode', '/opt/homebrew/Cellar/opencode-v2/2.2.7/bin/opencode', 'brew'],
+      ['opencode', '/opt/homebrew/Cellar/opencode/1.4.0/bin/opencode', 'unknown'],
+      ['opencode', '/usr/local/lib/node_modules/opencode-ai/bin/opencode', 'unknown'],
+      ['opencode', '/home/u/.opencode/bin/opencode', 'unknown'],
     ];
     for (const [cli, realPath, channel] of cases) {
       const deps = fakeDeps({ found: { [cli]: `/bin/${cli}` }, real: { [`/bin/${cli}`]: realPath },
@@ -112,6 +124,27 @@ describe('checkLatest', () => {
     assert.equal(deps.env.HOMEBREW_NO_AUTO_UPDATE, undefined);
   });
 
+  it('asks the npm registry about @opencode/cli for npm installs', () => {
+    const deps = fakeDeps({ replies: { 'npm view @opencode/cli version': '2.3.0\n' } });
+    assert.deepEqual(checkLatest(info('opencode', 'npm', '2.2.7'), deps), { state: 'available', latest: '2.3.0' });
+    const same = fakeDeps({ replies: { 'npm view @opencode/cli version': '2.2.7\n' } });
+    assert.equal(checkLatest(info('opencode', 'npm', '2.2.7'), same).state, 'current');
+  });
+
+  it('asks brew whether the opencode formula is outdated', () => {
+    const deps = fakeDeps({ replies: { 'brew outdated --quiet opencode-v2': 'opencode-v2\n' } });
+    assert.equal(checkLatest(info('opencode', 'brew'), deps).state, 'available');
+    const none = fakeDeps({ replies: { 'brew outdated --quiet opencode-v2': '' } });
+    assert.equal(checkLatest(info('opencode', 'brew'), none).state, 'current');
+    assert.equal(checkLatest(info('opencode', 'brew'), fakeDeps()).state, 'unknown');
+  });
+
+  it('has no check-only source for an opencode install it cannot classify', () => {
+    const deps = fakeDeps();
+    assert.deepEqual(checkLatest(info('opencode', 'unknown'), deps), { state: 'unknown', latest: '' });
+    assert.deepEqual(deps.calls, []);
+  });
+
   it('has no check-only source for claude native or agy', () => {
     for (const i of [info('claude', 'native'), info('agy', 'self'), info('claude', 'unknown')]) {
       const deps = fakeDeps();
@@ -147,6 +180,27 @@ describe('updateCommand', () => {
     assert.match(readOnly.manual, /npm install -g @openai\/codex@latest/);
     const unknown = updateCommand(info('codex', 'unknown'), fakeDeps());
     assert.match(unknown.manual, /chatgpt\.com\/codex\/install\.sh/);
+  });
+
+  it('updates opencode through the channel it was installed with', () => {
+    assert.deepEqual(updateCommand(info('opencode', 'npm'), fakeDeps()), { argv: ['npm', 'install', '-g', '@opencode/cli@latest'] });
+    assert.deepEqual(updateCommand(info('opencode', 'brew'), fakeDeps()), { argv: ['brew', 'upgrade', 'anomalyco/tap/opencode-v2'] });
+  });
+
+  it('prints the opencode install script for the user instead of running it', () => {
+    const r = updateCommand(info('opencode', 'unknown'), fakeDeps());
+    assert.equal(r.argv, undefined);
+    assert.match(r.manual, /opencode\.ai\/v2\/install/);
+    const ro = updateCommand(info('opencode', 'npm'), fakeDeps({ writable: false }));
+    assert.match(ro.manual, /npm install -g @opencode\/cli@latest/);
+  });
+
+  it('never calls opencode upgrade', () => {
+    for (const channel of ['npm', 'brew', 'unknown', 'self', 'native']) {
+      const r = updateCommand(info('opencode', channel), fakeDeps());
+      assert.ok(!(r.argv ?? []).includes('upgrade') || r.argv[0] === 'brew', channel);
+      assert.notEqual((r.argv ?? [])[0], 'opencode', channel);
+    }
   });
 
   it('skips claude when DISABLE_UPDATES is set', () => {
@@ -265,5 +319,22 @@ describe('run.sh consistency', () => {
       const channels = AI_CLIS[cli].update;
       assert.deepEqual(m[1].trim().split(/\s+/), channels.default);
     }
+  });
+
+  it('run.sh updates opencode with the same npm and brew commands as the table', () => {
+    const text = readFileSync(join(ROOT, 'run.sh'), 'utf8');
+    const block = text.slice(text.indexOf('update_cmd() {'));
+    for (const channel of ['npm', 'brew']) {
+      const m = block.match(new RegExp(`${channel}\\) CMD=\\(([^)]*)\\) ;;\\n\\s*(?:npm|brew)?`));
+      assert.ok(m, `${channel} in the opencode branch of update_cmd`);
+      assert.deepEqual(m[1].trim().split(/\s+/), AI_CLIS.opencode.update[channel]);
+    }
+    assert.match(text, new RegExp(AI_CLIS.opencode.update.manual.replace(/[|.]/g, '\\$&')));
+  });
+
+  it('ships a TANDEM_MIN_OPENCODE that matches the table key', () => {
+    const mins = loadMinVersions(join(ROOT, 'tandem/min-versions.env'));
+    assert.equal(AI_CLIS.opencode.minKey, 'TANDEM_MIN_OPENCODE');
+    assert.match(mins.TANDEM_MIN_OPENCODE, /^2\.\d+\.\d+$/);
   });
 });

@@ -262,3 +262,12 @@ def test_sprints_directory_is_protected_from_scan_and_delete(ws: Path) -> None:
     err(delete(ws, "sprints/s-001-setup/sprint.md"), 1)
     assert (ws / "sprints/s-001-setup/sprint.md").exists()
 
+
+
+def test_opencode_directory_is_user_owned_and_never_flagged(ws: Path) -> None:
+    put(ws, ".opencode/agents/mine.md")
+    put(ws, ".opencode/agents/team/reviewer.md")
+    put(ws, ".opencode/skills/mine/SKILL.md")
+    put(ws, ".opencode/opencode.json", "{}")
+    got = found(out(run(ws)))
+    assert not [p for p in got if p.startswith(".opencode")], got

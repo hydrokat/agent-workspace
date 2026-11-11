@@ -54,7 +54,7 @@ pub fn agent_launch(
     let reopen =
         resume && conversations::can_resume(&spec.cli, spec.conversation.as_deref(), claude_path);
 
-    if spec.cli == "agy" && !reopen {
+    if matches!(spec.cli.as_str(), "agy" | "opencode") && !reopen {
         spec.conversation = None;
     }
 
@@ -92,7 +92,10 @@ pub fn agent_launch(
     })
     .to_string();
 
-    let env_map: HashMap<String, String> = session_env(&spec, coord_dir).into_iter().collect();
+    let mut env_map: HashMap<String, String> = session_env(&spec, coord_dir).into_iter().collect();
+    if let Ok(extra) = adapter.env(&spec) {
+        env_map.extend(extra);
+    }
 
     Launch {
         argv,

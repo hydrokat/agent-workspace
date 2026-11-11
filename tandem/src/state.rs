@@ -6,12 +6,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::base::{AgentSpec, validate_model_id};
+use crate::adapters::base::{AgentSpec, validate_model_for_cli};
 use crate::conversations::valid_id;
 
 pub const STATE_VERSION: u32 = 3;
 pub const READABLE_VERSIONS: [u32; 3] = [1, 2, 3];
-pub const CLIS: [&str; 2] = ["claude", "agy"];
+pub const CLIS: [&str; 3] = ["claude", "agy", "opencode"];
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
 pub const MAX_AGENTS: usize = 40;
 pub const DEFAULT_SIDEBAR_COLS: usize = 26;
@@ -261,11 +261,12 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
         None => None,
     };
 
-    validate_model_id(model).ok()?;
+    validate_model_for_cli(cli, model).ok()?;
 
     let conversation = obj
         .get("conversation")
         .and_then(|v| v.as_str())
+        .filter(|_| cli != "opencode")
         .and_then(valid_id);
 
     let name = obj

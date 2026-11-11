@@ -11,6 +11,7 @@
   ".agent-workspace/tandem/src/adapters/base.rs",
   ".agent-workspace/tandem/src/adapters/claude.rs",
   ".agent-workspace/tandem/src/adapters/mod.rs",
+  ".agent-workspace/tandem/src/adapters/opencode.rs",
   ".agent-workspace/tandem/src/cli.rs",
   ".agent-workspace/tandem/src/commands.rs",
   ".agent-workspace/tandem/src/config.rs",

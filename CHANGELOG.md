@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Added: `/symlink` skill
-
-- **`/symlink [path] [--name <name>]`**: links one directory into `codebase-symlinks/` with a relative symlink and refreshes `knowledgebase/context-history/codebase-map.md`, so a codebase can be linked after `init` without re-running the sibling picker. With no path it lists sibling directories and whether each is linked. `scripts/symlink.py` refuses missing paths, files, the workspace itself, its parents (symlink loops), directories already inside the workspace, invalid names, and name clashes, and never replaces an existing link. Supports `--dry-run`.
-
 ## [1.15.1] — 2026-11-11
 
 ### Fixed: tandem-web performance, terminal latency, and workspace switching
@@ -18,6 +14,22 @@
 - **Terminal panel**: Mirror/Fit radiogroup with a confirmation for Fit, full-height layout, font fitting, and render isolation from snapshot updates.
 - **Content-addressed install**: the installed `tandem-web-core-service` source and build are stamped with a SHA-256 of the source tree (`.tandem-source-hash`, `.next/TANDEM_SOURCE_HASH`). A source change at the same version now triggers a re-copy, a rebuild, and a daemon restart. Rust and Node use the same algorithm, checked against a shared fixture.
 - **Workspace switching**: stopped workspaces show as stopped and cannot be selected, a vanished selection shows a banner instead of silently switching, and stale poll responses are dropped.
+
+## [1.15.0] — 2026-11-11
+
+### Added: opencode support (provider outputs, AI CLI updates, tandem panes)
+
+- **opencode as a fourth provider** (opencode v2, `@opencode/cli`): `init --providers opencode` and `update` write one agent per role to `.opencode/agents/` (`mode: subagent`, `model: provider/model`, no `tools`). opencode already reads `AGENTS.md` and `.agents/skills/`, so no `OPENCODE.md` link and no skill copy are created. Defaults mirror the Claude models under `anthropic/` (for example `anthropic/claude-opus-4-7`); the `AGENTS.md` model table gained an opencode column. `doctor` checks the files, their models, and `mode: subagent`.
+- **Your own `.opencode/` content is safe**: `update` replaces or prunes only the agent files it generated itself (tracked in the manifest) and never touches directories, your own agents, `.opencode/skills/`, `opencode.json`, or plugins. `/workspace-cleanup` treats `.opencode/` as user-owned.
+- **`agent-workspace update` updates opencode** when it is a configured provider: npm (`npm install -g @opencode/cli@latest`) and Homebrew (`brew upgrade anomalyco/tap/opencode-v2`) installs get their own command; a script install gets the command printed, never run. `opencode upgrade` is deliberately not used (its non-interactive behaviour is unverified).
+- **tandem can launch opencode agents**: the wizard offers `opencode` when it is installed, lists models from `opencode models` (or accepts a typed `provider/model[#variant]`), passes the model through `OPENCODE_CONFIG_CONTENT` (the full opencode TUI has no `--model` flag), and adds `--auto` only if you accept the permissions warning. The quota bar shows `opencode: quota not available`.
+- **`run.sh` treats opencode as optional**: checked only when already installed, never installed by `run.sh`, counted as an AI CLI. Below `TANDEM_MIN_OPENCODE` (2.2.7, so opencode v1 too) it is skipped with an optional update prompt and never stops the launch.
+- **Known limits**: tandem does not resume opencode conversations (a restart starts a fresh opencode session; the session-id shape is not verified yet) and shows no opencode quota. Wizard screens now list `opencode  (not installed)` on hosts without it.
+- Verified against opencode 2.2.7 (`knowledgebase/context-history/opencode-cli-surface.md` in the workspace repo).
+
+### Added: `/symlink` skill
+
+- **`/symlink [path] [--name <name>]`**: links one directory into `codebase-symlinks/` with a relative symlink and refreshes `knowledgebase/context-history/codebase-map.md`, so a codebase can be linked after `init` without re-running the sibling picker. With no path it lists sibling directories and whether each is linked. `scripts/symlink.py` refuses missing paths, files, the workspace itself, its parents (symlink loops), directories already inside the workspace, invalid names, and name clashes, and never replaces an existing link. Supports `--dry-run`.
 
 ## [1.14.2] — 2026-11-09
 

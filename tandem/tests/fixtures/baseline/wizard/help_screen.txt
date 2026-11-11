@@ -7,7 +7,7 @@ No agents yet
                                                                                                     
 ▶ claude                                                                                            
   agy               ┌ Keys ────────────────────────────────────────────────────┐                    
-                    │Alt+f focus the model filter                              │                    
+  opencode  (not ins│Alt+f focus the model filter                              │                    
                     │Alt+a add another agent                                   │                    
                     │Alt+d delete the highlighted agent                        │                    
                     │Shift+L launch all agents                                 │                    
