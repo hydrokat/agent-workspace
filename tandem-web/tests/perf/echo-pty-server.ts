@@ -23,7 +23,7 @@ export async function startEchoPtyServer(): Promise<{ port: number; stop(): void
         if (typeof message === "string") {
           ws.send(message);
         } else {
-          ws.send(new Uint8Array(message as ArrayBuffer));
+          ws.send(new Uint8Array(message as unknown as ArrayBuffer));
         }
       },
     },

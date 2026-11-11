@@ -564,7 +564,7 @@ describe("ttyd page compression", () => {
 
     expect(resp.statusCode).toBe(200);
     expect(resp.headers["content-encoding"]).toBe("gzip");
-    const decompressed = Bun.gunzipSync(resp.body);
+    const decompressed = Bun.gunzipSync(new Uint8Array(resp.body));
     expect(Buffer.from(decompressed).toString("utf8")).toBe(LARGE_HTML);
 
     server.stop(true);
