@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { isValidWorkspaceId } from "@/domain/models/workspace";
-import { FileWorkspaceRegistry } from "@/infrastructure/tandem/file-workspace-registry";
-import { TtydProcessAdapter } from "@/infrastructure/tandem/ttyd-process-adapter";
+import { TtydProcessAdapter, isTerminalSizeMode } from "@/infrastructure/tandem/ttyd-process-adapter";
 
 const ttydAdapter = new TtydProcessAdapter();
 
@@ -18,7 +17,11 @@ export async function GET(
   }
 
   const status = ttydAdapter.getStatus(workspaceId);
-  return NextResponse.json(status);
+  return NextResponse.json({
+    running: status.running,
+    proxyPath: status.proxyPath,
+    mode: status.mode,
+  });
 }
 
 export async function POST(
@@ -34,31 +37,24 @@ export async function POST(
       );
     }
 
-    const registry = new FileWorkspaceRegistry();
-    const workspace = await registry.findById(workspaceId);
-    if (!workspace) {
-      return NextResponse.json(
-        { error: { code: "NOT_FOUND", message: "Workspace not found" } },
-        { status: 404 }
-      );
-    }
-
     const body = await request.json().catch(() => ({}));
-    const { action } = body;
+    const { action, mode } = body;
 
     if (action === "stop") {
       ttydAdapter.stop(workspaceId);
       return NextResponse.json({ running: false });
     }
 
-    const res = await ttydAdapter.start(
-      workspace.socket,
-      "127.0.0.1",
-      0,
-      process.env.TANDEM_AUTH_TOKEN ?? "",
-      workspaceId
-    );
-    return NextResponse.json({ running: true, port: res.port, proxyPath: res.proxyPath });
+    // Validate mode if provided; reject unknown values before any I/O
+    if (mode !== undefined && !isTerminalSizeMode(mode)) {
+      return NextResponse.json(
+        { error: { code: "BAD_REQUEST", message: `Invalid mode: "${mode}". Expected "mirror" or "fit".` } },
+        { status: 400 }
+      );
+    }
+
+    const session = await ttydAdapter.ensureSession(workspaceId, mode);
+    return NextResponse.json({ running: true, proxyPath: session.proxyPath, mode: session.mode });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

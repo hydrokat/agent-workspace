@@ -11,7 +11,13 @@ import { FileWorkspaceRegistry } from "../src/infrastructure/tandem/file-workspa
 import { resolveTandemBinary } from "../src/infrastructure/tandem/cli-tandem-gateway";
 import type { WorkspaceSnapshotPayload } from "../src/domain/models/snapshot";
 import type { WorkspaceEntry } from "../src/domain/models/workspace";
-import type { AllowedTandemAction, ITandemGateway, ListIpsResult } from "../src/domain/ports/tandem-gateway";
+import type {
+  AllowedTandemAction,
+  ITandemGateway,
+  ListIpsResult,
+  SnapshotWatch,
+  SnapshotWatchHandlers,
+} from "../src/domain/ports/tandem-gateway";
 import type { IWebSettingsRepository } from "../src/domain/ports/web-settings-repository";
 import type { IWorkspaceRegistry } from "../src/domain/ports/workspace-registry";
 
@@ -69,6 +75,10 @@ class MockGateway implements ITandemGateway {
     args: string[] = []
   ): Promise<void> {
     this.executedActions.push({ path: workspacePath, action, args });
+  }
+
+  watchSnapshot(_workspacePath: string, _handlers: SnapshotWatchHandlers): SnapshotWatch {
+    return { stop() {} };
   }
 }
 

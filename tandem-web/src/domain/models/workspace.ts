@@ -5,6 +5,7 @@ export interface WorkspaceEntry {
   socket: string;
   updated_at: number;
   pid?: number;
+  alive?: boolean;
 }
 
 export function isValidWorkspaceId(id: string): boolean {

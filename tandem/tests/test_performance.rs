@@ -1,3 +1,5 @@
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -189,5 +191,88 @@ fn test_measure_baseline_spawn_counts() {
     assert!(
         warm_duration < cold_duration,
         "warm collect should be faster than cold"
+    );
+}
+
+#[test]
+fn test_snapshot_at_most_two_tmux_calls() {
+    let runner = Arc::new(CountingRunner::new(&sample_panes_tsv()));
+    let client = TmuxClient::with_runner(
+        "tandem-snap-test",
+        Some(PathBuf::from("/mock/tandem.conf")),
+        runner.clone(),
+    );
+    let layout = Layout::new(&client);
+
+    runner.reset();
+    let panes = layout.panes().unwrap_or_default();
+    let _ = layout.selected_and_size(&panes);
+    let call_count = runner.count();
+
+    assert!(
+        call_count <= 2,
+        "snapshot path should make at most 2 tmux calls, made {call_count}"
+    );
+
+    let calls = runner.calls.lock().unwrap();
+    for call in calls.iter() {
+        assert!(
+            !call.iter().any(|arg| arg == "has-session"),
+            "has-session must not appear in the snapshot tmux call path; calls: {calls:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_git_cache_between_calls() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = common::TempDir::new();
+    let counter_file = tmp.path().join("git-call-count");
+    std::fs::write(&counter_file, "0").unwrap();
+
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir_all(repo.join(".git/refs/heads")).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(repo.join(".git/index"), []).unwrap();
+
+    let counter_path = counter_file.to_str().unwrap();
+    let repo_path = repo.to_str().unwrap();
+    let script = format!(
+        "#!/bin/sh\n\
+         cnt=$(cat '{c}' 2>/dev/null || echo 0)\n\
+         printf '%d' $((cnt + 1)) > '{c}'\n\
+         case \"$*\" in\n\
+         *show-current*)   echo 'main' ;;\n\
+         *for-each-ref*)   echo 'main' ;;\n\
+         *'worktree list'*) printf 'worktree {r}\\nbranch refs/heads/main\\n' ;;\n\
+         esac\n",
+        c = counter_path,
+        r = repo_path
+    );
+    let script_path = tmp.path().join("fake-git");
+    std::fs::write(&script_path, script.as_bytes()).unwrap();
+    let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&script_path, perms).unwrap();
+
+    tandem::sources::gitinfo::clear_git_info_cache();
+    let script_str = script_path.to_str().unwrap();
+
+    let r1 = tandem::sources::gitinfo::git_info_with_git(&repo, Duration::from_secs(5), script_str);
+    let r2 = tandem::sources::gitinfo::git_info_with_git(&repo, Duration::from_secs(5), script_str);
+
+    assert!(r1.is_some(), "First call should succeed");
+    assert!(
+        r2.is_some(),
+        "Second call should succeed (served from cache)"
+    );
+
+    let count_str = std::fs::read_to_string(&counter_file).unwrap_or_default();
+    let count: u32 = count_str.trim().parse().unwrap_or(0);
+    assert_eq!(
+        count, 3,
+        "Git binary should run exactly 3 times on first call and 0 times on second (cache hit), got {count}"
     );
 }

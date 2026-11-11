@@ -1,18 +1,25 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceEntry } from "../../domain/models/workspace";
 import type { IWorkspaceRegistry } from "../../domain/ports/workspace-registry";
+import { resolveStateDir } from "./state-dir";
+
+function pidAlive(pid: number | undefined): boolean {
+  if (!pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 
 export class FileWorkspaceRegistry implements IWorkspaceRegistry {
   constructor(private readonly customStateDir?: string) {}
 
   private resolveRegistryPath(): string {
-    const stateDir =
-      this.customStateDir ||
-      process.env.XDG_STATE_HOME ||
-      join(homedir(), ".local", "state", "tandem");
+    const stateDir = this.customStateDir || resolveStateDir();
     return join(stateDir, "workspaces.json");
   }
 
@@ -23,7 +30,9 @@ export class FileWorkspaceRegistry implements IWorkspaceRegistry {
       if (!data.trim()) return [];
       const parsed = JSON.parse(data);
       const workspaces: WorkspaceEntry[] = parsed.workspaces || [];
-      return workspaces.filter((w) => existsSync(w.path));
+      return workspaces
+        .filter((w) => existsSync(w.path))
+        .map((w) => ({ ...w, alive: pidAlive(w.pid) }));
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return [];

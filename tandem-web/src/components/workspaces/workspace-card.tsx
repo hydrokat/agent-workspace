@@ -20,6 +20,33 @@ export function WorkspaceCard({
   agentCount,
   openQueryCount,
 }: WorkspaceCardProps) {
+  const isStopped = workspace.alive === false;
+
+  if (isStopped) {
+    return (
+      <Card
+        aria-disabled="true"
+        aria-current={isActive ? "true" : undefined}
+        className="min-h-11 cursor-not-allowed p-3 opacity-50"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="font-semibold text-sm leading-tight text-foreground">
+              {workspace.name}
+            </span>
+          </div>
+          <Badge variant="secondary" className="text-[10px] uppercase">
+            Stopped
+          </Badge>
+        </div>
+        <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+          <span className="font-mono text-[11px] truncate">{workspace.id}</span>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card
       role="button"

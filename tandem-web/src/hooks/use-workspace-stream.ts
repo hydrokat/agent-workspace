@@ -5,52 +5,53 @@ import type { WorkspaceSnapshotPayload } from "@/domain/models/snapshot";
 
 export function useWorkspaceStream(workspaceId: string | null) {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshotPayload | null>(null);
-  const [connected, setConnected] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const sync = () => setVisible(document.visibilityState !== "hidden");
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
 
   useEffect(() => {
     setSnapshot(null);
-    setConnected(false);
-    setError(null);
+    setProblem(null);
+  }, [workspaceId]);
 
-    if (!workspaceId) {
+  useEffect(() => {
+    if (!workspaceId || !visible) {
+      setConnected(false);
       return;
     }
 
-    let active = true;
-    const sseUrl = `/api/workspaces/${workspaceId}/stream`;
-    const eventSource = new EventSource(sseUrl);
+    const source = new EventSource(`/api/workspaces/${workspaceId}/stream`);
 
-    eventSource.onopen = () => {
-      if (active) {
-        setConnected(true);
-        setError(null);
-      }
-    };
+    source.onopen = () => setConnected(true);
 
-    eventSource.onmessage = (event) => {
-      if (!active) return;
+    source.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        setSnapshot(data);
-        setError(null);
+        setSnapshot(JSON.parse(event.data));
+        setProblem(null);
       } catch {
-        // Skip malformed frame
+        // skip a malformed frame
       }
     };
 
-    eventSource.onerror = () => {
-      if (active) {
-        setConnected(false);
-        setError("Connection lost. Reconnecting…");
+    source.addEventListener("problem", (event) => {
+      try {
+        setProblem(JSON.parse((event as MessageEvent).data).message);
+      } catch {
+        setProblem("Snapshot unavailable");
       }
-    };
+    });
 
-    return () => {
-      active = false;
-      eventSource.close();
-    };
-  }, [workspaceId]);
+    source.onerror = () => setConnected(false);
 
-  return { snapshot, connected, error };
+    return () => source.close();
+  }, [workspaceId, visible]);
+
+  return { snapshot, connected, problem };
 }

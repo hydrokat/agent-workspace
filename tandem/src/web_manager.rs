@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -139,9 +140,114 @@ pub fn web_server_args(config: &WebConfig) -> Result<Vec<String>, String> {
 
 pub const WEB_VERSION_STAMP: &str = ".tandem-version";
 pub const WEB_DAEMON_VERSION_FILE_NAME: &str = "tandem-web.version";
+pub const WEB_SOURCE_HASH_STAMP: &str = ".tandem-source-hash";
+pub const WEB_BUILD_HASH_FILE: &str = "TANDEM_SOURCE_HASH";
 
 pub fn web_daemon_version_path(state_dir: &Path) -> PathBuf {
     state_dir.join(WEB_DAEMON_VERSION_FILE_NAME)
+}
+
+fn is_hash_excluded(rel: &Path) -> bool {
+    let first = rel
+        .components()
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().to_string());
+    let name = rel
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    matches!(first.as_deref(), Some("node_modules" | ".next" | "tests"))
+        || matches!(name.as_str(), "next-env.d.ts" | ".DS_Store")
+        || name.ends_with(".tsbuildinfo")
+        || name.starts_with(".tandem-")
+}
+
+fn collect_hash_files(
+    base: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, PathBuf)>,
+) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let ft = entry.file_type()?;
+        if ft.is_symlink() {
+            continue;
+        }
+        let rel = path.strip_prefix(base).map_err(std::io::Error::other)?;
+        let rel_str = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        if is_hash_excluded(rel) {
+            continue;
+        }
+        if ft.is_dir() {
+            collect_hash_files(base, &path, out)?;
+        } else if ft.is_file() {
+            out.push((rel_str, path));
+        }
+    }
+    Ok(())
+}
+
+pub fn web_source_hash(dir: &Path) -> std::io::Result<String> {
+    let mut files: Vec<(String, PathBuf)> = Vec::new();
+    collect_hash_files(dir, dir, &mut files)?;
+    files.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+    let mut hasher = Sha256::new();
+    for (rel, abs) in files {
+        hasher.update(rel.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(fs::read(abs)?);
+        hasher.update([0u8]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub fn bundled_web_source(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
+    let from_bin = state_dir
+        .join("bin")
+        .join("current")
+        .join("tandem")
+        .join("tandem-web");
+    if from_bin.join("package.json").exists() {
+        return Some(from_bin);
+    }
+    let from_ws = workspace
+        .join("codebase-symlinks")
+        .join("agent-workspace-package")
+        .join("tandem-web");
+    if from_ws.join("package.json").exists() {
+        return Some(from_ws);
+    }
+    None
+}
+
+pub fn installed_is_current(installed: &Path, bundled: Option<&Path>) -> bool {
+    if !installed.join("package.json").exists() {
+        return false;
+    }
+    let version_ok = fs::read_to_string(installed.join(WEB_VERSION_STAMP))
+        .map(|s| s.trim() == env!("CARGO_PKG_VERSION"))
+        .unwrap_or(false);
+    if !version_ok {
+        return false;
+    }
+    match bundled {
+        None => true,
+        Some(src) => {
+            let stamped =
+                fs::read_to_string(installed.join(WEB_SOURCE_HASH_STAMP)).unwrap_or_default();
+            if stamped.trim().is_empty() {
+                return false;
+            }
+            web_source_hash(src)
+                .map(|h| h == stamped.trim())
+                .unwrap_or(false)
+        }
+    }
 }
 
 pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -154,6 +260,8 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         let name_str = name.to_string_lossy();
         if name_str == "node_modules"
             || name_str == ".next"
+            || name_str == "tests"
+            || name_str == "next-env.d.ts"
             || name_str.ends_with(".tsbuildinfo")
             || name_str == ".DS_Store"
         {
@@ -193,19 +301,24 @@ pub fn resolve_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
         return Some(local);
     }
 
+    let bundled = bundled_web_source(workspace, state_dir);
     let core_service = state_dir.join("tandem-web-core-service");
-    let stamp_core = fs::read_to_string(core_service.join(WEB_VERSION_STAMP)).unwrap_or_default();
-    if core_service.join("package.json").exists() && stamp_core.trim() == env!("CARGO_PKG_VERSION")
-    {
+    if installed_is_current(&core_service, bundled.as_deref()) {
         return Some(core_service);
     }
 
     let installed = state_dir.join("tandem-web");
-    let stamp = fs::read_to_string(installed.join(WEB_VERSION_STAMP)).unwrap_or_default();
-    if installed.join("package.json").exists() && stamp.trim() == env!("CARGO_PKG_VERSION") {
+    if installed_is_current(&installed, bundled.as_deref()) {
         return Some(installed);
     }
+
     None
+}
+
+fn write_source_hash_stamp(dir: &Path, src: &Path) {
+    if let Ok(hash) = web_source_hash(src) {
+        let _ = fs::write(dir.join(WEB_SOURCE_HASH_STAMP), format!("{hash}\n"));
+    }
 }
 
 pub fn ensure_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
@@ -216,26 +329,15 @@ pub fn ensure_web_dir(workspace: &Path, state_dir: &Path) -> Option<PathBuf> {
     let core_service = state_dir.join("tandem-web-core-service");
     let legacy = state_dir.join("tandem-web");
 
-    let bundled = state_dir
-        .join("bin")
-        .join("current")
-        .join("tandem")
-        .join("tandem-web");
-    let symlinked = workspace
-        .join("codebase-symlinks")
-        .join("agent-workspace-package")
-        .join("tandem-web");
-
-    for candidate in [&bundled, &symlinked] {
-        if candidate.join("package.json").exists() {
-            let _ = copy_web_source_clean(candidate, &core_service);
-            if core_service.join("package.json").exists() {
-                let _ = fs::write(
-                    core_service.join(WEB_VERSION_STAMP),
-                    format!("{}\n", env!("CARGO_PKG_VERSION")),
-                );
-                return Some(core_service);
-            }
+    if let Some(candidate) = bundled_web_source(workspace, state_dir) {
+        let _ = copy_web_source_clean(&candidate, &core_service);
+        if core_service.join("package.json").exists() {
+            let _ = fs::write(
+                core_service.join(WEB_VERSION_STAMP),
+                format!("{}\n", env!("CARGO_PKG_VERSION")),
+            );
+            write_source_hash_stamp(&core_service, &candidate);
+            return Some(core_service);
         }
     }
 
@@ -268,18 +370,23 @@ pub fn daemon_needs_restart(workspace: &Path, state_dir: &Path) -> bool {
     }
     let ver_path = web_daemon_version_path(state_dir);
     if ver_path.exists() {
-        let ver = fs::read_to_string(&ver_path).unwrap_or_default();
-        if ver.trim() != env!("CARGO_PKG_VERSION") {
+        let recorded = fs::read_to_string(&ver_path).unwrap_or_default();
+        let recorded = recorded.trim();
+        // Format: "<version> <hash>" or legacy "<version>" (needs restart once)
+        let expected_prefix = env!("CARGO_PKG_VERSION");
+        if !recorded.starts_with(expected_prefix) {
             return true;
         }
-    }
-    let core_stamp = state_dir
-        .join("tandem-web-core-service")
-        .join(WEB_VERSION_STAMP);
-    if core_stamp.exists() {
-        let stamp = fs::read_to_string(&core_stamp).unwrap_or_default();
-        if stamp.trim() != env!("CARGO_PKG_VERSION") {
-            return true;
+        // Check hash portion if present
+        let after_version = recorded[expected_prefix.len()..].trim();
+        if !after_version.is_empty()
+            && let Some(web_dir) = resolve_web_dir(workspace, state_dir)
+        {
+            let source_hash =
+                fs::read_to_string(web_dir.join(WEB_SOURCE_HASH_STAMP)).unwrap_or_default();
+            if source_hash.trim() != after_version {
+                return true;
+            }
         }
     }
     if let Some(web_dir) = resolve_web_dir(workspace, state_dir)
@@ -323,6 +430,15 @@ pub fn build_web_if_needed(web_dir: &Path) -> Result<(), String> {
             web_dir.join(WEB_VERSION_STAMP),
             format!("{}\n", env!("CARGO_PKG_VERSION")),
         );
+        // Write build hash stamp so web_is_built checks pass consistently
+        let source_hash =
+            fs::read_to_string(web_dir.join(WEB_SOURCE_HASH_STAMP)).unwrap_or_default();
+        if !source_hash.trim().is_empty() {
+            let _ = fs::write(
+                web_dir.join(".next").join(WEB_BUILD_HASH_FILE),
+                source_hash.trim().to_string() + "\n",
+            );
+        }
         Ok(())
     } else {
         match build_status {
@@ -343,7 +459,13 @@ pub fn build_web_if_needed(web_dir: &Path) -> Result<(), String> {
 }
 
 pub fn web_is_built(web_dir: &Path) -> bool {
-    web_dir.join(".next").join("BUILD_ID").exists()
+    let next = web_dir.join(".next");
+    if !next.join("BUILD_ID").exists() {
+        return false;
+    }
+    let source = fs::read_to_string(web_dir.join(WEB_SOURCE_HASH_STAMP)).unwrap_or_default();
+    let built = fs::read_to_string(next.join(WEB_BUILD_HASH_FILE)).unwrap_or_default();
+    !source.trim().is_empty() && source.trim() == built.trim()
 }
 
 pub trait DaemonRunner {
@@ -461,10 +583,18 @@ impl DaemonRunner for SystemDaemonRunner {
         let pid = child.id();
         let pid_path = web_pid_path(state_dir);
         let _ = fs::write(&pid_path, format!("{pid}\n"));
-        let _ = fs::write(
-            web_daemon_version_path(state_dir),
-            format!("{}\n", env!("CARGO_PKG_VERSION")),
-        );
+
+        // Record version + source hash so daemon_needs_restart can detect content changes
+        let source_hash = ensure_web_dir(workspace, state_dir)
+            .and_then(|d| fs::read_to_string(d.join(WEB_SOURCE_HASH_STAMP)).ok())
+            .unwrap_or_default();
+        let source_hash = source_hash.trim();
+        let daemon_ver_line = if source_hash.is_empty() {
+            format!("{}\n", env!("CARGO_PKG_VERSION"))
+        } else {
+            format!("{} {source_hash}\n", env!("CARGO_PKG_VERSION"))
+        };
+        let _ = fs::write(web_daemon_version_path(state_dir), daemon_ver_line);
 
         Ok(pid)
     }

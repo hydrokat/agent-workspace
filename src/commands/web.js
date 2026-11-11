@@ -1,6 +1,6 @@
-import { cpSync, existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync, realpathSync, readdirSync, statSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { join, relative, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkWebDeps, ensureWebDeps } from './web-deps.js';
@@ -11,7 +11,55 @@ const execFileAsync = promisify(execFile);
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 export const WEB_VERSION_STAMP = '.tandem-version';
 export const WEB_DAEMON_VERSION_FILE = 'tandem-web.version';
+export const WEB_SOURCE_HASH_STAMP = '.tandem-source-hash';
+export const WEB_BUILD_HASH_FILE = 'TANDEM_SOURCE_HASH';
 const COPY_EXCLUDE_TOP_LEVEL = new Set(['node_modules', '.next', 'tests', 'next-env.d.ts']);
+
+function isHashExcluded(relParts) {
+  const first = relParts[0] ?? '';
+  const name = relParts[relParts.length - 1] ?? '';
+  if (first === 'node_modules' || first === '.next' || first === 'tests') return true;
+  if (name === 'next-env.d.ts' || name === '.DS_Store') return true;
+  if (name.endsWith('.tsbuildinfo')) return true;
+  if (name.startsWith('.tandem-')) return true;
+  return false;
+}
+
+function collectHashFiles(base, dir, out) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const abs = join(dir, entry.name);
+    // Skip symlinks
+    const lst = lstatSync(abs);
+    if (lst.isSymbolicLink()) continue;
+    const relFull = relative(base, abs);
+    const relParts = relFull.split(sep);
+    const relNorm = relParts.join('/');
+    if (isHashExcluded(relParts)) continue;
+    if (entry.isDirectory()) {
+      collectHashFiles(base, abs, out);
+    } else if (entry.isFile()) {
+      out.push({ relNorm, abs });
+    }
+  }
+}
+
+export function webSourceHash(dir) {
+  const files = [];
+  collectHashFiles(dir, dir, files);
+  files.sort((a, b) => {
+    const ab = Buffer.from(a.relNorm, 'utf8');
+    const bb = Buffer.from(b.relNorm, 'utf8');
+    return ab.compare(bb);
+  });
+  const h = createHash('sha256');
+  for (const { relNorm, abs } of files) {
+    h.update(Buffer.from(relNorm, 'utf8'));
+    h.update(Buffer.alloc(1, 0));
+    h.update(readFileSync(abs));
+    h.update(Buffer.alloc(1, 0));
+  }
+  return h.digest('hex');
+}
 
 function getStateDir() {
   const xdg = process.env.XDG_STATE_HOME;
@@ -140,6 +188,30 @@ function installWebSource(bundledDir, installedDir, version) {
     },
   });
   writeFileSync(join(installedDir, WEB_VERSION_STAMP), `${version}\n`);
+  // Write source hash stamp so content-addressed checks can detect changes
+  try {
+    const hash = webSourceHash(bundledDir);
+    writeFileSync(join(installedDir, WEB_SOURCE_HASH_STAMP), `${hash}\n`);
+  } catch {
+    // Best-effort: if hashing fails the stamp is simply absent and next run re-copies
+  }
+}
+
+function installedSourceIsCurrent(coreDir, bundledDir, version) {
+  if (!hasWebSource(coreDir)) return false;
+  const stampPath = join(coreDir, WEB_VERSION_STAMP);
+  const stamp = existsSync(stampPath) ? readFileSync(stampPath, 'utf8').trim() : '';
+  if (stamp !== version) return false;
+  // Content-addressed check: source hash must match bundled
+  const hashStampPath = join(coreDir, WEB_SOURCE_HASH_STAMP);
+  if (!existsSync(hashStampPath)) return false;
+  const installedHash = readFileSync(hashStampPath, 'utf8').trim();
+  try {
+    const bundledHash = webSourceHash(bundledDir);
+    return installedHash === bundledHash;
+  } catch {
+    return false;
+  }
 }
 
 export function refreshInstalledWebOnUpdate({ dryRun = false } = {}) {
@@ -151,9 +223,7 @@ export function refreshInstalledWebOnUpdate({ dryRun = false } = {}) {
   if (!existsSync(coreDir) && !existsSync(getWebConfigPath())) return false;
 
   const version = packageVersion();
-  const stampPath = join(coreDir, WEB_VERSION_STAMP);
-  const stamp = existsSync(stampPath) ? readFileSync(stampPath, 'utf8').trim() : '';
-  const sourceOutdated = !hasWebSource(coreDir) || stamp !== version;
+  const sourceOutdated = !installedSourceIsCurrent(coreDir, bundledDir, version);
   if (sourceOutdated) {
     installWebSource(bundledDir, coreDir, version);
   }
@@ -202,9 +272,7 @@ export function resolveWebDir({ cwd, installedDir, bundledDir, version }) {
     return { dir: local, source: 'workspace', installedNow: false };
   }
 
-  const stampPath = join(installedDir, WEB_VERSION_STAMP);
-  const stamp = existsSync(stampPath) ? readFileSync(stampPath, 'utf8').trim() : '';
-  if (hasWebSource(installedDir) && stamp === version) {
+  if (installedSourceIsCurrent(installedDir, bundledDir, version)) {
     return { dir: installedDir, source: 'installed', installedNow: false };
   }
 
@@ -220,7 +288,15 @@ export function needsInstall(webDir) {
 }
 
 export function needsBuild(webDir) {
-  return !existsSync(join(webDir, '.next', 'BUILD_ID'));
+  if (!existsSync(join(webDir, '.next', 'BUILD_ID'))) return true;
+  const sourceStamp = existsSync(join(webDir, WEB_SOURCE_HASH_STAMP))
+    ? readFileSync(join(webDir, WEB_SOURCE_HASH_STAMP), 'utf8').trim()
+    : '';
+  if (!sourceStamp) return true;
+  const buildStamp = existsSync(join(webDir, '.next', WEB_BUILD_HASH_FILE))
+    ? readFileSync(join(webDir, '.next', WEB_BUILD_HASH_FILE), 'utf8').trim()
+    : '';
+  return sourceStamp !== buildStamp;
 }
 
 function runBun(webDir, bun = 'bun') {
@@ -242,6 +318,16 @@ export async function bootstrapWeb(webDir, run = runBun(webDir)) {
     if (run(['run', 'build']) !== 0) {
       throw new Error('bun run build failed in tandem-web');
     }
+    // Record the source hash for this build so needsBuild() can detect content changes
+    // on the next run, even when BUILD_ID still exists.
+    const sourceStampPath = join(webDir, WEB_SOURCE_HASH_STAMP);
+    let hash = existsSync(sourceStampPath) ? readFileSync(sourceStampPath, 'utf8').trim() : '';
+    if (!hash) {
+      hash = webSourceHash(webDir);
+      writeFileSync(sourceStampPath, `${hash}\n`);
+    }
+    mkdirSync(join(webDir, '.next'), { recursive: true });
+    writeFileSync(join(webDir, '.next', WEB_BUILD_HASH_FILE), `${hash}\n`);
   }
 }
 
@@ -504,7 +590,15 @@ export async function run(context) {
 
   if (child.pid) {
     writeFileSync(pidFile, String(child.pid) + '\n', { mode: 0o600 });
-    writeFileSync(getWebDaemonVersionPath(), `${targetVersion}\n`, { mode: 0o600 });
+    // Record version + source hash so daemon_needs_restart can detect content changes
+    const sourceHashStampPath = join(webDir, WEB_SOURCE_HASH_STAMP);
+    const sourceHash = existsSync(sourceHashStampPath)
+      ? readFileSync(sourceHashStampPath, 'utf8').trim()
+      : '';
+    const daemonVerLine = sourceHash
+      ? `${targetVersion} ${sourceHash}\n`
+      : `${targetVersion}\n`;
+    writeFileSync(getWebDaemonVersionPath(), daemonVerLine, { mode: 0o600 });
   }
 
   const workspaceSocket = flags.workspace || detectCurrentWorkspaceSocket(context.cwd, stateDir);
