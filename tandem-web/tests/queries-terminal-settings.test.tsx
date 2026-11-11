@@ -117,62 +117,75 @@ describe("Queries, Terminal, and Settings Suite (t-008)", () => {
       expect(html).toContain("min-h-11");
     });
 
-    it("renders terminal iframe when ttyd is enabled, or notice when disabled", () => {
+    it("renders ttyd disabled notice when ttydEnabled is false", () => {
       const disabledHtml = renderToStaticMarkup(
         <TerminalAttachPanel
           workspaceId="tandem-1234567890"
           ttydEnabled={false}
+          agents={[]}
+          mode="mirror"
+          onModeChange={() => {}}
         />
       );
       expect(disabledHtml).toContain("Terminal attach is disabled");
+    });
 
+    it("renders connecting overlay (not iframe) on first SSR render when ttyd is enabled", () => {
+      // The panel only shows the iframe after POST /terminal succeeds.
+      // On SSR (renderToStaticMarkup), effects don't run, so the phase is "starting"
+      // and no iframe is emitted.
       const enabledHtml = renderToStaticMarkup(
         <TerminalAttachPanel
           workspaceId="tandem-1234567890"
           ttydEnabled={true}
+          agents={[]}
+          mode="mirror"
+          onModeChange={() => {}}
         />
       );
-      expect(enabledHtml).toContain("<iframe");
-      expect(enabledHtml).toContain("/api/workspaces/tandem-1234567890/terminal/pty/");
+      expect(enabledHtml).toContain("Connecting");
+      expect(enabledHtml).not.toContain("<iframe");
     });
 
-    it("renders agent chips in header and highlights active agent", () => {
-      const panes = [
-        {
-          id: "p1",
-          window: "w1",
-          kind: "planner",
-          role: "planner-1",
-          index: 0,
-          label: "Planner A",
-          dead: false,
-          session: "planner-1",
-        },
-        {
-          id: "p2",
-          window: "w1",
-          kind: "implementer",
-          role: "implementer-1",
-          index: 1,
-          label: "Impl B",
-          dead: false,
-          session: "impl-1",
-        },
+    it("renders agent chips in header using the AgentChip prop", () => {
+      const agents = [
+        { id: "p1", label: "planner-1", dead: false },
+        { id: "p2", label: "impl-1", dead: false },
       ];
 
       const html = renderToStaticMarkup(
         <TerminalAttachPanel
           workspaceId="tandem-1234567890"
           ttydEnabled={true}
-          panes={panes}
+          agents={agents}
           activePaneId="p1"
           onSelectAgent={() => {}}
+          mode="mirror"
+          onModeChange={() => {}}
         />
       );
 
       expect(html).toContain("Agents:");
       expect(html).toContain("planner-1");
       expect(html).toContain("impl-1");
+    });
+
+    it("renders the size toggle radiogroup with Mirror and Fit radio buttons", () => {
+      const html = renderToStaticMarkup(
+        <TerminalAttachPanel
+          workspaceId="tandem-1234567890"
+          ttydEnabled={true}
+          agents={[]}
+          mode="mirror"
+          onModeChange={() => {}}
+        />
+      );
+
+      expect(html).toContain('role="radiogroup"');
+      expect(html).toContain('aria-label="Terminal size"');
+      expect(html).toContain('role="radio"');
+      expect(html).toContain("Mirror");
+      expect(html).toContain("Fit screen");
     });
   });
 

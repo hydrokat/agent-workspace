@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { ResponsiveAppShell } from "@/components/layout/responsive-app-shell";
 import { type NavTabId } from "@/components/layout/mobile-bottom-nav";
 import { AgentGrid } from "@/components/agents/agent-grid";
@@ -14,10 +14,12 @@ import { WebSettingsPanel } from "@/components/settings/web-settings-panel";
 import { HostConnectionDialog } from "@/components/connection/host-connection-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceStream } from "@/hooks/use-workspace-stream";
+import { useTerminalSizeMode } from "@/hooks/use-terminal-size-mode";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
 import type { IpCandidate } from "@/domain/models/network";
 import type { PaneInfo } from "@/domain/models/snapshot";
+import type { AgentChip } from "@/domain/models/terminal";
 import type { AllowedTandemAction } from "@/domain/ports/tandem-gateway";
 
 export default function DashboardPage() {
@@ -40,15 +42,50 @@ export default function DashboardPage() {
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
 
+  // Terminal keep-alive tracking: once opened in mirror mode, stays mounted
+  const [terminalOpened, setTerminalOpened] = useState(false);
+
   const initialWorkspaceResolvedRef = useRef(false);
   const activeWorkspaceIdRef = useRef<string | null>(null);
   activeWorkspaceIdRef.current = activeWorkspace?.id ?? null;
 
   const { snapshot, connected, problem } = useWorkspaceStream(activeWorkspace?.id ?? null);
 
+  // Terminal sizing mode lifted to page so keep-alive rule can depend on it
+  const [terminalMode, onTerminalModeChange] = useTerminalSizeMode();
+
+  // Stable agent chips — identity changes only when chip content changes
+  const agentChips = useMemo(
+    () =>
+      (snapshot?.panes ?? [])
+        .filter(
+          (p) =>
+            p.kind !== "own" &&
+            p.role?.toLowerCase() !== "sidebar" &&
+            p.role?.toLowerCase() !== "status"
+        )
+        .map((p): AgentChip => ({
+          id: p.id,
+          label: p.name || p.session || p.label || p.id,
+          dead: p.dead,
+        })),
+    [snapshot?.panes]
+  );
+
+  const agentChipsKey = agentChips
+    .map((c) => `${c.id}:${c.label}:${c.dead ? 1 : 0}`)
+    .join("|");
+
+  const stableAgentChips = useMemo(() => agentChips, [agentChipsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Host window size as primitives so identical sizes don't cause a render
+  const hostCols = snapshot?.window?.cols ?? null;
+  const hostRows = snapshot?.window?.rows ?? null;
+
   const handleSelectWorkspace = useCallback((ws: WorkspaceEntry) => {
     setActiveWorkspace(ws);
     setActivePaneId(null);
+    setTerminalOpened(false); // reset keep-alive when workspace changes
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       url.searchParams.set("workspace", ws.id);
@@ -192,14 +229,56 @@ export default function DashboardPage() {
     await fetchWorkspaces();
   };
 
-  const handleInteractAgent = async (pane: PaneInfo) => {
+  // Stable callback: reads workspace ID from ref at call time
+  const handleInteractAgent = useCallback(async (pane: PaneInfo) => {
+    const wsId = activeWorkspaceIdRef.current;
+    if (!wsId) return;
     setActivePaneId(pane.id);
-    await handleAction("show", [pane.id]);
+    try {
+      await fetch(`/api/workspaces/${wsId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "show", args: [pane.id] }),
+      });
+    } catch {
+      // Best-effort; the stream will reflect the state
+    }
     setActiveTab("terminal");
     setDesktopTab("terminal");
-  };
+  }, []); // stable — reads from ref, never from closed-over state
+
+  // Stable callback for terminal panel's onSelectAgent (AgentChip variant)
+  const handleInteractAgentByChip = useCallback(async (chip: AgentChip) => {
+    const wsId = activeWorkspaceIdRef.current;
+    if (!wsId) return;
+    setActivePaneId(chip.id);
+    try {
+      await fetch(`/api/workspaces/${wsId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "show", args: [chip.id] }),
+      });
+    } catch {
+      // Best-effort
+    }
+    setActiveTab("terminal");
+    setDesktopTab("terminal");
+  }, []); // stable — reads from ref
 
   const unreadQueries = snapshot?.snapshot?.queries?.length || 0;
+
+  const terminalVisible =
+    (desktopTab === "terminal" && isDesktop) || activeTab === "terminal";
+
+  // Track whether the terminal tab has ever been opened in this workspace session
+  useEffect(() => {
+    if (terminalVisible && !terminalOpened) {
+      setTerminalOpened(true);
+    }
+  }, [terminalVisible, terminalOpened]);
+
+  // In mirror mode: keep the panel mounted but hidden; in fit mode: unmount on leave
+  const shouldKeepTerminalMounted = terminalMode === "mirror";
 
   return (
     <ResponsiveAppShell
@@ -263,7 +342,6 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Content Panels */}
-      {/* Desktop view matches desktopTab; Mobile view matches activeTab */}
       <div className="flex flex-col gap-6">
         {/* Status view: AgentGrid + StatusOverviewPanel */}
         {((desktopTab === "status" && isDesktop) || activeTab === "status") && (
@@ -299,7 +377,7 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Mobile "work" combined view if neither sprint/spec/task is exclusively active */}
+        {/* Mobile "work" combined view */}
         {activeTab === "work" && !["sprint", "spec", "task"].includes(desktopTab) && (
           <div className="flex flex-col gap-6">
             <SprintProgressPanel sprint={snapshot?.snapshot?.sprint} />
@@ -322,15 +400,37 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Terminal tab */}
-        {((desktopTab === "terminal" && isDesktop) || activeTab === "terminal") && (
-          <TerminalAttachPanel
-            workspaceId={activeWorkspace?.id || workspaces[0]?.id || "tandem-default"}
-            ttydEnabled={Boolean(settings?.ttyd_enabled)}
-            panes={snapshot?.panes || []}
-            activePaneId={activePaneId}
-            onSelectAgent={handleInteractAgent}
-          />
+        {/* Terminal: keep-mounted in mirror mode, unmount on leave in fit mode */}
+        {shouldKeepTerminalMounted ? (
+          terminalOpened && (
+            <div hidden={!terminalVisible}>
+              <TerminalAttachPanel
+                workspaceId={activeWorkspace?.id || workspaces[0]?.id || "tandem-default"}
+                ttydEnabled={Boolean(settings?.ttyd_enabled)}
+                agents={stableAgentChips}
+                activePaneId={activePaneId}
+                onSelectAgent={handleInteractAgentByChip}
+                mode={terminalMode}
+                onModeChange={onTerminalModeChange}
+                hostCols={hostCols}
+                hostRows={hostRows}
+              />
+            </div>
+          )
+        ) : (
+          terminalVisible && (
+            <TerminalAttachPanel
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || "tandem-default"}
+              ttydEnabled={Boolean(settings?.ttyd_enabled)}
+              agents={stableAgentChips}
+              activePaneId={activePaneId}
+              onSelectAgent={handleInteractAgentByChip}
+              mode={terminalMode}
+              onModeChange={onTerminalModeChange}
+              hostCols={hostCols}
+              hostRows={hostRows}
+            />
+          )
         )}
 
         {/* Settings tab */}

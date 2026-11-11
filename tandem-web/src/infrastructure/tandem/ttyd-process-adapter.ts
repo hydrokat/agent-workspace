@@ -12,12 +12,9 @@ import { randomBytes } from "node:crypto";
 import { TtydPidRegistry } from "./ttyd-pid-registry";
 import type { IWorkspaceRegistry } from "../../domain/ports/workspace-registry";
 import { FileWorkspaceRegistry } from "./file-workspace-registry";
+import type { TerminalSizeMode } from "../../domain/models/terminal";
 
-// ---------------------------------------------------------------------------
-// Sizing mode
-// ---------------------------------------------------------------------------
-
-export type TerminalSizeMode = "mirror" | "fit";
+export type { TerminalSizeMode };
 
 export function isTerminalSizeMode(value: unknown): value is TerminalSizeMode {
   return value === "mirror" || value === "fit";
