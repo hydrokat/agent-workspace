@@ -164,10 +164,27 @@ pub struct RenameAgentArgs {
     pub name: Option<String>,
 }
 
-#[derive(Args, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Args, PartialEq, Eq)]
 pub struct SnapshotArgs {
     #[arg(long, default_value_t = true, help = "output snapshot in JSON format")]
     pub json: bool,
+
+    #[arg(
+        long,
+        help = "keep running; print one JSON line each time the snapshot changes"
+    )]
+    pub watch: bool,
+
+    #[arg(
+        long,
+        default_value_t = 1000,
+        value_parser = clap::value_parser!(u64).range(250..=60_000),
+        help = "watch mode: milliseconds between checks"
+    )]
+    pub interval_ms: u64,
+
+    #[arg(long, help = "indent the JSON (one-shot mode only)")]
+    pub pretty: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -339,8 +356,15 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Some(Command::Gridbar) => {
             crate::gridbar::run_gridbar(&workspace, &config)?;
         }
-        Some(Command::Snapshot(_)) => {
-            crate::commands::snapshot_json(&workspace, &config);
+        Some(Command::Snapshot(args)) => {
+            if args.watch {
+                let interval = std::time::Duration::from_millis(args.interval_ms);
+                let mut out = std::io::stdout().lock();
+                let _ =
+                    crate::commands::snapshot_watch(&workspace, &config, interval, &mut out, None);
+            } else {
+                crate::commands::snapshot_json(&workspace, &config, args.pretty);
+            }
         }
         Some(Command::AnswerQuery(args)) => {
             crate::commands::answer_query_cmd(&workspace, &config, &args.id, &args.answer);

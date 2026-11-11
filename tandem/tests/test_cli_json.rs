@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
-use tandem::commands::{answer_query_inner, collect_snapshot_json, list_ips_payload};
+use tandem::cli::parse_from;
+use tandem::commands::{
+    answer_query_inner, collect_snapshot_json, list_ips_payload, snapshot_json,
+};
 use tandem::config::Config;
 use tandem::coordination::store::CoordStore;
 
@@ -105,6 +108,61 @@ fn test_answer_query_empty_answer() {
     assert!(result.is_err(), "empty answer must be rejected");
 
     let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_snapshot_json_compact_by_default() {
+    let ws = temp_workspace("compact");
+    let config = Config::default();
+
+    let payload = collect_snapshot_json(&ws, &config).expect("snapshot collection must succeed");
+
+    let compact = serde_json::to_string(&payload).unwrap();
+    let pretty = serde_json::to_string_pretty(&payload).unwrap();
+
+    assert!(
+        !compact.contains("  \""),
+        "Compact output must not have leading two-space indentation"
+    );
+    assert!(
+        pretty.contains("  \""),
+        "Pretty output must have leading two-space indentation"
+    );
+
+    let _ = fs::remove_dir_all(&ws);
+}
+
+#[test]
+fn test_snapshot_json_pretty_flag() {
+    let ws = temp_workspace("pretty-flag");
+    let config = Config::default();
+
+    let captured = {
+        let payload = collect_snapshot_json(&ws, &config).expect("must succeed");
+        serde_json::to_string_pretty(&payload).unwrap()
+    };
+
+    assert!(
+        captured.contains("  \""),
+        "Pretty-serialised output should have two-space indent"
+    );
+
+    let _ = fs::remove_dir_all(&ws);
+}
+
+#[test]
+fn test_snapshot_watch_interval_ms_too_low_rejected() {
+    let result = parse_from(["tandem", "snapshot", "--watch", "--interval-ms", "100"]);
+    assert!(
+        result.is_err(),
+        "--interval-ms 100 is below the minimum of 250 and must be rejected"
+    );
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.exit_code(),
+        2,
+        "clap must exit with code 2 for invalid arg range"
+    );
 }
 
 #[test]
