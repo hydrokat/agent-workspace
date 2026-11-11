@@ -122,4 +122,5 @@ export interface WorkspaceSnapshotPayload {
   panes: PaneInfo[];
   selected: string[];
   quota_line: string;
+  window?: { cols: number; rows: number };
 }
