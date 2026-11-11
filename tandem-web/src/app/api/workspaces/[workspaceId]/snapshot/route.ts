@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { GetWorkspaceSnapshotUseCase } from "@/application/use-cases/get-snapshot";
-import { CliTandemGateway } from "@/infrastructure/tandem/cli-tandem-gateway";
-import { FileWorkspaceRegistry } from "@/infrastructure/tandem/file-workspace-registry";
+import { isValidWorkspaceId } from "@/domain/models/workspace";
+import { getSnapshotBroker } from "@/infrastructure/tandem/snapshot-broker";
 
 export async function GET(
   _request: Request,
@@ -9,11 +8,15 @@ export async function GET(
 ) {
   try {
     const { workspaceId } = await props.params;
-    const registry = new FileWorkspaceRegistry();
-    const gateway = new CliTandemGateway();
-    const useCase = new GetWorkspaceSnapshotUseCase(registry, gateway);
+    if (!isValidWorkspaceId(workspaceId)) {
+      return NextResponse.json(
+        { error: { code: "BAD_REQUEST", message: "Invalid workspace ID" } },
+        { status: 400 }
+      );
+    }
 
-    const snapshot = await useCase.execute(workspaceId);
+    const broker = getSnapshotBroker();
+    const snapshot = await broker.latest(workspaceId);
     return NextResponse.json(snapshot);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

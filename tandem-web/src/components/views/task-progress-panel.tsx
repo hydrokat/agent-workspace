@@ -1,9 +1,19 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Clock } from "lucide-react";
 import type { ClaimInfo, OngoingTaskInfo } from "@/domain/models/snapshot";
+
+function useNowSeconds(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now() / 1000), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
 
 interface TaskProgressPanelProps {
   claims?: ClaimInfo[];
@@ -14,8 +24,9 @@ interface TaskProgressPanelProps {
 export function TaskProgressPanel({
   claims = [],
   ongoingTasks = [],
-  now = Date.now() / 1000,
 }: TaskProgressPanelProps) {
+  const now = useNowSeconds();
+
   const formatAge = (timestamp?: number) => {
     if (!timestamp) return "n/a";
     const sec = Math.max(0, Math.floor(now - timestamp));

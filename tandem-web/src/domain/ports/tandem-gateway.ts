@@ -17,9 +17,19 @@ export type AllowedTandemAction =
   | "rename-workspace"
   | "rename-agent";
 
+export interface SnapshotWatchHandlers {
+  onLine(line: string): void;
+  onExit(code: number | null): void;
+}
+
+export interface SnapshotWatch {
+  stop(): void;
+}
+
 export interface ITandemGateway {
   getSnapshot(workspacePath: string): Promise<WorkspaceSnapshotPayload>;
   answerQuery(workspacePath: string, queryId: string, answer: string): Promise<void>;
   listIps(): Promise<ListIpsResult>;
   executeAction(workspacePath: string, action: AllowedTandemAction, args?: string[]): Promise<void>;
+  watchSnapshot(workspacePath: string, handlers: SnapshotWatchHandlers): SnapshotWatch;
 }

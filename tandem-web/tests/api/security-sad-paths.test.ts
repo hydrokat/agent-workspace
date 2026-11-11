@@ -3,7 +3,12 @@ import { AnswerAgentQueryUseCase } from "../../src/application/use-cases/answer-
 import { GetWorkspaceSnapshotUseCase } from "../../src/application/use-cases/get-snapshot";
 import { ManageSettingsUseCase } from "../../src/application/use-cases/manage-settings";
 import { RunWorkspaceActionUseCase } from "../../src/application/use-cases/run-action";
-import type { AllowedTandemAction, ITandemGateway } from "../../src/domain/ports/tandem-gateway";
+import type {
+  AllowedTandemAction,
+  ITandemGateway,
+  SnapshotWatch,
+  SnapshotWatchHandlers,
+} from "../../src/domain/ports/tandem-gateway";
 import type { IWebSettingsRepository } from "../../src/domain/ports/web-settings-repository";
 import type { IWorkspaceRegistry } from "../../src/domain/ports/workspace-registry";
 
@@ -57,6 +62,9 @@ class MockGateway implements ITandemGateway {
     return { ips: [], workspaces: [] };
   }
   async executeAction() {}
+  watchSnapshot(_workspacePath: string, _handlers: SnapshotWatchHandlers): SnapshotWatch {
+    return { stop() {} };
+  }
 }
 
 describe("Security Sad-Path Matrix (8 OWASP / Vulnerability Categories)", () => {
