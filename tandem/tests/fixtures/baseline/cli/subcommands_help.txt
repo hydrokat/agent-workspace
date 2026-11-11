@@ -301,8 +301,11 @@ output workspace snapshot in JSON format
 Usage: snapshot [OPTIONS]
 
 Options:
-      --json  output snapshot in JSON format
-  -h, --help  Print help
+      --json                       output snapshot in JSON format
+      --watch                      keep running; print one JSON line each time the snapshot changes
+      --interval-ms <INTERVAL_MS>  watch mode: milliseconds between checks [default: 1000]
+      --pretty                     indent the JSON (one-shot mode only)
+  -h, --help                       Print help
 
 
 === SUBCOMMAND: status ===

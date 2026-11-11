@@ -600,32 +600,54 @@ impl Layout {
         self.get_selected_from(&panes)
     }
 
-    pub fn get_selected_from(&self, panes: &[PaneInfo]) -> Vec<String> {
-        let out = self
+    pub fn selected_and_size(&self, panes: &[PaneInfo]) -> (Vec<String>, Option<(u16, u16)>) {
+        let raw = self
             .client
             .run(&[
                 "display-message",
                 "-p",
                 "-t",
                 SESSION,
-                "#{@tandem_selected}",
+                "#{@tandem_selected}\t#{window_width}\t#{window_height}",
             ])
-            .map(|r| r.out.trim().to_string())
+            .map(|r| r.out)
             .unwrap_or_default();
-        if out.is_empty() {
+
+        // Split before any trimming: when @tandem_selected is empty the output is
+        // "\t<cols>\t<rows>\n" and trimming the whole string would strip the leading
+        // tab, making the first field look like a column count.
+        let mut parts = raw.splitn(3, '\t');
+        let selected_raw = parts.next().unwrap_or("").trim().to_string();
+        let cols_raw = parts.next().unwrap_or("").trim().to_string();
+        let rows_raw = parts.next().unwrap_or("").trim().to_string();
+
+        let size = match (cols_raw.parse::<u16>(), rows_raw.parse::<u16>()) {
+            (Ok(c), Ok(r)) if c > 0 && r > 0 => Some((c, r)),
+            _ => None,
+        };
+
+        let selected = if selected_raw.is_empty() {
             if let Some(vis) = panes
                 .iter()
                 .find(|p| p.window == "main" && p.kind == "agent" && !p.session.is_empty())
             {
-                return vec![vis.session.clone()];
+                vec![vis.session.clone()]
+            } else {
+                Vec::new()
             }
-            Vec::new()
         } else {
-            out.split(',')
+            selected_raw
+                .split(',')
                 .filter(|s| !s.trim().is_empty())
                 .map(|s| s.trim().to_string())
                 .collect()
-        }
+        };
+
+        (selected, size)
+    }
+
+    pub fn get_selected_from(&self, panes: &[PaneInfo]) -> Vec<String> {
+        self.selected_and_size(panes).0
     }
 
     pub fn set_selected(&self, selected: &[String]) -> Result<(), TmuxError> {

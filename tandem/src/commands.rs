@@ -218,6 +218,15 @@ pub fn make_layout(workspace: &Path, config: &Config) -> Layout {
     layout
 }
 
+pub fn inspect_layout(workspace: &Path, config: &Config) -> Layout {
+    let conf = config.state_dir.join("tandem.tmux.conf");
+    let socket = socket_for(workspace);
+    let mut layout = Layout::new(&TmuxClient::new(&socket, Some(conf)));
+    layout.coord = Some(CoordStore::new(coord_dir_for(workspace, config)));
+    layout.workspace = Some(workspace.to_string_lossy().to_string());
+    layout
+}
+
 pub fn start(
     specs: &[AgentSpec],
     workspace: &Path,
@@ -1310,12 +1319,8 @@ pub fn quota_feed(config: &Config) {
 }
 
 pub fn quota_line(workspace: &Path, config: &Config) {
-    let layout = make_layout(workspace, config);
-    let panes = if layout.exists() {
-        layout.panes().unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let layout = inspect_layout(workspace, config);
+    let panes = layout.panes().unwrap_or_default();
 
     let mut clis = Vec::new();
     for pane in &panes {
@@ -1346,6 +1351,12 @@ pub fn quota_line(workspace: &Path, config: &Config) {
     let _ = io::stdout().write_all(line.as_bytes());
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WindowSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotPayload {
     pub workspace_id: String,
@@ -1356,6 +1367,8 @@ pub struct SnapshotPayload {
     pub quota_line: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowSize>,
 }
 
 pub fn collect_snapshot_json(
@@ -1386,18 +1399,14 @@ pub fn collect_snapshot_json(
     let snapshot =
         crate::snapshot::collect(workspace, &store, std::time::Duration::from_millis(500));
 
-    let layout = make_layout(workspace, config);
-    let panes = if layout.exists() {
-        layout.panes().unwrap_or_default()
+    let layout = inspect_layout(workspace, config);
+    let panes = layout.panes().unwrap_or_default();
+    let (selected, win_size) = if panes.is_empty() {
+        (Vec::new(), None)
     } else {
-        Vec::new()
+        layout.selected_and_size(&panes)
     };
-
-    let selected = if layout.exists() {
-        layout.get_selected_from(&panes)
-    } else {
-        Vec::new()
-    };
+    let window = win_size.map(|(cols, rows)| WindowSize { cols, rows });
 
     let mut clis = Vec::new();
     for pane in &panes {
@@ -1433,13 +1442,77 @@ pub fn collect_snapshot_json(
         selected,
         quota_line,
         workspace_name,
+        window,
     })
 }
 
-pub fn snapshot_json(workspace: &Path, config: &Config) {
+pub fn snapshot_fingerprint(payload: &SnapshotPayload) -> String {
+    let mut stable = payload.clone();
+    stable.snapshot.now = 0.0;
+    serde_json::to_string(&stable).unwrap_or_default()
+}
+
+pub const WATCH_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
+
+pub fn snapshot_watch(
+    workspace: &Path,
+    config: &Config,
+    interval: std::time::Duration,
+    out: &mut dyn Write,
+    max_ticks: Option<usize>,
+) -> io::Result<()> {
+    let mut last_fingerprint = String::new();
+    let mut last_write = std::time::Instant::now();
+    let mut ticks = 0usize;
+
+    loop {
+        match collect_snapshot_json(workspace, config) {
+            Ok(payload) => {
+                let fingerprint = snapshot_fingerprint(&payload);
+                if fingerprint != last_fingerprint {
+                    let line = serde_json::to_string(&payload).map_err(io::Error::other)?;
+                    out.write_all(line.as_bytes())?;
+                    out.write_all(b"\n")?;
+                    out.flush()?;
+                    last_fingerprint = fingerprint;
+                    last_write = std::time::Instant::now();
+                }
+            }
+            Err(err) => {
+                let line = serde_json::json!({ "error": err.to_string() });
+                writeln!(out, "{line}")?;
+                out.flush()?;
+                last_write = std::time::Instant::now();
+            }
+        }
+
+        if last_write.elapsed() >= WATCH_HEARTBEAT {
+            let now = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            writeln!(out, "{}", serde_json::json!({ "heartbeat": now }))?;
+            out.flush()?;
+            last_write = std::time::Instant::now();
+        }
+
+        ticks += 1;
+        if max_ticks.is_some_and(|max| ticks >= max) {
+            return Ok(());
+        }
+        std::thread::sleep(interval);
+    }
+}
+
+pub fn snapshot_json(workspace: &Path, config: &Config, pretty: bool) {
     match collect_snapshot_json(workspace, config) {
         Ok(payload) => {
-            if let Ok(json) = serde_json::to_string_pretty(&payload) {
+            let json = if pretty {
+                serde_json::to_string_pretty(&payload)
+            } else {
+                serde_json::to_string(&payload)
+            };
+            if let Ok(json) = json {
                 let _ = io::stdout().write_all(json.as_bytes());
                 let _ = io::stdout().write_all(b"\n");
             }
