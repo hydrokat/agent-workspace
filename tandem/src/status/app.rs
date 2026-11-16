@@ -256,6 +256,7 @@ impl StatusApp {
         let factory = config.as_ref().is_some_and(|c| c.factory);
         let tab_bar = TabBar::from_tabs(StatusTab::visible(factory), 0, StatusTab::Status);
 
+        let factory_ws = workspace.clone();
         let mut app = Self {
             workspace,
             store: store_arc,
@@ -293,7 +294,11 @@ impl StatusApp {
             queries_tab,
             settings_tab: crate::status::settings_tab::SettingsTab::default(),
             web_tab: crate::status::web_tab::WebTab::default(),
-            factory_tab: crate::status::factory_tab::FactoryTab::default(),
+            factory_tab: crate::status::factory_tab::FactoryTab::new(
+                Some(factory_ws),
+                crate::wizard::runner::installed_clis(),
+                Arc::new(crate::wizard::runner::load_models),
+            ),
             web_daemon: Arc::new(crate::web_manager::SystemDaemonRunner),
             web_state_dir: None,
             deps: Arc::new(crate::web_deps::SystemDepsRuntime),
@@ -430,7 +435,9 @@ impl StatusApp {
             }
         }
 
-        self.factory_tab.sync(self.snapshot.factory.as_ref());
+        let pane_open = self.is_factory_pane_open();
+        self.factory_tab.platform = self.platform.clone();
+        self.factory_tab.sync_snapshot(&self.snapshot, pane_open);
 
         self.tab_bar = TabBar::from_tabs(
             StatusTab::visible(self.is_factory()),
@@ -572,6 +579,66 @@ impl StatusApp {
                 self.dirty = true;
             }
             None => {}
+        }
+    }
+
+    fn is_factory_pane_open(&self) -> bool {
+        let Some(ref detail) = self.factory_tab.detail else {
+            return false;
+        };
+        if self.tmux.is_none() {
+            return false;
+        }
+        let cfg = self.config.clone().unwrap_or_default();
+        let layout = crate::commands::make_layout(&self.workspace, &cfg);
+        layout
+            .panes()
+            .map(|panes| panes.iter().any(|p| p.idea == detail.idea_id))
+            .unwrap_or(false)
+    }
+
+    fn handle_factory_action(&mut self, action: Option<crate::status::factory_tab::FactoryAction>) {
+        use crate::status::factory_tab::FactoryAction;
+        let Some(action) = action else {
+            return;
+        };
+        let cfg = self.config.clone().unwrap_or_default();
+        match action {
+            FactoryAction::StartIdea { cli, model } => {
+                match crate::factory::commands::start_idea(
+                    &self.workspace,
+                    &cfg,
+                    &cli,
+                    &model,
+                    None,
+                ) {
+                    Ok(idea) => {
+                        self.factory_tab.selected_id = Some(idea.id);
+                        self.factory_tab.notice.clear();
+                        self.action_refresh_now();
+                    }
+                    Err(err) => {
+                        self.factory_tab.notice = err;
+                    }
+                }
+            }
+            FactoryAction::OpenOrResumeOrchestrator { idea_id } => {
+                match crate::factory::commands::resume_idea(&self.workspace, &cfg, &idea_id) {
+                    Ok(_) => {
+                        self.action_refresh_now();
+                    }
+                    Err(err) => {
+                        if let Some(ref mut detail) = self.factory_tab.detail {
+                            detail.notice = err;
+                        } else {
+                            self.factory_tab.notice = err;
+                        }
+                    }
+                }
+            }
+            FactoryAction::Refresh => {
+                self.action_refresh_now();
+            }
         }
     }
 
@@ -773,6 +840,9 @@ impl StatusApp {
 
     pub fn tick_timers(&mut self) {
         self.poll_deps_install();
+        if self.factory_tab.poll_background() {
+            self.dirty = true;
+        }
         let now = self.now();
         if now - self.last_refresh >= self.refresh_seconds {
             self.action_refresh_now();
@@ -857,7 +927,8 @@ impl StatusApp {
         }
 
         let web_captures = self.tab == StatusTab::Web && self.web_tab.captures_input();
-        if event.modifiers.is_empty() && !web_captures {
+        let factory_captures = self.tab == StatusTab::Factory && self.factory_tab.captures_input();
+        if event.modifiers.is_empty() && !web_captures && !factory_captures {
             match event.code {
                 KeyCode::Char('1') => {
                     self.set_tab(StatusTab::Status);
@@ -943,7 +1014,10 @@ impl StatusApp {
             return;
         }
 
-        if event.code == KeyCode::Tab {
+        if event.code == KeyCode::Tab
+            && !(self.tab == StatusTab::Factory
+                && self.factory_tab.view != crate::status::factory_tab::FactoryView::Board)
+        {
             self.set_tab(self.tab.next_for(self.is_factory()));
             return;
         }
@@ -986,23 +1060,10 @@ impl StatusApp {
                 self.task_scroll.handle_key(event.code, lines.len(), view_h);
             }
             StatusTab::Factory => {
-                let ideas = self
-                    .snapshot
-                    .factory
-                    .as_ref()
-                    .map(|f| f.ideas.as_slice())
-                    .unwrap_or(&[]);
-                match event.code {
-                    KeyCode::Up => {
-                        self.factory_tab.select_prev(ideas);
-                        self.dirty = true;
-                    }
-                    KeyCode::Down => {
-                        self.factory_tab.select_next(ideas);
-                        self.dirty = true;
-                    }
-                    _ => {}
-                }
+                self.factory_tab.platform = self.platform.clone();
+                let action = self.factory_tab.handle_key(event, &self.snapshot);
+                self.handle_factory_action(action);
+                self.dirty = true;
             }
             StatusTab::Queries | StatusTab::Web | StatusTab::Settings => {}
         }

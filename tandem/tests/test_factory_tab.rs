@@ -12,7 +12,8 @@ use tandem::snapshot::{FactorySummary, IdeaCard, StatusSnapshot};
 use tandem::status::factory_tab::FactoryTab;
 use tandem::status::{StatusApp, StatusTab};
 use tandem::tmux::keys::{
-    FACTORY_TAB_KEY, default_keymap, help_lines, help_lines_with_factory, parse_shortcut,
+    FACTORY_NEW_IDEA_KEY, FACTORY_TAB_KEY, default_keymap, help_lines, help_lines_with_factory,
+    parse_shortcut,
 };
 
 fn temp_workspace(name: &str) -> PathBuf {
@@ -257,4 +258,148 @@ fn test_factory_shortcut_has_modifier_and_only_in_factory_help() {
     assert!(factory_help.contains("Factory"));
     assert!(factory_help.contains("Alt+f"));
     assert!(factory_help.contains("1-8 direct"));
+}
+
+#[test]
+fn test_factory_tab_filter_cycles_and_renders_blockers_marker() {
+    use tandem::coordination::schema::Query;
+    use tandem::status::factory_tab::{FactoryTab, IdeaFilter};
+
+    let now = 1_700_000_000.0;
+    let mut ideas = sample_ideas(now);
+    ideas[0].state = IdeaState::Planning;
+    ideas[0].blockers = 1;
+
+    let mut snap = sample_snapshot(now, ideas);
+    snap.factory.as_mut().unwrap().needs_you = 1;
+    snap.queries.push(Query {
+        id: "q-001".to_string(),
+        asked_by: "orchestrator".to_string(),
+        task: "idea:i-7k2m9q4d".to_string(),
+        question: "Which CSV columns?".to_string(),
+        blocking_scope: "planning".to_string(),
+        status: "open".to_string(),
+        created: now - 60.0,
+        options: Vec::new(),
+        answer: String::new(),
+        answered_via: String::new(),
+    });
+
+    let mut tab = FactoryTab::default();
+    tab.sync_snapshot(&snap, false);
+
+    let area = Rect::new(0, 0, 125, 10);
+    let mut buf = Buffer::empty(area);
+    tab.render(&snap, area, &mut buf);
+    let out = buffer_text(&buf, area);
+    assert!(out.contains("filter: All"));
+    assert!(out.contains("needs you 1"));
+    assert!(out.contains("1 ?"));
+
+    // Cycle filter with 'f' -> Needs you
+    tab.handle_key(
+        &KeyEvent::new(KeyCode::Char('f'), KeyModifiers::empty()),
+        &snap,
+    );
+    assert_eq!(tab.filter, IdeaFilter::NeedsYou);
+    let mut buf = Buffer::empty(area);
+    tab.render(&snap, area, &mut buf);
+    let out = buffer_text(&buf, area);
+    assert!(out.contains("filter: Needs you"));
+    assert!(out.contains("i-7k2m9q4d"));
+    assert!(!out.contains("i-b81xw0pe"));
+
+    // Cycle to Inbox (0 matching -> filtered-to-empty message)
+    tab.handle_key(
+        &KeyEvent::new(KeyCode::Char('f'), KeyModifiers::empty()),
+        &snap,
+    );
+    assert_eq!(tab.filter, IdeaFilter::State(IdeaState::Inbox));
+    let mut buf = Buffer::empty(area);
+    tab.render(&snap, area, &mut buf);
+    let out = buffer_text(&buf, area);
+    assert!(out.contains("filter: Inbox"));
+    assert!(out.contains("No ideas match filter"));
+}
+
+#[test]
+fn test_factory_tab_new_idea_picker_cli_then_model_returns_start_action() {
+    use std::sync::Arc;
+    use tandem::adapters::base::Model;
+    use tandem::status::factory_tab::{FactoryAction, FactoryTab, FactoryView, NewIdeaStep};
+
+    let now = 1_700_000_000.0;
+    let snap = sample_snapshot(now, sample_ideas(now));
+
+    let mut installed = HashMap::new();
+    installed.insert("claude".to_string(), true);
+    installed.insert("agy".to_string(), false);
+
+    let loader = Arc::new(|cli: &str| {
+        assert_eq!(cli, "claude");
+        Ok(vec![
+            Model {
+                id: "opus".to_string(),
+                label: "opus (latest)".to_string(),
+            },
+            Model {
+                id: "sonnet".to_string(),
+                label: "sonnet".to_string(),
+            },
+        ])
+    });
+
+    let mut tab = FactoryTab::new(None, installed, loader);
+    tab.sync_snapshot(&snap, false);
+
+    // Open new idea modal with Ctrl+Alt+n
+    let (mods, _) = parse_shortcut(FACTORY_NEW_IDEA_KEY).unwrap();
+    assert!(!mods.is_empty());
+    tab.handle_key(
+        &KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ),
+        &snap,
+    );
+    assert_eq!(tab.view, FactoryView::NewIdea);
+
+    let area = Rect::new(0, 0, 80, 14);
+    let mut buf = Buffer::empty(area);
+    tab.render(&snap, area, &mut buf);
+    let out = buffer_text(&buf, area);
+    assert!(out.contains("New idea"));
+    assert!(out.contains("claude"));
+    assert!(out.contains("agy  (not installed)"));
+
+    // Select claude -> moves to Model step
+    tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()), &snap);
+    assert_eq!(
+        tab.new_idea.as_ref().map(|m| m.step),
+        Some(NewIdeaStep::Model)
+    );
+
+    // Wait briefly for background model loader
+    for _ in 0..50 {
+        if tab.poll_background() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    let mut buf = Buffer::empty(area);
+    tab.render(&snap, area, &mut buf);
+    let out = buffer_text(&buf, area);
+    assert!(out.contains("opus (latest)"));
+
+    // Confirm model -> emits StartIdea action
+    let action = tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()), &snap);
+    assert_eq!(
+        action,
+        Some(FactoryAction::StartIdea {
+            cli: "claude".to_string(),
+            model: "opus".to_string(),
+        })
+    );
+    assert_eq!(tab.view, FactoryView::Board);
 }

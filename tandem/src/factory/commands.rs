@@ -554,89 +554,15 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                if !matches!(a.cli.as_str(), "claude" | "agy") {
-                    return Err(CmdError::invalid_input(format!(
-                        "unsupported orchestrator cli: {} (expected claude or agy)",
-                        a.cli
-                    )));
-                }
-                let model = crate::adapters::base::validate_model_id(&a.model)
-                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
-                let raw_title = a.title.as_deref().unwrap_or("New idea");
-                let title = validate_title(raw_title).map_err(|e| CmdError::invalid_input(e.0))?;
-                let owner = resolve_owner(None)?;
-                let actor = resolve_actor(config);
-                let idea = store
-                    .create_idea(&title, "", &owner, &actor)
-                    .map_err(map_factory_error)?;
-                let bound = store
-                    .execute(
-                        &idea.id,
-                        super::machine::Command::BindOrchestrator {
-                            cli: a.cli.clone(),
-                            model: model.clone(),
-                            conversation: None,
-                        },
-                        &actor,
-                    )
-                    .map_err(map_factory_error)?;
-                let mut spec =
-                    crate::adapters::base::AgentSpec::new(a.cli.clone(), "orchestrator", model);
-                spec.idea = Some(bound.id.clone());
-                if let Err(err) = crate::commands::add_agent(&spec, workspace, config) {
-                    let _ = store.execute(
-                        &bound.id,
-                        super::machine::Command::Cancel {
-                            reason: "orchestrator failed to start".to_string(),
-                        },
-                        &actor,
-                    );
-                    return Err(CmdError::invalid_input(format!(
-                        "orchestrator failed to start: {err}"
-                    )));
-                }
+                let bound =
+                    start_idea_cmd(workspace, config, &a.cli, &a.model, a.title.as_deref())?;
                 serialize_compact(&bound)
             }
             FactoryIdeaCommand::Resume(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                if !is_valid_idea_id(&a.id) {
-                    return Err(CmdError::invalid_input(format!(
-                        "invalid idea id: {}",
-                        a.id
-                    )));
-                }
-                let idea = store
-                    .get_idea(&a.id)
-                    .map_err(map_factory_error)?
-                    .ok_or_else(|| CmdError::not_found(format!("idea not found: {}", a.id)))?;
-                if idea.state.is_terminal() {
-                    return Err(CmdError::invalid_input(format!(
-                        "cannot resume terminal idea {} ({})",
-                        idea.id,
-                        idea.state.label()
-                    )));
-                }
-                let orch = idea.orchestrator.as_ref().ok_or_else(|| {
-                    CmdError::invalid_input(format!("idea {} has no orchestrator", idea.id))
-                })?;
-                let layout = crate::commands::make_layout(workspace, config);
-                if let Ok(panes) = layout.panes()
-                    && let Some(existing) = panes.iter().find(|p| p.idea == idea.id)
-                {
-                    let _ = layout.show_pane(&existing.id);
-                    return serialize_compact(&idea);
-                }
-                let mut spec = crate::adapters::base::AgentSpec::new(
-                    orch.cli.clone(),
-                    "orchestrator",
-                    orch.model.clone(),
-                );
-                spec.idea = Some(idea.id.clone());
-                spec.conversation = orch.conversation.clone();
-                crate::commands::add_agent(&spec, workspace, config)
-                    .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
+                let idea = resume_idea_cmd(workspace, config, &a.id)?;
                 serialize_compact(&idea)
             }
             FactoryIdeaCommand::Describe(a) => {
@@ -1001,6 +927,109 @@ fn map_factory_error(err: FactoryError) -> CmdError {
             message: e.to_string(),
         },
     }
+}
+
+pub fn start_idea(
+    workspace: &Path,
+    config: &Config,
+    cli: &str,
+    model: &str,
+    title: Option<&str>,
+) -> Result<Idea, String> {
+    start_idea_cmd(workspace, config, cli, model, title).map_err(|e| e.message)
+}
+
+pub fn resume_idea(workspace: &Path, config: &Config, idea_id: &str) -> Result<Idea, String> {
+    resume_idea_cmd(workspace, config, idea_id).map_err(|e| e.message)
+}
+
+fn start_idea_cmd(
+    workspace: &Path,
+    config: &Config,
+    cli: &str,
+    model: &str,
+    title: Option<&str>,
+) -> Result<Idea, CmdError> {
+    if !matches!(cli, "claude" | "agy") {
+        return Err(CmdError::invalid_input(format!(
+            "unsupported orchestrator cli: {cli} (expected claude or agy)"
+        )));
+    }
+    let validated_model = crate::adapters::base::validate_model_id(model)
+        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+    let raw_title = title.unwrap_or("New idea");
+    let validated_title = validate_title(raw_title).map_err(|e| CmdError::invalid_input(e.0))?;
+    let owner = resolve_owner(None)?;
+    let actor = resolve_actor(config);
+    let store = FactoryStore::new(workspace);
+    let idea = store
+        .create_idea(&validated_title, "", &owner, &actor)
+        .map_err(map_factory_error)?;
+    let bound = store
+        .execute(
+            &idea.id,
+            super::machine::Command::BindOrchestrator {
+                cli: cli.to_string(),
+                model: validated_model.clone(),
+                conversation: None,
+            },
+            &actor,
+        )
+        .map_err(map_factory_error)?;
+    let mut spec =
+        crate::adapters::base::AgentSpec::new(cli.to_string(), "orchestrator", validated_model);
+    spec.idea = Some(bound.id.clone());
+    if let Err(err) = crate::commands::add_agent(&spec, workspace, config) {
+        let _ = store.execute(
+            &bound.id,
+            super::machine::Command::Cancel {
+                reason: "orchestrator failed to start".to_string(),
+            },
+            &actor,
+        );
+        return Err(CmdError::invalid_input(format!(
+            "orchestrator failed to start: {err}"
+        )));
+    }
+    Ok(bound)
+}
+
+fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<Idea, CmdError> {
+    if !is_valid_idea_id(idea_id) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid idea id: {idea_id}"
+        )));
+    }
+    let store = FactoryStore::new(workspace);
+    let idea = store
+        .get_idea(idea_id)
+        .map_err(map_factory_error)?
+        .ok_or_else(|| CmdError::not_found(format!("idea not found: {idea_id}")))?;
+    if idea.state.is_terminal() {
+        return Err(CmdError::invalid_input(format!(
+            "cannot resume terminal idea {} ({})",
+            idea.id,
+            idea.state.label()
+        )));
+    }
+    let orch = idea
+        .orchestrator
+        .as_ref()
+        .ok_or_else(|| CmdError::invalid_input(format!("idea {} has no orchestrator", idea.id)))?;
+    let layout = crate::commands::make_layout(workspace, config);
+    if let Ok(panes) = layout.panes()
+        && let Some(existing) = panes.iter().find(|p| p.idea == idea.id)
+    {
+        let _ = layout.show_pane(&existing.id);
+        return Ok(idea);
+    }
+    let mut spec =
+        crate::adapters::base::AgentSpec::new(orch.cli.clone(), "orchestrator", orch.model.clone());
+    spec.idea = Some(idea.id.clone());
+    spec.conversation = orch.conversation.clone();
+    crate::commands::add_agent(&spec, workspace, config)
+        .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
+    Ok(idea)
 }
 
 #[cfg(test)]
