@@ -1289,7 +1289,7 @@ impl StatusApp {
                         area.x + 3,
                         y,
                         line,
-                        area.width as usize - 4,
+                        area.width.saturating_sub(4) as usize,
                         Style::default().fg(Color::White),
                     );
                     y += 1;
@@ -1314,7 +1314,7 @@ impl StatusApp {
                         area.x + 3,
                         y,
                         line,
-                        area.width as usize - 4,
+                        area.width.saturating_sub(4) as usize,
                         Style::default().fg(Color::Red),
                     );
                     y += 1;

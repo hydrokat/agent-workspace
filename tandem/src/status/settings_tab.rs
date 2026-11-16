@@ -523,23 +523,29 @@ fn render_modal(area: Rect, buf: &mut Buffer, modal_focus: usize) {
         }
     }
 
+    if width < 4 || height < 5 {
+        return;
+    }
+
     let top = format!(
         "┌ Reset UI {:─<width$}┐",
         "",
         width = (width as usize).saturating_sub(12)
     );
-    buf.set_string(
+    buf.set_stringn(
         x,
         y,
-        &top[..width as usize],
+        &top,
+        width as usize,
         Style::default().fg(Color::Yellow),
     );
 
     let prompt = "  Reset the UI to defaults? Agents keep running.";
-    buf.set_string(
+    buf.set_stringn(
         x,
         y + 1,
         prompt,
+        width as usize,
         Style::default().add_modifier(Modifier::BOLD),
     );
 
@@ -558,18 +564,33 @@ fn render_modal(area: Rect, buf: &mut Buffer, modal_focus: usize) {
         Style::default().fg(Color::White)
     };
 
-    buf.set_string(x + 14, y + 3, "[ Reset ]", reset_style);
-    buf.set_string(x + 26, y + 3, "[ Cancel ]", cancel_style);
+    if width >= 36 {
+        buf.set_stringn(
+            x + 14,
+            y + 3,
+            "[ Reset ]",
+            (width as usize).saturating_sub(14),
+            reset_style,
+        );
+        buf.set_stringn(
+            x + 26,
+            y + 3,
+            "[ Cancel ]",
+            (width as usize).saturating_sub(26),
+            cancel_style,
+        );
+    }
 
     let bottom = format!(
         "└{:─<width$}┘",
         "",
         width = (width as usize).saturating_sub(2)
     );
-    buf.set_string(
+    buf.set_stringn(
         x,
         y + 4,
-        &bottom[..width as usize],
+        &bottom,
+        width as usize,
         Style::default().fg(Color::Yellow),
     );
 }

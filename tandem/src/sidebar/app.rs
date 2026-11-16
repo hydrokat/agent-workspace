@@ -186,6 +186,18 @@ impl SidebarApp {
                     self.dirty = true;
                 }
             }
+            KeyCode::Char('x') | KeyCode::Delete => {
+                if !self.brand_focused
+                    && let Some(SidebarRow::Agent { pane_id, .. }) = self.rows.get(self.selected)
+                    && let Some(ref tmux) = self.tmux
+                {
+                    let pane_id = pane_id.clone();
+                    let mut layout = crate::tmux::layout::Layout::new(tmux);
+                    layout.workspace = Some(self.workspace.to_string_lossy().into_owned());
+                    crate::commands::close_agent_target(&mut layout, &pane_id);
+                    self.refresh();
+                }
+            }
             _ => {}
         }
     }

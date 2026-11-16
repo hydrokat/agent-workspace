@@ -33,6 +33,7 @@ pub const ALLOWED: &[&str] = &[
     "confirm-before",
     "list-panes",
     "list-windows",
+    "list-clients",
     "has-session",
     "kill-session",
     "attach-session",

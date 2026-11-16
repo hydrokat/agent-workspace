@@ -372,6 +372,12 @@ impl Layout {
             "set-hook".to_string(),
             "-g".to_string(),
             "client-resized".to_string(),
+            hook_resized.clone(),
+        ]);
+        batch.push(vec![
+            "set-hook".to_string(),
+            "-g".to_string(),
+            "window-resized".to_string(),
             hook_resized,
         ]);
         let hook_attached = run_shell(&launcher, "first-run");
@@ -381,7 +387,7 @@ impl Layout {
             "client-attached".to_string(),
             hook_attached,
         ]);
-        let hook_died = run_shell(&launcher, "refresh");
+        let hook_died = run_shell(&launcher, "pane-died #{pane_id} #{pane_dead_status}");
         batch.push(vec![
             "set-hook".to_string(),
             "-g".to_string(),
@@ -1134,6 +1140,58 @@ impl Layout {
         Ok(())
     }
 
+    pub fn resolve_reflow_size(&self) -> (usize, usize) {
+        if let Ok(clients) = self.client.run_checked(&[
+            "list-clients",
+            "-t",
+            SESSION,
+            "-F",
+            "#{client_width} #{client_height} #{client_flags}",
+        ]) {
+            let mut best: Option<(usize, usize)> = None;
+            for line in clients.lines() {
+                let mut parts = line.split_whitespace();
+                let (Some(w_str), Some(h_str)) = (parts.next(), parts.next()) else {
+                    continue;
+                };
+                let flags = parts.collect::<Vec<_>>().join(" ");
+                if flags.contains("ignore-size") {
+                    continue;
+                }
+                if let (Ok(w), Ok(h)) = (w_str.parse::<usize>(), h_str.parse::<usize>())
+                    && w > 0
+                    && h > 0
+                    && best.is_none_or(|(bw, bh)| w * h > bw * bh)
+                {
+                    best = Some((w, h));
+                }
+            }
+            if let Some(size) = best {
+                return size;
+            }
+        }
+
+        let target = format!("{SESSION}:main");
+        let win = self
+            .client
+            .run_checked(&[
+                "display-message",
+                "-p",
+                "-t",
+                &target,
+                "#{window_width} #{window_height}",
+            ])
+            .unwrap_or_default();
+        let parts: Vec<&str> = win.split_whitespace().collect();
+        if parts.len() == 2
+            && let (Ok(w), Ok(h)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>())
+            && w > 0
+        {
+            return (w, h);
+        }
+        (200, 0)
+    }
+
     pub fn reflow(&self, width: usize, height: usize) -> Result<(), TmuxError> {
         if width == 0 || height == 0 {
             return Ok(());
@@ -1146,19 +1204,21 @@ impl Layout {
                 "-p",
                 "-t",
                 SESSION,
-                "#{@tandem_reflow_size} #{@tandem_breakpoint}",
+                "#{@tandem_reflow_size} #{@tandem_breakpoint} #{@tandem_sidebar_stashed}",
             ])
             .map(|r| r.out.trim().to_string())
             .unwrap_or_default();
         let parts: Vec<&str> = meta.split_whitespace().collect();
         let current_size = format!("{width}x{height}");
         let current_bp = format!("{bp:?}");
+        let stashed_flag = parts.get(2).copied() == Some("1");
+        let need_unstash = stashed_flag && !matches!(bp, crate::tmux::grid::Breakpoint::Narrow);
 
-        if parts.len() == 2 && parts[0] == current_size && parts[1] == current_bp {
+        if parts.len() >= 2 && parts[0] == current_size && parts[1] == current_bp && !need_unstash {
             return Ok(());
         }
 
-        let bp_changed = parts.len() < 2 || parts[1] != current_bp;
+        let bp_changed = parts.len() < 2 || parts[1] != current_bp || need_unstash;
         let panes = self.panes()?;
 
         let mut batch = Vec::new();
@@ -1197,6 +1257,13 @@ impl Layout {
                             "-n".to_string(),
                             "stash-sidebar-0".to_string(),
                         ]);
+                        batch.push(vec![
+                            "set-option".to_string(),
+                            "-t".to_string(),
+                            SESSION.to_string(),
+                            "@tandem_sidebar_stashed".to_string(),
+                            "1".to_string(),
+                        ]);
                     }
                 }
                 crate::tmux::grid::Breakpoint::Medium | crate::tmux::grid::Breakpoint::Wide => {
@@ -1214,6 +1281,13 @@ impl Layout {
                             sb.id.clone(),
                             "-t".to_string(),
                             anchor.id.clone(),
+                        ]);
+                        batch.push(vec![
+                            "set-option".to_string(),
+                            "-t".to_string(),
+                            SESSION.to_string(),
+                            "@tandem_sidebar_stashed".to_string(),
+                            "0".to_string(),
                         ]);
                     }
                     if let Some(sb) = sidebar_in_main.or(sidebar_stashed)
@@ -1509,9 +1583,25 @@ impl Layout {
             ]);
         }
 
+        batch.push(vec![
+            "set-option".into(),
+            "-t".into(),
+            SESSION.into(),
+            "@tandem_reflow_size".into(),
+            "".into(),
+        ]);
+        batch.push(vec![
+            "set-option".into(),
+            "-t".into(),
+            SESSION.into(),
+            "@tandem_breakpoint".into(),
+            "".into(),
+        ]);
+
         self.client.run_batch_checked(&batch)?;
 
-        self.reflow(0, 0)?;
+        let (w, h) = self.resolve_reflow_size();
+        self.reflow(w, h)?;
         Ok(())
     }
 
