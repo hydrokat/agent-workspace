@@ -1,3 +1,4 @@
+import type { FactorySummary } from "./factory";
 import type { AgentQuery } from "./query";
 
 export interface PaneInfo {
@@ -128,6 +129,7 @@ export interface StatusSnapshot {
   sprint?: SprintView | null;
   ongoing_specs: OngoingSpecInfo[];
   ongoing_tasks: OngoingTaskInfo[];
+  factory?: FactorySummary | null;
 }
 
 export interface WorkspaceSnapshotPayload {
