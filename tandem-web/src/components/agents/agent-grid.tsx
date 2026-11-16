@@ -43,7 +43,7 @@ export function AgentGrid({ panes, selected, onAction, onInteract }: AgentGridPr
             variant="outline"
             size="sm"
             className="min-h-11 sm:min-h-8 min-w-11 sm:min-w-8 gap-1.5 text-xs"
-            onClick={() => onAction("equalize", [])}
+            onClick={() => Promise.resolve(onAction("equalize", [])).catch(() => {})}
             title="Equalize layout"
           >
             <Scale className="h-3.5 w-3.5" />
@@ -53,7 +53,7 @@ export function AgentGrid({ panes, selected, onAction, onInteract }: AgentGridPr
             variant="ghost"
             size="sm"
             className="min-h-11 sm:min-h-8 min-w-11 sm:min-w-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => onAction("reset-ui", [])}
+            onClick={() => Promise.resolve(onAction("reset-ui", [])).catch(() => {})}
             title="Reset tandem UI"
           >
             <RotateCcw className="h-3.5 w-3.5" />

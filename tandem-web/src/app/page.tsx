@@ -197,18 +197,20 @@ export default function DashboardPage() {
     };
   }, [fetchWorkspaces, fetchSettings, fetchIps]);
 
-  const handleAction = async (action: AllowedTandemAction, args: string[]) => {
-    if (!activeWorkspace) return;
-    try {
-      await fetch(`/api/workspaces/${activeWorkspace.id}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, args }),
-      });
-    } catch {
-      // Handled by optimistic update and subsequent SSE stream frame
+  const handleAction = useCallback(async (action: AllowedTandemAction, args: string[]) => {
+    const wsId = activeWorkspaceIdRef.current;
+    if (!wsId) return;
+    const res = await fetch(`/api/workspaces/${wsId}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, args }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const message = body?.error?.message || `Action '${action}' failed (${res.status})`;
+      throw new Error(message);
     }
-  };
+  }, []);
 
   const handleAnswerQuery = async (queryId: string, answer: string) => {
     if (!activeWorkspace) return;
@@ -231,15 +233,30 @@ export default function DashboardPage() {
     }
   };
 
-  const handleResetUI = async () => {
+  const handleResetUI = useCallback(async () => {
     await handleAction("reset-ui", []);
-  };
+  }, [handleAction]);
 
-  const handleRenameWorkspace = async (newName: string) => {
-    if (!activeWorkspace) return;
-    await handleAction("rename-workspace", [newName]);
-    await fetchWorkspaces();
-  };
+  const handleRenameWorkspace = useCallback(
+    async (label: string | null) => {
+      if (!activeWorkspaceIdRef.current) return;
+      await handleAction("rename-workspace", label ? [label] : []);
+      await fetchWorkspaces();
+    },
+    [handleAction, fetchWorkspaces]
+  );
+
+  const handleRenameAgent = useCallback(
+    async (paneId: string, label: string | null) => {
+      await handleAction("rename-agent", label ? [paneId, label] : [paneId]);
+    },
+    [handleAction]
+  );
+
+  const agentPanes = useMemo(
+    () => (snapshot?.panes ?? []).filter((p) => p.kind === "agent"),
+    [snapshot?.panes]
+  );
 
   // Stable callback: reads workspace ID from ref at call time
   const handleInteractAgent = useCallback(async (pane: PaneInfo) => {
@@ -481,9 +498,11 @@ export default function DashboardPage() {
             settings={settings}
             candidates={candidates}
             activeWorkspace={activeWorkspace}
+            agents={agentPanes}
             onUpdateSettings={handleUpdateSettings}
             onResetUI={handleResetUI}
             onRenameWorkspace={handleRenameWorkspace}
+            onRenameAgent={handleRenameAgent}
           />
         )}
       </div>

@@ -23,18 +23,18 @@ export function TopHeaderBar({
 }: TopHeaderBarProps) {
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden"
+          className="md:hidden shrink-0"
           onClick={onOpenDrawer}
           aria-label="Open workspaces drawer"
         >
           <span className="text-lg">☰</span>
         </Button>
         <div
-          className="flex flex-col md:cursor-default cursor-pointer select-none"
+          className="flex flex-col min-w-0 md:cursor-default cursor-pointer select-none"
           onClick={() => {
             if (typeof window !== "undefined" && window.innerWidth < 768) {
               onOpenDrawer();
@@ -50,7 +50,10 @@ export function TopHeaderBar({
           }}
           aria-label="Current workspace (click to switch on mobile)"
         >
-          <span className="font-semibold text-sm leading-tight text-foreground">
+          <span
+            className="font-semibold text-sm leading-tight text-foreground truncate"
+            title={activeWorkspace?.name || "tandem-web"}
+          >
             {activeWorkspace?.name || "tandem-web"}
           </span>
           {activeWorkspace && (

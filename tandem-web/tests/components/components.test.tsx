@@ -347,7 +347,7 @@ describe("Tandem Web Components Suite", () => {
     expect(html).toContain("Claude 5h: 18% · 7d: 42%");
   });
 
-  it("WebSettingsPanel renders Workspace Identity card and alphanumeric rename form", () => {
+  it("WebSettingsPanel renders Labels card and workspace rename form", () => {
     const html = renderToStaticMarkup(
       <WebSettingsPanel
         settings={dummySettings}
@@ -359,9 +359,9 @@ describe("Tandem Web Components Suite", () => {
       />
     );
 
-    expect(html).toContain("Workspace Identity");
-    expect(html).toContain("Save Workspace Name");
-    expect(html).toContain("Only letters and numbers (A-Z, a-z, 0-9) are allowed");
+    expect(html).toContain("Labels");
+    expect(html).toContain("Label for workspace");
+    expect(html).toContain("Letters, digits, spaces, - _ .");
     expect(html).toContain("tandem-1234567890");
   });
 });
