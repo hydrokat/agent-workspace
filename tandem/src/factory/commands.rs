@@ -86,6 +86,30 @@ pub enum FactoryIdeaCommand {
 
     #[command(about = "advance idea from Ideation to Planning (Gate 1)")]
     SelectDirection(FactoryIdeaSelectDirectionArgs),
+
+    #[command(about = "mark idea ready for development (user-only Gate 2)")]
+    Ready(FactoryIdeaReadyArgs),
+
+    #[command(about = "revoke ready-for-development tag before a run exists")]
+    RevokeReady(FactoryIdeaRevokeReadyArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaReadyArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long, default_value = "cli")]
+    pub via: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaRevokeReadyArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -333,6 +357,8 @@ struct IdeaShowOutput {
     idea: Idea,
     events: Vec<Event>,
     questions: super::questions::IdeaQuestions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plan_snapshot: Option<super::approval::SnapshotVerification>,
 }
 
 #[derive(Serialize)]
@@ -374,6 +400,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryIdeaCommand::Describe(a) => a.json,
             FactoryIdeaCommand::Assume(a) => a.json,
             FactoryIdeaCommand::SelectDirection(a) => a.json,
+            FactoryIdeaCommand::Ready(a) => a.json,
+            FactoryIdeaCommand::RevokeReady(a) => a.json,
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => a.json,
@@ -514,10 +542,12 @@ fn execute(
                 let coord_queries =
                     crate::coordination::store::CoordStore::new(coord_dir).queries();
                 let questions = super::questions::for_idea(&coord_queries, &a.id);
+                let plan_snapshot = super::approval::verify_snapshot(&store, &idea);
                 serialize_compact(&IdeaShowOutput {
                     idea,
                     events: idea_events,
                     questions,
+                    plan_snapshot,
                 })
             }
             FactoryIdeaCommand::Start(a) => {
@@ -651,6 +681,41 @@ fn execute(
                 let updated = store
                     .execute(&a.id, super::machine::Command::SelectDirection, &actor)
                     .map_err(map_factory_error)?;
+                serialize_compact(&updated)
+            }
+            FactoryIdeaCommand::Ready(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let approved_by = resolve_owner(None)?;
+                let res = super::approval::mark_ready(
+                    &store,
+                    &a.id,
+                    &a.confirm,
+                    &a.via,
+                    &approved_by,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                serialize_compact(&res)
+            }
+            FactoryIdeaCommand::RevokeReady(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let user_id = resolve_owner(None)?;
+                let updated = super::approval::revoke_ready(&store, &a.id, &user_id, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
                 serialize_compact(&updated)
             }
         },

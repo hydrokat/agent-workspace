@@ -16,6 +16,11 @@ pub enum Command {
     StartDiscovery,
     SelectDirection,
     MarkReady,
+    MarkReadyWithSnapshot {
+        snapshot: ArtifactRef,
+        approved_by: String,
+        via: String,
+    },
     RevokeReady,
     CreateRun {
         run: String,
@@ -65,6 +70,7 @@ impl Command {
             Self::StartDiscovery => "StartDiscovery",
             Self::SelectDirection => "SelectDirection",
             Self::MarkReady => "MarkReady",
+            Self::MarkReadyWithSnapshot { .. } => "MarkReadyWithSnapshot",
             Self::RevokeReady => "RevokeReady",
             Self::CreateRun { .. } => "CreateRun",
             Self::StartRun { .. } => "StartRun",
@@ -105,6 +111,12 @@ pub enum EventData {
     IdeaDirectionSelected {},
     #[serde(rename = "idea.ready")]
     IdeaReady {},
+    #[serde(rename = "idea.plan_snapshot_frozen")]
+    IdeaPlanSnapshotFrozen {
+        plan_snapshot: ArtifactRef,
+        approved_by: String,
+        via: String,
+    },
     #[serde(rename = "idea.ready_revoked")]
     IdeaReadyRevoked {},
     #[serde(rename = "run.created")]
@@ -280,11 +292,47 @@ pub fn decide(
             Ok(vec![EventData::IdeaReady {}])
         }
 
+        (
+            IdeaState::Planning,
+            Command::MarkReadyWithSnapshot {
+                snapshot,
+                approved_by,
+                via,
+            },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::User])?;
+            if !facts.has_plan {
+                return Err(TransitionError::GateNotMet {
+                    gate: ApprovalGate::ReadyForDevelopment,
+                    reason:
+                        "a complete plan is required before marking an idea ready for development"
+                            .to_string(),
+                });
+            }
+            if facts.open_blocking_questions > 0 {
+                return Err(TransitionError::GateNotMet {
+                    gate: ApprovalGate::ReadyForDevelopment,
+                    reason: format!(
+                        "{} open blocking question(s) must be resolved first",
+                        facts.open_blocking_questions
+                    ),
+                });
+            }
+            Ok(vec![
+                EventData::IdeaReady {},
+                EventData::IdeaPlanSnapshotFrozen {
+                    plan_snapshot: snapshot.clone(),
+                    approved_by: approved_by.clone(),
+                    via: via.clone(),
+                },
+            ])
+        }
+
         (IdeaState::ReadyForDevelopment, Command::RevokeReady) => {
             ensure_actor(cmd, actor, &[ActorKind::User])?;
-            if facts.has_active_run {
+            if facts.has_active_run || !idea.runs.is_empty() {
                 return Err(TransitionError::InvalidInput(
-                    "cannot revoke ready state while a run is active".to_string(),
+                    "cannot revoke ready state after a run exists".to_string(),
                 ));
             }
             Ok(vec![EventData::IdeaReadyRevoked {}])
@@ -531,6 +579,10 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                 }
                 EventData::IdeaReady {} if idea.state == IdeaState::Planning => {
                     idea.state = IdeaState::ReadyForDevelopment;
+                    idea.updated = ts;
+                }
+                EventData::IdeaPlanSnapshotFrozen { plan_snapshot, .. } => {
+                    idea.plan_snapshot = Some(plan_snapshot.clone());
                     idea.updated = ts;
                 }
                 EventData::IdeaReadyRevoked {} if idea.state == IdeaState::ReadyForDevelopment => {

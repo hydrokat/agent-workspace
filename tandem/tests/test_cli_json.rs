@@ -329,6 +329,7 @@ fn test_snapshot_payload_matches_contract_keys() {
             session: "implementer-1".to_string(),
             spec: "p-001-sample".to_string(),
             cli_version: "1.0.0".to_string(),
+            idea: String::new(),
         }],
         snapshot: StatusSnapshot {
             coord_exists: true,

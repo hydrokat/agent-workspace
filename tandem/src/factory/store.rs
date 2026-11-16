@@ -140,7 +140,11 @@ impl FactoryStore {
             feasibility_blocks: current.as_ref().is_some_and(|i| {
                 i.feasibility_verdict == Some(super::model::FeasibilityVerdict::Infeasible)
             }),
-            has_plan: current.as_ref().is_some_and(|i| i.plan.is_some()),
+            has_plan: current.as_ref().is_some_and(|i| {
+                i.plan
+                    .as_ref()
+                    .is_some_and(|p| p.missing_sections.is_empty())
+            }),
             open_blocking_questions,
             has_active_run: false,
         };
