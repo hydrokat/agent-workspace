@@ -130,10 +130,17 @@ impl SavedState {
     }
 }
 
+pub fn state_path_for(workspace: &Path, factory: bool) -> PathBuf {
+    let filename = if factory {
+        "tandem-session-factory.json"
+    } else {
+        "tandem-session.json"
+    };
+    workspace.join(".agent-workspace").join(filename)
+}
+
 pub fn state_path(workspace: &Path) -> PathBuf {
-    workspace
-        .join(".agent-workspace")
-        .join("tandem-session.json")
+    state_path_for(workspace, false)
 }
 
 pub fn to_json(state: &SavedState) -> serde_json::Value {

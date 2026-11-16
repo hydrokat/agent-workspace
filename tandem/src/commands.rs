@@ -22,6 +22,38 @@ use crate::versions;
 
 pub const CLOSING: &str = "@tandem_closing";
 
+pub fn with_factory_env(mut launch: Launch, factory: bool) -> Launch {
+    if factory {
+        launch
+            .env
+            .insert("TANDEM_FACTORY".to_string(), "1".to_string());
+    }
+    launch
+}
+
+pub fn mode_mismatch_message(
+    requested_factory: bool,
+    running_factory: bool,
+) -> Option<&'static str> {
+    match (requested_factory, running_factory) {
+        (true, false) => Some(
+            "A normal tandem session is running in this workspace. Quit it first (Settings → Quit), then run ./run.sh --factory.",
+        ),
+        (false, true) => Some(
+            "A Factory Mode session is running in this workspace. Quit it first, or run ./run.sh --factory to attach.",
+        ),
+        _ => None,
+    }
+}
+
+pub fn is_factory_session(workspace: &Path) -> bool {
+    if Config::from_env().map(|c| c.factory).unwrap_or(false) {
+        return true;
+    }
+    let state_dir = crate::registry::resolve_state_dir();
+    crate::registry::factory_enabled(&state_dir, workspace)
+}
+
 fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -244,7 +276,7 @@ pub fn start(
     let claude_dir = Some(config.claude_dir.as_path());
     let coord_str = coord_dir.to_string_lossy();
 
-    let sidebar_l = sidebar_launch(None, Some(workspace));
+    let sidebar_l = with_factory_env(sidebar_launch(None, Some(workspace)), config.factory);
 
     let mut ordered_specs: Vec<&AgentSpec> = specs.iter().collect();
     ordered_specs.sort_by(|a, b| {
@@ -259,18 +291,27 @@ pub fn start(
     });
 
     let main_l = if let Some(first) = ordered_specs.first() {
-        agent_launch(first, &coord_str, workspace, resume, claude_dir)
+        with_factory_env(
+            agent_launch(first, &coord_str, workspace, resume, claude_dir),
+            config.factory,
+        )
     } else {
-        placeholder_launch("agent", None, Some(workspace))
+        with_factory_env(
+            placeholder_launch("agent", None, Some(workspace)),
+            config.factory,
+        )
     };
 
-    let status_l = status_launch(None, Some(workspace));
+    let status_l = with_factory_env(status_launch(None, Some(workspace)), config.factory);
 
     let (cols, rows) = crossterm::terminal::size().unwrap_or((160, 45));
     layout.build(cols as usize, rows as usize, &sidebar_l, &main_l, &status_l)?;
 
     for spec in ordered_specs.iter().skip(1) {
-        let l = agent_launch(spec, &coord_str, workspace, resume, claude_dir);
+        let l = with_factory_env(
+            agent_launch(spec, &coord_str, workspace, resume, claude_dir),
+            config.factory,
+        );
         let _ = layout.add_agent(&l, false);
     }
 
@@ -299,11 +340,12 @@ pub fn start(
         let _ = layout.focus("planner");
     }
 
-    autosave(&layout, workspace);
-    let _ = crate::registry::register_or_heartbeat(
+    autosave_for(&layout, workspace, config.factory);
+    let _ = crate::registry::register_or_heartbeat_with_mode(
         &config.state_dir,
         workspace,
         Some(std::process::id()),
+        config.factory,
     );
     attach(workspace);
     Ok(())
@@ -343,15 +385,18 @@ pub fn add_agent(spec: &AgentSpec, workspace: &Path, config: &Config) -> Result<
 
     let coord_dir = coord_dir_for(workspace, config);
     let _ = conversations::prepare(&coord_dir);
-    let launch = agent_launch(
-        &indexed,
-        &coord_dir.to_string_lossy(),
-        workspace,
-        false,
-        Some(config.claude_dir.as_path()),
+    let launch = with_factory_env(
+        agent_launch(
+            &indexed,
+            &coord_dir.to_string_lossy(),
+            workspace,
+            false,
+            Some(config.claude_dir.as_path()),
+        ),
+        config.factory,
     );
     layout.add_agent(&launch, true)?;
-    autosave(&layout, workspace);
+    autosave_for(&layout, workspace, config.factory);
     Ok(())
 }
 
@@ -556,11 +601,20 @@ pub fn save_state(
     workspace: &Path,
     clean: bool,
 ) -> Result<SavedState, anyhow::Error> {
+    save_state_for(layout, workspace, clean, is_factory_session(workspace))
+}
+
+pub fn save_state_for(
+    layout: &Layout,
+    workspace: &Path,
+    clean: bool,
+    factory: bool,
+) -> Result<SavedState, anyhow::Error> {
     let snapshot = capture_state(layout, clean)?;
     if snapshot.agents.is_empty() {
         return Err(anyhow::anyhow!("no agents to save"));
     }
-    state::save(&state::state_path(workspace), &snapshot)?;
+    state::save(&state::state_path_for(workspace, factory), &snapshot)?;
     Ok(snapshot)
 }
 
@@ -573,6 +627,10 @@ pub fn is_closing(layout: &Layout) -> bool {
 }
 
 pub fn autosave(layout: &Layout, workspace: &Path) -> bool {
+    autosave_for(layout, workspace, is_factory_session(workspace))
+}
+
+pub fn autosave_for(layout: &Layout, workspace: &Path, factory: bool) -> bool {
     if !layout.exists() || is_closing(layout) {
         return false;
     }
@@ -583,22 +641,30 @@ pub fn autosave(layout: &Layout, workspace: &Path) -> bool {
     if snapshot.agents.is_empty() || is_closing(layout) {
         return false;
     }
-    let saved = state::save(&state::state_path(workspace), &snapshot).is_ok();
+    let saved = state::save(&state::state_path_for(workspace, factory), &snapshot).is_ok();
     if saved {
         let state_dir = crate::registry::resolve_state_dir();
-        let _ =
-            crate::registry::register_or_heartbeat(&state_dir, workspace, Some(std::process::id()));
+        let _ = crate::registry::register_or_heartbeat_with_mode(
+            &state_dir,
+            workspace,
+            Some(std::process::id()),
+            factory,
+        );
     }
     saved
 }
 
 pub fn save_exit(layout: &Layout, workspace: &Path) {
+    save_exit_for(layout, workspace, is_factory_session(workspace));
+}
+
+pub fn save_exit_for(layout: &Layout, workspace: &Path, factory: bool) {
     let _ = layout
         .client
         .run_checked(&["set-option", "-t", SESSION, CLOSING, "1"]);
     let state_dir = crate::registry::resolve_state_dir();
     let _ = crate::registry::remove(&state_dir, workspace);
-    let snapshot = match save_state(layout, workspace, true) {
+    let snapshot = match save_state_for(layout, workspace, true, factory) {
         Ok(s) => s,
         Err(e) => {
             let _ = layout
@@ -618,12 +684,16 @@ pub fn save_exit(layout: &Layout, workspace: &Path) {
 }
 
 pub fn discard_exit(layout: &Layout, workspace: &Path) {
+    discard_exit_for(layout, workspace, is_factory_session(workspace));
+}
+
+pub fn discard_exit_for(layout: &Layout, workspace: &Path, factory: bool) {
     let _ = layout
         .client
         .run_checked(&["set-option", "-t", SESSION, CLOSING, "1"]);
     let state_dir = crate::registry::resolve_state_dir();
     let _ = crate::registry::remove(&state_dir, workspace);
-    let sp = state::state_path(workspace);
+    let sp = state::state_path_for(workspace, factory);
     let _ = std::fs::remove_file(sp);
     let _ = layout.client.run_checked(&["kill-session", "-t", SESSION]);
 }
@@ -639,12 +709,15 @@ pub fn restart(layout: &mut Layout, pane_id: &str, workspace: &Path, config: &Co
     let coord_str = coord_dir.to_string_lossy();
     if let Some(s) = spec {
         let _ = conversations::prepare(&coord_dir);
-        let launch = agent_launch(
-            &s,
-            &coord_str,
-            workspace,
-            true,
-            Some(config.claude_dir.as_path()),
+        let launch = with_factory_env(
+            agent_launch(
+                &s,
+                &coord_str,
+                workspace,
+                true,
+                Some(config.claude_dir.as_path()),
+            ),
+            config.factory,
         );
         let _ = layout.restart(pane_id, &coord_str, Some(&launch));
     } else {
@@ -739,7 +812,7 @@ pub fn quit_menu(layout: &Layout, workspace: Option<&str>) {
     ]);
 }
 
-pub fn reload_ui(layout: &mut Layout, workspace: &Path, _config: &Config) {
+pub fn reload_ui(layout: &mut Layout, workspace: &Path, config: &Config) {
     let _ = layout.apply_chrome();
     let panes = layout.panes().unwrap_or_default();
     let has_sidebar = panes
@@ -768,8 +841,8 @@ pub fn reload_ui(layout: &mut Layout, workspace: &Path, _config: &Config) {
                 .client
                 .run_checked(&["kill-pane", "-t", p.id.as_str()]);
         }
-        let sidebar_l = sidebar_launch(None, Some(workspace));
-        let status_l = status_launch(None, Some(workspace));
+        let sidebar_l = with_factory_env(sidebar_launch(None, Some(workspace)), config.factory);
+        let status_l = with_factory_env(status_launch(None, Some(workspace)), config.factory);
         let (cols, rows) = crossterm::terminal::size().unwrap_or((160, 45));
         let main_l = if let Some(first) = agent_panes.first() {
             Launch::new(
@@ -787,8 +860,14 @@ pub fn reload_ui(layout: &mut Layout, workspace: &Path, _config: &Config) {
         }
     } else {
         let mut launches = HashMap::new();
-        launches.insert("status".to_string(), status_launch(None, Some(workspace)));
-        launches.insert("sidebar".to_string(), sidebar_launch(None, Some(workspace)));
+        launches.insert(
+            "status".to_string(),
+            with_factory_env(status_launch(None, Some(workspace)), config.factory),
+        );
+        launches.insert(
+            "sidebar".to_string(),
+            with_factory_env(sidebar_launch(None, Some(workspace)), config.factory),
+        );
         launches.insert(
             "placeholder-agent".to_string(),
             placeholder_launch("agent", None, Some(workspace)),
@@ -842,7 +921,7 @@ pub fn run_update(workspace: &Path, config: &Config, assume_yes: bool) -> i32 {
     }
 
     if layout.exists() {
-        match save_state(&layout, workspace, false) {
+        match save_state_for(&layout, workspace, false, config.factory) {
             Ok(_) => println!("Saved current state first."),
             Err(e) => println!("(state not saved: {e})"),
         }
@@ -977,12 +1056,15 @@ pub fn restart_stale(
         };
 
         let coord_str = coord_dir.to_string_lossy();
-        let launch = agent_launch(
-            &spec,
-            &coord_str,
-            workspace,
-            true,
-            Some(config.claude_dir.as_path()),
+        let launch = with_factory_env(
+            agent_launch(
+                &spec,
+                &coord_str,
+                workspace,
+                true,
+                Some(config.claude_dir.as_path()),
+            ),
+            config.factory,
         );
 
         match layout.restart_live(&agent.pane_id, &launch) {
@@ -1022,7 +1104,7 @@ pub fn offer_restarts(
     for message in restart_stale(&mut mut_layout, workspace, config, &chosen) {
         out(&message);
     }
-    autosave(&mut_layout, workspace);
+    autosave_for(&mut_layout, workspace, config.factory);
 }
 
 pub fn first_run(layout: &Layout, config: &Config) {
@@ -1382,7 +1464,10 @@ pub fn collect_snapshot_json(
     let workspace_id = crate::tmux::client::socket_for(&resolved);
     let workspace_path = resolved.to_string_lossy().to_string();
 
-    let state_file = crate::state::state_path(&resolved);
+    let state_file = crate::state::state_path_for(
+        &resolved,
+        config.factory || crate::registry::factory_enabled(&config.state_dir, &resolved),
+    );
     let workspace_name = if state_file.exists() {
         std::fs::read(&state_file)
             .ok()
@@ -1622,7 +1707,7 @@ pub fn rename_workspace_cmd(workspace: &Path, name: Option<&str>) {
         }
     }
 
-    let session_file = crate::state::state_path(&resolved);
+    let session_file = crate::state::state_path_for(&resolved, is_factory_session(&resolved));
     let mut file_val = std::fs::read(&session_file)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
@@ -1687,7 +1772,7 @@ pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: O
         let _ = layout.refresh();
     }
 
-    let session_file = crate::state::state_path(&resolved);
+    let session_file = crate::state::state_path_for(&resolved, is_factory_session(&resolved));
     let mut session_val = std::fs::read(&session_file)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());

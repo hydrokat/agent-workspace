@@ -17,6 +17,7 @@ pub struct Config {
     pub claude_dir: PathBuf,
     pub update_interval: u64,
     pub update_check: bool,
+    pub factory: bool,
 }
 
 pub trait EnvSource {
@@ -173,6 +174,7 @@ impl Config {
 
         let color = env.get("NO_COLOR").unwrap_or_default().is_empty();
         let tmux_pane = env.get("TMUX_PANE").unwrap_or_default();
+        let factory = env.get("TANDEM_FACTORY").as_deref() == Some("1");
 
         Ok(Config {
             coord_dir,
@@ -185,6 +187,7 @@ impl Config {
             claude_dir,
             update_interval,
             update_check,
+            factory,
         })
     }
 }

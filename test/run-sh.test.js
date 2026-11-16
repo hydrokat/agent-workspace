@@ -1321,3 +1321,44 @@ describe('run.sh opencode (optional AI CLI)', () => {
     assert.match(r.out, /opencode skipped/);
   });
 });
+
+describe('run.sh --factory', () => {
+  it('forwards --factory to tandem', async () => {
+    const env = setup();
+    const r = await run(env, ['--factory', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=--factory\n/);
+  });
+
+  it('forwards --factory to tandem exactly once even if passed after --', async () => {
+    const env = setup();
+    const r = await run(env, ['--factory', '--yes', '--', '--factory']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=--factory\n/);
+  });
+
+  it('--help documents --factory', async () => {
+    const env = setup();
+    const r = await run(env, ['--help']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /--factory\s+Start tandem in Factory Mode/);
+  });
+
+  it('--factory --check reports status only and launches nothing', async () => {
+    const env = setup();
+    const r = await run(env, ['--factory', '--check']);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(!/TANDEM-BINARY-RAN/.test(r.stdout), r.stdout);
+  });
+
+  it('combines --factory with --fresh and --no-update', async () => {
+    const env = setup();
+    const coord = join(env.pkg, '.agent-workspace', 'coordination');
+    mkdirSync(join(coord, 'claims'), { recursive: true });
+    writeFileSync(join(coord, 'claims', 'c-1.json'), '{}');
+    const r = await run(env, ['--factory', '--fresh', '--no-update', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=.*--factory/);
+    assert.match(r.stdout, /TANDEM-BINARY-RAN args=.*--fresh/);
+  });
+});

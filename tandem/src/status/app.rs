@@ -384,7 +384,8 @@ impl StatusApp {
         );
 
         if self.settings_tab.editing_workspace_name.is_none() {
-            let session_file = crate::state::state_path(&self.workspace);
+            let factory = self.config.as_ref().is_some_and(|c| c.factory);
+            let session_file = crate::state::state_path_for(&self.workspace, factory);
             if let Ok(bytes) = std::fs::read(&session_file) {
                 let wname = serde_json::from_slice::<serde_json::Value>(&bytes)
                     .ok()
@@ -1347,9 +1348,10 @@ pub fn run_status(workspace: &std::path::Path, config: &Config) -> Result<(), st
     let coord_dir = crate::commands::coord_dir_for(workspace, config);
     let store = CoordStore::new(coord_dir);
     let ws = workspace.to_path_buf();
+    let autosave_factory = config.factory;
     let autosave_layout = Arc::clone(&layout);
     let autosave = Arc::new(move || {
-        let _ = crate::commands::autosave(&autosave_layout, &ws);
+        let _ = crate::commands::autosave_for(&autosave_layout, &ws, autosave_factory);
     });
     let quit_layout = Arc::clone(&layout);
     let quit_ws = layout.workspace.clone();

@@ -37,6 +37,7 @@ EXP_VER=""
 SLUG=""
 MODE=""
 FRESH=0
+FACTORY=0
 WEB_MODE=0
 WEB_BIND=""
 WEB_PORT=""
@@ -67,6 +68,7 @@ Options:
   --yes            Answer yes to every prompt.
   --no             Answer no to every prompt.
   --fresh          Clear coordination directory and start tandem fresh.
+  --factory        Start tandem in Factory Mode (one Orchestrator, idea to pull request).
   --answers y,n,.. Answer prompts in order from a list (automation); missing answers mean no.
   --no-update      Skip the launch-time workspace self-update check.
   -h, --help       Show this help.
@@ -106,6 +108,7 @@ parse_args() {
       --yes) MODE="yes" ;;
       --no) MODE="no" ;;
       --fresh) FRESH=1 ;;
+      --factory) FACTORY=1 ;;
       --no-update) NO_UPDATE=1 ;;
       --fetch-runtime) FETCH_RUNTIME=1 ;;
       --answers)
@@ -1010,6 +1013,17 @@ add_fresh_passthru() {
   fi
 }
 
+add_factory_passthru() {
+  [ "$FACTORY" -eq 1 ] || return 0
+  local has_factory=0 a
+  for a in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
+    [ "$a" = "--factory" ] && has_factory=1
+  done
+  if [ "$has_factory" -eq 0 ]; then
+    PASSTHRU=("--factory" ${PASSTHRU[@]+"${PASSTHRU[@]}"})
+  fi
+}
+
 fresh_reset() {
   [ "$FRESH" -eq 1 ] || return 0
   local coord_dir
@@ -1216,6 +1230,7 @@ main() {
   act
   remove_retired_runtime_state
   fresh_reset
+  add_factory_passthru
   start_web_if_requested
   if [ "$RUNTIME" = "binary" ]; then
     export TANDEM_SELF="$TANDEM_STATE_DIR/bin/current/tandem/$(binary_exe_name "$SLUG")"
