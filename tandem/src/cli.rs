@@ -149,10 +149,10 @@ pub enum Command {
     #[command(about = "list host network IPs and active workspaces")]
     ListIps(ListIpsArgs),
 
-    #[command(about = "rename the current workspace to a custom alphanumeric name")]
+    #[command(about = "rename the current workspace to a custom label")]
     RenameWorkspace(RenameWorkspaceArgs),
 
-    #[command(about = "rename an agent to a custom alphanumeric name")]
+    #[command(about = "rename an agent to a custom label")]
     RenameAgent(RenameAgentArgs),
 
     #[command(about = "Factory Mode commands (ideas, events, status, rebuild)")]
@@ -161,7 +161,7 @@ pub enum Command {
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct RenameWorkspaceArgs {
-    #[arg(help = "new alphanumeric name (1..=32 chars, or empty to reset to default)")]
+    #[arg(help = crate::adapters::base::LABEL_RULE_TEXT)]
     pub name: Option<String>,
 }
 
@@ -169,7 +169,7 @@ pub struct RenameWorkspaceArgs {
 pub struct RenameAgentArgs {
     #[arg(help = "pane id (%...) or session id (role-index) to rename")]
     pub target: String,
-    #[arg(help = "new alphanumeric name (1..=32 chars, or empty to reset to default)")]
+    #[arg(help = crate::adapters::base::LABEL_RULE_TEXT)]
     pub name: Option<String>,
 }
 

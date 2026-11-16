@@ -58,8 +58,32 @@ impl AgentSpec {
     }
 }
 
-pub fn is_valid_custom_name(name: &str) -> bool {
-    !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric())
+pub const LABEL_MAX_CHARS: usize = 32;
+
+pub const LABEL_RULE_TEXT: &str =
+    "1 to 32 characters: letters, digits, spaces, - _ . (must start with a letter or digit)";
+
+pub fn is_label_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.')
+}
+
+pub fn is_valid_label(name: &str) -> bool {
+    let len = name.chars().count();
+    (1..=LABEL_MAX_CHARS).contains(&len)
+        && name.chars().all(is_label_char)
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        && !name.ends_with(' ')
+        && !name.contains("  ")
+}
+
+pub fn normalize_label(raw: &str) -> String {
+    raw.split(' ')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn validate_model_id(model: &str) -> Result<String, AdapterError> {
@@ -149,15 +173,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_valid_custom_name() {
-        assert!(is_valid_custom_name("AlphaNumeric123"));
-        assert!(is_valid_custom_name("a"));
-        assert!(is_valid_custom_name("12345678901234567890123456789012")); // 32 chars
-        assert!(!is_valid_custom_name(""));
-        assert!(!is_valid_custom_name("has space"));
-        assert!(!is_valid_custom_name("with-dash"));
-        assert!(!is_valid_custom_name("with_underscore"));
-        assert!(!is_valid_custom_name("with.dot"));
-        assert!(!is_valid_custom_name("123456789012345678901234567890123")); // 33 chars
+    fn test_valid_label() {
+        assert!(is_valid_label("AlphaNumeric123"));
+        assert!(is_valid_label("a"));
+        assert!(is_valid_label("has space"));
+        assert!(is_valid_label("with-dash"));
+        assert!(is_valid_label("with_underscore"));
+        assert!(is_valid_label("with.dot"));
+        assert!(is_valid_label("12345678901234567890123456789012"));
+        assert!(!is_valid_label(""));
+        assert!(!is_valid_label(" lead"));
+        assert!(!is_valid_label("lead "));
+        assert!(!is_valid_label("two  spaces"));
+        assert!(!is_valid_label("-dash"));
+        assert!(!is_valid_label(".dot"));
+        assert!(!is_valid_label("_under"));
+        assert!(!is_valid_label("123456789012345678901234567890123"));
     }
 }
