@@ -4,6 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod conversations;
 pub mod coordination;
+pub mod factory;
 pub mod gridbar;
 pub mod net_interfaces;
 pub mod notice;

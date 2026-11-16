@@ -50,6 +50,30 @@ fn test_fresh_flag_alone() {
 }
 
 #[test]
+fn test_factory_default_is_false() {
+    let cli = parse_from(["tandem"]).expect("parse empty");
+    assert!(!cli.factory);
+}
+
+#[test]
+fn test_factory_flag_alone() {
+    let cli = parse_from(["tandem", "--factory"]).expect("parse --factory");
+    assert!(cli.factory);
+    assert!(!cli.resume);
+    assert!(!cli.fresh);
+    assert!(cli.command.is_none());
+}
+
+#[test]
+fn test_factory_combines_with_resume_and_fresh() {
+    let with_resume = parse_from(["tandem", "--factory", "--resume"]).expect("factory + resume");
+    assert!(with_resume.factory && with_resume.resume);
+
+    let with_fresh = parse_from(["tandem", "--factory", "--fresh"]).expect("factory + fresh");
+    assert!(with_fresh.factory && with_fresh.fresh);
+}
+
+#[test]
 #[allow(clippy::type_complexity)]
 fn test_all_subcommands_accepted() {
     let cases: Vec<(&[&str], Box<dyn Fn(&Command) -> bool>)> = vec![

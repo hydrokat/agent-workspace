@@ -12,6 +12,7 @@ Options:
   --yes            Answer yes to every prompt.
   --no             Answer no to every prompt.
   --fresh          Clear coordination directory and start tandem fresh.
+  --factory        Start tandem in Factory Mode (one Orchestrator, idea to pull request).
   --answers y,n,.. Answer prompts in order from a list (automation); missing answers mean no.
   --no-update      Skip the launch-time workspace self-update check.
   -h, --help       Show this help.

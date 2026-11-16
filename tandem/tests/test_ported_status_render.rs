@@ -30,6 +30,7 @@ fn default_snap() -> StatusSnapshot {
         sprint: None,
         ongoing_specs: Vec::new(),
         ongoing_tasks: Vec::new(),
+        factory: None,
     }
 }
 

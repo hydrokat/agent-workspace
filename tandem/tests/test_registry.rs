@@ -37,6 +37,7 @@ fn test_save_and_load_roundtrip() {
         socket: "tandem-1234567890".to_string(),
         updated_at: 1794120000,
         pid: Some(12345),
+        factory: false,
     });
 
     save_registry(&reg_path, &reg).expect("save should succeed");
@@ -125,6 +126,7 @@ fn test_list_active_filters_dead_sessions() {
         socket: "tandem-active1".to_string(),
         updated_at: 100,
         pid: Some(10),
+        factory: false,
     });
     reg.workspaces.push(WorkspaceEntry {
         id: "tandem-dead2".to_string(),
@@ -133,6 +135,7 @@ fn test_list_active_filters_dead_sessions() {
         socket: "tandem-dead2".to_string(),
         updated_at: 200,
         pid: Some(20),
+        factory: false,
     });
 
     let reg_path = default_registry_path(state_dir);

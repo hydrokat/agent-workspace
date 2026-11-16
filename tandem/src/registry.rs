@@ -46,6 +46,8 @@ pub struct WorkspaceEntry {
     pub updated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub factory: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -108,6 +110,24 @@ pub fn register_or_heartbeat(
     workspace: &Path,
     pid: Option<u32>,
 ) -> Result<WorkspaceEntry, RegistryError> {
+    register_or_heartbeat_inner(state_dir, workspace, pid, None)
+}
+
+pub fn register_or_heartbeat_with_mode(
+    state_dir: &Path,
+    workspace: &Path,
+    pid: Option<u32>,
+    factory: bool,
+) -> Result<WorkspaceEntry, RegistryError> {
+    register_or_heartbeat_inner(state_dir, workspace, pid, Some(factory))
+}
+
+fn register_or_heartbeat_inner(
+    state_dir: &Path,
+    workspace: &Path,
+    pid: Option<u32>,
+    factory_override: Option<bool>,
+) -> Result<WorkspaceEntry, RegistryError> {
     let reg_path = default_registry_path(state_dir);
     let mut reg = load_registry(&reg_path).unwrap_or_default();
     reg.workspaces.retain(|w| Path::new(&w.path).exists());
@@ -116,14 +136,12 @@ pub fn register_or_heartbeat(
     let socket = socket_for(&resolved);
     let id = socket.clone();
 
-    let existing_name = reg
-        .workspaces
-        .iter()
-        .find(|w| w.id == id)
-        .map(|w| w.name.clone());
+    let existing = reg.workspaces.iter().find(|w| w.id == id);
+    let existing_name = existing.map(|w| w.name.clone());
+    let factory = factory_override.unwrap_or_else(|| existing.is_some_and(|w| w.factory));
 
     let session_workspace_name = {
-        let state_file = crate::state::state_path(&resolved);
+        let state_file = crate::state::state_path_for(&resolved, factory);
         if state_file.exists() {
             fs::read(&state_file)
                 .ok()
@@ -159,6 +177,7 @@ pub fn register_or_heartbeat(
         socket,
         updated_at: now,
         pid,
+        factory,
     };
 
     if let Some(existing) = reg.workspaces.iter_mut().find(|w| w.id == id) {
@@ -212,6 +231,7 @@ pub fn rename_workspace(
             socket: target_id,
             updated_at: now,
             pid: None,
+            factory: false,
         };
         reg.workspaces.push(entry.clone());
         save_registry(&reg_path, &reg)?;
@@ -272,4 +292,17 @@ where
     }
 
     Ok(reg.workspaces)
+}
+
+pub fn factory_enabled(state_dir: &Path, workspace: &Path) -> bool {
+    let reg_path = default_registry_path(state_dir);
+    let Ok(reg) = load_registry(&reg_path) else {
+        return false;
+    };
+    let resolved = resolve_path(workspace);
+    let target_id = socket_for(&resolved);
+    reg.workspaces
+        .iter()
+        .find(|w| w.id == target_id || w.socket == target_id)
+        .is_some_and(|w| w.factory)
 }

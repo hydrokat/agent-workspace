@@ -41,6 +41,9 @@ pub struct Cli {
     )]
     pub fresh: bool,
 
+    #[arg(long, help = "start in Factory Mode")]
+    pub factory: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -148,6 +151,9 @@ pub enum Command {
 
     #[command(about = "rename an agent to a custom alphanumeric name")]
     RenameAgent(RenameAgentArgs),
+
+    #[command(about = "Factory Mode commands (ideas, events, status, rebuild)")]
+    Factory(crate::factory::commands::FactoryArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -308,7 +314,7 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
 
     match &cli.command {
         None => {
-            launch(&workspace, &config, cli.resume, cli.fresh)?;
+            launch(&workspace, &config, cli.resume, cli.fresh, cli.factory)?;
         }
         Some(Command::Help) => {
             crate::commands::show_help();
@@ -383,6 +389,12 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
                 args.name.as_deref(),
             );
         }
+        Some(Command::Factory(args)) => {
+            let code = crate::commands::factory_cmd(args, &workspace, &config);
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;
         }
@@ -451,10 +463,10 @@ fn tmux_command(cmd: &Command, workspace: &Path, config: &Config) -> Result<(), 
             crate::commands::quit_menu(&layout, workspace.to_str());
         }
         Command::SaveExit => {
-            crate::commands::save_exit(&layout, workspace);
+            crate::commands::save_exit_for(&layout, workspace, config.factory);
         }
         Command::DiscardExit => {
-            crate::commands::discard_exit(&layout, workspace);
+            crate::commands::discard_exit_for(&layout, workspace, config.factory);
         }
         Command::Reload => {
             crate::commands::reload_ui(&mut layout, workspace, config);
@@ -478,11 +490,24 @@ pub fn launch(
     config: &Config,
     mut resume: bool,
     fresh: bool,
+    factory_flag: bool,
 ) -> Result<(), anyhow::Error> {
-    let layout = crate::commands::make_layout(workspace, config);
+    let factory = factory_flag || config.factory;
+    let mut effective_config = config.clone();
+    effective_config.factory = factory;
+
+    let layout = crate::commands::make_layout(workspace, &effective_config);
+    if layout.exists() {
+        let running_factory =
+            crate::registry::factory_enabled(&effective_config.state_dir, workspace);
+        if let Some(msg) = crate::commands::mode_mismatch_message(factory, running_factory) {
+            eprintln!("{msg}");
+            std::process::exit(2);
+        }
+    }
     if fresh && layout.exists() {
         eprintln!("Ending the running tandem session so --fresh starts from a clean state…");
-        crate::commands::discard_exit(&layout, workspace);
+        crate::commands::discard_exit_for(&layout, workspace, factory);
         for _ in 0..50 {
             if !layout.exists() {
                 break;
@@ -500,12 +525,12 @@ pub fn launch(
     }
     note_legacy_session();
     let mut saved = if fresh {
-        if let Err(e) = crate::state::discard(&crate::state::state_path(workspace)) {
+        if let Err(e) = crate::state::discard(&crate::state::state_path_for(workspace, factory)) {
             eprintln!("Could not discard the saved session: {e}");
         }
         None
     } else {
-        crate::state::load(&crate::state::state_path(workspace))
+        crate::state::load(&crate::state::state_path_for(workspace, factory))
     };
 
     if resume && saved.is_none() {
@@ -545,7 +570,7 @@ pub fn launch(
         }
     };
 
-    crate::commands::start(&final_specs, workspace, config, saved.as_ref())
+    crate::commands::start(&final_specs, workspace, &effective_config, saved.as_ref())
 }
 
 pub fn note_legacy_session() {

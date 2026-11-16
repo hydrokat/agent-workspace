@@ -37,9 +37,11 @@ Commands:
   list-ips          list host network IPs and active workspaces
   rename-workspace  rename the current workspace to a custom alphanumeric name
   rename-agent      rename an agent to a custom alphanumeric name
+  factory           Factory Mode commands (ideas, events, status, rebuild)
 
 Options:
       --resume   resume the saved session without asking
       --fresh    start blank with new conversations, without asking (the saved session is replaced)
+      --factory  start in Factory Mode
   -h, --help     Print help
   -V, --version  Print version

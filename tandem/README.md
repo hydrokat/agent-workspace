@@ -26,6 +26,7 @@ Single source: `src/tmux/keys.rs` (the hint bar, help popup, and this table are 
 | `Ctrl+Alt+z` | resize mode: arrows resize the focused pane, = resets, Enter exits |
 | `Alt+b` | focus the sidebar (popup when hidden) |
 | `Alt+,` | open Settings (grid, sidebar, Reset UI) |
+| `Alt+f` | open the Factory tab (Factory Mode sessions only) |
 
 Mouse works everywhere:
 
@@ -170,6 +171,38 @@ The second row of tmux's bottom bar shows subscription quota for the CLIs that h
 ## Coordination
 
 Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_COORD_DIR`): `sessions/`, `claims/`, `queries/`. The schema and state machines are in `templates/skills/agent-coordination/references/protocol.md`. Questions an agent asks appear in the **Queries** tab; your answer is written to the query file and the agent picks it up at its next checkpoint. Nothing is typed into a pane.
+
+## Factory Mode (`./run.sh --factory`)
+
+Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share one workspace at the same time:
+
+- Starting in Factory Mode while a normal session runs exits with code `2`: `A normal tandem session is running in this workspace. Quit it first (Settings → Quit), then run ./run.sh --factory.`
+- Starting in normal mode while a Factory Mode session runs exits with code `2`: `A Factory Mode session is running in this workspace. Quit it first, or run ./run.sh --factory to attach.`
+- Factory sessions save to `.agent-workspace/tandem-session-factory.json` instead of `tandem-session.json`.
+- In Factory Mode, the Status window adds an eighth **Factory** tab (`Alt+f` / `8`) showing a read-only ideas board, and `tandem snapshot --json` includes a `factory` block (omitted in normal mode).
+
+### `tandem factory` commands
+
+| Command | Purpose |
+|---|---|
+| `tandem factory status --json` | Report `enabled`, idea counts by state, settings, and log status |
+| `tandem factory idea new --title T --text X [--text-file PATH] [--owner O] --json` | Create a new idea (requires Factory Mode active) |
+| `tandem factory idea list [--state S] --json` | List ideas sorted by `updated` descending |
+| `tandem factory idea show ID --json` | Show an idea and its events |
+| `tandem factory events [--since SEQ] [--idea ID] --json` | Read event log entries |
+| `tandem factory rebuild --json` | Rebuild materialized idea files from the event log (requires Factory Mode active) |
+
+Exit codes: `0` success, `1` not found or invalid input, `2` Factory Mode is off, `3` actor not allowed or gate not met.
+
+### Storage layout
+
+```text
+.agent-workspace/factory/
+├── .gitignore            # "*"
+├── events.jsonl          # append-only event log (0600)
+├── settings.json         # factory settings and provider gates (all closed by default)
+└── ideas/<idea-id>.json  # materialized idea state (0600)
+```
 
 ## Development
 

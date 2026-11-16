@@ -49,6 +49,7 @@ fn test_render_parity_fixture() {
         sprint: None,
         ongoing_specs: Vec::new(),
         ongoing_tasks: Vec::new(),
+        factory: None,
     };
 
     let summary_cases = fixture["summary_line"].as_object().unwrap();
@@ -98,6 +99,7 @@ fn test_render_parity_fixture() {
         sprint: None,
         ongoing_specs: Vec::new(),
         ongoing_tasks: Vec::new(),
+        factory: None,
     };
 
     assert_eq!(
