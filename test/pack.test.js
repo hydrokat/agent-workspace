@@ -45,6 +45,7 @@ describe('npm pack contents', () => {
       'explain/SKILL.md', 'explain/agents/openai.yaml', 'explain/scripts/locate.py',
       'explain/assets/technical.md', 'explain/assets/non-technical.md',
       'feasibility/SKILL.md', 'feasibility/agents/openai.yaml', 'feasibility/assets/report.md',
+      'idea/SKILL.md', 'idea/agents/openai.yaml', 'idea/assets/result.md', 'idea/scripts/idea.py',
       'code-cleanup/SKILL.md', 'code-cleanup/agents/openai.yaml', 'code-cleanup/scripts/comments.py',
       'code-cleanup/assets/candidates.md', 'workspace-cleanup/scripts/scan_workspace.py',
       'workspace-cleanup/assets/candidates.md', 'pull-request/assets/pr-body.md',

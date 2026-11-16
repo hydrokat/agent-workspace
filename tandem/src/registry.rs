@@ -149,7 +149,7 @@ fn register_or_heartbeat_inner(
                 .and_then(|val| {
                     val.get("workspace_name")
                         .and_then(|v| v.as_str())
-                        .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+                        .filter(|s| crate::adapters::base::is_valid_label(s))
                         .map(ToString::to_string)
                 })
         } else {
@@ -158,7 +158,7 @@ fn register_or_heartbeat_inner(
     };
 
     let name = session_workspace_name
-        .or_else(|| existing_name.filter(|n| crate::adapters::base::is_valid_custom_name(n)))
+        .or_else(|| existing_name.filter(|n| crate::adapters::base::is_valid_label(n)))
         .unwrap_or_else(|| {
             resolved
                 .file_name()

@@ -62,12 +62,12 @@ export function TaskProgressPanel({
                     {claim.phase} / {claim.task}
                   </span>
                   <Badge variant="outline" className="font-mono text-[10px]">
-                    {claim.session_id}
+                    {claim.session}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
                   <Clock className="h-3 w-3" />
-                  <span>Claimed {formatAge(claim.claimed_at)}</span>
+                  <span>Claimed {formatAge(claim.heartbeat)}</span>
                 </div>
               </div>
             ))}
@@ -83,16 +83,21 @@ export function TaskProgressPanel({
           <div className="flex flex-col divide-y divide-border/50">
             {ongoingTasks.map((t) => (
               <div
-                key={`${t.phase}-${t.task}`}
+                key={`${t.phase}-${t.task_id}`}
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2.5 text-xs"
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-semibold text-foreground">
-                    {t.phase} / {t.task}
+                    {t.phase} / {t.task_id}
                   </span>
-                  {t.session && (
+                  {t.claim?.session && (
                     <Badge variant="secondary" className="font-mono text-[10px]">
-                      {t.session}
+                      {t.claim.session}
+                    </Badge>
+                  )}
+                  {t.stale && (
+                    <Badge variant="destructive" className="text-[10px]">
+                      stale
                     </Badge>
                   )}
                 </div>

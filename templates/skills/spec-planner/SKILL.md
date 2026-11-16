@@ -25,6 +25,15 @@ Before creating or updating a phase, determine the branch strategy with the user
 4. Ask the user to choose which branch the work should merge into. Suggest the repository's primary branch, preferring `main`, then `trunk`, then `master`, then the configured default branch. Allow the user to enter a different target branch.
 5. Learn the selected branch naming pattern for future planning by recording it in the generated `impl.md`. If the repository has `knowledgebase/context-history/` or `knowledgebase/guidelines/`, add or update a concise branch naming note there as well.
 
+### 0b. Unattended Mode
+Unattended mode applies only when the caller states it explicitly (for example `/idea --auto`).
+In unattended mode:
+1. Do not ask the user anything. Use the value you would have suggested for the working branch and the merge target.
+2. Do not add the phase to a sprint and do not invoke `/pm-new-sprint`. Leave new phases in the backlog.
+3. If something is ambiguous enough to change scope, do not guess: add it to "Open Questions" in `impl.md`, mark the affected task `Blocked`, and continue.
+4. List every default you took under "Decisions Taken Unattended" in `impl.md`.
+Everything else in this skill applies unchanged.
+
 ### 1. Inspect The Existing Codebase
 Before creating or changing implementation tasks, inspect the current codebase so the plan follows the project's real structure and patterns.
 
@@ -136,7 +145,7 @@ Every task file includes `## Affected Paths` and `## Depends On` so overlapping 
 - **Repository Scope**: Every `impl.md` MUST include the repositories involved and each repository's role in the phase.
 - **Sync**: Every new task MUST be reflected in the corresponding `impl.md`.
 - **Validation**: Ensure directories exist before writing files.
-- **Branch Choice**: Always ask the user to choose the working branch and merge target before creating or updating implementation tasks. Suggest values, but allow user-entered branch names.
+- **Branch Choice**: Always ask the user to choose the working branch and merge target before creating or updating implementation tasks. Suggest values, but allow user-entered branch names, except in Unattended Mode, where the suggested values are used and recorded.
 - **Branch Pattern Learning**: Always capture the chosen branch naming pattern in `impl.md`, and update a concise knowledgebase note when a knowledgebase exists.
 - **Codebase First**: Always inspect the existing codebase and use its structure, patterns, tests, and conventions as the guide for implementation tasks.
 - **Structure Diagram**: Every phase plan and code-changing task MUST include a code structure or directory structure diagram in fenced `text`, Mermaid, PlantUML, or similar diagram form.
@@ -150,4 +159,4 @@ Every task file includes `## Affected Paths` and `## Depends On` so overlapping 
 - **Security Gate**: A task involving code changes MUST be security audited, with the audit passing, before it can be marked complete. Use the `security-auditor` agent or `security-review` skill for the audit.
 - **Knowledge Loop**: Every task MUST record which `knowledgebase/` references were consulted going in, and what (if anything) should be added back to `knowledgebase/best-practices/` coming out.
 - **Review Cleanup**: The final delivery task's code review phase MUST include a cleanup pass (`/code-cleanup --diff <merge-target>`) that removes unnecessary comments, favors self-documenting code, and permits documentation-generator comments when they add value.
-- **Sprint Sizing & Governance**: When a planned spec exceeds 1-week capacity (> 5.0 effort-days or > 12 implementation tasks), split into multiple cohesive phases and package with `/pm-new-sprint`. Integrate phases into active sprints with `sprints.py add-phase`, respecting locked sprint gates unless an emergency `--hotfix` is justified.
+- **Sprint Sizing & Governance**: When a planned spec exceeds 1-week capacity (> 5.0 effort-days or > 12 implementation tasks), split into multiple cohesive phases and package with `/pm-new-sprint`. Integrate phases into active sprints with `sprints.py add-phase`, respecting locked sprint gates unless an emergency `--hotfix` is justified. In Unattended Mode, leave new phases in the backlog and do not invoke `/pm-new-sprint`.

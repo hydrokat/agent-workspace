@@ -98,15 +98,28 @@ impl SettingsTab {
                     buf.pop();
                     None
                 }
-                KeyCode::Char(c) if c.is_ascii_alphanumeric() && buf.len() < 32 => {
-                    buf.push(c);
+                KeyCode::Char(c)
+                    if crate::adapters::base::is_label_char(c)
+                        && buf.chars().count() < crate::adapters::base::LABEL_MAX_CHARS =>
+                {
+                    let starts_ok = !buf.is_empty() || c.is_ascii_alphanumeric();
+                    let space_ok = c != ' ' || !buf.ends_with(' ');
+                    if starts_ok && space_ok {
+                        buf.push(c);
+                    }
                     None
                 }
                 KeyCode::Enter => {
-                    let new_name = self.editing_workspace_name.take().unwrap_or_default();
-                    self.workspace_name = new_name.clone();
-                    self.flash("Workspace renamed");
-                    Some(SettingsAction::RenameWorkspace(new_name))
+                    let normalized = crate::adapters::base::normalize_label(buf);
+                    if normalized.is_empty() || crate::adapters::base::is_valid_label(&normalized) {
+                        self.editing_workspace_name = None;
+                        self.workspace_name = normalized.clone();
+                        self.flash("Workspace renamed");
+                        Some(SettingsAction::RenameWorkspace(normalized))
+                    } else {
+                        self.flash(crate::adapters::base::LABEL_RULE_TEXT);
+                        None
+                    }
                 }
                 _ => None,
             }
@@ -422,7 +435,7 @@ impl SettingsTab {
                     buf.set_string(
                         hint_x,
                         name_y,
-                        "Enter save · Esc cancel · A-Z, 0-9",
+                        "Letters, digits, spaces, - _ . · Enter saves · Esc cancels",
                         Style::default().fg(Color::DarkGray),
                     );
                 }

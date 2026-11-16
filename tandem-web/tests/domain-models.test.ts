@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { isValidIpv4 } from "../src/domain/models/network";
 import { isValidQueryId } from "../src/domain/models/query";
-import { isValidCustomName, isValidWorkspaceId } from "../src/domain/models/workspace";
+import {
+  LABEL_MAX_CHARS,
+  LABEL_RULE_TEXT,
+  isValidLabel,
+  isValidWorkspaceId,
+  normalizeLabel,
+} from "../src/domain/models/workspace";
 
 describe("domain model validators", () => {
   it("validates opaque workspace IDs accurately", () => {
@@ -15,19 +21,63 @@ describe("domain model validators", () => {
     expect(isValidWorkspaceId("workspace-123")).toBe(false);
   });
 
-  it("validates custom alphanumeric names accurately", () => {
-    expect(isValidCustomName("Workspace1")).toBe(true);
-    expect(isValidCustomName("ProjectAlpha")).toBe(true);
-    expect(isValidCustomName("a")).toBe(true);
-    expect(isValidCustomName("12345678901234567890123456789012")).toBe(true); // 32 chars
+  it("validates labels against the shared accept and reject tables", () => {
+    expect(LABEL_MAX_CHARS).toBe(32);
+    expect(LABEL_RULE_TEXT.length).toBeGreaterThan(0);
 
-    expect(isValidCustomName("")).toBe(false); // empty
-    expect(isValidCustomName("123456789012345678901234567890123")).toBe(false); // 33 chars
-    expect(isValidCustomName("project-alpha")).toBe(false); // hyphen
-    expect(isValidCustomName("project_alpha")).toBe(false); // underscore
-    expect(isValidCustomName("project alpha")).toBe(false); // space
-    expect(isValidCustomName("project/alpha")).toBe(false); // slash
-    expect(isValidCustomName("alpha!")).toBe(false); // special char
+    const accepted = [
+      "a",
+      "A1",
+      "Fleet Mgmt - Backend",
+      "HTN Reg",
+      "POS v2.1",
+      "api_worker",
+      "planner-1",
+      "12345678901234567890123456789012",
+    ];
+    for (const label of accepted) {
+      expect(isValidLabel(label)).toBe(true);
+    }
+
+    const rejected = [
+      "",
+      " lead",
+      "lead ",
+      "two  spaces",
+      "-x",
+      "--help",
+      ".env",
+      "_x",
+      "123456789012345678901234567890123",
+      "a#b",
+      "a{b}",
+      "a,b",
+      "a;b",
+      "a|b",
+      "a$b",
+      "a`b",
+      "a'b",
+      'a"b',
+      "a\\b",
+      "a/b",
+      "a\tb",
+      "a\nb",
+      "a\u0000b",
+      "café",
+      "名前",
+      "a\u200bb",
+    ];
+    for (const label of rejected) {
+      expect(isValidLabel(label)).toBe(false);
+    }
+  });
+
+  it("normalizes labels by trimming and collapsing spaces", () => {
+    expect(normalizeLabel("  a   b ")).toBe("a b");
+    expect(normalizeLabel("lead ")).toBe("lead");
+    expect(isValidLabel(normalizeLabel("lead "))).toBe(true);
+    expect(normalizeLabel("two  spaces")).toBe("two spaces");
+    expect(isValidLabel(normalizeLabel("two  spaces"))).toBe(true);
   });
 
   it("validates query IDs accurately", () => {

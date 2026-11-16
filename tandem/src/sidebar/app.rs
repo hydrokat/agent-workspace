@@ -112,16 +112,33 @@ impl SidebarApp {
                     self.editing_agent = Some((target, buf));
                     self.dirty = true;
                 }
-                KeyCode::Char(c) if c.is_ascii_alphanumeric() && buf.len() < 32 => {
-                    buf.push(c);
+                KeyCode::Char(c)
+                    if crate::adapters::base::is_label_char(c)
+                        && buf.chars().count() < crate::adapters::base::LABEL_MAX_CHARS =>
+                {
+                    let starts_ok = !buf.is_empty() || c.is_ascii_alphanumeric();
+                    let space_ok = c != ' ' || !buf.ends_with(' ');
+                    if starts_ok && space_ok {
+                        buf.push(c);
+                    }
                     self.editing_agent = Some((target, buf));
                     self.dirty = true;
                 }
                 KeyCode::Enter => {
-                    let cfg = crate::config::Config::from_env().unwrap_or_default();
-                    crate::commands::rename_agent_cmd(&self.workspace, &cfg, &target, Some(&buf));
-                    self.editing_agent = None;
-                    self.refresh();
+                    let normalized = crate::adapters::base::normalize_label(&buf);
+                    if normalized.is_empty() || crate::adapters::base::is_valid_label(&normalized) {
+                        let cfg = crate::config::Config::from_env().unwrap_or_default();
+                        crate::commands::rename_agent_cmd(
+                            &self.workspace,
+                            &cfg,
+                            &target,
+                            Some(&normalized),
+                        );
+                        self.editing_agent = None;
+                        self.refresh();
+                    } else {
+                        self.editing_agent = Some((target, buf));
+                    }
                 }
                 _ => {
                     self.editing_agent = Some((target, buf));

@@ -1514,7 +1514,7 @@ pub fn collect_snapshot_json(
             .and_then(|val| {
                 val.get("workspace_name")
                     .and_then(|v| v.as_str())
-                    .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+                    .filter(|s| crate::adapters::base::is_valid_label(s))
                     .map(ToString::to_string)
             })
     } else {
@@ -1719,15 +1719,21 @@ pub fn list_ips_json(workspace: &Path) {
     }
 }
 
-pub fn rename_workspace_cmd(workspace: &Path, name: Option<&str>) {
-    let clean_name = name.map(str::trim).filter(|s| !s.is_empty());
-    if clean_name.is_some_and(|n| !crate::adapters::base::is_valid_custom_name(n)) {
-        eprintln!("Invalid workspace name: must be 1-32 alphanumeric characters");
-        std::process::exit(1);
+pub fn rename_workspace_in(
+    state_dir: &Path,
+    workspace: &Path,
+    name: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let normalized = name.map(crate::adapters::base::normalize_label);
+    let clean_name = normalized.as_deref().filter(|s| !s.is_empty());
+    if clean_name.is_some_and(|n| !crate::adapters::base::is_valid_label(n)) {
+        return Err(format!(
+            "Invalid workspace name: {}",
+            crate::adapters::base::LABEL_RULE_TEXT
+        ));
     }
 
-    let state_dir = crate::registry::resolve_state_dir();
-    let reg_path = crate::registry::default_registry_path(&state_dir);
+    let reg_path = crate::registry::default_registry_path(state_dir);
     let resolved = crate::tmux::client::resolve_path(workspace);
     let target_id = crate::tmux::client::socket_for(&resolved);
 
@@ -1760,29 +1766,48 @@ pub fn rename_workspace_cmd(workspace: &Path, name: Option<&str>) {
         } else {
             obj.remove("workspace_name");
         }
-        if let Ok(mut file) = std::fs::File::create(&session_file) {
-            let _ = serde_json::to_writer_pretty(&mut file, &file_val);
-        }
+        let _ = crate::state::write_json_atomic(&session_file, &file_val);
     }
 
-    let res = serde_json::json!({
+    Ok(serde_json::json!({
         "ok": true,
         "workspace_id": target_id,
         "name": final_name,
-    });
-    let _ = io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
-    let _ = io::stdout().write_all(b"\n");
+    }))
 }
 
-pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: Option<&str>) {
-    let clean_name = name.map(str::trim).filter(|s| !s.is_empty());
-    if clean_name.is_some_and(|n| !crate::adapters::base::is_valid_custom_name(n)) {
-        eprintln!("Invalid agent name: must be 1-32 alphanumeric characters");
-        std::process::exit(1);
+pub fn rename_workspace_cmd(workspace: &Path, name: Option<&str>) {
+    let state_dir = crate::registry::resolve_state_dir();
+    match rename_workspace_in(&state_dir, workspace, name) {
+        Ok(res) => {
+            let _ =
+                io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
+            let _ = io::stdout().write_all(b"\n");
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn rename_agent_with_layout(
+    workspace: &Path,
+    config: &Config,
+    layout: &Layout,
+    target: &str,
+    name: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let normalized = name.map(crate::adapters::base::normalize_label);
+    let clean_name = normalized.as_deref().filter(|s| !s.is_empty());
+    if clean_name.is_some_and(|n| !crate::adapters::base::is_valid_label(n)) {
+        return Err(format!(
+            "Invalid agent name: {}",
+            crate::adapters::base::LABEL_RULE_TEXT
+        ));
     }
 
     let resolved = crate::tmux::client::resolve_path(workspace);
-    let layout = make_layout(workspace, config);
     let panes = if layout.exists() {
         layout.panes().unwrap_or_default()
     } else {
@@ -1840,9 +1865,7 @@ pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: O
                 }
             }
         }
-        if let Ok(mut file) = std::fs::File::create(&session_file) {
-            let _ = serde_json::to_writer_pretty(&mut file, &session_val);
-        }
+        let _ = crate::state::write_json_atomic(&session_file, &session_val);
     }
 
     let coord_dir = coord_dir_for(workspace, config);
@@ -1858,18 +1881,29 @@ pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: O
         } else if let Some(obj) = val.as_object_mut() {
             obj.remove("name");
         }
-        if let Ok(mut file) = std::fs::File::create(&session_path) {
-            let _ = serde_json::to_writer_pretty(&mut file, val);
-        }
+        let _ = crate::state::write_json_atomic(&session_path, val);
     }
 
-    let res = serde_json::json!({
+    Ok(serde_json::json!({
         "ok": true,
         "target": target,
         "name": name_val,
-    });
-    let _ = io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
-    let _ = io::stdout().write_all(b"\n");
+    }))
+}
+
+pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: Option<&str>) {
+    let layout = make_layout(workspace, config);
+    match rename_agent_with_layout(workspace, config, &layout, target, name) {
+        Ok(res) => {
+            let _ =
+                io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
+            let _ = io::stdout().write_all(b"\n");
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    }
 }
 
 pub fn factory_cmd(
@@ -1878,4 +1912,99 @@ pub fn factory_cmd(
     config: &Config,
 ) -> i32 {
     crate::factory::commands::run(args, workspace, config)
+}
+
+fn center_pad(char_len: usize, cols: u16) -> String {
+    " ".repeat((cols as usize).saturating_sub(char_len) / 2)
+}
+
+pub fn render_qr_popup(
+    out: &mut dyn Write,
+    content: &crate::status::qr::QrPopupContent,
+    cols: u16,
+) -> io::Result<()> {
+    use crate::status::qr::QrPopupContent;
+    use crossterm::style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor};
+
+    match content {
+        QrPopupContent::Code { lines, url } => {
+            for line in lines {
+                let pad = center_pad(line.chars().count(), cols);
+                write!(
+                    out,
+                    "{pad}{}{}{}{}",
+                    SetForegroundColor(Color::Black),
+                    SetBackgroundColor(Color::White),
+                    line,
+                    ResetColor
+                )?;
+                writeln!(out)?;
+            }
+            writeln!(out)?;
+            let url_pad = center_pad(url.chars().count(), cols);
+            writeln!(out, "{url_pad}{url}")?;
+            let hint = "Scan with your phone camera · Esc to close";
+            let hint_pad = center_pad(hint.chars().count(), cols);
+            writeln!(out, "{hint_pad}{hint}")?;
+        }
+        QrPopupContent::TooSmall {
+            url,
+            need_cols,
+            need_rows,
+        } => {
+            writeln!(
+                out,
+                "This window is too small for the QR code (needs {need_cols}x{need_rows})."
+            )?;
+            writeln!(
+                out,
+                "Widen the terminal, or open this address on your phone:"
+            )?;
+            writeln!(out, "  {url}")?;
+            writeln!(out, "Press any key to close.")?;
+        }
+    }
+    Ok(())
+}
+
+fn wait_for_dismiss_key() -> io::Result<()> {
+    struct RawModeGuard;
+    impl Drop for RawModeGuard {
+        fn drop(&mut self) {
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+
+    crossterm::terminal::enable_raw_mode()?;
+    let _guard = RawModeGuard;
+    loop {
+        if let crossterm::event::Event::Key(key) = crossterm::event::read()?
+            && key.kind == crossterm::event::KeyEventKind::Press
+        {
+            return Ok(());
+        }
+    }
+}
+
+pub fn web_qr_cmd(workspace: &Path, _config: &Config) -> io::Result<()> {
+    let state_dir = crate::registry::resolve_state_dir();
+    let web_config =
+        crate::web_manager::load_web_config(&crate::web_manager::web_config_path(&state_dir))?;
+    let mut out = io::stdout();
+    if !web_config.enabled {
+        writeln!(out, "tandem-web is not enabled.")?;
+        writeln!(out, "Press any key to close.")?;
+        out.flush()?;
+        return wait_for_dismiss_key();
+    }
+
+    let socket = socket_for(&crate::tmux::client::resolve_path(workspace));
+    let qr_url = crate::web_manager::access_url_for_workspace(&web_config, Some(&socket));
+    let shown_url = crate::web_manager::access_url(&web_config, false);
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let content = crate::status::qr::qr_popup_content(&qr_url, &shown_url, cols, rows);
+
+    render_qr_popup(&mut out, &content, cols)?;
+    out.flush()?;
+    wait_for_dismiss_key()
 }

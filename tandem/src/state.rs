@@ -207,12 +207,7 @@ pub fn discard(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub fn save(path: &Path, state: &SavedState) -> Result<(), StateError> {
-    if state.saved_at.is_nan() || state.saved_at.is_infinite() {
-        return Err(StateError::Invalid(
-            "saved_at cannot be NaN or infinite".to_string(),
-        ));
-    }
+pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), StateError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -220,11 +215,10 @@ pub fn save(path: &Path, state: &SavedState) -> Result<(), StateError> {
     let tmp_path = path
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(format!(".tandem-session-{}.tmp", uuid::Uuid::new_v4()));
+        .join(format!(".tandem-json-{}.tmp", uuid::Uuid::new_v4()));
 
-    let json_val = to_json(state);
     let mut file = File::create(&tmp_path)?;
-    serde_json::to_writer_pretty(&mut file, &json_val)?;
+    serde_json::to_writer_pretty(&mut file, value)?;
     file.write_all(b"\n")?;
 
     #[cfg(unix)]
@@ -235,6 +229,16 @@ pub fn save(path: &Path, state: &SavedState) -> Result<(), StateError> {
 
     fs::rename(&tmp_path, path)?;
     Ok(())
+}
+
+pub fn save(path: &Path, state: &SavedState) -> Result<(), StateError> {
+    if state.saved_at.is_nan() || state.saved_at.is_infinite() {
+        return Err(StateError::Invalid(
+            "saved_at cannot be NaN or infinite".to_string(),
+        ));
+    }
+    let json_val = to_json(state);
+    write_json_atomic(path, &json_val)
 }
 
 fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
@@ -279,7 +283,7 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
     let name = obj
         .get("name")
         .and_then(|v| v.as_str())
-        .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+        .filter(|s| crate::adapters::base::is_valid_label(s))
         .map(ToString::to_string);
 
     Some(AgentSpec {
@@ -408,7 +412,7 @@ pub fn parse(data: &serde_json::Value) -> Option<SavedState> {
     let workspace_name = obj
         .get("workspace_name")
         .and_then(|v| v.as_str())
-        .filter(|s| crate::adapters::base::is_valid_custom_name(s))
+        .filter(|s| crate::adapters::base::is_valid_label(s))
         .map(ToString::to_string);
 
     Some(SavedState {

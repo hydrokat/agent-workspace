@@ -355,6 +355,16 @@ def test_lint_passes_when_the_phase_is_filled_in(tmp_path: Path) -> None:
     assert lint_codes(root, "p-001") == set()
 
 
+def test_lint_accepts_unattended_mode_sections_in_impl(tmp_path: Path) -> None:
+    root = filled_phase(tmp_path)
+    impl = root / "specs/p-001-r/impl.md"
+    impl.write_text(
+        impl.read_text()
+        + "\n## Open Questions\n- None\n\n## Decisions Taken Unattended\n- Working branch: feat/demo\n"
+    )
+    assert lint_codes(root, "p-001") == set()
+
+
 def filled_phase(tmp_path: Path) -> Path:
     root = mkspecs(tmp_path)
     new_phase(root, "--repo", "r")

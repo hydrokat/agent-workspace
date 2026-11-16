@@ -7,37 +7,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IpSourceSelect } from "./ip-source-select";
 import { DependencyConsentDialog } from "./dependency-consent-dialog";
-import { RotateCcw, Save, Globe, FolderGit2, AlertCircle } from "lucide-react";
+import { LabelsCard } from "./labels-card";
+import { RotateCcw, Save, Globe } from "lucide-react";
 import type { WebSettings } from "@/domain/models/settings";
 import type { IpCandidate, NetworkSource } from "@/domain/models/network";
-import { isValidCustomName, type WorkspaceEntry } from "@/domain/models/workspace";
+import type { WorkspaceEntry } from "@/domain/models/workspace";
+import type { PaneInfo } from "@/domain/models/snapshot";
 
 interface WebSettingsPanelProps {
   settings: WebSettings;
   candidates: IpCandidate[];
   activeWorkspace?: WorkspaceEntry | null;
+  agents?: PaneInfo[];
   onUpdateSettings: (updated: WebSettings) => Promise<void>;
   onResetUI: () => Promise<void>;
-  onRenameWorkspace?: (newName: string) => Promise<void>;
+  onRenameWorkspace?: (label: string | null) => Promise<void>;
+  onRenameAgent?: (paneId: string, label: string | null) => Promise<void>;
 }
 
 export function WebSettingsPanel({
   settings: initialSettings,
   candidates,
   activeWorkspace,
+  agents = [],
   onUpdateSettings,
   onResetUI,
   onRenameWorkspace,
+  onRenameAgent,
 }: WebSettingsPanelProps) {
   const [form, setForm] = useState<WebSettings>(initialSettings);
   const [consentOpen, setConsentOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-
-  const [workspaceNameInput, setWorkspaceNameInput] = useState(activeWorkspace?.name || "");
-  const [renameSaving, setRenameSaving] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [renameSuccess, setRenameSuccess] = useState(false);
 
   const handleToggleEnabled = (checked: boolean) => {
     if (checked && !form.first_time_acknowledged) {
@@ -76,93 +77,27 @@ export function WebSettingsPanel({
     try {
       setResetting(true);
       await onResetUI();
+    } catch {
+      // Best-effort UI reset
     } finally {
       setResetting(false);
     }
   };
 
+  const defaultWorkspaceName = activeWorkspace
+    ? activeWorkspace.path.split("/").filter(Boolean).pop() || activeWorkspace.id
+    : "";
+
   return (
     <div className="flex flex-col gap-6">
       {activeWorkspace && onRenameWorkspace && (
-        <Card className="p-4 sm:p-6 flex flex-col gap-3">
-          <div className="flex items-center gap-2.5">
-            <FolderGit2 className="h-5 w-5 text-primary" />
-            <div className="flex flex-col">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-                Workspace Identity
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Rename the active workspace ({activeWorkspace.id}) for easier identification across tandem and tandem-web.
-              </p>
-            </div>
-          </div>
-
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const trimmed = workspaceNameInput.trim();
-              if (!trimmed || !isValidCustomName(trimmed)) {
-                setRenameError("Only letters and numbers (A-Z, a-z, 0-9, 1-32 chars) are allowed.");
-                return;
-              }
-              try {
-                setRenameSaving(true);
-                setRenameError(null);
-                await onRenameWorkspace(trimmed);
-                setRenameSuccess(true);
-                setTimeout(() => setRenameSuccess(false), 3000);
-              } catch (err) {
-                setRenameError((err as Error).message);
-              } finally {
-                setRenameSaving(false);
-              }
-            }}
-            className="flex flex-col gap-3 pt-2"
-          >
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <Input
-                type="text"
-                maxLength={32}
-                value={workspaceNameInput}
-                onChange={(e) => {
-                  setWorkspaceNameInput(e.target.value);
-                  setRenameError(null);
-                  setRenameSuccess(false);
-                }}
-                placeholder={activeWorkspace.name}
-                className="font-mono text-xs sm:max-w-xs h-10"
-                aria-label="New alphanumeric workspace name"
-              />
-              <Button
-                type="submit"
-                disabled={
-                  renameSaving ||
-                  !workspaceNameInput.trim() ||
-                  !isValidCustomName(workspaceNameInput.trim())
-                }
-                className="min-h-11 sm:min-h-10 text-xs shrink-0"
-              >
-                {renameSaving ? "Saving..." : "Save Workspace Name"}
-              </Button>
-            </div>
-
-            {renameError && (
-              <div role="alert" className="text-xs text-destructive flex items-center gap-1.5">
-                <AlertCircle className="h-3.5 w-3.5" />
-                <span>{renameError}</span>
-              </div>
-            )}
-
-            {renameSuccess && (
-              <span className="text-xs text-emerald-600 font-medium">
-                Workspace renamed successfully.
-              </span>
-            )}
-            <span className="text-[11px] text-muted-foreground">
-              Only letters and numbers (A-Z, a-z, 0-9) are allowed (max 32 characters).
-            </span>
-          </form>
-        </Card>
+        <LabelsCard
+          workspace={activeWorkspace}
+          defaultWorkspaceName={defaultWorkspaceName}
+          agents={agents}
+          onRenameWorkspace={onRenameWorkspace}
+          onRenameAgent={onRenameAgent ?? (async () => {})}
+        />
       )}
 
       <Card className="p-4 sm:p-6 flex flex-col gap-6">

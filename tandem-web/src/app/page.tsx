@@ -9,6 +9,7 @@ import { SprintProgressPanel } from "@/components/views/sprint-progress-panel";
 import { SpecProgressPanel } from "@/components/views/spec-progress-panel";
 import { TaskProgressPanel } from "@/components/views/task-progress-panel";
 import { QueriesInboxList } from "@/components/queries/queries-inbox-list";
+import { FilesPanel } from "@/components/files/files-panel";
 import { TerminalAttachPanel } from "@/components/terminal/terminal-attach-panel";
 import { WebSettingsPanel } from "@/components/settings/web-settings-panel";
 import { HostConnectionDialog } from "@/components/connection/host-connection-dialog";
@@ -16,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceStream } from "@/hooks/use-workspace-stream";
 import { useTerminalSizeMode } from "@/hooks/use-terminal-size-mode";
 import { resolveActiveWorkspace } from "@/lib/workspace-selection";
+import { buildSprintDrilldown } from "@/lib/sprint-drilldown";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
 import type { IpCandidate } from "@/domain/models/network";
@@ -197,18 +199,20 @@ export default function DashboardPage() {
     };
   }, [fetchWorkspaces, fetchSettings, fetchIps]);
 
-  const handleAction = async (action: AllowedTandemAction, args: string[]) => {
-    if (!activeWorkspace) return;
-    try {
-      await fetch(`/api/workspaces/${activeWorkspace.id}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, args }),
-      });
-    } catch {
-      // Handled by optimistic update and subsequent SSE stream frame
+  const handleAction = useCallback(async (action: AllowedTandemAction, args: string[]) => {
+    const wsId = activeWorkspaceIdRef.current;
+    if (!wsId) return;
+    const res = await fetch(`/api/workspaces/${wsId}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, args }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const message = body?.error?.message || `Action '${action}' failed (${res.status})`;
+      throw new Error(message);
     }
-  };
+  }, []);
 
   const handleAnswerQuery = async (queryId: string, answer: string) => {
     if (!activeWorkspace) return;
@@ -231,51 +235,83 @@ export default function DashboardPage() {
     }
   };
 
-  const handleResetUI = async () => {
+  const handleResetUI = useCallback(async () => {
     await handleAction("reset-ui", []);
-  };
+  }, [handleAction]);
 
-  const handleRenameWorkspace = async (newName: string) => {
-    if (!activeWorkspace) return;
-    await handleAction("rename-workspace", [newName]);
-    await fetchWorkspaces();
-  };
+  const handleRenameWorkspace = useCallback(
+    async (label: string | null) => {
+      if (!activeWorkspaceIdRef.current) return;
+      await handleAction("rename-workspace", label ? [label] : []);
+      await fetchWorkspaces();
+    },
+    [handleAction, fetchWorkspaces]
+  );
+
+  const handleRenameAgent = useCallback(
+    async (paneId: string, label: string | null) => {
+      await handleAction("rename-agent", label ? [paneId, label] : [paneId]);
+    },
+    [handleAction]
+  );
+
+  const agentPanes = useMemo(
+    () => (snapshot?.panes ?? []).filter((p) => p.kind === "agent"),
+    [snapshot?.panes]
+  );
 
   // Stable callback: reads workspace ID from ref at call time
-  const handleInteractAgent = useCallback(async (pane: PaneInfo) => {
+  const handleInteractPaneId = useCallback(async (paneId: string) => {
     const wsId = activeWorkspaceIdRef.current;
     if (!wsId) return;
-    setActivePaneId(pane.id);
+    setActivePaneId(paneId);
     try {
       await fetch(`/api/workspaces/${wsId}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "show", args: [pane.id] }),
+        body: JSON.stringify({ action: "show", args: [paneId] }),
       });
     } catch {
       // Best-effort; the stream will reflect the state
     }
     setActiveTab("terminal");
     setDesktopTab("terminal");
-  }, []); // stable — reads from ref, never from closed-over state
+  }, []);
+
+  const handleInteractAgent = useCallback(
+    (pane: PaneInfo) => handleInteractPaneId(pane.id),
+    [handleInteractPaneId]
+  );
 
   // Stable callback for terminal panel's onSelectAgent (AgentChip variant)
-  const handleInteractAgentByChip = useCallback(async (chip: AgentChip) => {
-    const wsId = activeWorkspaceIdRef.current;
-    if (!wsId) return;
-    setActivePaneId(chip.id);
-    try {
-      await fetch(`/api/workspaces/${wsId}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "show", args: [chip.id] }),
-      });
-    } catch {
-      // Best-effort
-    }
-    setActiveTab("terminal");
-    setDesktopTab("terminal");
-  }, []); // stable — reads from ref
+  const handleInteractAgentByChip = useCallback(
+    (chip: AgentChip) => handleInteractPaneId(chip.id),
+    [handleInteractPaneId]
+  );
+
+  const sprintDrilldown = useMemo(
+    () =>
+      snapshot?.snapshot?.sprint
+        ? buildSprintDrilldown({
+            sprint: snapshot.snapshot.sprint,
+            phases: snapshot.snapshot.phases ?? [],
+            ongoingTasks: snapshot.snapshot.ongoing_tasks ?? [],
+            claims: snapshot.snapshot.claims ?? [],
+            sessions: snapshot.snapshot.sessions ?? [],
+            panes: snapshot.panes ?? [],
+          })
+        : null,
+    [snapshot]
+  );
+
+  const renderSprint = () => (
+    <SprintProgressPanel
+      sprint={snapshot?.snapshot?.sprint}
+      drilldown={sprintDrilldown}
+      workspaceId={activeWorkspace?.id}
+      onInteract={handleInteractPaneId}
+    />
+  );
 
   const unreadQueries = snapshot?.snapshot?.queries?.length || 0;
 
@@ -365,7 +401,13 @@ export default function DashboardPage() {
           setDesktopTab(val);
           if (val === "sprint" || val === "spec" || val === "task") {
             setActiveTab("work");
-          } else if (val === "status" || val === "queries" || val === "terminal" || val === "settings") {
+          } else if (
+            val === "status" ||
+            val === "files" ||
+            val === "queries" ||
+            val === "terminal" ||
+            val === "settings"
+          ) {
             setActiveTab(val as NavTabId);
           }
         }}>
@@ -374,6 +416,7 @@ export default function DashboardPage() {
             <TabsTrigger value="sprint">Sprint</TabsTrigger>
             <TabsTrigger value="spec">Spec</TabsTrigger>
             <TabsTrigger value="task">Task</TabsTrigger>
+            <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="queries">
               Queries {unreadQueries > 0 && `(${unreadQueries})`}
             </TabsTrigger>
@@ -399,9 +442,8 @@ export default function DashboardPage() {
         )}
 
         {/* Sprint view */}
-        {((desktopTab === "sprint" && isDesktop) || (activeTab === "work" && desktopTab === "sprint")) && (
-          <SprintProgressPanel sprint={snapshot?.snapshot?.sprint} />
-        )}
+        {((desktopTab === "sprint" && isDesktop) || (activeTab === "work" && desktopTab === "sprint")) &&
+          renderSprint()}
 
         {/* Spec view */}
         {((desktopTab === "spec" && isDesktop) || (activeTab === "work" && desktopTab === "spec")) && (
@@ -422,7 +464,7 @@ export default function DashboardPage() {
         {/* Mobile "work" combined view */}
         {activeTab === "work" && !["sprint", "spec", "task"].includes(desktopTab) && (
           <div className="flex flex-col gap-6">
-            <SprintProgressPanel sprint={snapshot?.snapshot?.sprint} />
+            {renderSprint()}
             <SpecProgressPanel
               phases={snapshot?.snapshot?.phases}
               ongoingSpecs={snapshot?.snapshot?.ongoing_specs}
@@ -432,6 +474,11 @@ export default function DashboardPage() {
               ongoingTasks={snapshot?.snapshot?.ongoing_tasks}
             />
           </div>
+        )}
+
+        {/* Files tab */}
+        {((desktopTab === "files" && isDesktop) || activeTab === "files") && activeWorkspace && (
+          <FilesPanel workspaceId={activeWorkspace.id} workspaceName={activeWorkspace.name} />
         )}
 
         {/* Queries tab */}
@@ -481,9 +528,11 @@ export default function DashboardPage() {
             settings={settings}
             candidates={candidates}
             activeWorkspace={activeWorkspace}
+            agents={agentPanes}
             onUpdateSettings={handleUpdateSettings}
             onResetUI={handleResetUI}
             onRenameWorkspace={handleRenameWorkspace}
+            onRenameAgent={handleRenameAgent}
           />
         )}
       </div>

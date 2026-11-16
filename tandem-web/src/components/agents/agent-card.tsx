@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil } from "lucide-react";
 import { AgentLifecycleToolbar } from "./agent-lifecycle-toolbar";
-import { isValidCustomName } from "@/domain/models/workspace";
+import {
+  LABEL_MAX_CHARS,
+  LABEL_RULE_TEXT,
+  isValidLabel,
+  normalizeLabel,
+} from "@/domain/models/workspace";
 import type { PaneInfo } from "@/domain/models/snapshot";
 import type { AllowedTandemAction } from "@/domain/ports/tandem-gateway";
 
@@ -33,15 +38,29 @@ export function AgentCard({ pane, isInGrid, onAction, onInteract }: AgentCardPro
 
   const handleSaveRename = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = nameInput.trim();
-    if (!trimmed || !isValidCustomName(trimmed)) {
-      setRenameError("1-32 alphanumeric characters [a-zA-Z0-9] required");
+    const label = normalizeLabel(nameInput);
+    if (!isValidLabel(label)) {
+      setRenameError(LABEL_RULE_TEXT);
       return;
     }
     try {
       setSaving(true);
       setRenameError(null);
-      await onAction("rename-agent", [pane.id, trimmed]);
+      await onAction("rename-agent", [pane.id, label]);
+      setIsEditing(false);
+    } catch (err) {
+      setRenameError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResetRename = async () => {
+    try {
+      setSaving(true);
+      setRenameError(null);
+      await onAction("rename-agent", [pane.id]);
+      setNameInput("");
       setIsEditing(false);
     } catch (err) {
       setRenameError((err as Error).message);
@@ -66,7 +85,7 @@ export function AgentCard({ pane, isInGrid, onAction, onInteract }: AgentCardPro
               >
                 {statusGlyph}
               </span>
-              <span className="font-semibold text-sm truncate font-mono">
+              <span className="font-semibold text-sm truncate font-mono" title={displayName}>
                 {displayName}
               </span>
               {pane.name && pane.session && (
@@ -96,13 +115,13 @@ export function AgentCard({ pane, isInGrid, onAction, onInteract }: AgentCardPro
                 <div className="flex items-center gap-1.5">
                   <Input
                     type="text"
-                    maxLength={32}
+                    maxLength={LABEL_MAX_CHARS}
                     value={nameInput}
                     onChange={(e) => {
                       setNameInput(e.target.value);
                       setRenameError(null);
                     }}
-                    placeholder="Alphanumeric name"
+                    placeholder={pane.session || pane.label || pane.id}
                     className="h-8 text-xs font-mono max-w-[180px]"
                     aria-label="Agent name"
                     autoFocus
@@ -110,11 +129,23 @@ export function AgentCard({ pane, isInGrid, onAction, onInteract }: AgentCardPro
                   <Button
                     type="submit"
                     size="sm"
-                    disabled={saving || !nameInput.trim() || !isValidCustomName(nameInput.trim())}
+                    disabled={saving || !isValidLabel(normalizeLabel(nameInput))}
                     className="h-8 px-2.5 text-xs shrink-0"
                   >
                     Save
                   </Button>
+                  {pane.name && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={saving}
+                      onClick={handleResetRename}
+                      className="h-8 px-2 text-xs shrink-0"
+                    >
+                      Reset
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"

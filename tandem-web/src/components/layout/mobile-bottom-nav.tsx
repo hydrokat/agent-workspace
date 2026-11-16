@@ -1,9 +1,9 @@
 "use client";
 
-import { Activity, Layers, MessageSquare, Terminal, Settings } from "lucide-react";
+import { Activity, FolderOpen, Layers, MessageSquare, Terminal, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-export type NavTabId = "status" | "work" | "queries" | "terminal" | "settings";
+export type NavTabId = "status" | "work" | "files" | "queries" | "terminal" | "settings";
 
 interface MobileBottomNavProps {
   activeTab: NavTabId;
@@ -26,6 +26,7 @@ export function MobileBottomNav({
   const items: NavItem[] = [
     { id: "status", label: "Status", icon: Activity },
     { id: "work", label: "Work", icon: Layers },
+    { id: "files", label: "Files", icon: FolderOpen },
     { id: "queries", label: "Queries", icon: MessageSquare, badge: unreadQueryCount },
     { id: "terminal", label: "Terminal", icon: Terminal },
     { id: "settings", label: "Settings", icon: Settings },
@@ -34,7 +35,7 @@ export function MobileBottomNav({
   return (
     <nav
       aria-label="Mobile Navigation"
-      className="fixed bottom-0 left-0 right-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-center justify-around border-t pb-[env(safe-area-inset-bottom)] bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden"
+      className="fixed bottom-0 left-0 right-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-center justify-around border-t pb-[env(safe-area-inset-bottom)] bg-background/95 px-1 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden"
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -45,7 +46,7 @@ export function MobileBottomNav({
             key={item.id}
             type="button"
             onClick={() => onSelectTab(item.id)}
-            className={`relative flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-1 rounded-md text-xs font-medium transition-colors ${
+            className={`relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-md px-0.5 text-[10px] font-medium transition-colors ${
               isActive
                 ? "text-primary"
                 : "text-muted-foreground hover:text-foreground"

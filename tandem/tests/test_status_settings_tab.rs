@@ -436,3 +436,60 @@ fn test_layout_reset_ui_resolves_size_and_unstashes_sidebar() {
         "expected reset_ui to unstash %1 beside %2, got: {joined_calls:?}"
     );
 }
+
+#[test]
+fn test_settings_tab_workspace_name_editor_label_rules() {
+    let mut tab = SettingsTab::new(GridPrefs::default(), SidebarMode::Auto);
+    tab.focused_row = tandem::status::settings_tab::WORKSPACE_NAME_ROW;
+
+    // Enter editing mode
+    tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(tab.editing_workspace_name.as_deref(), Some(""));
+
+    // Leading '-' is ignored
+    tab.handle_key(&KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE));
+    assert_eq!(tab.editing_workspace_name.as_deref(), Some(""));
+
+    // 'a', space, space yields "a "
+    tab.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    tab.handle_key(&KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    tab.handle_key(&KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    assert_eq!(tab.editing_workspace_name.as_deref(), Some("a "));
+
+    // Enter on "a " normalizes to "a" and saves
+    let action = tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        action,
+        Some(SettingsAction::RenameWorkspace("a".to_string()))
+    );
+    assert_eq!(tab.workspace_name, "a");
+    assert!(tab.editing_workspace_name.is_none());
+
+    // Re-enter editing, clear, and verify 33rd character is ignored
+    tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    tab.handle_key(&KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    for _ in 0..33 {
+        tab.handle_key(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    }
+    assert_eq!(
+        tab.editing_workspace_name
+            .as_ref()
+            .map(|s| s.chars().count()),
+        Some(32)
+    );
+
+    // Invalid buffer on Enter keeps editor open and flashes rule text
+    tab.editing_workspace_name = Some("-".to_string());
+    let invalid_action = tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(invalid_action, None);
+    assert_eq!(tab.editing_workspace_name.as_deref(), Some("-"));
+    let flash_text = tab
+        .flash_message
+        .as_ref()
+        .map(|(m, _)| m.as_str())
+        .unwrap_or("");
+    assert!(
+        flash_text.contains(tandem::adapters::base::LABEL_RULE_TEXT),
+        "expected rule text in flash, got: {flash_text}"
+    );
+}

@@ -51,21 +51,24 @@ describe("Tandem Web Components Suite", () => {
     expect(html).toContain("Live SSE");
   });
 
-  it("MobileBottomNav renders 5 tabs and displays unread query badge", () => {
+  it("MobileBottomNav renders 6 tabs in order including Files and marks active tab", () => {
     const html = renderToStaticMarkup(
       <MobileBottomNav
-        activeTab="status"
+        activeTab="files"
         onSelectTab={() => {}}
         unreadQueryCount={3}
       />
     );
 
-    expect(html).toContain("Status");
-    expect(html).toContain("Work");
-    expect(html).toContain("Queries");
-    expect(html).toContain("Terminal");
-    expect(html).toContain("Settings");
+    const labels = ["Status", "Work", "Files", "Queries", "Terminal", "Settings"];
+    let lastIndex = -1;
+    for (const label of labels) {
+      const idx = html.indexOf(label);
+      expect(idx).toBeGreaterThan(lastIndex);
+      lastIndex = idx;
+    }
     expect(html).toContain(">3<");
+    expect(html).toMatch(/aria-current="page"[^>]*>[\s\S]*?Files/);
   });
 
   it("WorkspaceCard renders active badge, workspace name and opaque ID", () => {
@@ -240,11 +243,17 @@ describe("Tandem Web Components Suite", () => {
       entries: [],
       sessions: [
         {
-          session_id: "sess-abc",
+          id: "sess-abc",
+          cli: "gemini",
           role: "implementer",
           model: "gemini-4",
+          pane: "%1",
+          cwd: "/workspace/sample",
           branch: "feat/tandem-web-remote",
-          last_heartbeat: 1000,
+          worktree: "",
+          task: "",
+          heartbeat: 1000,
+          name: "",
         },
       ],
       claims: [],
@@ -312,8 +321,14 @@ describe("Tandem Web Components Suite", () => {
           {
             name: "p-007",
             title: "Remote Web",
-            status: "In Progress",
-            tasks: [{ id: "t-001", status: "Done" }, { id: "t-002", status: "Open" }],
+            branch: "feat/remote-web",
+            target: "trunk",
+            warning: "",
+            archived: false,
+            tasks: [
+              { id: "t-001", title: "Task 1", status: "Done", objectives_done: 1, objectives_total: 1 },
+              { id: "t-002", title: "Task 2", status: "Open", objectives_done: 0, objectives_total: 1 },
+            ],
           },
         ]}
       />
@@ -328,8 +343,11 @@ describe("Tandem Web Components Suite", () => {
           {
             phase: "p-007",
             task: "t-007",
-            session_id: "sess-1",
-            claimed_at: 1000,
+            session: "sess-1",
+            branch: "feat/remote-web",
+            worktree: "",
+            paths: [],
+            heartbeat: 1000,
           },
         ]}
       />
@@ -347,7 +365,7 @@ describe("Tandem Web Components Suite", () => {
     expect(html).toContain("Claude 5h: 18% · 7d: 42%");
   });
 
-  it("WebSettingsPanel renders Workspace Identity card and alphanumeric rename form", () => {
+  it("WebSettingsPanel renders Labels card and workspace rename form", () => {
     const html = renderToStaticMarkup(
       <WebSettingsPanel
         settings={dummySettings}
@@ -359,9 +377,9 @@ describe("Tandem Web Components Suite", () => {
       />
     );
 
-    expect(html).toContain("Workspace Identity");
-    expect(html).toContain("Save Workspace Name");
-    expect(html).toContain("Only letters and numbers (A-Z, a-z, 0-9) are allowed");
+    expect(html).toContain("Labels");
+    expect(html).toContain("Label for workspace");
+    expect(html).toContain("Letters, digits, spaces, - _ .");
     expect(html).toContain("tandem-1234567890");
   });
 });

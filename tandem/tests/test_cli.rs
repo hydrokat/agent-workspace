@@ -241,6 +241,10 @@ fn test_all_subcommands_accepted() {
                 _ => false,
             }),
         ),
+        (
+            &["tandem", "web-qr"],
+            Box::new(|c| matches!(c, Command::WebQr)),
+        ),
     ];
 
     for (argv, validator) in cases {
@@ -261,6 +265,13 @@ fn test_subcommand_invalid_arguments_rejected() {
     assert!(parse_from(["tandem", "click-tab"]).is_err());
     assert!(parse_from(["tandem", "placeholder"]).is_err());
     assert!(parse_from(["tandem", "--nope"]).is_err());
+}
+
+#[test]
+fn test_web_qr_is_hidden_from_top_level_help() {
+    let mut cmd = build_parser();
+    let help = cmd.render_help().to_string();
+    assert!(!help.contains("web-qr"), "web-qr must be hidden:\n{help}");
 }
 
 use std::sync::{Arc, Mutex};
@@ -481,4 +492,63 @@ fn test_no_forbidden_network_crates() {
             );
         }
     }
+}
+
+#[test]
+fn test_cli_rename_workspace_rejects_option_like_with_rule_text() {
+    let bin = env!("CARGO_BIN_EXE_tandem");
+    let out = std::process::Command::new(bin)
+        .args(["rename-workspace", "--", "-x"])
+        .output()
+        .expect("run tandem rename-workspace");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(tandem::adapters::base::LABEL_RULE_TEXT),
+        "expected rule text in stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_cli_rename_agent_rejects_option_like_with_rule_text() {
+    let bin = env!("CARGO_BIN_EXE_tandem");
+    let out = std::process::Command::new(bin)
+        .args(["rename-agent", "%3", "--", "-x"])
+        .output()
+        .expect("run tandem rename-agent");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(tandem::adapters::base::LABEL_RULE_TEXT),
+        "expected rule text in stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_cli_rename_workspace_accepts_spaced_label() {
+    let bin = env!("CARGO_BIN_EXE_tandem");
+    let tmp = std::env::temp_dir().join(format!("tandem-cli-rename-{}", uuid::Uuid::new_v4()));
+    let home = tmp.join("home");
+    let ws = tmp.join("ws");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let out = std::process::Command::new(bin)
+        .current_dir(&ws)
+        .env("HOME", &home)
+        .args(["rename-workspace", "Fleet Mgmt - Backend"])
+        .output()
+        .expect("run tandem rename-workspace");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("parse json stdout");
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["name"], "Fleet Mgmt - Backend");
 }

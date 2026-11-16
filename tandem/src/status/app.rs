@@ -565,8 +565,41 @@ impl StatusApp {
             Some(WebAction::Changed) | Some(WebAction::Regenerated) => self.apply_web_changed(),
             Some(WebAction::InstallDeps) => self.start_deps_install(),
             Some(WebAction::ManualInstall) => self.show_manual_install(),
+            Some(WebAction::ShowQr) => {
+                if !self.open_qr_popup() {
+                    self.web_tab.open_inline_qr();
+                }
+                self.dirty = true;
+            }
             None => {}
         }
+    }
+
+    fn open_qr_popup(&self) -> bool {
+        let Some(ref client) = self.tmux else {
+            return false;
+        };
+        let url = crate::web_manager::access_url_for_workspace(
+            &self.web_tab.web_config,
+            self.web_tab.workspace_socket.as_deref(),
+        );
+        let (w, h) = crate::status::qr::qr_popup_size(&url);
+        let ws = self.workspace.to_string_lossy();
+        let launcher = crate::tmux::keys::launcher_for(None, Some(&ws));
+        let cmd = format!("{launcher} web-qr");
+        client
+            .run_checked(&[
+                "display-popup",
+                "-E",
+                "-w",
+                &w.to_string(),
+                "-h",
+                &h.to_string(),
+                "-T",
+                " Scan to connect ",
+                &cmd,
+            ])
+            .is_ok()
     }
 
     fn dependencies_ready(&mut self, state_dir: &std::path::Path) -> bool {

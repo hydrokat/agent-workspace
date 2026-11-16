@@ -380,21 +380,22 @@ export function TerminalAttachPanelImpl({
                     key={chip.id}
                     type="button"
                     onClick={() => onSelectAgent?.(chip)}
-                    className={`min-h-11 px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                    className={`min-h-11 px-2 py-0.5 rounded text-[11px] font-mono transition-colors inline-flex items-center max-w-[180px] ${
                       isActive
                         ? "bg-primary text-primary-foreground font-semibold"
                         : "bg-background hover:bg-muted text-foreground border border-border"
                     }`}
+                    title={chip.label}
                     aria-label={`Switch to agent ${chip.label}`}
                   >
                     <span
                       className={
-                        chip.dead ? "text-destructive mr-1" : "text-emerald-500 mr-1"
+                        chip.dead ? "text-destructive mr-1 shrink-0" : "text-emerald-500 mr-1 shrink-0"
                       }
                     >
                       {chip.dead ? "✕" : "●"}
                     </span>
-                    {chip.label}
+                    <span className="truncate">{chip.label}</span>
                   </button>
                 );
               })}

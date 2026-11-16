@@ -149,19 +149,25 @@ pub enum Command {
     #[command(about = "list host network IPs and active workspaces")]
     ListIps(ListIpsArgs),
 
-    #[command(about = "rename the current workspace to a custom alphanumeric name")]
+    #[command(about = "rename the current workspace to a custom label")]
     RenameWorkspace(RenameWorkspaceArgs),
 
-    #[command(about = "rename an agent to a custom alphanumeric name")]
+    #[command(about = "rename an agent to a custom label")]
     RenameAgent(RenameAgentArgs),
 
     #[command(about = "Factory Mode commands (ideas, events, status, rebuild)")]
     Factory(crate::factory::commands::FactoryArgs),
+
+    #[command(
+        hide = true,
+        about = "show the tandem-web connect QR code (used by the Web tab popup)"
+    )]
+    WebQr,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct RenameWorkspaceArgs {
-    #[arg(help = "new alphanumeric name (1..=32 chars, or empty to reset to default)")]
+    #[arg(help = crate::adapters::base::LABEL_RULE_TEXT)]
     pub name: Option<String>,
 }
 
@@ -169,7 +175,7 @@ pub struct RenameWorkspaceArgs {
 pub struct RenameAgentArgs {
     #[arg(help = "pane id (%...) or session id (role-index) to rename")]
     pub target: String,
-    #[arg(help = "new alphanumeric name (1..=32 chars, or empty to reset to default)")]
+    #[arg(help = crate::adapters::base::LABEL_RULE_TEXT)]
     pub name: Option<String>,
 }
 
@@ -409,6 +415,9 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
             if code != 0 {
                 std::process::exit(code);
             }
+        }
+        Some(Command::WebQr) => {
+            crate::commands::web_qr_cmd(&workspace, &config)?;
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;
