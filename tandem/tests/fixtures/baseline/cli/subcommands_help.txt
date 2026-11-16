@@ -85,6 +85,7 @@ Commands:
   status    show Factory Mode status and store summary
   idea      manage factory ideas
   artifact  manage idea artifacts (feasibility studies and plans)
+  question  check idea question queue
   events    read factory events from the log
   rebuild   rebuild materialized idea files from the event log
   help      Print this message or the help of the given subcommand(s)

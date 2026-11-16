@@ -6,6 +6,7 @@ pub mod events;
 pub mod ids;
 pub mod machine;
 pub mod model;
+pub mod questions;
 pub mod store;
 
 use machine::TransitionError;

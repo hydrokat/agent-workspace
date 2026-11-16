@@ -39,6 +39,9 @@ pub enum FactoryCommand {
     #[command(about = "manage idea artifacts (feasibility studies and plans)")]
     Artifact(FactoryArtifactArgs),
 
+    #[command(about = "check idea question queue")]
+    Question(FactoryQuestionArgs),
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -150,6 +153,25 @@ pub struct FactoryArtifactShowArgs {
     pub kind: String,
     #[arg(long)]
     pub version: Option<u32>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryQuestionArgs {
+    #[command(subcommand)]
+    pub command: FactoryQuestionCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryQuestionCommand {
+    #[command(about = "check whether an idea has reached the open-question ceiling")]
+    Check(FactoryQuestionCheckArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryQuestionCheckArgs {
+    pub id: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -310,6 +332,7 @@ struct IdeaListOutput {
 struct IdeaShowOutput {
     idea: Idea,
     events: Vec<Event>,
+    questions: super::questions::IdeaQuestions,
 }
 
 #[derive(Serialize)]
@@ -355,6 +378,9 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => a.json,
             FactoryArtifactCommand::Show(a) => a.json,
+        },
+        FactoryCommand::Question(q_args) => match &q_args.command {
+            FactoryQuestionCommand::Check(a) => a.json,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
@@ -484,9 +510,14 @@ fn execute(
                     Vec::new()
                 };
                 idea_events.retain(|ev| ev.idea == a.id);
+                let coord_dir = crate::commands::coord_dir_for(workspace, config);
+                let coord_queries =
+                    crate::coordination::store::CoordStore::new(coord_dir).queries();
+                let questions = super::questions::for_idea(&coord_queries, &a.id);
                 serialize_compact(&IdeaShowOutput {
                     idea,
                     events: idea_events,
+                    questions,
                 })
             }
             FactoryIdeaCommand::Start(a) => {
@@ -697,6 +728,33 @@ fn execute(
                 let text = super::artifacts::read(&store, &a.id, &a.kind, a.version)
                     .map_err(map_factory_error)?;
                 Ok(text)
+            }
+        },
+        FactoryCommand::Question(q_args) => match &q_args.command {
+            FactoryQuestionCommand::Check(a) => {
+                if !is_valid_idea_id(&a.id) {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid idea id: {}",
+                        a.id
+                    )));
+                }
+                let coord_dir = crate::commands::coord_dir_for(workspace, config);
+                let coord_queries =
+                    crate::coordination::store::CoordStore::new(coord_dir).queries();
+                let summary = super::questions::for_idea(&coord_queries, &a.id);
+                if summary.at_limit() {
+                    return Err(CmdError {
+                        exit_code: 3,
+                        code: "question_limit_reached",
+                        message: format!(
+                            "idea {} already has {} open questions (limit {}); state an assumption instead",
+                            a.id,
+                            summary.open,
+                            super::questions::OPEN_QUESTION_LIMIT
+                        ),
+                    });
+                }
+                serialize_compact(&summary)
             }
         },
         FactoryCommand::Events(a) => {
