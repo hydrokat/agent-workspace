@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-11-16
+
+### Added: Factory Mode foundations (`./run.sh --factory`)
+
+- **`--factory` launch flag and mode isolation**: `./run.sh --factory` and `tandem --factory` mark the session (`TANDEM_FACTORY=1`, `factory: true` in `workspaces.json`), isolate saved state to `.agent-workspace/tandem-session-factory.json`, and exit `2` with a clear message if the workspace is already running in the other mode. Normal-mode behaviour is unchanged.
+- **Factory domain model, state machine, and event-sourced store**: Added `tandem::factory` (`ids`, `model`, `machine`, `events`, `store`) with validated `i-`/`r-` identifiers, the 9-state idea lifecycle with Gate 1/Gate 2 guards, an append-only `events.jsonl` log with `0700`/`0600` permissions and symlink refusal, materialized `ideas/<id>.json` files, `rebuild`, and a `tos_guard` check ensuring `src/factory/` spawns no processes.
+- **`tandem factory` JSON CLI**: Added `status`, `idea new` (`--text` / `--text-file`), `idea list`, `idea show`, `events`, and `rebuild` subcommands with exit codes `0`/`1`/`2`/`3`.
+- **Snapshot `factory` block and Status window Factory tab**: `tandem snapshot --json` emits an optional `factory` block in Factory Mode (omitted in normal mode), and the Status window adds an eighth **Factory** tab (`Alt+f` / `8`) with a responsive read-only ideas board.
+
 ## [1.15.2] — 2026-11-16
 
 ### Fixed: `sprints.py` metadata accuracy (Total Tasks, creation timestamp, and quarter-day precision)

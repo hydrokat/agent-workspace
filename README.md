@@ -333,12 +333,19 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 ```bash
 ./run.sh            # check dependencies, ask before installing/updating, then launch
+./run.sh --factory  # start tandem in Factory Mode (experimental: ideas board & tandem factory CLI)
 ./run.sh --fresh    # end a running tandem session, clear .agent-workspace/coordination/, discard the saved session and start fresh
 ./run.sh --check    # report only; change nothing
 ./run.sh --yes      # answer yes to every prompt (--no answers no)
 ./run.sh --no-update  # skip the launch-time update check this time
 ./run.sh --fetch-runtime  # pre-fetch and verify binary runtime non-interactively
 ```
+
+### Factory Mode (experimental)
+
+Factory Mode is an opt-in operating mode where an Orchestrator prepares an idea with you and, once you mark it ready, drives it toward a pull request. Start it with `./run.sh --factory` (or `tandem --factory`).
+
+Today this foundation ships the **Factory** tab (a read-only ideas board in the Status window, `Alt+f` / `Opt+f`), the `tandem factory` JSON commands (`status`, `idea new`, `idea list`, `idea show`, `events`, `rebuild`), and mode-isolated session state; automated agent runs do not exist yet. Factory Mode accelerates execution; approval, merge, and deployment stay with people.
 
 **Auto-update on launch.** Before checking dependencies, `run.sh` checks whether a newer agent-workspace release exists. When one is found, it applies the update (`npx --yes hydrokat/agent-workspace update --yes --no-link --no-update-clis --no-commit`), prints the old → new version and what changed, then re-execs the updated `run.sh`. If the workspace has no `manifest.json` (a dev checkout), if `npx` is not on `PATH`, or if the update fails, launch continues with the installed version.
 

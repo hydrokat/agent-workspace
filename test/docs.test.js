@@ -136,6 +136,25 @@ describe('Status window documentation', () => {
   });
 });
 
+describe('Factory Mode documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem', 'README.md'), 'utf8');
+
+  it('documents --factory in root README run.sh options and Factory Mode section', () => {
+    assert.ok(readme.includes('--factory'), '--factory documented in README');
+    assert.ok(readme.includes('Factory Mode (experimental)'), 'Factory Mode section in README');
+    assert.ok(readme.includes('tandem factory'), 'tandem factory documented in README');
+  });
+
+  it('documents tandem factory commands, storage layout, and mode isolation in tandem README', () => {
+    assert.ok(tandemReadme.includes('tandem factory status'), 'tandem factory status documented');
+    assert.ok(tandemReadme.includes('tandem factory idea new'), 'tandem factory idea new documented');
+    assert.ok(tandemReadme.includes('.agent-workspace/factory/'), 'factory storage layout documented');
+    assert.ok(tandemReadme.includes('tandem-session-factory.json'), 'factory session file documented');
+    assert.ok(tandemReadme.includes('Alt+f'), 'Factory tab shortcut documented');
+  });
+});
+
 describe('README spec compilation and phase pruning documentation', () => {
   const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
 
