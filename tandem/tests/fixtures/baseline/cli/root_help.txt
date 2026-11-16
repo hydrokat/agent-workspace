@@ -6,7 +6,8 @@ Commands:
   add-agent         add an agent to the running session (opened by the add-agent key)
   tab               switch agent tab in the focused column
   focus             focus a column or the status window
-  close-agent       close the focused agent
+  close-agent       close the focused or target agent
+  pane-died         handle tmux pane-died hook
   restart           restart an exited agent
   refresh           redraw tab titles
   reflow            re-stack columns for the terminal size

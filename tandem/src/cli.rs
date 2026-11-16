@@ -59,8 +59,11 @@ pub enum Command {
     #[command(about = "focus a column or the status window")]
     Focus(FocusArgs),
 
-    #[command(about = "close the focused agent")]
-    CloseAgent,
+    #[command(about = "close the focused or target agent")]
+    CloseAgent(CloseAgentArgs),
+
+    #[command(about = "handle tmux pane-died hook")]
+    PaneDied(PaneDiedArgs),
 
     #[command(about = "restart an exited agent")]
     Restart,
@@ -245,6 +248,18 @@ pub enum TabDirection {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct CloseAgentArgs {
+    pub target: Option<String>,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct PaneDiedArgs {
+    pub pane_id: String,
+    #[arg(default_value_t = 1)]
+    pub dead_status: i32,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FocusArgs {
     #[arg(value_enum)]
     pub target: FocusTarget,
@@ -411,8 +426,11 @@ fn tmux_command(cmd: &Command, workspace: &Path, config: &Config) -> Result<(), 
         Command::Focus(args) => {
             crate::commands::focus(&mut layout, config, args.target);
         }
-        Command::CloseAgent => {
-            crate::commands::close_agent(&mut layout, config);
+        Command::CloseAgent(args) => {
+            crate::commands::close_agent(&mut layout, config, args.target.as_deref());
+        }
+        Command::PaneDied(args) => {
+            crate::commands::handle_pane_died(&mut layout, &args.pane_id, args.dead_status);
         }
         Command::Restart => {
             let pane = if !config.tmux_pane.is_empty() {
@@ -433,21 +451,7 @@ fn tmux_command(cmd: &Command, workspace: &Path, config: &Config) -> Result<(), 
             let _ = layout.refresh();
         }
         Command::Reflow => {
-            let size = layout
-                .client
-                .run_checked(&["display-message", "-p", "#{client_width} #{client_height}"])
-                .unwrap_or_default();
-            let parts: Vec<&str> = size.split_whitespace().collect();
-            let ok =
-                parts.len() == 2 && parts.iter().all(|x| x.chars().all(|c| c.is_ascii_digit()));
-            let (w, h) = if ok {
-                (
-                    parts[0].parse().unwrap_or(200),
-                    parts[1].parse().unwrap_or(0),
-                )
-            } else {
-                (200, 0)
-            };
+            let (w, h) = layout.resolve_reflow_size();
             let _ = layout.reflow(w, h);
         }
         Command::ResetLayout => {

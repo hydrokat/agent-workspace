@@ -145,7 +145,18 @@ export function TerminalAttachPanelImpl({
       if (width !== null) setContainerWidth(width);
     });
     ro.observe(el);
-    return () => ro.disconnect();
+
+    const onOrientationChange = () => {
+      requestAnimationFrame(() => {
+        const w = el.getBoundingClientRect().width;
+        if (w > 0) setContainerWidth(w);
+      });
+    };
+    window.addEventListener("orientationchange", onOrientationChange);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("orientationchange", onOrientationChange);
+    };
   }, []);
 
   // Font fitting (mirror mode, after iframe load)

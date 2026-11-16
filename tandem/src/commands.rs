@@ -486,7 +486,40 @@ pub fn focus(layout: &mut Layout, _config: &Config, target: crate::cli::FocusTar
     }
 }
 
-pub fn close_agent(layout: &mut Layout, config: &Config) {
+pub fn close_agent_target(layout: &mut Layout, target: &str) {
+    let Ok(panes) = layout.panes() else {
+        return;
+    };
+    let Some(pane) = panes
+        .iter()
+        .find(|p| p.kind == "agent" && (p.id == target || p.session == target))
+    else {
+        return;
+    };
+    let ws_path = layout.workspace.as_ref().map(Path::new);
+    let ph = placeholder_launch(&pane.role, None, ws_path);
+    let _ = layout.close_agent(&pane.id, &ph);
+    if let Some(ref ws) = layout.workspace {
+        autosave(layout, Path::new(ws));
+    }
+}
+
+pub fn handle_pane_died(layout: &mut Layout, pane_id: &str, dead_status: i32) {
+    if dead_status == 0
+        && let Ok(panes) = layout.panes()
+        && panes.iter().any(|p| p.kind == "agent" && p.id == pane_id)
+    {
+        close_agent_target(layout, pane_id);
+        return;
+    }
+    let _ = layout.refresh();
+}
+
+pub fn close_agent(layout: &mut Layout, config: &Config, target: Option<&str>) {
+    if let Some(t) = target {
+        close_agent_target(layout, t);
+        return;
+    }
     let pane = if !config.tmux_pane.is_empty() {
         config.tmux_pane.clone()
     } else {

@@ -213,3 +213,146 @@ fn test_reflow_idempotent() {
     let second_count = runner.calls.lock().unwrap().len();
     assert_eq!(second_count, 1);
 }
+
+#[test]
+fn test_reflow_recovers_stashed_sidebar_when_cached_wide() {
+    use std::sync::{Arc, Mutex};
+    use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
+    use tandem::tmux::layout::Layout;
+
+    struct StashedMock {
+        calls: Mutex<Vec<Vec<String>>>,
+    }
+
+    impl TmuxRunner for StashedMock {
+        fn run(&self, argv: &[String]) -> TmuxResult {
+            self.calls.lock().unwrap().push(argv.to_vec());
+            let joined = argv.join(" ");
+            if joined.contains("display-message") && joined.contains("#{@tandem_reflow_size}") {
+                return TmuxResult {
+                    code: 0,
+                    out: "120x40 Wide 1".to_string(),
+                    err: String::new(),
+                };
+            }
+            if joined.contains("list-panes") {
+                let p1 = "%1\tstash-sidebar-0\town\tsidebar\t0\tsidebar\t0\t\t\t\t";
+                let p2 = "%2\tmain\tagent\tplanner\t1\tclaude·opus\t0\t\t\t\t";
+                let p3 = "%3\tmain\town\tstatus\t0\t\t0\t\t\t\t";
+                return TmuxResult {
+                    code: 0,
+                    out: format!("{p1}\n{p2}\n{p3}\n"),
+                    err: String::new(),
+                };
+            }
+            TmuxResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            }
+        }
+    }
+
+    let runner = Arc::new(StashedMock {
+        calls: Mutex::new(Vec::new()),
+    });
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let layout = Layout::new(&client);
+
+    layout.reflow(120, 40).unwrap();
+
+    let calls = runner.calls.lock().unwrap();
+    let joined_calls: Vec<String> = calls.iter().map(|c| c.join(" ")).collect();
+    assert!(
+        joined_calls
+            .iter()
+            .any(|c| c.contains("join-pane") && c.contains("%1") && c.contains("%2")),
+        "expected join-pane restoring %1 beside %2, got: {joined_calls:?}"
+    );
+}
+
+#[test]
+fn test_apply_chrome_binds_window_resized_hook() {
+    use std::sync::{Arc, Mutex};
+    use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
+    use tandem::tmux::layout::Layout;
+
+    struct HookMock {
+        calls: Mutex<Vec<Vec<String>>>,
+    }
+
+    impl TmuxRunner for HookMock {
+        fn run(&self, argv: &[String]) -> TmuxResult {
+            self.calls.lock().unwrap().push(argv.to_vec());
+            TmuxResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            }
+        }
+    }
+
+    let runner = Arc::new(HookMock {
+        calls: Mutex::new(Vec::new()),
+    });
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let layout = Layout::new(&client);
+    layout.apply_chrome().unwrap();
+
+    let calls = runner.calls.lock().unwrap();
+    let joined_calls: Vec<String> = calls.iter().map(|c| c.join(" ")).collect();
+    assert!(
+        joined_calls.iter().any(|c| c.contains("set-hook")
+            && c.contains("window-resized")
+            && c.contains("reflow")),
+        "expected window-resized hook in apply_chrome, got: {joined_calls:?}"
+    );
+}
+
+#[test]
+fn test_resolve_reflow_size_ignores_ignore_size_clients() {
+    use std::sync::{Arc, Mutex};
+    use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
+    use tandem::tmux::layout::Layout;
+
+    struct ClientMock {
+        list_clients_out: Mutex<String>,
+        window_size_out: Mutex<String>,
+    }
+
+    impl TmuxRunner for ClientMock {
+        fn run(&self, argv: &[String]) -> TmuxResult {
+            let joined = argv.join(" ");
+            if joined.contains("list-clients") {
+                return TmuxResult {
+                    code: 0,
+                    out: self.list_clients_out.lock().unwrap().clone(),
+                    err: String::new(),
+                };
+            }
+            if joined.contains("display-message") && joined.contains("#{window_width}") {
+                return TmuxResult {
+                    code: 0,
+                    out: self.window_size_out.lock().unwrap().clone(),
+                    err: String::new(),
+                };
+            }
+            TmuxResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            }
+        }
+    }
+
+    let runner = Arc::new(ClientMock {
+        list_clients_out: Mutex::new("50 20 ignore-size\n160 45 attached\n".to_string()),
+        window_size_out: Mutex::new("100 30".to_string()),
+    });
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let layout = Layout::new(&client);
+    assert_eq!(layout.resolve_reflow_size(), (160, 45));
+
+    *runner.list_clients_out.lock().unwrap() = "50 20 ignore-size\n".to_string();
+    assert_eq!(layout.resolve_reflow_size(), (100, 30));
+}

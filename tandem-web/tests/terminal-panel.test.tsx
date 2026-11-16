@@ -58,7 +58,7 @@ describe("useTerminalSizeMode", () => {
     expect(result.current[0]).toBe("mirror");
   });
 
-  it("defaults to fit on a narrow viewport", async () => {
+  it("defaults to mirror on a narrow viewport so phone attach does not resize host", async () => {
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: (_query: string) => ({
@@ -74,7 +74,7 @@ describe("useTerminalSizeMode", () => {
     const { result } = renderHook(() => useTerminalSizeMode());
     await act(async () => { await Promise.resolve(); });
 
-    expect(result.current[0]).toBe("fit");
+    expect(result.current[0]).toBe("mirror");
   });
 
   it("uses the stored mode over the viewport default", async () => {

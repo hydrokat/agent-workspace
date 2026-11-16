@@ -351,3 +351,88 @@ fn test_settings_tab_quit_button() {
     assert!(text_w50.contains("[ Quit… ]"));
     assert!(!text_w50.contains("save, detach, update, discard"));
 }
+
+#[test]
+fn test_reset_ui_modal_renders_without_panic_normal_and_narrow() {
+    let mut tab = SettingsTab::new(GridPrefs::default(), SidebarMode::Auto);
+    tab.confirm_reset = true;
+
+    for (w, h) in [(80, 12), (52, 7), (20, 6), (3, 2)] {
+        let backend = TestBackend::new(w, h);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| tab.render(f.area(), f.buffer_mut())).unwrap();
+        if w >= 52 && h >= 7 {
+            let text = buffer_text(term.backend().buffer());
+            assert!(text.contains("Reset UI"));
+            assert!(text.contains("[ Reset ]"));
+            assert!(text.contains("[ Cancel ]"));
+        }
+    }
+}
+
+#[test]
+fn test_status_app_narrow_render_no_panic() {
+    let temp = std::env::temp_dir().join(format!("tandem-test-narrow-{}", std::process::id()));
+    let store = CoordStore::new(temp.join("coord"));
+    let tmux = TmuxClient::with_runner("tandem-test", None, Arc::new(DummyTmuxRunner));
+    let mut app = StatusApp::new(temp, store, Some(tmux), None);
+
+    let backend = TestBackend::new(3, 12);
+    let mut term = Terminal::new(backend).unwrap();
+    term.draw(|f| app.render(f.area(), f.buffer_mut())).unwrap();
+}
+
+#[test]
+fn test_layout_reset_ui_resolves_size_and_unstashes_sidebar() {
+    use std::sync::Mutex;
+    use tandem::tmux::layout::Layout;
+
+    struct ResetMock {
+        calls: Mutex<Vec<Vec<String>>>,
+    }
+
+    impl TmuxRunner for ResetMock {
+        fn run(&self, argv: &[String]) -> TmuxResult {
+            self.calls.lock().unwrap().push(argv.to_vec());
+            let joined = argv.join(" ");
+            if joined.contains("list-panes") {
+                let p1 = "%1\tstash-sidebar-0\town\tsidebar\t0\tsidebar\t0\t\t\t\t";
+                let p2 = "%2\tmain\tagent\tplanner\t1\tclaude·opus\t0\t\t\t\t";
+                let p3 = "%3\tmain\town\tstatus\t0\t\t0\t\t\t\t";
+                return TmuxResult {
+                    code: 0,
+                    out: format!("{p1}\n{p2}\n{p3}\n"),
+                    err: String::new(),
+                };
+            }
+            if joined.contains("list-clients") {
+                return TmuxResult {
+                    code: 0,
+                    out: "140 40 attached\n".to_string(),
+                    err: String::new(),
+                };
+            }
+            TmuxResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            }
+        }
+    }
+
+    let runner = Arc::new(ResetMock {
+        calls: Mutex::new(Vec::new()),
+    });
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let layout = Layout::new(&client);
+    layout.reset_ui().unwrap();
+
+    let calls = runner.calls.lock().unwrap();
+    let joined_calls: Vec<String> = calls.iter().map(|c| c.join(" ")).collect();
+    assert!(
+        joined_calls
+            .iter()
+            .any(|c| c.contains("join-pane") && c.contains("%1") && c.contains("%2")),
+        "expected reset_ui to unstash %1 beside %2, got: {joined_calls:?}"
+    );
+}

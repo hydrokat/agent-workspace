@@ -44,6 +44,10 @@ export class RunWorkspaceActionUseCase {
           `Invalid agent rename argument: target and 1-32 alphanumeric characters [a-zA-Z0-9] required`
         );
       }
+    } else if (action === "close-agent" && args.length > 0) {
+      if (args.length !== 1 || !/^(%\d+|[a-z0-9-]+)$/.test(args[0])) {
+        throw new Error(`Invalid close-agent target argument: '${args.join(" ")}'`);
+      }
     }
 
     for (const arg of args) {

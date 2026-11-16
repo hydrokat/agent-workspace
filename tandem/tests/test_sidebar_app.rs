@@ -129,3 +129,58 @@ fn test_sidebar_app_key_and_mouse_lifecycle() {
     let calls_after = runner.calls();
     assert!(calls_after.iter().any(|c| c.join(" ").contains("select-pane -t %1") || c.join(" ").contains("swap-pane")));
 }
+
+#[test]
+fn test_sidebar_x_closes_selected_agent_and_pane_died_lifecycle() {
+    use tandem::tmux::layout::Layout;
+
+    let runner = Arc::new(MockTmuxRunner::new());
+    let temp = std::env::temp_dir().join(format!("tandem-sidebar-close-{}", std::process::id()));
+    let store = CoordStore::new(temp.join("coord"));
+    let tmux = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut app = SidebarApp::new(temp.clone(), store, Some(tmux.clone()));
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    let calls = runner.calls();
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.join(" ").contains("kill-pane") && c.join(" ").contains("%1")),
+        "expected 'x' in sidebar to close %1, got: {:?}",
+        calls.iter().map(|c| c.join(" ")).collect::<Vec<_>>()
+    );
+
+    let runner2 = Arc::new(MockTmuxRunner::new());
+    let tmux2 = TmuxClient::with_runner("tandem-test", None, runner2.clone());
+    let mut layout2 = Layout::new(&tmux2);
+    tandem::commands::handle_pane_died(&mut layout2, "%2", 1);
+    let crash_calls: Vec<String> = runner2.calls().iter().map(|c| c.join(" ")).collect();
+    assert!(
+        !crash_calls.iter().any(|c| c.contains("kill-pane")),
+        "crashed pane (exit 1) should not auto-close: {crash_calls:?}"
+    );
+
+    let runner3 = Arc::new(MockTmuxRunner::new());
+    let tmux3 = TmuxClient::with_runner("tandem-test", None, runner3.clone());
+    let mut layout3 = Layout::new(&tmux3);
+    tandem::commands::handle_pane_died(&mut layout3, "%2", 0);
+    let clean_calls: Vec<String> = runner3.calls().iter().map(|c| c.join(" ")).collect();
+    assert!(
+        clean_calls
+            .iter()
+            .any(|c| c.contains("kill-pane") && c.contains("%2")),
+        "cleanly exited agent (exit 0) should auto-close: {clean_calls:?}"
+    );
+
+    let runner4 = Arc::new(MockTmuxRunner::new());
+    let tmux4 = TmuxClient::with_runner("tandem-test", None, runner4.clone());
+    let layout4 = Layout::new(&tmux4);
+    layout4.apply_chrome().unwrap();
+    let hook_calls: Vec<String> = runner4.calls().iter().map(|c| c.join(" ")).collect();
+    assert!(
+        hook_calls.iter().any(|c| c.contains("pane-died")
+            && c.contains("#{pane_id}")
+            && c.contains("#{pane_dead_status}")),
+        "pane-died hook must pass pane_id and pane_dead_status: {hook_calls:?}"
+    );
+}

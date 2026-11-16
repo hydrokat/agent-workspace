@@ -44,9 +44,12 @@ Options:
 
 
 === SUBCOMMAND: close-agent ===
-close the focused agent
+close the focused or target agent
 
-Usage: close-agent
+Usage: close-agent [TARGET]
+
+Arguments:
+  [TARGET]  
 
 Options:
   -h, --help  Print help
@@ -147,6 +150,19 @@ Usage: list-ips [OPTIONS]
 
 Options:
       --json  output candidate IPs in JSON format
+  -h, --help  Print help
+
+
+=== SUBCOMMAND: pane-died ===
+handle tmux pane-died hook
+
+Usage: pane-died <PANE_ID> [DEAD_STATUS]
+
+Arguments:
+  <PANE_ID>      
+  [DEAD_STATUS]  [default: 1]
+
+Options:
   -h, --help  Print help
 
 

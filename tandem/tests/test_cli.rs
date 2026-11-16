@@ -134,7 +134,7 @@ fn test_all_subcommands_accepted() {
         ),
         (
             &["tandem", "close-agent"],
-            Box::new(|c| matches!(c, Command::CloseAgent)),
+            Box::new(|c| matches!(c, Command::CloseAgent(_))),
         ),
         (
             &["tandem", "restart"],

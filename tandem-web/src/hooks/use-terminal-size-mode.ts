@@ -6,7 +6,7 @@ import type { TerminalSizeMode } from "@/domain/models/terminal";
 const SIZE_MODE_KEY = "tandem.terminal.sizeMode";
 
 function defaultSizeMode(): TerminalSizeMode {
-  return window.matchMedia("(min-width: 768px)").matches ? "mirror" : "fit";
+  return "mirror";
 }
 
 export function useTerminalSizeMode(): [TerminalSizeMode, (mode: TerminalSizeMode) => void] {
