@@ -1,6 +1,6 @@
 use crate::tmux::keys::{default_keymap, display_shortcut, key_for};
 
-pub const FORMAT: &str = "#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}\t#{@tandem_name}";
+pub const FORMAT: &str = "#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}\t#{@tandem_name}\t#{@tandem_idea}";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PaneInfo {
@@ -17,6 +17,8 @@ pub struct PaneInfo {
     pub cli_version: String,
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub idea: String,
 }
 
 impl PaneInfo {
@@ -44,6 +46,7 @@ impl PaneInfo {
             spec: String::new(),
             cli_version: String::new(),
             name: String::new(),
+            idea: String::new(),
         }
     }
 }
@@ -52,7 +55,7 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
     let mut panes = Vec::new();
     for line in text.lines() {
         let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 9 || parts.len() > 12 || parts[2].is_empty() || parts[3].is_empty() {
+        if parts.len() < 9 || parts.len() > 13 || parts[2].is_empty() || parts[3].is_empty() {
             continue;
         }
         let id = parts[0].to_string();
@@ -79,6 +82,11 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
         } else {
             String::new()
         };
+        let idea = if parts.len() >= 13 {
+            parts[12].to_string()
+        } else {
+            String::new()
+        };
 
         panes.push(PaneInfo {
             id,
@@ -93,6 +101,7 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
             spec,
             cli_version,
             name,
+            idea,
         });
     }
     panes

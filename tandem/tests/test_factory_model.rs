@@ -87,6 +87,7 @@ fn test_all_model_types_round_trip_json() {
         artifact: artifact.clone(),
         workflow: "default".to_string(),
         acceptance_criteria: vec!["Tests pass".to_string()],
+        missing_sections: Vec::new(),
     };
     let approval = Approval {
         gate: ApprovalGate::ReadyForDevelopment,
@@ -142,8 +143,10 @@ fn test_all_model_types_round_trip_json() {
             conversation: Some("conv-1".to_string()),
         }),
         feasibility: Some(artifact.clone()),
+        feasibility_verdict: None,
         plan: Some(plan.clone()),
         plan_snapshot: Some(artifact.clone()),
+        artifacts: Vec::new(),
         assumptions: vec!["Single repo".to_string()],
         runs: vec![run.id.clone()],
         prs: vec![pr.clone()],

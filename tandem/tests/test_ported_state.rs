@@ -17,6 +17,7 @@ fn spec_a() -> AgentSpec {
         cwd: Some("/w".to_string()),
         conversation: None,
         name: None,
+        idea: None,
     }
 }
 
@@ -30,6 +31,7 @@ fn spec_b() -> AgentSpec {
         cwd: None,
         conversation: None,
         name: None,
+        idea: None,
     }
 }
 
@@ -196,6 +198,7 @@ fn test_conversations_and_clean_flag_round_trip() {
             cwd: None,
             conversation: Some(CONV.to_string()),
             name: None,
+            idea: None,
         }],
         active,
         None,
@@ -251,6 +254,7 @@ fn test_describe_flags_unclean_exit_and_saved_chats() {
                 cwd: None,
                 conversation: Some(CONV.to_string()),
                 name: None,
+                idea: None,
             },
             AgentSpec {
                 cli: "agy".to_string(),
@@ -261,6 +265,7 @@ fn test_describe_flags_unclean_exit_and_saved_chats() {
                 cwd: None,
                 conversation: None,
                 name: None,
+                idea: None,
             },
         ],
         BTreeMap::new(),

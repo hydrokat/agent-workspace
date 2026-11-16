@@ -128,7 +128,15 @@ impl FactoryStore {
         let _guard = exclusive_lock(&lock_file)?;
 
         let current = self.load_idea_for_update(idea_id)?;
-        let facts = Facts::default();
+        let facts = Facts {
+            has_feasibility: current.as_ref().is_some_and(|i| i.feasibility.is_some()),
+            feasibility_blocks: current.as_ref().is_some_and(|i| {
+                i.feasibility_verdict == Some(super::model::FeasibilityVerdict::Infeasible)
+            }),
+            has_plan: current.as_ref().is_some_and(|i| i.plan.is_some()),
+            open_blocking_questions: 0,
+            has_active_run: false,
+        };
         let decided = machine::decide(current.as_ref(), &command, actor, &facts)?;
 
         let ts = current_time();

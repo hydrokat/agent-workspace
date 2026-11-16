@@ -5,6 +5,11 @@ use crate::adapters::base::{AgentSpec, validate_model_for_cli};
 
 pub use crate::state::CLIS;
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
+pub const FACTORY_ROLES: [&str; 1] = ["orchestrator"];
+
+pub fn roles(factory: bool) -> &'static [&'static str] {
+    if factory { &FACTORY_ROLES } else { &ROLES }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -37,18 +42,28 @@ pub struct WizardFlow {
     role: String,
     model: String,
     skip: bool,
+    factory: bool,
 }
 
 impl WizardFlow {
     pub fn new(installed: HashMap<String, bool>) -> Self {
+        Self::new_for_session(installed, false)
+    }
+
+    pub fn new_for_session(installed: HashMap<String, bool>, factory: bool) -> Self {
         Self {
             installed,
             agents: Vec::new(),
             step: Step::Cli,
             cli: String::new(),
-            role: "planner".to_string(),
+            role: if factory {
+                "orchestrator".to_string()
+            } else {
+                "planner".to_string()
+            },
             model: String::new(),
             skip: false,
+            factory,
         }
     }
 
@@ -74,12 +89,17 @@ impl WizardFlow {
             return Err(WizardError::NotInstalled(cli.to_string()));
         }
         self.cli = cli.to_string();
-        self.step = Step::Role;
+        if self.factory {
+            self.role = "orchestrator".to_string();
+            self.step = Step::Model;
+        } else {
+            self.step = Step::Role;
+        }
         Ok(())
     }
 
     pub fn choose_role(&mut self, role: &str) -> Result<(), WizardError> {
-        if !ROLES.contains(&role) {
+        if !roles(self.factory).contains(&role) {
             return Err(WizardError::InvalidRole);
         }
         self.role = role.to_string();
@@ -92,7 +112,9 @@ impl WizardFlow {
             .map_err(|_| WizardError::InvalidModel(model.to_string()))?;
         self.model = validated;
         self.skip = false;
-        if self.asks_permissions() {
+        if self.factory {
+            self.commit(None);
+        } else if self.asks_permissions() {
             self.step = Step::Perms;
         } else {
             self.after_perms();

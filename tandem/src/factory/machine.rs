@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use super::model::{
-    Actor, ActorKind, ApprovalGate, Idea, IdeaState, PrLink, validate_owner, validate_text,
-    validate_title,
+    Actor, ActorKind, ApprovalGate, ArtifactRef, FeasibilityVerdict, Idea, IdeaState,
+    OrchestratorRef, Plan, PrLink, Risk, validate_owner, validate_text, validate_title,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Create {
         id: String,
@@ -36,6 +36,26 @@ pub enum Command {
     Cancel {
         reason: String,
     },
+    BindOrchestrator {
+        cli: String,
+        model: String,
+        conversation: Option<String>,
+    },
+    Describe {
+        title: String,
+        text: String,
+    },
+    StoreArtifact {
+        kind: String,
+        artifact: ArtifactRef,
+        verdict: Option<FeasibilityVerdict>,
+        risk: Option<Risk>,
+        workflow: Option<String>,
+        missing_sections: Vec<String>,
+    },
+    AddAssumption {
+        text: String,
+    },
 }
 
 impl Command {
@@ -52,6 +72,10 @@ impl Command {
             Self::ChangesRequested { .. } => "ChangesRequested",
             Self::Deliver { .. } => "Deliver",
             Self::Cancel { .. } => "Cancel",
+            Self::BindOrchestrator { .. } => "BindOrchestrator",
+            Self::Describe { .. } => "Describe",
+            Self::StoreArtifact { .. } => "StoreArtifact",
+            Self::AddAssumption { .. } => "AddAssumption",
         }
     }
 }
@@ -65,7 +89,7 @@ pub struct Facts {
     pub has_active_run: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
     #[serde(rename = "idea.created")]
@@ -93,6 +117,30 @@ pub enum EventData {
     RunChangesRequested { run: String },
     #[serde(rename = "idea.delivered")]
     IdeaDelivered { run: String, prs: Vec<PrLink> },
+    #[serde(rename = "idea.orchestrator_bound")]
+    IdeaOrchestratorBound {
+        cli: String,
+        model: String,
+        #[serde(default)]
+        conversation: Option<String>,
+    },
+    #[serde(rename = "idea.described")]
+    IdeaDescribed { title: String, text: String },
+    #[serde(rename = "artifact.stored")]
+    ArtifactStored {
+        kind: String,
+        artifact: ArtifactRef,
+        #[serde(default)]
+        verdict: Option<FeasibilityVerdict>,
+        #[serde(default)]
+        risk: Option<Risk>,
+        #[serde(default)]
+        workflow: Option<String>,
+        #[serde(default)]
+        missing_sections: Vec<String>,
+    },
+    #[serde(rename = "idea.assumption_added")]
+    IdeaAssumptionAdded { text: String },
     #[serde(rename = "idea.cancelled")]
     IdeaCancelled { reason: String },
 }
@@ -287,6 +335,103 @@ pub fn decide(
             }])
         }
 
+        (
+            state,
+            Command::BindOrchestrator {
+                cli,
+                model,
+                conversation,
+            },
+        ) if !state.is_terminal() => {
+            ensure_actor(cmd, actor, &[ActorKind::User, ActorKind::System])?;
+            Ok(vec![EventData::IdeaOrchestratorBound {
+                cli: cli.clone(),
+                model: model.clone(),
+                conversation: conversation.clone(),
+            }])
+        }
+
+        (
+            IdeaState::Inbox | IdeaState::Ideation | IdeaState::Planning,
+            Command::Describe { title, text },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::User, ActorKind::Orchestrator])?;
+            let title =
+                validate_title(title).map_err(|err| TransitionError::InvalidInput(err.0))?;
+            let text = validate_text(text).map_err(|err| TransitionError::InvalidInput(err.0))?;
+            let mut out = Vec::new();
+            if idea.state == IdeaState::Inbox {
+                out.push(EventData::IdeaDiscoveryStarted {});
+            }
+            out.push(EventData::IdeaDescribed { title, text });
+            Ok(out)
+        }
+
+        (
+            state,
+            Command::StoreArtifact {
+                kind,
+                artifact,
+                verdict,
+                risk,
+                workflow,
+                missing_sections,
+            },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::Orchestrator, ActorKind::User])?;
+            if kind == "feasibility" {
+                if !matches!(
+                    state,
+                    IdeaState::Inbox | IdeaState::Ideation | IdeaState::Planning
+                ) {
+                    return Err(TransitionError::IllegalTransition {
+                        from: state,
+                        command: cmd.name(),
+                    });
+                }
+            } else if kind == "plan" {
+                if !matches!(state, IdeaState::Ideation | IdeaState::Planning) {
+                    return Err(TransitionError::IllegalTransition {
+                        from: state,
+                        command: cmd.name(),
+                    });
+                }
+            } else {
+                return Err(TransitionError::InvalidInput(format!(
+                    "invalid artifact kind: {kind}"
+                )));
+            }
+            Ok(vec![EventData::ArtifactStored {
+                kind: kind.clone(),
+                artifact: artifact.clone(),
+                verdict: *verdict,
+                risk: *risk,
+                workflow: workflow.clone(),
+                missing_sections: missing_sections.clone(),
+            }])
+        }
+
+        (
+            IdeaState::Inbox | IdeaState::Ideation | IdeaState::Planning,
+            Command::AddAssumption { text },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::Orchestrator, ActorKind::User])?;
+            let trimmed = text.trim();
+            if trimmed.is_empty() || trimmed.chars().count() > 500 {
+                return Err(TransitionError::InvalidInput(
+                    "assumption must be 1..=500 characters".to_string(),
+                ));
+            }
+            if idea.assumptions.len() >= 30 {
+                return Err(TransitionError::InvalidInput(
+                    "at most 30 assumptions allowed per idea".to_string(),
+                ));
+            }
+            Ok(vec![EventData::IdeaAssumptionAdded {
+                text: trimmed.to_string(),
+            }])
+        }
+
         (from, cmd) => Err(TransitionError::IllegalTransition {
             from,
             command: cmd.name(),
@@ -315,8 +460,10 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
             risk: None,
             orchestrator: None,
             feasibility: None,
+            feasibility_verdict: None,
             plan: None,
             plan_snapshot: None,
+            artifacts: Vec::new(),
             assumptions: Vec::new(),
             runs: Vec::new(),
             prs: Vec::new(),
@@ -328,6 +475,54 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                 EventData::IdeaCreated { .. } => {}
                 EventData::IdeaDiscoveryStarted {} if idea.state == IdeaState::Inbox => {
                     idea.state = IdeaState::Ideation;
+                    idea.updated = ts;
+                }
+                EventData::IdeaOrchestratorBound {
+                    cli,
+                    model,
+                    conversation,
+                } => {
+                    idea.orchestrator = Some(OrchestratorRef {
+                        cli: cli.clone(),
+                        model: model.clone(),
+                        conversation: conversation.clone(),
+                    });
+                    idea.updated = ts;
+                }
+                EventData::IdeaDescribed { title, text } => {
+                    idea.title = title.clone();
+                    idea.text = text.clone();
+                    idea.updated = ts;
+                }
+                EventData::ArtifactStored {
+                    kind,
+                    artifact,
+                    verdict,
+                    risk,
+                    workflow,
+                    missing_sections,
+                } => {
+                    idea.artifacts.push(artifact.clone());
+                    if kind == "feasibility" {
+                        idea.feasibility = Some(artifact.clone());
+                        if verdict.is_some() {
+                            idea.feasibility_verdict = *verdict;
+                        }
+                        if risk.is_some() {
+                            idea.risk = *risk;
+                        }
+                    } else if kind == "plan" {
+                        idea.plan = Some(Plan {
+                            artifact: artifact.clone(),
+                            workflow: workflow.clone().unwrap_or_default(),
+                            acceptance_criteria: Vec::new(),
+                            missing_sections: missing_sections.clone(),
+                        });
+                    }
+                    idea.updated = ts;
+                }
+                EventData::IdeaAssumptionAdded { text } => {
+                    idea.assumptions.push(text.clone());
                     idea.updated = ts;
                 }
                 EventData::IdeaDirectionSelected {} if idea.state == IdeaState::Ideation => {

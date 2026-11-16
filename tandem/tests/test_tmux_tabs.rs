@@ -32,6 +32,7 @@ fn pane(
         spec: String::new(),
         cli_version: String::new(),
         name: String::new(),
+        idea: String::new(),
     }
 }
 

@@ -83,12 +83,22 @@ pub struct ArtifactRef {
     pub created: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FeasibilityVerdict {
+    Feasible,
+    FeasibleWithRisks,
+    Infeasible,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub artifact: ArtifactRef,
     pub workflow: String,
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    pub missing_sections: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,9 +207,13 @@ pub struct Idea {
     #[serde(default)]
     pub feasibility: Option<ArtifactRef>,
     #[serde(default)]
+    pub feasibility_verdict: Option<FeasibilityVerdict>,
+    #[serde(default)]
     pub plan: Option<Plan>,
     #[serde(default)]
     pub plan_snapshot: Option<ArtifactRef>,
+    #[serde(default)]
+    pub artifacts: Vec<ArtifactRef>,
     #[serde(default)]
     pub assumptions: Vec<String>,
     #[serde(default)]

@@ -16,6 +16,11 @@ pub const STACK_BELOW_COLS: usize = 100;
 pub const MAX_STATUS_SHARE: f64 = 0.4;
 pub const MIN_STATUS_ROWS: usize = 6;
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
+pub const FACTORY_ROLES: [&str; 1] = ["orchestrator"];
+
+pub fn roles(factory: bool) -> &'static [&'static str] {
+    if factory { &FACTORY_ROLES } else { &ROLES }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Launch {
@@ -30,6 +35,7 @@ pub struct Launch {
     pub spec: String,
     pub cli_version: String,
     pub name: String,
+    pub idea: String,
 }
 
 impl Launch {
@@ -46,6 +52,7 @@ impl Launch {
             spec: String::new(),
             cli_version: String::new(),
             name: String::new(),
+            idea: String::new(),
         }
     }
 }
@@ -127,6 +134,7 @@ impl Layout {
             ("spec", launch.spec.as_str()),
             ("cli_version", launch.cli_version.as_str()),
             ("name", launch.name.as_str()),
+            ("idea", launch.idea.as_str()),
         ];
         let mut batch = Vec::with_capacity(tags.len());
         for (name, val) in tags {
@@ -211,6 +219,7 @@ impl Layout {
                     spec: String::new(),
                     cli_version: String::new(),
                     name: String::new(),
+                    idea: String::new(),
                 }
             };
             (sb, first.clone(), Some(second.clone()))

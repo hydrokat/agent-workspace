@@ -67,6 +67,7 @@ fn test_factory_and_normal_saved_sessions_do_not_collide() {
             cwd: None,
             conversation: Some("conv-normal".to_string()),
             name: None,
+            idea: None,
         }],
         active.clone(),
         Some(50),
@@ -84,6 +85,7 @@ fn test_factory_and_normal_saved_sessions_do_not_collide() {
             cwd: None,
             conversation: Some("conv-factory".to_string()),
             name: None,
+            idea: None,
         }],
         active,
         Some(50),
@@ -171,6 +173,7 @@ fn test_with_factory_env_marks_launches_only_in_factory_mode() {
         cwd: None,
         conversation: None,
         name: None,
+        idea: None,
     };
 
     let status_normal = with_factory_env(status_launch(None, Some(ws)), false);

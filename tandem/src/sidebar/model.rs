@@ -47,6 +47,10 @@ pub fn rows_from(
     active_pane: Option<&str>,
     selected: &[String],
 ) -> Vec<SidebarRow> {
+    let mut orchestrators: Vec<&PaneInfo> = panes
+        .iter()
+        .filter(|p| p.kind == "agent" && p.role == "orchestrator")
+        .collect();
     let mut planners: Vec<&PaneInfo> = panes
         .iter()
         .filter(|p| p.kind == "agent" && p.role == "planner")
@@ -56,10 +60,11 @@ pub fn rows_from(
         .filter(|p| p.kind == "agent" && p.role == "implementer")
         .collect();
 
+    orchestrators.sort_by_key(|p| p.index);
     planners.sort_by_key(|p| p.index);
     implementers.sort_by_key(|p| p.index);
 
-    if planners.is_empty() && implementers.is_empty() {
+    if orchestrators.is_empty() && planners.is_empty() && implementers.is_empty() {
         return vec![SidebarRow::Empty, SidebarRow::AddAgent];
     }
 
@@ -70,6 +75,22 @@ pub fn rows_from(
         .collect();
 
     let mut rows = Vec::new();
+
+    if !orchestrators.is_empty() {
+        rows.push(SidebarRow::Header {
+            title: "ORCHESTRATORS".to_string(),
+            count: orchestrators.len(),
+        });
+        for p in orchestrators {
+            rows.push(build_agent_row(
+                p,
+                sessions,
+                &open_query_sessions,
+                active_pane,
+                selected,
+            ));
+        }
+    }
 
     if !planners.is_empty() {
         rows.push(SidebarRow::Header {
