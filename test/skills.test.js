@@ -158,4 +158,22 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.match(feasText, /Read-Only/);
     assert.ok(readFile(dir, '.agents/skills/feasibility/assets/report.md').includes('<!-- feasibility:'));
   });
+
+  it('installs factory-orchestrator with valid front matter, provider sync, and AGENTS.md rule', () => {
+    has('factory-orchestrator/SKILL.md');
+    has('factory-orchestrator/agents/openai.yaml');
+    has('factory-orchestrator/scripts/factory.py');
+    assert.ok(fileExists(dir, '.claude/skills/factory-orchestrator/SKILL.md'), 'installed for claude provider');
+
+    const text = skill('factory-orchestrator');
+    assert.match(text, /^---\nname: factory-orchestrator\n/);
+    assert.ok(text.split('---')[1].includes('TANDEM_ROLE=orchestrator'));
+    assert.ok(text.includes('scripts/factory.py'));
+    assert.match(text, /Never run `tandem factory idea ready` or `revoke-ready`/);
+
+    const agentsMd = readFile(dir, 'AGENTS.md');
+    assert.ok(agentsMd.includes('### 10. Factory Mode'));
+    assert.ok(agentsMd.includes('TANDEM_ROLE'));
+    assert.ok(agentsMd.includes('factory-orchestrator'));
+  });
 });

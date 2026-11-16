@@ -53,6 +53,7 @@ describe('npm pack contents', () => {
       'knowledge/assets/decision.md', 'knowledge/assets/context-note.md', 'knowledge/assets/best-practice.md',
       'knowledge/assets/business-flow.md',
       'test-failures/SKILL.md', 'test-failures/agents/openai.yaml', 'test-failures/scripts/run_tests.py',
+      'factory-orchestrator/SKILL.md', 'factory-orchestrator/agents/openai.yaml', 'factory-orchestrator/scripts/factory.py',
     ];
     for (const rel of required) assert.ok(files.includes(`${skills}/${rel}`), `${rel} packed`);
   });

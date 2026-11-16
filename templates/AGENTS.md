@@ -115,6 +115,9 @@ Boundary enforcement rules:
 - Never cross-contaminate git remotes, branches, specifications, or commits between unrelated projects.
 - When opening or reviewing PRs, verify that the target repository belongs to this project or an explicitly linked codebase. Stop and report if an unlinked target is requested.
 
+### 10. Factory Mode
+When `TANDEM_ROLE` is `orchestrator`, load the `factory-orchestrator` skill before answering and follow its hard rules. Non-orchestrator sessions must not load `factory-orchestrator`.
+
 ## Agent Model Recommendations
 
 Suggested models per agent across supported providers. Pick based on available access and task complexity.

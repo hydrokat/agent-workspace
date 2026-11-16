@@ -1,0 +1,4 @@
+interface:
+  display_name: "Factory Orchestrator"
+  short_description: "Guide a Factory Mode idea through feasibility, questions, direction, and planning."
+  default_prompt: "Run factory.py show to orient on the current Factory Mode idea and follow the ideation procedure."
