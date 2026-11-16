@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub mod commands;
 pub mod events;
 pub mod ids;
 pub mod machine;

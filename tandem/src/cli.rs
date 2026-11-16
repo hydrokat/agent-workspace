@@ -151,6 +151,9 @@ pub enum Command {
 
     #[command(about = "rename an agent to a custom alphanumeric name")]
     RenameAgent(RenameAgentArgs),
+
+    #[command(about = "Factory Mode commands (ideas, events, status, rebuild)")]
+    Factory(crate::factory::commands::FactoryArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -385,6 +388,12 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
                 &args.target,
                 args.name.as_deref(),
             );
+        }
+        Some(Command::Factory(args)) => {
+            let code = crate::commands::factory_cmd(args, &workspace, &config);
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;
