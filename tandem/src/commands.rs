@@ -1358,7 +1358,15 @@ pub fn click_tab(layout: &mut Layout, _config: &Config, pane_id: &str, select: &
 }
 
 pub fn show_help() {
-    for line in keys::help_lines(platform_name(), &keys::default_keymap()) {
+    let factory = Config::from_env()
+        .map(|c| {
+            c.factory
+                || c.workspace
+                    .as_deref()
+                    .is_some_and(|ws| crate::registry::factory_enabled(&c.state_dir, ws))
+        })
+        .unwrap_or(false);
+    for line in keys::help_lines_with_factory(platform_name(), &keys::default_keymap(), factory) {
         println!("{line}");
     }
     println!("\nPress Enter to close.");
@@ -1464,10 +1472,8 @@ pub fn collect_snapshot_json(
     let workspace_id = crate::tmux::client::socket_for(&resolved);
     let workspace_path = resolved.to_string_lossy().to_string();
 
-    let state_file = crate::state::state_path_for(
-        &resolved,
-        config.factory || crate::registry::factory_enabled(&config.state_dir, &resolved),
-    );
+    let factory = config.factory || crate::registry::factory_enabled(&config.state_dir, &resolved);
+    let state_file = crate::state::state_path_for(&resolved, factory);
     let workspace_name = if state_file.exists() {
         std::fs::read(&state_file)
             .ok()
@@ -1484,8 +1490,12 @@ pub fn collect_snapshot_json(
 
     let coord_dir = coord_dir_for(workspace, config);
     let store = crate::coordination::store::CoordStore::new(coord_dir.clone());
-    let snapshot =
-        crate::snapshot::collect(workspace, &store, std::time::Duration::from_millis(500));
+    let snapshot = crate::snapshot::collect_with_factory(
+        workspace,
+        &store,
+        std::time::Duration::from_millis(500),
+        factory,
+    );
 
     let layout = inspect_layout(workspace, config);
     let panes = layout.panes().unwrap_or_default();

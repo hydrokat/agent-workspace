@@ -180,3 +180,69 @@ fn test_list_ips_payload() {
 
     let _ = fs::remove_dir_all(ws);
 }
+
+#[test]
+fn test_snapshot_json_normal_mode_has_no_factory_key() {
+    let ws = temp_workspace("no-factory");
+    let fstore = tandem::factory::store::FactoryStore::new(&ws);
+    let actor = tandem::factory::model::Actor {
+        kind: tandem::factory::model::ActorKind::User,
+        id: "you".to_string(),
+    };
+    fstore
+        .create_idea("Should not be read", "body", "you", &actor)
+        .unwrap();
+
+    let config = Config::default();
+    let payload = collect_snapshot_json(&ws, &config).expect("snapshot collection must succeed");
+    assert!(payload.snapshot.factory.is_none());
+
+    let val = serde_json::to_value(&payload).unwrap();
+    assert!(
+        val.get("snapshot").and_then(|s| s.get("factory")).is_none(),
+        "normal-mode snapshot JSON must omit the factory key"
+    );
+
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_snapshot_json_factory_mode_includes_factory_block() {
+    let ws = temp_workspace("with-factory");
+    let fstore = tandem::factory::store::FactoryStore::new(&ws);
+    let actor = tandem::factory::model::Actor {
+        kind: tandem::factory::model::ActorKind::User,
+        id: "you".to_string(),
+    };
+    let created = fstore
+        .create_idea("Export team activity as CSV", "details", "you", &actor)
+        .unwrap();
+
+    let config = Config {
+        factory: true,
+        ..Config::default()
+    };
+    let payload = collect_snapshot_json(&ws, &config).expect("snapshot collection must succeed");
+    let factory = payload
+        .snapshot
+        .factory
+        .as_ref()
+        .expect("factory-mode snapshot must include factory block");
+    assert!(factory.enabled);
+    assert_eq!(factory.needs_you, 0);
+    assert_eq!(factory.ideas.len(), 1);
+    assert_eq!(factory.ideas[0].id, created.id);
+    assert_eq!(factory.ideas[0].title, "Export team activity as CSV");
+    assert_eq!(factory.ideas[0].owner, "you");
+    assert_eq!(factory.ideas[0].blockers, 0);
+    assert_eq!(factory.by_state.get("inbox").copied(), Some(1));
+    assert!(factory.error.is_none());
+
+    let val = serde_json::to_value(&payload).unwrap();
+    assert!(
+        val.get("snapshot").and_then(|s| s.get("factory")).is_some(),
+        "factory-mode snapshot JSON must contain the factory key"
+    );
+
+    let _ = fs::remove_dir_all(ws);
+}
