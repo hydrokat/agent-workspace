@@ -1828,3 +1828,11 @@ pub fn rename_agent_cmd(workspace: &Path, config: &Config, target: &str, name: O
     let _ = io::stdout().write_all(serde_json::to_string(&res).unwrap_or_default().as_bytes());
     let _ = io::stdout().write_all(b"\n");
 }
+
+pub fn factory_cmd(
+    args: &crate::factory::commands::FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+) -> i32 {
+    crate::factory::commands::run(args, workspace, config)
+}
