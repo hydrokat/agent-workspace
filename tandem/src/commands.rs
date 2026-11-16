@@ -1913,3 +1913,98 @@ pub fn factory_cmd(
 ) -> i32 {
     crate::factory::commands::run(args, workspace, config)
 }
+
+fn center_pad(char_len: usize, cols: u16) -> String {
+    " ".repeat((cols as usize).saturating_sub(char_len) / 2)
+}
+
+pub fn render_qr_popup(
+    out: &mut dyn Write,
+    content: &crate::status::qr::QrPopupContent,
+    cols: u16,
+) -> io::Result<()> {
+    use crate::status::qr::QrPopupContent;
+    use crossterm::style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor};
+
+    match content {
+        QrPopupContent::Code { lines, url } => {
+            for line in lines {
+                let pad = center_pad(line.chars().count(), cols);
+                write!(
+                    out,
+                    "{pad}{}{}{}{}",
+                    SetForegroundColor(Color::Black),
+                    SetBackgroundColor(Color::White),
+                    line,
+                    ResetColor
+                )?;
+                writeln!(out)?;
+            }
+            writeln!(out)?;
+            let url_pad = center_pad(url.chars().count(), cols);
+            writeln!(out, "{url_pad}{url}")?;
+            let hint = "Scan with your phone camera · Esc to close";
+            let hint_pad = center_pad(hint.chars().count(), cols);
+            writeln!(out, "{hint_pad}{hint}")?;
+        }
+        QrPopupContent::TooSmall {
+            url,
+            need_cols,
+            need_rows,
+        } => {
+            writeln!(
+                out,
+                "This window is too small for the QR code (needs {need_cols}x{need_rows})."
+            )?;
+            writeln!(
+                out,
+                "Widen the terminal, or open this address on your phone:"
+            )?;
+            writeln!(out, "  {url}")?;
+            writeln!(out, "Press any key to close.")?;
+        }
+    }
+    Ok(())
+}
+
+fn wait_for_dismiss_key() -> io::Result<()> {
+    struct RawModeGuard;
+    impl Drop for RawModeGuard {
+        fn drop(&mut self) {
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+
+    crossterm::terminal::enable_raw_mode()?;
+    let _guard = RawModeGuard;
+    loop {
+        if let crossterm::event::Event::Key(key) = crossterm::event::read()?
+            && key.kind == crossterm::event::KeyEventKind::Press
+        {
+            return Ok(());
+        }
+    }
+}
+
+pub fn web_qr_cmd(workspace: &Path, _config: &Config) -> io::Result<()> {
+    let state_dir = crate::registry::resolve_state_dir();
+    let web_config =
+        crate::web_manager::load_web_config(&crate::web_manager::web_config_path(&state_dir))?;
+    let mut out = io::stdout();
+    if !web_config.enabled {
+        writeln!(out, "tandem-web is not enabled.")?;
+        writeln!(out, "Press any key to close.")?;
+        out.flush()?;
+        return wait_for_dismiss_key();
+    }
+
+    let socket = socket_for(&crate::tmux::client::resolve_path(workspace));
+    let qr_url = crate::web_manager::access_url_for_workspace(&web_config, Some(&socket));
+    let shown_url = crate::web_manager::access_url(&web_config, false);
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let content = crate::status::qr::qr_popup_content(&qr_url, &shown_url, cols, rows);
+
+    render_qr_popup(&mut out, &content, cols)?;
+    out.flush()?;
+    wait_for_dismiss_key()
+}

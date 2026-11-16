@@ -372,6 +372,15 @@ Options:
   -h, --help  Print help
 
 
+=== SUBCOMMAND: web-qr ===
+show the tandem-web connect QR code (used by the Web tab popup)
+
+Usage: web-qr
+
+Options:
+  -h, --help  Print help
+
+
 === SUBCOMMAND: whats-new ===
 show what changed in the last update
 
