@@ -54,7 +54,7 @@ Give two or three approaches with trade-offs and exactly one **Recommended**.
 
 ## Step 4: Report
 
-Fill `assets/report.md` and print it in chat. Cite `file:line` for affected areas, mark each as new or modified, and name every unknown with a way to resolve it. Offer `/spec-plan` with the recommended approach as the next step.
+Fill `assets/report.md` and print it in chat. Write the machine-readable line (`<!-- feasibility: {...} -->`) directly under the report title with the verdict in kebab-case (`feasible`, `feasible-with-caveats`, `needs-spike`, `not-feasible`), the effort letter, the name of the recommended approach, and the number of unknowns. Cite `file:line` for affected areas, mark each as new or modified, and name every unknown with a way to resolve it. Offer `/spec-plan` with the recommended approach as the next step.
 
 ## Step 5: Save (Only With `--save`)
 

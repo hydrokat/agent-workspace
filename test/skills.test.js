@@ -52,6 +52,7 @@ describe('script-first skills ship their scripts and templates', () => {
     'spec-explain': { command: '/spec-explain', files: ['assets/explanation.md'] },
     explain: { command: '/explain', files: ['scripts/locate.py', 'assets/technical.md', 'assets/non-technical.md'] },
     feasibility: { command: '/feasibility', files: ['assets/report.md'] },
+    idea: { command: '/idea', files: ['scripts/idea.py', 'assets/result.md'] },
     'code-cleanup': { command: '/code-cleanup', files: ['scripts/comments.py', 'assets/candidates.md'] },
     symlink: { command: '/symlink', files: ['scripts/symlink.py'] },
   };
@@ -142,5 +143,19 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.equal(run('pm-new-sprint/scripts/sprints.py', 'next-sprint').next, '001');
     const catalog = run('pm-new-sprint/scripts/sprints.py', 'commands');
     assert.ok(Array.isArray(catalog.commands) && catalog.commands.length >= 9);
+  });
+
+  it('idea chains feasibility and spec-planner with unattended defaults and machine-readable output', () => {
+    const ideaText = skill('idea');
+    for (const token of ['/feasibility', '/spec-planner', 'idea.py gate', '--auto', 'idea_result']) {
+      assert.ok(ideaText.includes(token), `idea SKILL.md includes ${token}`);
+    }
+    const plannerText = skill('spec-planner');
+    assert.ok(plannerText.includes('Unattended Mode'));
+    assert.ok(plannerText.includes('Always ask the user to choose the working branch'));
+    const feasText = skill('feasibility');
+    assert.ok(feasText.includes('<!-- feasibility:'));
+    assert.match(feasText, /Read-Only/);
+    assert.ok(readFile(dir, '.agents/skills/feasibility/assets/report.md').includes('<!-- feasibility:'));
   });
 });

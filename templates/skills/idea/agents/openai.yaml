@@ -1,0 +1,4 @@
+interface:
+  display_name: "Idea"
+  short_description: "Assess feasibility and plan a new idea"
+  default_prompt: "/idea"

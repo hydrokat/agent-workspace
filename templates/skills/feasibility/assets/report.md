@@ -1,4 +1,5 @@
 # Feasibility: [feature or module]
+<!-- feasibility: {"verdict": "feasible", "effort": "M", "recommended": "Approach A: [approach]", "unknowns": 0} -->
 
 **Verdict**: [Feasible | Feasible with caveats | Needs spike | Not feasible] — [one-line reason]
 **Effort**: [S | M | L | XL] — [main drivers]

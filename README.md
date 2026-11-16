@@ -316,12 +316,13 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, C
 | `/spec-explain [phase]` | Explain a phase: what it fixes, what it develops, why, where, and its state |
 | `/explain <module or feature> [--non-technical]` | Explain how part of the codebase works, technically by default or in plain language |
 | `/feasibility <feature>` | Decide whether a feature can be built here and how: verdict, effort, options, risks, unknowns |
+| `/idea <idea> [--auto]` | Assess feasibility with `/feasibility --save`, gate on the verdict, and plan a phase with `/spec-planner` |
 | `/code-cleanup [paths] [--diff <base>]` | List unnecessary comments, ask which to delete, then delete only those |
 | `/workspace-cleanup` | List files that may not belong in the workspace and delete the ones you approve |
 | `/symlink [path] [--name <name>]` | Link a directory into `codebase-symlinks/` and refresh the codebase map; with no path, lists sibling directories to choose from |
 | `test-failures` (used automatically) | Agents run tests through `run_tests.py`, so only the failing tests reach their context; the full log is saved under `.agent-workspace/test-runs/` |
 
-`/spec-explain`, `/explain`, and `/feasibility` never change files unless you ask them to save. `/code-cleanup`, `/workspace-cleanup`, and guarded phase pruning (`specs.py prune`) delete nothing without your explicit answer.
+`/spec-explain`, `/explain`, and `/feasibility` never change files unless you ask them to save. `/code-cleanup`, `/workspace-cleanup`, and guarded phase pruning (`specs.py prune`) delete nothing without your explicit answer. `/idea --auto` runs unattended without asking questions, applies documented defaults recorded in `impl.md`, and ends with one `idea_result` JSON line.
 
 ### Script-first skills
 
