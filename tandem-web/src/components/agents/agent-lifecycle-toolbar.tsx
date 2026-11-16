@@ -34,6 +34,8 @@ export function AgentLifecycleToolbar({
     try {
       setSubmitting(true);
       await onAction(action, args);
+    } catch {
+      // Best-effort; stream reflects state
     } finally {
       setSubmitting(false);
     }

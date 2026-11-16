@@ -31,27 +31,37 @@ export function SpecProgressPanel({
             Ongoing Specs ({ongoingSpecs.length})
           </h3>
           <div className="flex flex-col divide-y divide-border/50">
-            {ongoingSpecs.map((spec) => (
-              <div
-                key={spec.phase}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2.5 text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-semibold text-foreground">
-                    {spec.phase}
-                  </span>
-                  {spec.session && (
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      {spec.session}
-                    </Badge>
-                  )}
+            {ongoingSpecs.map((spec) => {
+              const total = spec.phase.tasks?.length || 0;
+              const done =
+                spec.phase.tasks?.filter((t) => t.status?.toLowerCase() === "done").length || 0;
+
+              return (
+                <div
+                  key={spec.phase.name}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2.5 text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-semibold text-foreground">
+                      {spec.phase.name}
+                    </span>
+                    {spec.next_up && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Next up
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-muted-foreground text-[11px] font-mono">
+                    {spec.phase.branch && <span>{spec.phase.branch}</span>}
+                    {total > 0 && (
+                      <span className="text-primary">
+                        {done}/{total}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-muted-foreground text-[11px] font-mono">
-                  {spec.branch && <span>{spec.branch}</span>}
-                  {spec.progress && <span className="text-primary">{spec.progress}</span>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       )}
@@ -79,14 +89,6 @@ export function SpecProgressPanel({
                       <span className="font-mono font-semibold text-foreground">
                         {phase.name}
                       </span>
-                      {phase.status && (
-                        <Badge
-                          variant={phase.status === "Done" ? "secondary" : "default"}
-                          className="text-[10px]"
-                        >
-                          {phase.status}
-                        </Badge>
-                      )}
                       {phase.archived && (
                         <Badge variant="outline" className="text-[10px]">
                           Archived

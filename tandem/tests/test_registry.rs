@@ -146,3 +146,34 @@ fn test_list_active_filters_dead_sessions() {
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].id, "tandem-active1");
 }
+
+#[test]
+fn test_spaced_custom_label_survives_register_or_heartbeat() {
+    let temp = TempDir::new();
+    let state_dir = temp.path();
+    let ws_dir = TempDir::new();
+    let ws_path = ws_dir.path();
+
+    let resolved = tandem::tmux::client::resolve_path(ws_path);
+    let session_file = tandem::state::state_path_for(&resolved, false);
+    if let Some(parent) = session_file.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(
+        &session_file,
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 3,
+            "agents": [],
+            "workspace_name": "Fleet Mgmt - Backend",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let entry1 = register_or_heartbeat(state_dir, ws_path, Some(1234)).expect("first heartbeat");
+    assert_eq!(entry1.name, "Fleet Mgmt - Backend");
+
+    fs::remove_file(&session_file).unwrap();
+    let entry2 = register_or_heartbeat(state_dir, ws_path, Some(1234)).expect("second heartbeat");
+    assert_eq!(entry2.name, "Fleet Mgmt - Backend");
+}

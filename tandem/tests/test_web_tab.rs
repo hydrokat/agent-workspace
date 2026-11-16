@@ -327,19 +327,74 @@ fn connect_refuses_loopback_bind_with_hint() {
 }
 
 #[test]
-fn connect_opens_qr_overlay_and_escape_closes_it() {
+fn enter_on_show_qr_returns_show_qr_when_running() {
     let mut t = acknowledged(true);
     t.web_status = WebStatus::Running {
         url: "http://100.101.102.103:3940".into(),
         pid: Some(1),
     };
     t.focused_row = ROW_CONNECT;
-    t.handle_key(&key(KeyCode::Enter));
+    assert_eq!(t.handle_key(&key(KeyCode::Enter)), Some(WebAction::ShowQr));
+    assert!(!t.qr_open);
+}
+
+#[test]
+fn show_qr_returns_changed_when_errored() {
+    let mut t = acknowledged(true);
+    t.web_status = WebStatus::Error("build failed".into());
+    t.focused_row = ROW_CONNECT;
+    assert_eq!(t.handle_key(&key(KeyCode::Enter)), Some(WebAction::Changed));
+    assert!(!t.qr_open);
+}
+
+#[test]
+fn mouse_click_on_show_qr_returns_show_qr() {
+    let mut t = acknowledged(true);
+    t.web_status = WebStatus::Running {
+        url: "http://100.101.102.103:3940".into(),
+        pid: Some(1),
+    };
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 2,
+        row: ROW_CONNECT as u16,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(
+        t.handle_mouse(&click, Rect::new(0, 0, 80, 12)),
+        Some(WebAction::ShowQr)
+    );
+    assert!(!t.qr_open);
+}
+
+#[test]
+fn inline_qr_overlay_owns_input_and_escape_closes_it() {
+    let mut t = acknowledged(true);
+    t.web_status = WebStatus::Running {
+        url: "http://100.101.102.103:3940".into(),
+        pid: Some(1),
+    };
+    t.focused_row = ROW_CONNECT;
+    t.open_inline_qr();
     assert!(t.qr_open);
     t.handle_key(&key(KeyCode::Down));
     assert_eq!(t.focused_row, ROW_CONNECT, "overlay owns input");
     t.handle_key(&key(KeyCode::Esc));
     assert!(!t.qr_open);
+}
+
+#[test]
+fn inline_fallback_shows_address_not_enlarge_message() {
+    let mut t = acknowledged(true);
+    t.web_status = WebStatus::Running {
+        url: "http://100.101.102.103:3940".into(),
+        pid: Some(1),
+    };
+    t.open_inline_qr();
+    let small = render(&t, 60, 9);
+    assert!(!small.contains("Enlarge the status pane"), "{small}");
+    assert!(small.contains("100.101.102.103:3940"), "{small}");
+    assert!(small.contains("Esc to close."), "{small}");
 }
 
 #[test]

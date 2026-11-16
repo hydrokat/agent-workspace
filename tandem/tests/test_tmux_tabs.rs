@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
 use tandem::tmux::layout::{Launch, Layout};
 use tandem::tmux::tabs::{
-    FORMAT, PaneInfo, agents_in, neighbor, parse_panes, render_title, tab_text, visible_pane,
+    FORMAT, PaneInfo, agents_in, neighbor, parse_panes, render_agent_title, render_title, tab_text,
+    visible_pane,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -329,4 +330,44 @@ fn test_layout_add_agent_and_swap() {
     let calls = runner.calls();
     assert!(calls.iter().any(|c| c.contains(&"new-window".to_string())));
     assert!(calls.iter().any(|c| c.contains(&"swap-pane".to_string())));
+}
+
+#[test]
+fn test_render_agent_title_with_spaced_label_and_safe_label() {
+    let mut p = pane(
+        "%3",
+        "main",
+        "planner",
+        1,
+        "claude·opus",
+        "agent",
+        false,
+        None,
+    );
+    p.name = "API worker - v2.1".to_string();
+    let title = render_agent_title(&p);
+    assert!(title.contains("API worker - v2.1"), "title was: {title}");
+    let without_active_marker = title.replace("#{?pane_active,▶ ,}", "");
+    assert!(
+        !without_active_marker.contains('#'),
+        "unexpected # in title: {title}"
+    );
+
+    let mut p_bad = pane(
+        "%4",
+        "main",
+        "planner",
+        2,
+        "claude·opus",
+        "agent",
+        false,
+        None,
+    );
+    p_bad.name = "bad#{pane_id}".to_string();
+    let bad_title = render_agent_title(&p_bad);
+    let bad_without_marker = bad_title.replace("#{?pane_active,▶ ,}", "");
+    assert!(
+        !bad_without_marker.contains('#') && !bad_without_marker.contains('{'),
+        "safe_label must strip tmux format characters: {bad_title}"
+    );
 }

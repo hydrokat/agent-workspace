@@ -36,8 +36,8 @@ Commands:
   snapshot          output workspace snapshot in JSON format
   answer-query      answer an agent coordination query
   list-ips          list host network IPs and active workspaces
-  rename-workspace  rename the current workspace to a custom alphanumeric name
-  rename-agent      rename an agent to a custom alphanumeric name
+  rename-workspace  rename the current workspace to a custom label
+  rename-agent      rename an agent to a custom label
   factory           Factory Mode commands (ideas, events, status, rebuild)
 
 Options:

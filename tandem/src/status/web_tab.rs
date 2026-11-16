@@ -32,6 +32,7 @@ pub enum WebAction {
     Regenerated,
     InstallDeps,
     ManualInstall,
+    ShowQr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,8 +383,11 @@ impl WebTab {
             self.flash("Bound to localhost: pick a VPN or LAN IP to connect a phone");
             return None;
         }
+        Some(WebAction::ShowQr)
+    }
+
+    pub fn open_inline_qr(&mut self) {
         self.qr_open = true;
-        None
     }
 
     fn cycle_option(&mut self, next: bool) -> Option<WebAction> {
@@ -684,14 +688,28 @@ impl WebTab {
                 &msg,
                 Style::default().fg(Color::Yellow),
             );
-            put(
-                buf,
-                area.x,
-                area.y + 1,
-                area.right(),
-                "Enlarge the status pane. Esc to close.",
-                Style::default().fg(Color::DarkGray),
-            );
+            if area.height > 1 {
+                let display_url = access_url(&self.web_config, false);
+                let address_msg = format!("Open this address on your phone: {display_url}");
+                put(
+                    buf,
+                    area.x,
+                    area.y + 1,
+                    area.right(),
+                    &address_msg,
+                    Style::default().fg(Color::DarkGray),
+                );
+            }
+            if area.height > 2 {
+                put(
+                    buf,
+                    area.x,
+                    area.y + 2,
+                    area.right(),
+                    "Esc to close.",
+                    Style::default().fg(Color::DarkGray),
+                );
+            }
             return;
         }
 

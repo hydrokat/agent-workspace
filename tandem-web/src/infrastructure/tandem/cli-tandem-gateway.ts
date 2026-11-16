@@ -44,10 +44,15 @@ export function resolveTandemBinary(): string {
 
 export class CliTandemGateway implements ITandemGateway {
   private readonly tandemBinaryPath: string;
+  private readonly execFn: typeof execFileAsync;
 
-  constructor(tandemBinaryPath: string = resolveTandemBinary()) {
+  constructor(
+    tandemBinaryPath: string = resolveTandemBinary(),
+    execFn: typeof execFileAsync = execFileAsync
+  ) {
     this.tandemBinaryPath =
       tandemBinaryPath === "tandem" ? resolveTandemBinary() : tandemBinaryPath;
+    this.execFn = execFn;
   }
 
   async getSnapshot(workspacePath: string): Promise<WorkspaceSnapshotPayload> {
@@ -98,8 +103,9 @@ export class CliTandemGateway implements ITandemGateway {
     action: AllowedTandemAction,
     args: string[] = []
   ): Promise<void> {
-    const fullArgs = [action, ...args];
-    await execFileAsync(this.tandemBinaryPath, fullArgs, {
+    const needsSeparator = action === "rename-workspace" || action === "rename-agent";
+    const fullArgs = needsSeparator ? [action, "--", ...args] : [action, ...args];
+    await this.execFn(this.tandemBinaryPath, fullArgs, {
       cwd: workspacePath,
       env: {
         ...process.env,

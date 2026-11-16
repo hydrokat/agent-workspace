@@ -157,27 +157,44 @@ describe("Application Use Cases", () => {
       useCase.execute("tandem-2222222222", "restart", ["%1; cat /etc/passwd"])
     ).rejects.toThrow("Argument contains invalid characters");
 
-    // Renaming actions with valid alphanumeric inputs
-    await useCase.execute("tandem-2222222222", "rename-workspace", ["ProjectAlpha123"]);
+    // Renaming actions with spaced labels, normalization, and reset
+    await useCase.execute("tandem-2222222222", "rename-workspace", ["Fleet Mgmt - Backend"]);
     expect(gateway.executedActions.at(-1)?.action).toBe("rename-workspace");
-    expect(gateway.executedActions.at(-1)?.args).toEqual(["ProjectAlpha123"]);
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["Fleet Mgmt - Backend"]);
 
-    await useCase.execute("tandem-2222222222", "rename-agent", ["%1", "AgentOne"]);
+    await useCase.execute("tandem-2222222222", "rename-workspace", ["  Fleet   Mgmt  "]);
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["Fleet Mgmt"]);
+
+    await useCase.execute("tandem-2222222222", "rename-workspace", []);
+    expect(gateway.executedActions.at(-1)?.action).toBe("rename-workspace");
+    expect(gateway.executedActions.at(-1)?.args).toEqual([]);
+
+    expect(
+      useCase.execute("tandem-2222222222", "rename-workspace", ["one", "two"])
+    ).rejects.toThrow("Invalid workspace rename arguments");
+
+    await useCase.execute("tandem-2222222222", "rename-agent", ["%3", "API worker"]);
     expect(gateway.executedActions.at(-1)?.action).toBe("rename-agent");
-    expect(gateway.executedActions.at(-1)?.args).toEqual(["%1", "AgentOne"]);
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["%3", "API worker"]);
 
-    // Rejects non-alphanumeric rename inputs
-    expect(
-      useCase.execute("tandem-2222222222", "rename-workspace", ["project-alpha"])
-    ).rejects.toThrow("Invalid workspace rename argument");
+    await useCase.execute("tandem-2222222222", "rename-agent", ["%3", "  API   worker "]);
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["%3", "API worker"]);
 
-    expect(
-      useCase.execute("tandem-2222222222", "rename-workspace", ["project alpha"])
-    ).rejects.toThrow("Invalid workspace rename argument");
+    await useCase.execute("tandem-2222222222", "rename-agent", ["%3"]);
+    expect(gateway.executedActions.at(-1)?.action).toBe("rename-agent");
+    expect(gateway.executedActions.at(-1)?.args).toEqual(["%3"]);
 
     expect(
-      useCase.execute("tandem-2222222222", "rename-agent", ["%1", "agent_invalid"])
-    ).rejects.toThrow("Invalid agent rename argument");
+      useCase.execute("tandem-2222222222", "rename-agent", ["; rm -rf /", "x"])
+    ).rejects.toThrow("Invalid agent rename arguments");
+
+    expect(
+      useCase.execute("tandem-2222222222", "rename-agent", ["%3", "-x"])
+    ).rejects.toThrow("Invalid label");
+
+    expect(
+      useCase.execute("tandem-2222222222", "show", ["%3 %4"])
+    ).rejects.toThrow("Argument contains invalid characters");
   });
 
   it("ManageSettingsUseCase validates IP and port ranges", async () => {
@@ -275,5 +292,23 @@ describe("Application Use Cases", () => {
     } finally {
       rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  it("CliTandemGateway inserts -- separator for rename actions only", async () => {
+    const { CliTandemGateway } = await import("../src/infrastructure/tandem/cli-tandem-gateway");
+    const calls: string[][] = [];
+    const fakeExec = async (_file: string, args: readonly string[]) => {
+      calls.push([...args]);
+      return { stdout: "", stderr: "" };
+    };
+    const gw = new CliTandemGateway("tandem", fakeExec as never);
+
+    await gw.executeAction("/tmp/ws", "rename-agent", ["%3", "API worker"]);
+    await gw.executeAction("/tmp/ws", "rename-workspace", ["Fleet Mgmt - Backend"]);
+    await gw.executeAction("/tmp/ws", "show", ["%3"]);
+
+    expect(calls[0]).toEqual(["rename-agent", "--", "%3", "API worker"]);
+    expect(calls[1]).toEqual(["rename-workspace", "--", "Fleet Mgmt - Backend"]);
+    expect(calls[2]).toEqual(["show", "%3"]);
   });
 });

@@ -300,3 +300,148 @@ fn settings_tab_has_no_web_rows_and_reset_ui_is_visible_at_default_height() {
         "Reset UI must fit in 7 body rows:\n{text}"
     );
 }
+
+struct RecordingTmuxRunner {
+    calls: Mutex<Vec<Vec<String>>>,
+    fail: bool,
+}
+
+impl RecordingTmuxRunner {
+    fn new(fail: bool) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            fail,
+        }
+    }
+
+    fn calls(&self) -> Vec<Vec<String>> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl tandem::tmux::client::TmuxRunner for RecordingTmuxRunner {
+    fn run(&self, argv: &[String]) -> tandem::tmux::client::Result {
+        self.calls.lock().unwrap().push(argv.to_vec());
+        tandem::tmux::client::Result {
+            code: if self.fail { 1 } else { 0 },
+            out: String::new(),
+            err: if self.fail {
+                "popup failed".into()
+            } else {
+                String::new()
+            },
+        }
+    }
+}
+
+#[test]
+fn show_qr_runs_display_popup_with_size_title_and_web_qr() {
+    let tmp = TempDir::new();
+    let ws = tmp.path().join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    let state = tmp.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let daemon = Arc::new(FakeDaemon::default());
+    let runner = Arc::new(RecordingTmuxRunner::new(false));
+    let client = tandem::tmux::client::TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut app = StatusApp::new(
+        ws,
+        CoordStore::new(tmp.path().join("c")),
+        Some(client),
+        None,
+    )
+    .with_web_daemon(daemon, state)
+    .with_deps_runtime(Arc::new(common::ready_deps::ReadyDeps));
+
+    let mut cfg = acknowledged_cfg();
+    cfg.enabled = true;
+    cfg.auth_token = "secret_tok_987".into();
+    app.web_tab.set_web_config(cfg);
+    app.web_tab.web_status = WebStatus::Running {
+        url: "http://100.101.102.103:3940".into(),
+        pid: Some(4242),
+    };
+
+    press(&mut app, KeyCode::Char('6'));
+    app.web_tab.focused_row = tandem::status::web_tab::ROW_CONNECT;
+    press(&mut app, KeyCode::Enter);
+
+    assert!(
+        !app.web_tab.qr_open,
+        "popup succeeded, inline QR stays closed"
+    );
+    let calls = runner.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let argv = &calls[0];
+    assert!(argv.contains(&"display-popup".to_string()), "{argv:?}");
+    assert!(argv.contains(&"-E".to_string()), "{argv:?}");
+    assert!(argv.contains(&"-w".to_string()), "{argv:?}");
+    assert!(argv.contains(&"-h".to_string()), "{argv:?}");
+    assert!(argv.contains(&"-T".to_string()), "{argv:?}");
+    assert!(
+        argv.last().is_some_and(|s| s.ends_with("web-qr")),
+        "{argv:?}"
+    );
+    for arg in argv {
+        assert!(
+            !arg.contains("secret_tok_987"),
+            "token leaked in argv: {arg}"
+        );
+        assert!(!arg.contains("token="), "token= leaked in argv: {arg}");
+    }
+}
+
+#[test]
+fn show_qr_falls_back_inline_without_tmux_client() {
+    let mut f = fixture();
+    let mut cfg = acknowledged_cfg();
+    cfg.enabled = true;
+    f.app.web_tab.set_web_config(cfg);
+    f.app.web_tab.web_status = WebStatus::Running {
+        url: "http://100.101.102.103:3940".into(),
+        pid: Some(4242),
+    };
+
+    press(&mut f.app, KeyCode::Char('6'));
+    f.app.web_tab.focused_row = tandem::status::web_tab::ROW_CONNECT;
+    press(&mut f.app, KeyCode::Enter);
+
+    assert!(f.app.web_tab.qr_open, "should fall back to inline QR");
+}
+
+#[test]
+fn show_qr_falls_back_inline_when_popup_command_fails() {
+    let tmp = TempDir::new();
+    let ws = tmp.path().join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    let state = tmp.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let daemon = Arc::new(FakeDaemon::default());
+    let runner = Arc::new(RecordingTmuxRunner::new(true));
+    let client = tandem::tmux::client::TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let mut app = StatusApp::new(
+        ws,
+        CoordStore::new(tmp.path().join("c")),
+        Some(client),
+        None,
+    )
+    .with_web_daemon(daemon, state)
+    .with_deps_runtime(Arc::new(common::ready_deps::ReadyDeps));
+
+    let mut cfg = acknowledged_cfg();
+    cfg.enabled = true;
+    app.web_tab.set_web_config(cfg);
+    app.web_tab.web_status = WebStatus::Running {
+        url: "http://100.101.102.103:3940".into(),
+        pid: Some(4242),
+    };
+
+    press(&mut app, KeyCode::Char('6'));
+    app.web_tab.focused_row = tandem::status::web_tab::ROW_CONNECT;
+    press(&mut app, KeyCode::Enter);
+
+    assert!(
+        app.web_tab.qr_open,
+        "should fall back to inline QR on popup error"
+    );
+}

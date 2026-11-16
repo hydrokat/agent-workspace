@@ -252,4 +252,87 @@ describe("Security Sad-Path Matrix (8 OWASP / Vulnerability Categories)", () => 
       expect(getSnapshot.execute(bad)).rejects.toThrow("Invalid workspace ID format");
     }
   });
+
+  // 9. Label Reject Table on POST /actions
+  it("category 9: POST /actions returns 400 and never calls gateway for reject-table labels", async () => {
+    const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { POST } = await import("../../src/app/api/workspaces/[workspaceId]/actions/route");
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tandem-actions-sec-"));
+    const wsDir = join(stateDir, "ws");
+    await mkdir(wsDir);
+    await mkdir(join(stateDir, "tandem"));
+    await writeFile(
+      join(stateDir, "tandem", "workspaces.json"),
+      JSON.stringify({
+        workspaces: [
+          {
+            id: "tandem-1234567890",
+            name: "test-workspace",
+            path: wsDir,
+            socket: "tandem-1234567890",
+            updated_at: 1700000000,
+          },
+        ],
+      })
+    );
+
+    const origXdg = process.env.XDG_STATE_HOME;
+    const origBin = process.env.TANDEM_BIN;
+    process.env.XDG_STATE_HOME = stateDir;
+    process.env.TANDEM_BIN = "/nonexistent-tandem-binary";
+
+    const invalidLabels = [
+      "",
+      "-x",
+      "--help",
+      ".env",
+      "_x",
+      "123456789012345678901234567890123",
+      "a#b",
+      "a{b}",
+      "a,b",
+      "a;b",
+      "a|b",
+      "a$b",
+      "a`b",
+      "a'b",
+      'a"b',
+      "a\\b",
+      "a/b",
+      "a\tb",
+      "a\nb",
+      "a\u0000b",
+      "café",
+      "名前",
+      "a\u200bb",
+    ];
+
+    try {
+      for (const badLabel of invalidLabels) {
+        for (const [action, args] of [
+          ["rename-workspace", [badLabel]],
+          ["rename-agent", ["%1", badLabel]],
+        ] as const) {
+          const req = new Request("http://localhost/api/workspaces/tandem-1234567890/actions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, args }),
+          });
+          const res = await POST(req, {
+            params: Promise.resolve({ workspaceId: "tandem-1234567890" }),
+          });
+          expect(res.status).toBe(400);
+        }
+      }
+    } finally {
+      if (origXdg === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = origXdg;
+      if (origBin === undefined) delete process.env.TANDEM_BIN;
+      else process.env.TANDEM_BIN = origBin;
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -30,9 +30,12 @@ export function WorkspaceCard({
         className="min-h-11 cursor-not-allowed p-3 opacity-50"
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="font-semibold text-sm leading-tight text-foreground">
+            <span
+              className="font-semibold text-sm leading-tight text-foreground truncate"
+              title={workspace.name}
+            >
               {workspace.name}
             </span>
           </div>
@@ -66,9 +69,12 @@ export function WorkspaceCard({
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="font-semibold text-sm leading-tight text-foreground">
+          <span
+            className="font-semibold text-sm leading-tight text-foreground truncate"
+            title={workspace.name}
+          >
             {workspace.name}
           </span>
         </div>

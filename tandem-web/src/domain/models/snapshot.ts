@@ -41,32 +41,44 @@ export interface SprintView {
 
 export interface TaskInfo {
   id: string;
-  title?: string;
-  status?: string;
+  title: string;
+  status: string;
+  objectives_done: number;
+  objectives_total: number;
 }
 
 export interface PhaseInfo {
   name: string;
-  title?: string;
-  status?: string;
-  tasks?: TaskInfo[];
-  archived?: boolean;
+  title: string;
+  branch: string;
+  target: string;
+  tasks: TaskInfo[];
+  warning: string;
+  archived: boolean;
 }
 
 export interface SessionInfo {
-  session_id: string;
-  role?: string;
-  model?: string;
-  branch?: string;
-  worktree?: string;
-  last_heartbeat?: number;
+  id: string;
+  cli: string;
+  role: string;
+  model: string;
+  pane: string;
+  cwd: string;
+  branch: string;
+  worktree: string;
+  task: string;
+  heartbeat: number;
+  name: string;
 }
 
 export interface ClaimInfo {
   phase: string;
   task: string;
-  session_id: string;
-  claimed_at: number;
+  session: string;
+  branch: string;
+  worktree: string;
+  paths: string[];
+  heartbeat: number;
 }
 
 export interface GitStatusInfo {
@@ -84,18 +96,22 @@ export interface ConflictInfo {
 }
 
 export interface OngoingSpecInfo {
-  phase: string;
-  session?: string;
-  branch?: string;
-  progress?: string;
+  phase: PhaseInfo;
+  next_up: boolean;
 }
 
 export interface OngoingTaskInfo {
   phase: string;
-  task: string;
-  session?: string;
-  status?: string;
-  age_seconds?: number;
+  task_id: string;
+  title: string;
+  status: string;
+  objectives_done: number;
+  objectives_total: number;
+  claim: ClaimInfo | null;
+  session_pane: string | null;
+  stale: boolean;
+  status_mismatch: boolean;
+  next_step?: string | null;
 }
 
 export interface StatusSnapshot {
