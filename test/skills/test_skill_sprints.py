@@ -725,5 +725,160 @@ def test_unreadable_phase_fails_close_and_warns_in_status_and_next_work(workspac
     assert any(p.get("code") in ("broken-spec-link", "missing-spec-phase") for p in err_lint.get("problems", []))
 
 
+def test_total_tasks_metadata_counts_actual_tasks(workspace: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("sprints_mod", SCRIPT)
+    assert spec and spec.loader
+    sprints_mod = importlib.util.module_from_spec(spec)
+    sys.modules["sprints_mod"] = sprints_mod
+    spec.loader.exec_module(sprints_mod)
+
+    # 1. Whole-phase-only sprint (p-002-sample has 3 tasks: t-001, t-002, t-003)
+    out(run(workspace, "create", "--title", "Whole", "--slug", "whole", "--phase", "p-002-sample"))
+    whole_text = (workspace / "sprints" / "s-001-whole" / "sprint.md").read_text(encoding="utf-8")
+    assert "- **Total Tasks**: 3\n" in whole_text
+
+    # 2. Subset-only sprint (only t-002)
+    out(run(workspace, "create", "--title", "Subset", "--slug", "subset", "--status", "planned"))
+    out(run(workspace, "add-phase", "s-002-subset", "p-002-sample", "--tasks", "t-002"))
+    subset_text = (workspace / "sprints" / "s-002-subset" / "sprint.md").read_text(encoding="utf-8")
+    assert "- **Total Tasks**: 1\n" in subset_text
+
+    # 3. Mixed sprint (whole phase-001 with 2 tasks + subset p-002-sample with 1 task = 3)
+    phase_001_tasks = sorted((workspace / "specs" / "phase-001").glob("t-*.md"))
+    expected_mixed = len(phase_001_tasks) + 1
+    out(run(workspace, "create", "--title", "Mixed", "--slug", "mixed", "--status", "planned"))
+    out(run(workspace, "add-phase", "s-003-mixed", "phase-001"))
+    out(run(workspace, "add-phase", "s-003-mixed", "p-002-sample", "--tasks", "t-002"))
+    mixed_text = (workspace / "sprints" / "s-003-mixed" / "sprint.md").read_text(encoding="utf-8")
+    assert f"- **Total Tasks**: {expected_mixed}\n" in mixed_text
+
+    # 4. Won't Have rows are excluded
+    out(run(workspace, "create", "--title", "WontHave", "--slug", "wonthave", "--status", "planned"))
+    out(run(workspace, "add-phase", "s-004-wonthave", "p-002-sample", "--moscow", "Must Have", "--tasks", "t-002"))
+    out(run(workspace, "add-phase", "s-004-wonthave", "phase-001", "--moscow", "Won't Have"))
+    wh_text = (workspace / "sprints" / "s-004-wonthave" / "sprint.md").read_text(encoding="utf-8")
+    assert "- **Total Tasks**: 1\n" in wh_text
+
+    # 5. Empty sprint, missing phase on disk, and root=None
+    empty_md = sprints_mod.render_sprint_markdown(
+        "s-005-empty", "Empty", "open", "2026-11-01", "2026-11-08", 5.0, [], "created", root=None
+    )
+    assert "- **Total Tasks**: 0\n" in empty_md
+
+    missing_phase = sprints_mod.PhaseScope(
+        phase="p-999-archived",
+        title="Archived",
+        moscow="Must Have",
+        reach=100.0,
+        impact=1.0,
+        confidence=0.8,
+        effort=1.0,
+        rice_score=80.0,
+        spec_link="../../specs/compiled/completed.md",
+        tasks=[],
+    )
+    archived_md = sprints_mod.render_sprint_markdown(
+        "s-006-arch", "Arch", "open", "2026-11-01", "2026-11-08", 5.0, [missing_phase], "created", root=workspace
+    )
+    assert "- **Total Tasks**: 0\n" in archived_md
+
+    no_root_md = sprints_mod.render_sprint_markdown(
+        "s-007-noroot", "NoRoot", "open", "2026-11-01", "2026-11-08", 5.0, [missing_phase], "created", root=None
+    )
+    assert "- **Total Tasks**: 0\n" in no_root_md
+
+
+def test_create_without_phase_fills_metadata_and_creation_timestamp(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "No Phase", "--slug", "no-phase"))
+    sprint_file = workspace / "sprints" / "s-001-no-phase" / "sprint.md"
+    text = sprint_file.read_text(encoding="utf-8")
+
+    assert "[Creation Timestamp]" not in text
+    assert "[Committed Days]" not in text
+    assert "[Total Tasks Count]" not in text
+    assert "[Total Phases Count]" not in text
+    assert "- **Committed Capacity**: 0.0 Days\n" in text
+    assert "- **Total Phases**: 0\n" in text
+    assert "- **Total Tasks**: 0\n" in text
+    assert re.search(r"^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}: Sprint created with status open$", text, re.MULTILINE)
+
+    # lint passes cleanly
+    lint_ok = out(run(workspace, "lint", "s-001-no-phase"))
+    assert lint_ok["ok"] is True
+
+    # add-phase preserves the real creation timestamp as the first audit entry
+    out(run(workspace, "add-phase", "s-001-no-phase", "p-002-sample"))
+    show_res = out(run(workspace, "show", "s-001-no-phase"))
+    assert len(show_res["audit_log"]) >= 2
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}: Sprint created with status open$", show_res["audit_log"][0])
+
+
+def test_lint_flags_leftover_template_tokens_only(workspace: Path) -> None:
+    out(run(workspace, "create", "--title", "Token Lint", "--slug", "token-lint"))
+    sprint_file = workspace / "sprints" / "s-001-token-lint" / "sprint.md"
+    text = sprint_file.read_text(encoding="utf-8")
+
+    # Inject leftover template tokens
+    broken = text.replace("- **Committed Capacity**: 0.0 Days", "- **Committed Capacity**: [Committed Days] Days")
+    broken = broken.replace("- **Total Tasks**: 0", "- **Total Tasks**: [Total Tasks Count]")
+    broken = re.sub(
+        r"- \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}: Sprint created",
+        "- [Creation Timestamp]: Sprint created",
+        broken,
+    )
+    sprint_file.write_text(broken, encoding="utf-8")
+
+    err_lint = err(run(workspace, "lint", "s-001-token-lint"), code=1)
+    codes = {p["code"] for p in err_lint["problems"]}
+    assert "unrendered-template-token" in codes
+    messages = " ".join(p["message"] for p in err_lint["problems"])
+    assert "[Committed Days]" in messages
+    assert "[Total Tasks Count]" in messages
+    assert "[Creation Timestamp]" in messages
+    # Markdown links like [Business Requirements Document (BRD)](...) must not be flagged
+    assert "Business Requirements Document" not in messages
+
+
+@pytest.mark.parametrize("value,expected", [(5.0, "5.0"), (4.25, "4.25"), (4.2, "4.2"), (0.0, "0.0")])
+def test_format_days_precision(value: float, expected: str) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("sprints_mod", SCRIPT)
+    assert spec and spec.loader
+    sprints_mod = importlib.util.module_from_spec(spec)
+    sys.modules["sprints_mod"] = sprints_mod
+    spec.loader.exec_module(sprints_mod)
+
+    assert sprints_mod.format_days(value) == expected
+
+
+def test_committed_capacity_two_decimal_round_trip(workspace: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("sprints_mod", SCRIPT)
+    assert spec and spec.loader
+    sprints_mod = importlib.util.module_from_spec(spec)
+    sys.modules["sprints_mod"] = sprints_mod
+    spec.loader.exec_module(sprints_mod)
+
+    out(run(workspace, "create", "--title", "Quarter Days", "--slug", "quarter-days", "--capacity-days", "4.75"))
+    out(run(workspace, "add-phase", "s-001-quarter-days", "p-002-sample", "--effort", "4.25"))
+
+    sprint_file = workspace / "sprints" / "s-001-quarter-days" / "sprint.md"
+    text = sprint_file.read_text(encoding="utf-8")
+    assert "- **AI-Assisted Capacity Limit**: 4.75 Days\n" in text
+    assert "- **Committed Capacity**: 4.25 Days\n" in text
+
+    # Round-trip parse -> render -> parse with no scope rows
+    write_sprint(workspace, "s-002-empty-rt", "4.25 Days", [])
+    model = sprints_mod.parse_sprint_md(workspace / "sprints" / "s-002-empty-rt")
+    assert model.committed_effort == 4.25
+
+
+
+
+
 
 

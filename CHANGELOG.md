@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.15.2] — 2026-11-16
+
+### Fixed: `sprints.py` metadata accuracy (Total Tasks, creation timestamp, and quarter-day precision)
+
+- **Accurate Total Tasks count**: `render_sprint_markdown` now counts actual tasks across subsets and whole phases on disk (excluding `Won't Have` rows and returning `0` for archived phases or `root=None`), replacing the `len(phases) * 3` placeholder.
+- **Filled no-phase sprint creation**: `sprints.py create` without `--phase` now substitutes `[Creation Timestamp]`, `[Committed Days]`, `[Total Phases Count]`, and `[Total Tasks Count]` with real values so the first audit entry never retains template tokens. `sprints.py lint` now flags any leftover template tokens (`unrendered-template-token`).
+- **Two-decimal day formatting**: Added `format_days` so `AI-Assisted Capacity Limit` and `Committed Capacity` preserve quarter-day values (e.g. `4.25 Days`) while keeping whole/tenth values unchanged (`5.0 Days`, `4.2 Days`).
+
 ## [1.15.1] — 2026-11-11
 
 ### Fixed: tandem-web performance, terminal latency, and workspace switching
