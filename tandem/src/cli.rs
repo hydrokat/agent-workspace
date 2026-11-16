@@ -157,6 +157,12 @@ pub enum Command {
 
     #[command(about = "Factory Mode commands (ideas, events, status, rebuild)")]
     Factory(crate::factory::commands::FactoryArgs),
+
+    #[command(
+        hide = true,
+        about = "show the tandem-web connect QR code (used by the Web tab popup)"
+    )]
+    WebQr,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -409,6 +415,9 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
             if code != 0 {
                 std::process::exit(code);
             }
+        }
+        Some(Command::WebQr) => {
+            crate::commands::web_qr_cmd(&workspace, &config)?;
         }
         Some(cmd) => {
             tmux_command(cmd, &workspace, &config)?;

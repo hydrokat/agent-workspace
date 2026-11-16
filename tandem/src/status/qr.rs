@@ -47,3 +47,44 @@ pub fn render_qr_lines(text: &str) -> Vec<String> {
     }
     lines
 }
+
+pub const QR_POPUP_CHROME_COLS: u16 = 4;
+pub const QR_POPUP_CHROME_ROWS: u16 = 6;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QrPopupContent {
+    Code {
+        lines: Vec<String>,
+        url: String,
+    },
+    TooSmall {
+        url: String,
+        need_cols: u16,
+        need_rows: u16,
+    },
+}
+
+pub fn qr_popup_content(
+    url_for_qr: &str,
+    url_for_display: &str,
+    cols: u16,
+    rows: u16,
+) -> QrPopupContent {
+    let (w, h) = required_size(url_for_qr);
+    if w == 0 || cols < w || rows < h + 2 {
+        return QrPopupContent::TooSmall {
+            url: url_for_display.to_string(),
+            need_cols: w + QR_POPUP_CHROME_COLS,
+            need_rows: h + QR_POPUP_CHROME_ROWS,
+        };
+    }
+    QrPopupContent::Code {
+        lines: render_qr_lines(url_for_qr),
+        url: url_for_display.to_string(),
+    }
+}
+
+pub fn qr_popup_size(url_for_qr: &str) -> (u16, u16) {
+    let (w, h) = required_size(url_for_qr);
+    (w + QR_POPUP_CHROME_COLS, h + QR_POPUP_CHROME_ROWS)
+}

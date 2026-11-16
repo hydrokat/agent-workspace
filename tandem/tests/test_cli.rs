@@ -241,6 +241,10 @@ fn test_all_subcommands_accepted() {
                 _ => false,
             }),
         ),
+        (
+            &["tandem", "web-qr"],
+            Box::new(|c| matches!(c, Command::WebQr)),
+        ),
     ];
 
     for (argv, validator) in cases {
@@ -261,6 +265,13 @@ fn test_subcommand_invalid_arguments_rejected() {
     assert!(parse_from(["tandem", "click-tab"]).is_err());
     assert!(parse_from(["tandem", "placeholder"]).is_err());
     assert!(parse_from(["tandem", "--nope"]).is_err());
+}
+
+#[test]
+fn test_web_qr_is_hidden_from_top_level_help() {
+    let mut cmd = build_parser();
+    let help = cmd.render_help().to_string();
+    assert!(!help.contains("web-qr"), "web-qr must be hidden:\n{help}");
 }
 
 use std::sync::{Arc, Mutex};
