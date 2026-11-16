@@ -448,6 +448,31 @@ pub fn check_respawn_pane(src_dir: &Path) -> Vec<String> {
     violations
 }
 
+pub fn check_factory_spawns_nothing(src_dir: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    let factory_dir = src_dir.join("factory");
+    let forbidden = ["std::process", "Command::new"];
+
+    for file in collect_rs_files(&factory_dir) {
+        let rel_path = file.strip_prefix(src_dir).unwrap_or(&file);
+        let content = fs::read_to_string(&file).unwrap_or_default();
+        for (line_no, line) in content.lines().enumerate() {
+            for pattern in &forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{}:{}: forbidden process spawning in factory '{}'",
+                        rel_path.display(),
+                        line_no + 1,
+                        pattern
+                    ));
+                }
+            }
+        }
+    }
+
+    violations
+}
+
 #[test]
 fn test_forbidden_tmux_operations_only_appear_in_the_guarded_client() {
     let src = manifest_dir().join("src");
@@ -481,6 +506,13 @@ fn test_no_network_crates_or_std_net() {
 fn test_respawn_pane_only_runs_through_the_layout_restart_paths() {
     let src = manifest_dir().join("src");
     let violations = check_respawn_pane(&src);
+    assert_eq!(violations, Vec::<String>::new());
+}
+
+#[test]
+fn test_factory_spawns_nothing() {
+    let src = manifest_dir().join("src");
+    let violations = check_factory_spawns_nothing(&src);
     assert_eq!(violations, Vec::<String>::new());
 }
 
@@ -536,6 +568,18 @@ fn test_negative_tos_violations_are_detected() {
     let v5 = check_respawn_pane(&tmp_src);
     assert_eq!(v5.len(), 1);
     assert!(v5[0].contains("arbitrary_kill"));
+
+    let tmp_factory = tmp_src.join("factory");
+    fs::create_dir_all(&tmp_factory).unwrap();
+    fs::write(
+        tmp_factory.join("bad.rs"),
+        "pub fn spawn() { let _ = std::process::Command::new(\"ls\"); }",
+    )
+    .unwrap();
+    let v6 = check_factory_spawns_nothing(&tmp_src);
+    assert_eq!(v6.len(), 2);
+    assert!(v6.iter().any(|v| v.contains("std::process")));
+    assert!(v6.iter().any(|v| v.contains("Command::new")));
 
     let _ = fs::remove_dir_all(&tmp);
 }
