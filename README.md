@@ -346,9 +346,15 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 ### Factory Mode (experimental)
 
-Factory Mode is an opt-in operating mode where an Orchestrator prepares an idea with you and, once you mark it ready, drives it toward a pull request. Start it with `./run.sh --factory` (or `tandem --factory`).
+Factory Mode is an opt-in operating mode where an Orchestrator prepares an idea with you and, once you mark it ready, freezes the plan for development. Start it with `./run.sh --factory` (or `tandem --factory`).
 
-Today this foundation ships the **Factory** tab (a read-only ideas board in the Status window, `Alt+f` / `Opt+f`), the `tandem factory` JSON commands (`status`, `idea new`, `idea list`, `idea show`, `events`, `rebuild`), and mode-isolated session state; automated agent runs do not exist yet. Factory Mode accelerates execution; approval, merge, and deployment stay with people.
+**Ideation walkthrough (e.g. *"Export team activity as CSV for the last 90 days"*):**
+1. **Start an idea**: Open the **Factory** tab (`Alt+f` / `Opt+f`, or in `tandem-web`) and create an idea, picking the Orchestrator CLI (`claude` or `agy`) and model, or run `tandem factory idea start --cli claude --model opus --title "Export team activity as CSV for the last 90 days"`.
+2. **Talk to the Orchestrator**: Describe the idea directly in the Orchestrator pane. The Orchestrator uses `factory-orchestrator` (and `/idea` for feasibility + planning) to record a feasibility study (`artifact put --kind feasibility`), assumptions (`idea assume`), and advance past Gate 1 (`idea select-direction`).
+3. **Answer decision-relevant questions**: Open questions tagged `idea:<id>` surface on the ideas board (`Needs you` / `Blockers`) and are answered in the **Queries** tab or `tandem-web` Queries inbox.
+4. **Review and mark `ready-for-development`**: Inspect the feasibility study, versioned plan, and assumptions in the **Factory** detail view (TUI or `tandem-web`). Only the user can mark an idea ready (`tandem factory idea ready <id> --confirm <id>` or the UI confirmation dialog), which freezes `plan-snapshot.md` with its SHA-256 hash. Nothing runs after the tag until the workflow engine ships; you can revoke `ready-for-development` before a run exists.
+
+> **User-only rule (known limit):** Refusing agent environments (`TANDEM_ROLE`, `TANDEM_SESSION_ID`, `TANDEM_FACTORY_IDEA`) is a guard-rail and audit trail (`approved_by` + `via`), not a sandbox—an agent running as the same OS user can inspect or unset environment variables. Approval, merge, and deployment stay with people.
 
 **Auto-update on launch.** Before checking dependencies, `run.sh` checks whether a newer agent-workspace release exists. When one is found, it applies the update (`npx --yes hydrokat/agent-workspace update --yes --no-link --no-update-clis --no-commit`), prints the old → new version and what changed, then re-execs the updated `run.sh`. If the workspace has no `manifest.json` (a dev checkout), if `npx` is not on `PATH`, or if the update fails, launch continues with the installed version.
 

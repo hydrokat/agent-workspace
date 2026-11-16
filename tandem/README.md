@@ -186,13 +186,28 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | Command | Purpose |
 |---|---|
 | `tandem factory status --json` | Report `enabled`, idea counts by state, settings, and log status |
-| `tandem factory idea new --title T --text X [--text-file PATH] [--owner O] --json` | Create a new idea (requires Factory Mode active) |
+| `tandem factory idea new --title T --text X [--text-file PATH] [--owner O] --json` | Create a new idea in Inbox |
+| `tandem factory idea start --cli <claude\|agy> --model M [--title T] --json` | Create an idea and launch its bound Orchestrator pane |
+| `tandem factory idea resume ID --json` | Reopen or focus a non-terminal idea's Orchestrator pane |
+| `tandem factory idea describe ID --title T --text-file F --json` | Set title and description (moves Inbox → Ideation) |
+| `tandem factory idea assume ID --text T --json` | Record an assumption (up to 30, 500 chars each) |
+| `tandem factory idea select-direction ID --json` | Advance Ideation → Planning (Gate 1: requires non-infeasible feasibility study) |
+| `tandem factory idea ready ID --confirm ID [--via tui\|web\|cli] --json` | Freeze `plan-snapshot.md` and mark `ready_for_development` (Gate 2, user-only) |
+| `tandem factory idea revoke-ready ID --json` | Revoke `ready_for_development` back to Planning before a run exists (user-only) |
 | `tandem factory idea list [--state S] --json` | List ideas sorted by `updated` descending |
-| `tandem factory idea show ID --json` | Show an idea and its events |
+| `tandem factory idea show ID --json` | Show idea, events, `questions`, and `plan_snapshot` verification |
+| `tandem factory artifact put ID --kind <feasibility\|plan> --file F [--verdict V] [--risk R] [--workflow W] --json` | Store versioned Markdown artifact (<= 256 KiB, UTF-8, no symlinks/control chars) |
+| `tandem factory artifact show ID --kind <feasibility\|plan> [--version N]` | Print a stored artifact |
+| `tandem factory question check ID --json` | Check open-question ceiling (exits `3` when >= 5 open questions) |
 | `tandem factory events [--since SEQ] [--idea ID] --json` | Read event log entries |
-| `tandem factory rebuild --json` | Rebuild materialized idea files from the event log (requires Factory Mode active) |
+| `tandem factory rebuild --json` | Rebuild materialized idea files from the event log |
 
-Exit codes: `0` success, `1` not found or invalid input, `2` Factory Mode is off, `3` actor not allowed or gate not met.
+Exit codes: `0` success, `1` not found or invalid input, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`), gate not met, or question ceiling reached.
+
+- **Required plan sections (`##`)**: `Scope`, `Acceptance criteria`, `Risks`, `Estimates`, `Workflow recommendation`.
+- **Question tagging**: Questions asked with `task = "idea:<id>"` feed `blockers`, `needs_you`, and Gate 2.
+- **User-only rule**: `ready` and `revoke-ready` refuse when `TANDEM_ROLE`, `TANDEM_SESSION_ID`, or `TANDEM_FACTORY_IDEA` is set. This is a guard-rail and audit trail (`approved_by`, `via`), not an OS sandbox.
+- **Factory tab & Web views**: TUI Factory tab (`Alt+f`) provides new idea (`Ctrl+Alt+n`), lifecycle filter, detail/artifact reader, mark ready (`Ctrl+Alt+y`), and revoke; `tandem-web` exposes `/api/workspaces/:id/factory/...` routes and the Factory board/detail UI when `factory.enabled` is true.
 
 ### Storage layout
 
