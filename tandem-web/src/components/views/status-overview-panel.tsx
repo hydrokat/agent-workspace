@@ -117,13 +117,13 @@ export function StatusOverviewPanel({ snapshot }: StatusOverviewPanelProps) {
           <div className="flex flex-col divide-y divide-border/50">
             {sessions.map((sess) => (
               <div
-                key={sess.session_id}
+                key={sess.id}
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2.5 text-xs"
               >
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-emerald-500" />
                   <span className="font-mono font-semibold text-foreground">
-                    {sess.session_id}
+                    {sess.name || sess.id}
                   </span>
                   {sess.role && (
                     <Badge variant="outline" className="text-[10px] capitalize">
@@ -142,7 +142,7 @@ export function StatusOverviewPanel({ snapshot }: StatusOverviewPanelProps) {
                       {sess.branch}
                     </span>
                   )}
-                  <span>Heartbeat: {formatAge(sess.last_heartbeat)}</span>
+                  <span>Heartbeat: {formatAge(sess.heartbeat)}</span>
                 </div>
               </div>
             ))}

@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceStream } from "@/hooks/use-workspace-stream";
 import { useTerminalSizeMode } from "@/hooks/use-terminal-size-mode";
 import { resolveActiveWorkspace } from "@/lib/workspace-selection";
+import { buildSprintDrilldown } from "@/lib/sprint-drilldown";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
 import type { IpCandidate } from "@/domain/models/network";
@@ -260,40 +261,57 @@ export default function DashboardPage() {
   );
 
   // Stable callback: reads workspace ID from ref at call time
-  const handleInteractAgent = useCallback(async (pane: PaneInfo) => {
+  const handleInteractPaneId = useCallback(async (paneId: string) => {
     const wsId = activeWorkspaceIdRef.current;
     if (!wsId) return;
-    setActivePaneId(pane.id);
+    setActivePaneId(paneId);
     try {
       await fetch(`/api/workspaces/${wsId}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "show", args: [pane.id] }),
+        body: JSON.stringify({ action: "show", args: [paneId] }),
       });
     } catch {
       // Best-effort; the stream will reflect the state
     }
     setActiveTab("terminal");
     setDesktopTab("terminal");
-  }, []); // stable — reads from ref, never from closed-over state
+  }, []);
+
+  const handleInteractAgent = useCallback(
+    (pane: PaneInfo) => handleInteractPaneId(pane.id),
+    [handleInteractPaneId]
+  );
 
   // Stable callback for terminal panel's onSelectAgent (AgentChip variant)
-  const handleInteractAgentByChip = useCallback(async (chip: AgentChip) => {
-    const wsId = activeWorkspaceIdRef.current;
-    if (!wsId) return;
-    setActivePaneId(chip.id);
-    try {
-      await fetch(`/api/workspaces/${wsId}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "show", args: [chip.id] }),
-      });
-    } catch {
-      // Best-effort
-    }
-    setActiveTab("terminal");
-    setDesktopTab("terminal");
-  }, []); // stable — reads from ref
+  const handleInteractAgentByChip = useCallback(
+    (chip: AgentChip) => handleInteractPaneId(chip.id),
+    [handleInteractPaneId]
+  );
+
+  const sprintDrilldown = useMemo(
+    () =>
+      snapshot?.snapshot?.sprint
+        ? buildSprintDrilldown({
+            sprint: snapshot.snapshot.sprint,
+            phases: snapshot.snapshot.phases ?? [],
+            ongoingTasks: snapshot.snapshot.ongoing_tasks ?? [],
+            claims: snapshot.snapshot.claims ?? [],
+            sessions: snapshot.snapshot.sessions ?? [],
+            panes: snapshot.panes ?? [],
+          })
+        : null,
+    [snapshot]
+  );
+
+  const renderSprint = () => (
+    <SprintProgressPanel
+      sprint={snapshot?.snapshot?.sprint}
+      drilldown={sprintDrilldown}
+      workspaceId={activeWorkspace?.id}
+      onInteract={handleInteractPaneId}
+    />
+  );
 
   const unreadQueries = snapshot?.snapshot?.queries?.length || 0;
 
@@ -424,9 +442,8 @@ export default function DashboardPage() {
         )}
 
         {/* Sprint view */}
-        {((desktopTab === "sprint" && isDesktop) || (activeTab === "work" && desktopTab === "sprint")) && (
-          <SprintProgressPanel sprint={snapshot?.snapshot?.sprint} />
-        )}
+        {((desktopTab === "sprint" && isDesktop) || (activeTab === "work" && desktopTab === "sprint")) &&
+          renderSprint()}
 
         {/* Spec view */}
         {((desktopTab === "spec" && isDesktop) || (activeTab === "work" && desktopTab === "spec")) && (
@@ -447,7 +464,7 @@ export default function DashboardPage() {
         {/* Mobile "work" combined view */}
         {activeTab === "work" && !["sprint", "spec", "task"].includes(desktopTab) && (
           <div className="flex flex-col gap-6">
-            <SprintProgressPanel sprint={snapshot?.snapshot?.sprint} />
+            {renderSprint()}
             <SpecProgressPanel
               phases={snapshot?.snapshot?.phases}
               ongoingSpecs={snapshot?.snapshot?.ongoing_specs}

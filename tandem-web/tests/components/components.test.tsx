@@ -243,11 +243,17 @@ describe("Tandem Web Components Suite", () => {
       entries: [],
       sessions: [
         {
-          session_id: "sess-abc",
+          id: "sess-abc",
+          cli: "gemini",
           role: "implementer",
           model: "gemini-4",
+          pane: "%1",
+          cwd: "/workspace/sample",
           branch: "feat/tandem-web-remote",
-          last_heartbeat: 1000,
+          worktree: "",
+          task: "",
+          heartbeat: 1000,
+          name: "",
         },
       ],
       claims: [],
@@ -315,8 +321,14 @@ describe("Tandem Web Components Suite", () => {
           {
             name: "p-007",
             title: "Remote Web",
-            status: "In Progress",
-            tasks: [{ id: "t-001", status: "Done" }, { id: "t-002", status: "Open" }],
+            branch: "feat/remote-web",
+            target: "trunk",
+            warning: "",
+            archived: false,
+            tasks: [
+              { id: "t-001", title: "Task 1", status: "Done", objectives_done: 1, objectives_total: 1 },
+              { id: "t-002", title: "Task 2", status: "Open", objectives_done: 0, objectives_total: 1 },
+            ],
           },
         ]}
       />
@@ -331,8 +343,11 @@ describe("Tandem Web Components Suite", () => {
           {
             phase: "p-007",
             task: "t-007",
-            session_id: "sess-1",
-            claimed_at: 1000,
+            session: "sess-1",
+            branch: "feat/remote-web",
+            worktree: "",
+            paths: [],
+            heartbeat: 1000,
           },
         ]}
       />

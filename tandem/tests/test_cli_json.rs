@@ -246,3 +246,181 @@ fn test_snapshot_json_factory_mode_includes_factory_block() {
 
     let _ = fs::remove_dir_all(ws);
 }
+
+fn collect_values_at_path<'a>(
+    node: &'a serde_json::Value,
+    segments: &[&str],
+) -> Vec<&'a serde_json::Value> {
+    if segments.is_empty() {
+        return vec![node];
+    }
+    let head = segments[0];
+    let rest = &segments[1..];
+    if let Some(key) = head.strip_suffix("[]") {
+        let Some(arr) = node.get(key).and_then(|v| v.as_array()) else {
+            return vec![];
+        };
+        if arr.is_empty() {
+            return vec![];
+        }
+        return arr
+            .iter()
+            .flat_map(|item| collect_values_at_path(item, rest))
+            .collect();
+    }
+    let Some(next) = node.get(head) else {
+        return vec![];
+    };
+    collect_values_at_path(next, rest)
+}
+
+#[test]
+fn test_snapshot_payload_matches_contract_keys() {
+    use tandem::commands::SnapshotPayload;
+    use tandem::coordination::schema::{Claim, Session};
+    use tandem::snapshot::{SprintPhaseView, SprintView, StatusSnapshot};
+    use tandem::sources::ongoing::{OngoingSpec, OngoingTask};
+    use tandem::sources::specs::{Phase, Task};
+    use tandem::tmux::tabs::PaneInfo;
+
+    let phase = Phase {
+        name: "p-001-sample".to_string(),
+        title: "Sample".to_string(),
+        branch: "feat/sample".to_string(),
+        target: "trunk".to_string(),
+        tasks: vec![Task {
+            id: "t-001".to_string(),
+            title: "Task 1".to_string(),
+            status: "In Progress".to_string(),
+            objectives_done: 1,
+            objectives_total: 2,
+        }],
+        warning: String::new(),
+        archived: false,
+    };
+
+    let claim = Claim {
+        phase: "p-001-sample".to_string(),
+        task: "t-001".to_string(),
+        session: "implementer-1".to_string(),
+        branch: "feat/sample".to_string(),
+        worktree: String::new(),
+        paths: vec![],
+        heartbeat: 1700000090.0,
+    };
+
+    let payload = SnapshotPayload {
+        workspace_id: "tandem-sample01".to_string(),
+        workspace_path: "/workspace/sample".to_string(),
+        quota_line: "Claude 5h: 12%".to_string(),
+        selected: vec!["%1".to_string()],
+        workspace_name: Some("Sample".to_string()),
+        window: None,
+        panes: vec![PaneInfo {
+            id: "%1".to_string(),
+            window: "@1".to_string(),
+            kind: "agent".to_string(),
+            role: "implementer".to_string(),
+            index: 1,
+            label: "implementer-1".to_string(),
+            name: "API worker".to_string(),
+            dead: false,
+            dead_status: None,
+            session: "implementer-1".to_string(),
+            spec: "p-001-sample".to_string(),
+            cli_version: "1.0.0".to_string(),
+        }],
+        snapshot: StatusSnapshot {
+            coord_exists: true,
+            now: 1700000100.0,
+            phases: vec![phase.clone()],
+            sessions: vec![Session {
+                id: "implementer-1".to_string(),
+                cli: "claude".to_string(),
+                role: "implementer".to_string(),
+                model: "sonnet-4".to_string(),
+                pane: "%1".to_string(),
+                cwd: "/workspace/sample".to_string(),
+                branch: "feat/sample".to_string(),
+                worktree: String::new(),
+                task: "p-001-sample t-001".to_string(),
+                heartbeat: 1700000090.0,
+                name: "Session One".to_string(),
+            }],
+            claims: vec![claim.clone()],
+            ongoing_specs: vec![OngoingSpec {
+                phase,
+                next_up: false,
+            }],
+            ongoing_tasks: vec![OngoingTask {
+                phase: "p-001-sample".to_string(),
+                task_id: "t-001".to_string(),
+                title: "Task 1".to_string(),
+                status: "In Progress".to_string(),
+                objectives_done: 1,
+                objectives_total: 2,
+                claim: Some(claim),
+                session_pane: Some("%1".to_string()),
+                stale: false,
+                status_mismatch: false,
+                next_step: None,
+            }],
+            sprint: Some(SprintView {
+                id: "s-001".to_string(),
+                title: "Sample Sprint".to_string(),
+                status: "locked".to_string(),
+                start_date: "2026-11-01".to_string(),
+                end_date: "2026-11-08".to_string(),
+                capacity_days: 5.0,
+                committed_days: 2.5,
+                overloaded: false,
+                done: 0,
+                total: 1,
+                must_remaining: 1,
+                phases: vec![SprintPhaseView {
+                    name: "p-001-sample".to_string(),
+                    moscow: "Must Have".to_string(),
+                    effort: 2.5,
+                    done: 0,
+                    total: 1,
+                    archived: false,
+                }],
+            }),
+            ..StatusSnapshot::default()
+        },
+    };
+
+    let val = serde_json::to_value(&payload).unwrap();
+    let keys_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../test/fixtures/snapshot-keys.txt");
+    let contents = fs::read_to_string(&keys_path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", keys_path.display()));
+
+    for raw_line in contents.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key_path, expected_type) = line.split_once(':').expect("line must be path:type");
+        let segments: Vec<&str> = key_path.split('.').collect();
+        let values = collect_values_at_path(&val, &segments);
+        assert!(
+            !values.is_empty(),
+            "Missing key path in Rust SnapshotPayload: {key_path}"
+        );
+        for v in values {
+            let actual = match v {
+                serde_json::Value::String(_) => "string",
+                serde_json::Value::Number(_) => "number",
+                serde_json::Value::Bool(_) => "boolean",
+                serde_json::Value::Array(_) => "array",
+                serde_json::Value::Object(_) => "object",
+                serde_json::Value::Null => "null",
+            };
+            assert_eq!(
+                actual, expected_type,
+                "Unexpected JSON type for {key_path}"
+            );
+        }
+    }
+}

@@ -1,0 +1,242 @@
+{
+  "workspace_id": "tandem-sample01",
+  "workspace_name": "Sample Workspace",
+  "workspace_path": "/workspace/sample-project",
+  "quota_line": "Claude 5h: 12% · 7d: 34%",
+  "selected": ["%1"],
+  "window": {
+    "cols": 120,
+    "rows": 40
+  },
+  "panes": [
+    {
+      "id": "%1",
+      "window": "@1",
+      "kind": "agent",
+      "role": "implementer",
+      "index": 1,
+      "label": "implementer-1",
+      "name": "API worker",
+      "dead": false,
+      "dead_status": null,
+      "session": "implementer-1",
+      "spec": "p-001-sample",
+      "cli_version": "1.0.0"
+    },
+    {
+      "id": "%2",
+      "window": "@1",
+      "kind": "agent",
+      "role": "implementer",
+      "index": 2,
+      "label": "implementer-2",
+      "name": "",
+      "dead": false,
+      "dead_status": null,
+      "session": "implementer-2",
+      "spec": "p-001-sample",
+      "cli_version": "1.0.0"
+    }
+  ],
+  "snapshot": {
+    "coord_exists": true,
+    "now": 1700000100.0,
+    "workspace_git": {
+      "branch": "feat/sample",
+      "dirty": false,
+      "commit_hash": "abc12345",
+      "ahead": 1,
+      "behind": 0
+    },
+    "codebase_git": {},
+    "codebases": [],
+    "conflicts": [],
+    "entries": [],
+    "queries": [],
+    "sessions": [
+      {
+        "id": "implementer-1",
+        "cli": "claude",
+        "role": "implementer",
+        "model": "sonnet-4",
+        "pane": "%1",
+        "cwd": "/workspace/sample-project",
+        "branch": "feat/sample",
+        "worktree": "",
+        "task": "p-001-sample t-002",
+        "heartbeat": 1700000090.0,
+        "name": "Session One"
+      },
+      {
+        "id": "implementer-2",
+        "cli": "codex",
+        "role": "implementer",
+        "model": "gpt-5",
+        "pane": "%2",
+        "cwd": "/workspace/sample-project",
+        "branch": "feat/sample",
+        "worktree": "",
+        "task": "p-001-sample t-003",
+        "heartbeat": 1699999000.0,
+        "name": ""
+      }
+    ],
+    "claims": [
+      {
+        "phase": "p-001-sample",
+        "task": "t-002",
+        "session": "implementer-1",
+        "branch": "feat/sample",
+        "worktree": "",
+        "paths": ["src/api.ts"],
+        "heartbeat": 1700000090.0
+      },
+      {
+        "phase": "p-001-sample",
+        "task": "t-003",
+        "session": "implementer-2",
+        "branch": "feat/sample",
+        "worktree": "",
+        "paths": ["src/worker.ts"],
+        "heartbeat": 1699999000.0
+      }
+    ],
+    "phases": [
+      {
+        "name": "p-001-sample",
+        "title": "Sample Phase One",
+        "branch": "feat/sample",
+        "target": "trunk",
+        "warning": "",
+        "archived": false,
+        "tasks": [
+          {
+            "id": "t-001",
+            "title": "Completed task",
+            "status": "Done",
+            "objectives_done": 3,
+            "objectives_total": 3
+          },
+          {
+            "id": "t-002",
+            "title": "Active claimed task",
+            "status": "In Progress",
+            "objectives_done": 1,
+            "objectives_total": 4
+          },
+          {
+            "id": "t-003",
+            "title": "Stale claimed task",
+            "status": "Pending",
+            "objectives_done": 0,
+            "objectives_total": 2
+          },
+          {
+            "id": "t-004",
+            "title": "Blocked task",
+            "status": "Blocked",
+            "objectives_done": 0,
+            "objectives_total": 1
+          }
+        ]
+      }
+    ],
+    "ongoing_specs": [
+      {
+        "phase": {
+          "name": "p-001-sample",
+          "title": "Sample Phase One",
+          "branch": "feat/sample",
+          "target": "trunk",
+          "warning": "",
+          "archived": false,
+          "tasks": [
+            {
+              "id": "t-001",
+              "title": "Completed task",
+              "status": "Done",
+              "objectives_done": 3,
+              "objectives_total": 3
+            }
+          ]
+        },
+        "next_up": false
+      }
+    ],
+    "ongoing_tasks": [
+      {
+        "phase": "p-001-sample",
+        "task_id": "t-002",
+        "title": "Active claimed task",
+        "status": "In Progress",
+        "objectives_done": 1,
+        "objectives_total": 4,
+        "claim": {
+          "phase": "p-001-sample",
+          "task": "t-002",
+          "session": "implementer-1",
+          "branch": "feat/sample",
+          "worktree": "",
+          "paths": ["src/api.ts"],
+          "heartbeat": 1700000090.0
+        },
+        "session_pane": "%1",
+        "stale": false,
+        "status_mismatch": false,
+        "next_step": null
+      },
+      {
+        "phase": "p-001-sample",
+        "task_id": "t-003",
+        "title": "Stale claimed task",
+        "status": "Pending",
+        "objectives_done": 0,
+        "objectives_total": 2,
+        "claim": {
+          "phase": "p-001-sample",
+          "task": "t-003",
+          "session": "implementer-2",
+          "branch": "feat/sample",
+          "worktree": "",
+          "paths": ["src/worker.ts"],
+          "heartbeat": 1699999000.0
+        },
+        "session_pane": "%2",
+        "stale": true,
+        "status_mismatch": true,
+        "next_step": null
+      }
+    ],
+    "sprint": {
+      "id": "s-001",
+      "title": "Sample Sprint",
+      "status": "locked",
+      "start_date": "2026-11-01",
+      "end_date": "2026-11-08",
+      "capacity_days": 5.0,
+      "committed_days": 4.0,
+      "overloaded": false,
+      "done": 1,
+      "total": 4,
+      "must_remaining": 3,
+      "phases": [
+        {
+          "name": "p-001-sample",
+          "moscow": "Must Have",
+          "effort": 2.5,
+          "done": 1,
+          "total": 4,
+          "archived": false
+        },
+        {
+          "name": "p-002-sample",
+          "moscow": "Should Have",
+          "effort": 1.5,
+          "done": 0,
+          "total": 0,
+          "archived": false
+        }
+      ]
+    }
+  }
+}
