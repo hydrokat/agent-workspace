@@ -391,8 +391,8 @@ fn test_snapshot_payload_matches_contract_keys() {
     };
 
     let val = serde_json::to_value(&payload).unwrap();
-    let keys_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../test/fixtures/snapshot-keys.txt");
+    let keys_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/fixtures/snapshot-keys.txt");
     let contents = fs::read_to_string(&keys_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", keys_path.display()));
 
@@ -417,10 +417,7 @@ fn test_snapshot_payload_matches_contract_keys() {
                 serde_json::Value::Object(_) => "object",
                 serde_json::Value::Null => "null",
             };
-            assert_eq!(
-                actual, expected_type,
-                "Unexpected JSON type for {key_path}"
-            );
+            assert_eq!(actual, expected_type, "Unexpected JSON type for {key_path}");
         }
     }
 }
