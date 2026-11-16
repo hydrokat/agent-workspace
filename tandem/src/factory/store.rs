@@ -381,6 +381,6 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
 fn current_time() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
+        .map(|d| (d.as_millis() as f64) / 1000.0)
         .unwrap_or(0.0)
 }
