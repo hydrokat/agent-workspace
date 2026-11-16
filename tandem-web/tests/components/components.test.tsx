@@ -51,21 +51,24 @@ describe("Tandem Web Components Suite", () => {
     expect(html).toContain("Live SSE");
   });
 
-  it("MobileBottomNav renders 5 tabs and displays unread query badge", () => {
+  it("MobileBottomNav renders 6 tabs in order including Files and marks active tab", () => {
     const html = renderToStaticMarkup(
       <MobileBottomNav
-        activeTab="status"
+        activeTab="files"
         onSelectTab={() => {}}
         unreadQueryCount={3}
       />
     );
 
-    expect(html).toContain("Status");
-    expect(html).toContain("Work");
-    expect(html).toContain("Queries");
-    expect(html).toContain("Terminal");
-    expect(html).toContain("Settings");
+    const labels = ["Status", "Work", "Files", "Queries", "Terminal", "Settings"];
+    let lastIndex = -1;
+    for (const label of labels) {
+      const idx = html.indexOf(label);
+      expect(idx).toBeGreaterThan(lastIndex);
+      lastIndex = idx;
+    }
     expect(html).toContain(">3<");
+    expect(html).toMatch(/aria-current="page"[^>]*>[\s\S]*?Files/);
   });
 
   it("WorkspaceCard renders active badge, workspace name and opaque ID", () => {

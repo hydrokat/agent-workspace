@@ -9,6 +9,7 @@ import { SprintProgressPanel } from "@/components/views/sprint-progress-panel";
 import { SpecProgressPanel } from "@/components/views/spec-progress-panel";
 import { TaskProgressPanel } from "@/components/views/task-progress-panel";
 import { QueriesInboxList } from "@/components/queries/queries-inbox-list";
+import { FilesPanel } from "@/components/files/files-panel";
 import { TerminalAttachPanel } from "@/components/terminal/terminal-attach-panel";
 import { WebSettingsPanel } from "@/components/settings/web-settings-panel";
 import { HostConnectionDialog } from "@/components/connection/host-connection-dialog";
@@ -382,7 +383,13 @@ export default function DashboardPage() {
           setDesktopTab(val);
           if (val === "sprint" || val === "spec" || val === "task") {
             setActiveTab("work");
-          } else if (val === "status" || val === "queries" || val === "terminal" || val === "settings") {
+          } else if (
+            val === "status" ||
+            val === "files" ||
+            val === "queries" ||
+            val === "terminal" ||
+            val === "settings"
+          ) {
             setActiveTab(val as NavTabId);
           }
         }}>
@@ -391,6 +398,7 @@ export default function DashboardPage() {
             <TabsTrigger value="sprint">Sprint</TabsTrigger>
             <TabsTrigger value="spec">Spec</TabsTrigger>
             <TabsTrigger value="task">Task</TabsTrigger>
+            <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="queries">
               Queries {unreadQueries > 0 && `(${unreadQueries})`}
             </TabsTrigger>
@@ -449,6 +457,11 @@ export default function DashboardPage() {
               ongoingTasks={snapshot?.snapshot?.ongoing_tasks}
             />
           </div>
+        )}
+
+        {/* Files tab */}
+        {((desktopTab === "files" && isDesktop) || activeTab === "files") && activeWorkspace && (
+          <FilesPanel workspaceId={activeWorkspace.id} workspaceName={activeWorkspace.name} />
         )}
 
         {/* Queries tab */}
