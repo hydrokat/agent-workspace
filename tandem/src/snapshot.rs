@@ -1,5 +1,7 @@
 pub use crate::coordination::schema::{Claim, Query, STALE_SECONDS, Session};
 use crate::coordination::store::CoordStore;
+use crate::factory::model::{IdeaState, Risk};
+use crate::factory::store::FactoryStore;
 use crate::sources::codebases::{Codebase, list_codebases};
 use crate::sources::conflicts::{Conflict, find_conflicts};
 use crate::sources::gitinfo::{GitInfo, git_info};
@@ -78,6 +80,32 @@ impl SprintView {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdeaCard {
+    pub id: String,
+    pub title: String,
+    pub state: IdeaState,
+    pub owner: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk: Option<Risk>,
+    #[serde(default)]
+    pub blockers: usize,
+    pub updated: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FactorySummary {
+    pub enabled: bool,
+    #[serde(default)]
+    pub ideas: Vec<IdeaCard>,
+    #[serde(default)]
+    pub needs_you: usize,
+    #[serde(default)]
+    pub by_state: HashMap<String, usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StatusSnapshot {
     #[serde(default)]
@@ -108,6 +136,8 @@ pub struct StatusSnapshot {
     pub ongoing_specs: Vec<OngoingSpec>,
     #[serde(default)]
     pub ongoing_tasks: Vec<OngoingTask>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factory: Option<FactorySummary>,
 }
 
 impl StatusSnapshot {
@@ -127,7 +157,76 @@ impl StatusSnapshot {
     }
 }
 
+fn state_key(state: IdeaState) -> &'static str {
+    match state {
+        IdeaState::Inbox => "inbox",
+        IdeaState::Ideation => "ideation",
+        IdeaState::Planning => "planning",
+        IdeaState::ReadyForDevelopment => "ready_for_development",
+        IdeaState::Queued => "queued",
+        IdeaState::InDevelopment => "in_development",
+        IdeaState::Review => "review",
+        IdeaState::Delivered => "delivered",
+        IdeaState::Cancelled => "cancelled",
+    }
+}
+
+fn collect_factory_summary(workspace: &Path) -> FactorySummary {
+    let fstore = FactoryStore::new(workspace);
+    match fstore.list_ideas() {
+        Ok(ideas) => {
+            let mut by_state = HashMap::new();
+            let mut cards = Vec::with_capacity(ideas.len());
+            for idea in ideas {
+                *by_state
+                    .entry(state_key(idea.state).to_string())
+                    .or_insert(0) += 1;
+                cards.push(IdeaCard {
+                    id: idea.id,
+                    title: idea.title,
+                    state: idea.state,
+                    owner: idea.owner,
+                    risk: idea.risk,
+                    blockers: 0,
+                    updated: idea.updated,
+                });
+            }
+            FactorySummary {
+                enabled: true,
+                ideas: cards,
+                needs_you: 0,
+                by_state,
+                error: None,
+            }
+        }
+        Err(err) => {
+            let reason = err
+                .to_string()
+                .lines()
+                .next()
+                .unwrap_or("unknown error")
+                .to_string();
+            FactorySummary {
+                enabled: true,
+                ideas: Vec::new(),
+                needs_you: 0,
+                by_state: HashMap::new(),
+                error: Some(reason),
+            }
+        }
+    }
+}
+
 pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> StatusSnapshot {
+    collect_with_factory(workspace, store, git_timeout, false)
+}
+
+pub fn collect_with_factory(
+    workspace: &Path,
+    store: &CoordStore,
+    git_timeout: Duration,
+    factory_enabled: bool,
+) -> StatusSnapshot {
     let codebases = list_codebases(workspace);
     let claims = store.claims();
     let codebase_git = codebases
@@ -151,6 +250,11 @@ pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> S
 
     let ongoing_specs = ongoing_specs(&phases, &claims, &entries, raw_sprint.as_ref());
     let ongoing_tasks = ongoing_tasks(&phases, &claims, &sessions, &entries, now);
+    let factory = if factory_enabled {
+        Some(collect_factory_summary(workspace))
+    } else {
+        None
+    };
 
     StatusSnapshot {
         phases,
@@ -167,5 +271,6 @@ pub fn collect(workspace: &Path, store: &CoordStore, git_timeout: Duration) -> S
         sprint,
         ongoing_specs,
         ongoing_tasks,
+        factory,
     }
 }

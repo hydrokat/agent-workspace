@@ -14,7 +14,7 @@ use ratatui::widgets::{StatefulWidget, Widget};
 use crate::config::Config;
 use crate::coordination::store::CoordStore;
 use crate::notice::read_notice;
-use crate::snapshot::{StatusSnapshot, collect};
+use crate::snapshot::{StatusSnapshot, collect_with_factory};
 use crate::status::banners::{BannerAction, OfferBanner, UpdateBanner};
 use crate::status::notify::Notifier;
 use crate::status::queries_tab::QueriesTab;
@@ -23,7 +23,10 @@ use crate::status::spec_tab;
 use crate::status::sprint_tab;
 use crate::status::task_tab;
 use crate::tmux::client::TmuxClient;
-use crate::tmux::keys::{GO_TO_AGENT, STATUS_REFRESH, crossterm_key, display_shortcut};
+use crate::tmux::keys::{
+    FACTORY_TAB_KEY, GO_TO_AGENT, STATUS_REFRESH, crossterm_key, display_shortcut,
+    matches_crossterm_event,
+};
 use crate::ui::collapsible::Collapsible;
 use crate::ui::footer::{Footer, FooterItem};
 use crate::ui::option_list::{OptionItem, OptionList, OptionListState};
@@ -48,6 +51,7 @@ pub enum StatusTab {
     Queries,
     Web,
     Settings,
+    Factory,
 }
 
 impl StatusTab {
@@ -61,6 +65,25 @@ impl StatusTab {
         StatusTab::Settings,
     ];
 
+    pub const ALL_FACTORY: [StatusTab; 8] = [
+        StatusTab::Status,
+        StatusTab::Sprint,
+        StatusTab::Spec,
+        StatusTab::Task,
+        StatusTab::Queries,
+        StatusTab::Web,
+        StatusTab::Settings,
+        StatusTab::Factory,
+    ];
+
+    pub fn visible(factory: bool) -> &'static [StatusTab] {
+        if factory {
+            &Self::ALL_FACTORY
+        } else {
+            &Self::ALL
+        }
+    }
+
     pub fn index(&self) -> usize {
         match self {
             StatusTab::Status => 0,
@@ -70,44 +93,36 @@ impl StatusTab {
             StatusTab::Queries => 4,
             StatusTab::Web => 5,
             StatusTab::Settings => 6,
+            StatusTab::Factory => 7,
         }
     }
 
     pub fn from_index(index: usize) -> Option<Self> {
-        match index {
-            0 => Some(StatusTab::Status),
-            1 => Some(StatusTab::Sprint),
-            2 => Some(StatusTab::Spec),
-            3 => Some(StatusTab::Task),
-            4 => Some(StatusTab::Queries),
-            5 => Some(StatusTab::Web),
-            6 => Some(StatusTab::Settings),
-            _ => None,
-        }
+        Self::from_index_for(index, false)
+    }
+
+    pub fn from_index_for(index: usize, factory: bool) -> Option<Self> {
+        Self::visible(factory).get(index).copied()
     }
 
     pub fn next(&self) -> Self {
-        match self {
-            StatusTab::Status => StatusTab::Sprint,
-            StatusTab::Sprint => StatusTab::Spec,
-            StatusTab::Spec => StatusTab::Task,
-            StatusTab::Task => StatusTab::Queries,
-            StatusTab::Queries => StatusTab::Web,
-            StatusTab::Web => StatusTab::Settings,
-            StatusTab::Settings => StatusTab::Status,
-        }
+        self.next_for(false)
+    }
+
+    pub fn next_for(&self, factory: bool) -> Self {
+        let tabs = Self::visible(factory);
+        let pos = tabs.iter().position(|t| t == self).unwrap_or(0);
+        tabs[(pos + 1) % tabs.len()]
     }
 
     pub fn prev(&self) -> Self {
-        match self {
-            StatusTab::Status => StatusTab::Settings,
-            StatusTab::Sprint => StatusTab::Status,
-            StatusTab::Spec => StatusTab::Sprint,
-            StatusTab::Task => StatusTab::Spec,
-            StatusTab::Queries => StatusTab::Task,
-            StatusTab::Web => StatusTab::Queries,
-            StatusTab::Settings => StatusTab::Web,
-        }
+        self.prev_for(false)
+    }
+
+    pub fn prev_for(&self, factory: bool) -> Self {
+        let tabs = Self::visible(factory);
+        let pos = tabs.iter().position(|t| t == self).unwrap_or(0);
+        tabs[(pos + tabs.len() - 1) % tabs.len()]
     }
 
     pub fn title(&self, open_queries: usize) -> String {
@@ -125,6 +140,7 @@ impl StatusTab {
             }
             StatusTab::Web => "Web".to_string(),
             StatusTab::Settings => "Settings".to_string(),
+            StatusTab::Factory => "Factory".to_string(),
         }
     }
 
@@ -143,6 +159,7 @@ impl StatusTab {
             }
             StatusTab::Web => "Web".to_string(),
             StatusTab::Settings => "Set".to_string(),
+            StatusTab::Factory => "Fac".to_string(),
         }
     }
 
@@ -161,6 +178,7 @@ impl StatusTab {
             }
             StatusTab::Web => "6".to_string(),
             StatusTab::Settings => "7".to_string(),
+            StatusTab::Factory => "8".to_string(),
         }
     }
 }
@@ -199,6 +217,7 @@ pub struct StatusApp {
     pub queries_tab: QueriesTab,
     pub settings_tab: crate::status::settings_tab::SettingsTab,
     pub web_tab: crate::status::web_tab::WebTab,
+    pub factory_tab: crate::status::factory_tab::FactoryTab,
     pub web_daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
     pub web_state_dir: Option<PathBuf>,
     pub deps: Arc<dyn crate::web_deps::DepsRuntime>,
@@ -234,7 +253,8 @@ impl StatusApp {
         let queries_tab = QueriesTab::new(store_arc.clone(), tmux.clone());
         let notifier = Notifier::new(tmux.clone());
 
-        let tab_bar = TabBar::from_tabs(&StatusTab::ALL, 0, StatusTab::Status);
+        let factory = config.as_ref().is_some_and(|c| c.factory);
+        let tab_bar = TabBar::from_tabs(StatusTab::visible(factory), 0, StatusTab::Status);
 
         let mut app = Self {
             workspace,
@@ -273,6 +293,7 @@ impl StatusApp {
             queries_tab,
             settings_tab: crate::status::settings_tab::SettingsTab::default(),
             web_tab: crate::status::web_tab::WebTab::default(),
+            factory_tab: crate::status::factory_tab::FactoryTab::default(),
             web_daemon: Arc::new(crate::web_manager::SystemDaemonRunner),
             web_state_dir: None,
             deps: Arc::new(crate::web_deps::SystemDepsRuntime),
@@ -353,8 +374,17 @@ impl StatusApp {
         }
     }
 
+    pub fn is_factory(&self) -> bool {
+        self.config.as_ref().is_some_and(|c| c.factory)
+    }
+
     pub fn action_refresh_now(&mut self) {
-        let snapshot = collect(&self.workspace, &self.store, Duration::from_secs(3));
+        let snapshot = collect_with_factory(
+            &self.workspace,
+            &self.store,
+            Duration::from_secs(3),
+            self.is_factory(),
+        );
         self.apply(snapshot);
         self.last_refresh = self.now();
     }
@@ -400,7 +430,13 @@ impl StatusApp {
             }
         }
 
-        self.tab_bar = TabBar::from_tabs(&StatusTab::ALL, self.snapshot.open_queries(), self.tab);
+        self.factory_tab.sync(self.snapshot.factory.as_ref());
+
+        self.tab_bar = TabBar::from_tabs(
+            StatusTab::visible(self.is_factory()),
+            self.snapshot.open_queries(),
+            self.tab,
+        );
 
         self.notifier.notify(&self.snapshot.queries);
         self.dirty = true;
@@ -762,6 +798,11 @@ impl StatusApp {
             return;
         }
 
+        if self.is_factory() && matches_crossterm_event(FACTORY_TAB_KEY, event, &self.platform) {
+            self.set_tab(StatusTab::Factory);
+            return;
+        }
+
         if let Ok(k_update) = crossterm_key(UPDATE_NOW_KEY)
             && event.code == k_update.code
             && event.modifiers == k_update.modifiers
@@ -778,7 +819,7 @@ impl StatusApp {
                     .contains(crossterm::event::KeyModifiers::SHIFT));
 
         if is_shift_tab {
-            self.set_tab(self.tab.prev());
+            self.set_tab(self.tab.prev_for(self.is_factory()));
             return;
         }
 
@@ -813,6 +854,10 @@ impl StatusApp {
                     self.set_tab(StatusTab::Settings);
                     return;
                 }
+                KeyCode::Char('8') if self.is_factory() => {
+                    self.set_tab(StatusTab::Factory);
+                    return;
+                }
                 _ => {}
             }
         }
@@ -826,7 +871,7 @@ impl StatusApp {
 
         if self.tab == StatusTab::Web {
             if !web_captures && event.code == KeyCode::Tab {
-                self.set_tab(self.tab.next());
+                self.set_tab(self.tab.next_for(self.is_factory()));
                 return;
             }
             let action = self.web_tab.handle_key(event);
@@ -840,7 +885,7 @@ impl StatusApp {
                 && self.settings_tab.editing_workspace_name.is_none()
                 && event.code == KeyCode::Tab
             {
-                self.set_tab(self.tab.next());
+                self.set_tab(self.tab.next_for(self.is_factory()));
                 return;
             }
             if let Some(action) = self.settings_tab.handle_key(event) {
@@ -866,7 +911,7 @@ impl StatusApp {
         }
 
         if event.code == KeyCode::Tab {
-            self.set_tab(self.tab.next());
+            self.set_tab(self.tab.next_for(self.is_factory()));
             return;
         }
 
@@ -907,6 +952,25 @@ impl StatusApp {
                 let lines = task_tab::lines(&self.snapshot, view_w);
                 self.task_scroll.handle_key(event.code, lines.len(), view_h);
             }
+            StatusTab::Factory => {
+                let ideas = self
+                    .snapshot
+                    .factory
+                    .as_ref()
+                    .map(|f| f.ideas.as_slice())
+                    .unwrap_or(&[]);
+                match event.code {
+                    KeyCode::Up => {
+                        self.factory_tab.select_prev(ideas);
+                        self.dirty = true;
+                    }
+                    KeyCode::Down => {
+                        self.factory_tab.select_next(ideas);
+                        self.dirty = true;
+                    }
+                    _ => {}
+                }
+            }
             StatusTab::Queries | StatusTab::Web | StatusTab::Settings => {}
         }
     }
@@ -944,7 +1008,7 @@ impl StatusApp {
                         self.tab_bar
                             .click_at(col, self.tabs_area.x, self.tabs_area.width)
                 {
-                    if let Some(tab) = StatusTab::from_index(new_idx) {
+                    if let Some(tab) = StatusTab::from_index_for(new_idx, self.is_factory()) {
                         self.set_tab(tab);
                     }
                     return;
@@ -1038,6 +1102,20 @@ impl StatusApp {
                         self.task_scroll
                             .handle_mouse(event.kind, lines.len(), view_h);
                     }
+                    StatusTab::Factory => {
+                        let ideas = self
+                            .snapshot
+                            .factory
+                            .as_ref()
+                            .map(|f| f.ideas.as_slice())
+                            .unwrap_or(&[]);
+                        match event.kind {
+                            MouseEventKind::ScrollUp => self.factory_tab.select_prev(ideas),
+                            MouseEventKind::ScrollDown => self.factory_tab.select_next(ideas),
+                            _ => {}
+                        }
+                        self.dirty = true;
+                    }
                     _ => {}
                 }
             }
@@ -1121,6 +1199,9 @@ impl StatusApp {
                 }
                 StatusTab::Settings => {
                     self.settings_tab.render(chunks[3], buf);
+                }
+                StatusTab::Factory => {
+                    self.factory_tab.render(&self.snapshot, chunks[3], buf);
                 }
             }
         }
@@ -1244,11 +1325,12 @@ impl StatusApp {
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
         let d = |k: &str| display_shortcut(k, &self.platform).unwrap_or_else(|_| k.to_string());
+        let jump_range = if self.is_factory() { "1-8" } else { "1-7" };
         let mut items = Vec::new();
         match self.tab {
             StatusTab::Status => {
                 items.push(FooterItem::new("Tab", "Switch tabs"));
-                items.push(FooterItem::new("1-7", "Jump"));
+                items.push(FooterItem::new(jump_range, "Jump"));
                 items.push(FooterItem::new("↑↓", "Move"));
                 items.push(FooterItem::new(d(GO_TO_AGENT), "Go to agent"));
                 items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
@@ -1257,7 +1339,7 @@ impl StatusApp {
             }
             StatusTab::Sprint | StatusTab::Spec | StatusTab::Task => {
                 items.push(FooterItem::new("Tab", "Switch tabs"));
-                items.push(FooterItem::new("1-7", "Jump"));
+                items.push(FooterItem::new(jump_range, "Jump"));
                 items.push(FooterItem::new("↑↓", "Scroll"));
                 items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
                 items.push(FooterItem::new(d("Alt+s"), "Status"));
@@ -1266,7 +1348,7 @@ impl StatusApp {
             StatusTab::Queries => {
                 items.push(FooterItem::new("Tab", "Next element"));
                 items.push(FooterItem::new("Shift+Tab", "Prev tab"));
-                items.push(FooterItem::new("1-7", "Jump"));
+                items.push(FooterItem::new(jump_range, "Jump"));
                 items.push(FooterItem::new("↑↓", "Move"));
                 items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
                 items.push(FooterItem::new(d("Alt+s"), "Status"));
@@ -1288,6 +1370,14 @@ impl StatusApp {
                 items.push(FooterItem::new("←→", "Change"));
                 items.push(FooterItem::new("Enter", "Activate"));
                 items.push(FooterItem::new("Tab", "Next tab"));
+            }
+            StatusTab::Factory => {
+                items.push(FooterItem::new("Tab", "Switch tabs"));
+                items.push(FooterItem::new(jump_range, "Jump"));
+                items.push(FooterItem::new("↑↓", "Move"));
+                items.push(FooterItem::new(d(STATUS_REFRESH), "Refresh"));
+                items.push(FooterItem::new(d("Alt+s"), "Status"));
+                items.push(FooterItem::new(d("Alt+q"), "Queries"));
             }
         }
         if self.offer_banner.is_some() {

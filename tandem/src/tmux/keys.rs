@@ -11,6 +11,7 @@ pub const RESIZE_STEP_ROWS: usize = 2;
 pub const STATUS_REFRESH: &str = "Alt+r";
 pub const GO_TO_AGENT: &str = "Alt+g";
 pub const WITHDRAW: &str = "Alt+w";
+pub const FACTORY_TAB_KEY: &str = "Alt+f";
 pub const WIZARD_ADD: &str = "Alt+a";
 pub const WIZARD_DELETE: &str = "Alt+d";
 pub const WIZARD_FILTER: &str = "Alt+f";
@@ -828,8 +829,13 @@ pub fn wizard_help_lines(platform: &str) -> Vec<String> {
 }
 
 pub fn help_lines(platform: &str, km: &[Binding]) -> Vec<String> {
+    help_lines_with_factory(platform, km, false)
+}
+
+pub fn help_lines_with_factory(platform: &str, km: &[Binding], factory: bool) -> Vec<String> {
     let d = |raw: &str| display_shortcut(raw, platform).unwrap_or_else(|_| raw.to_string());
     let resize_k = d(&key_for("resize", km));
+    let tab_range = if factory { "1-8 direct" } else { "1-7 direct" };
     let mut lines = vec![
         "tandem keys (agents in sidebar, main grid, status below)".to_string(),
         String::new(),
@@ -849,12 +855,23 @@ pub fn help_lines(platform: &str, km: &[Binding]) -> Vec<String> {
         ),
         String::new(),
         "Status & Queries window".to_string(),
-        "  Status    Tab          switch between tabs (1-7 direct)".to_string(),
-        format!("            {:<12} refresh the status now", d(STATUS_REFRESH)),
+        format!("  Status    Tab          switch between tabs ({tab_range})"),
+        format!(
+            "            {:<12} refresh the status now",
+            d(STATUS_REFRESH)
+        ),
         format!(
             "            {:<12} go to the highlighted or asking agent's pane",
             d(GO_TO_AGENT)
         ),
+    ]);
+    if factory {
+        lines.push(format!(
+            "  Factory   {:<12} open the Factory ideas board",
+            d(FACTORY_TAB_KEY)
+        ));
+    }
+    lines.extend([
         "  Queries   Enter        answer the selected open question".to_string(),
         "            1-9          fill the answer with a numbered option".to_string(),
         "            Ctrl+S       send the answer".to_string(),
