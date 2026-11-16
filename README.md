@@ -178,6 +178,8 @@ What it does:
 5. Optionally attaches to the workspace's live `tmux` session via `ttyd` with touch modifier buttons
 6. Maintains a strict 100% ToS air-gap: zero keystroke injection or scraping into AI agent panes
 
+**File browser:** `tandem-web` exposes read-only file browsing, text preview (up to 256 KiB), and attachment download for registered workspaces and directories linked directly under `codebase-symlinks/`. Symlinks or paths resolving outside those roots are refused, and a built-in deny list blocks common secret paths (such as `.git`, `.ssh`, `.env`, private keys, and credential files). The deny list is a convenience guard, not a substitute for keeping secrets out of a directory you expose over a network.
+
 ---
 
 ## Flags
