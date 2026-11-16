@@ -1,3 +1,10 @@
+import type {
+  ArtifactKind,
+  FactoryCli,
+  Idea,
+  IdeaDetail,
+  ReadyResult,
+} from "../models/factory";
 import type { IpCandidate } from "../models/network";
 import type { WorkspaceSnapshotPayload } from "../models/snapshot";
 import type { WorkspaceEntry } from "../models/workspace";
@@ -32,4 +39,20 @@ export interface ITandemGateway {
   listIps(): Promise<ListIpsResult>;
   executeAction(workspacePath: string, action: AllowedTandemAction, args?: string[]): Promise<void>;
   watchSnapshot(workspacePath: string, handlers: SnapshotWatchHandlers): SnapshotWatch;
+  factoryListIdeas(workspacePath: string): Promise<Idea[]>;
+  factoryShowIdea(workspacePath: string, ideaId: string): Promise<IdeaDetail>;
+  factoryReadArtifact(
+    workspacePath: string,
+    ideaId: string,
+    kind: ArtifactKind,
+    version?: number
+  ): Promise<string>;
+  factoryStartIdea(
+    workspacePath: string,
+    cli: FactoryCli,
+    model: string,
+    title?: string
+  ): Promise<Idea>;
+  factoryMarkReady(workspacePath: string, ideaId: string): Promise<ReadyResult>;
+  factoryRevokeReady(workspacePath: string, ideaId: string): Promise<Idea>;
 }

@@ -80,6 +80,13 @@ class MockGateway implements ITandemGateway {
   watchSnapshot(_workspacePath: string, _handlers: SnapshotWatchHandlers): SnapshotWatch {
     return { stop() {} };
   }
+
+  async factoryListIdeas() { return []; }
+  async factoryShowIdea(): Promise<never> { throw new Error("unused"); }
+  async factoryReadArtifact() { return ""; }
+  async factoryStartIdea(): Promise<never> { throw new Error("unused"); }
+  async factoryMarkReady(): Promise<never> { throw new Error("unused"); }
+  async factoryRevokeReady(): Promise<never> { throw new Error("unused"); }
 }
 
 describe("Application Use Cases", () => {
