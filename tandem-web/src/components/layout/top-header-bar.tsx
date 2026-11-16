@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { QrCode } from "lucide-react";
+import { QrCode, Settings } from "lucide-react";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
 import type { WebSettings } from "@/domain/models/settings";
 
@@ -12,6 +12,8 @@ interface TopHeaderBarProps {
   connected: boolean;
   onOpenDrawer: () => void;
   onOpenHostConnection?: () => void;
+  showMobileSettingsButton?: boolean;
+  onOpenSettings?: () => void;
 }
 
 export function TopHeaderBar({
@@ -20,6 +22,8 @@ export function TopHeaderBar({
   connected,
   onOpenDrawer,
   onOpenHostConnection,
+  showMobileSettingsButton = false,
+  onOpenSettings,
 }: TopHeaderBarProps) {
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -65,6 +69,18 @@ export function TopHeaderBar({
       </div>
 
       <div className="flex items-center gap-2">
+        {showMobileSettingsButton && onOpenSettings && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onOpenSettings}
+            className="md:hidden min-h-11 min-w-11"
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        )}
         {onOpenHostConnection && (
           <Button
             variant="outline"

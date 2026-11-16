@@ -23,6 +23,8 @@ interface ResponsiveAppShellProps {
   onSelectWorkspace: (workspace: WorkspaceEntry) => void;
   onOpenHostConnection?: () => void;
   unreadQueryCount?: number;
+  factoryEnabled?: boolean;
+  factoryNeedsYouCount?: number;
   children: React.ReactNode;
 }
 
@@ -37,6 +39,8 @@ export function ResponsiveAppShell({
   onSelectWorkspace,
   onOpenHostConnection,
   unreadQueryCount = 0,
+  factoryEnabled = false,
+  factoryNeedsYouCount = 0,
   children,
 }: ResponsiveAppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -49,6 +53,8 @@ export function ResponsiveAppShell({
         connected={connected}
         onOpenDrawer={() => setDrawerOpen(true)}
         onOpenHostConnection={onOpenHostConnection}
+        showMobileSettingsButton={factoryEnabled}
+        onOpenSettings={() => onSelectTab("settings")}
       />
 
       {!connected && (
@@ -132,6 +138,8 @@ export function ResponsiveAppShell({
         activeTab={activeTab}
         onSelectTab={onSelectTab}
         unreadQueryCount={unreadQueryCount}
+        factoryEnabled={factoryEnabled}
+        factoryNeedsYouCount={factoryNeedsYouCount}
       />
     </div>
   );

@@ -1,14 +1,16 @@
 "use client";
 
-import { Activity, FolderOpen, Layers, MessageSquare, Terminal, Settings } from "lucide-react";
+import { Activity, Factory, FolderOpen, Layers, MessageSquare, Terminal, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-export type NavTabId = "status" | "work" | "files" | "queries" | "terminal" | "settings";
+export type NavTabId = "status" | "work" | "files" | "queries" | "terminal" | "factory" | "settings";
 
 interface MobileBottomNavProps {
   activeTab: NavTabId;
   onSelectTab: (tab: NavTabId) => void;
   unreadQueryCount?: number;
+  factoryEnabled?: boolean;
+  factoryNeedsYouCount?: number;
 }
 
 interface NavItem {
@@ -22,6 +24,8 @@ export function MobileBottomNav({
   activeTab,
   onSelectTab,
   unreadQueryCount = 0,
+  factoryEnabled = false,
+  factoryNeedsYouCount = 0,
 }: MobileBottomNavProps) {
   const items: NavItem[] = [
     { id: "status", label: "Status", icon: Activity },
@@ -29,7 +33,9 @@ export function MobileBottomNav({
     { id: "files", label: "Files", icon: FolderOpen },
     { id: "queries", label: "Queries", icon: MessageSquare, badge: unreadQueryCount },
     { id: "terminal", label: "Terminal", icon: Terminal },
-    { id: "settings", label: "Settings", icon: Settings },
+    factoryEnabled
+      ? { id: "factory", label: "Factory", icon: Factory, badge: factoryNeedsYouCount }
+      : { id: "settings", label: "Settings", icon: Settings },
   ];
 
   return (

@@ -10,12 +10,16 @@ import { SpecProgressPanel } from "@/components/views/spec-progress-panel";
 import { TaskProgressPanel } from "@/components/views/task-progress-panel";
 import { QueriesInboxList } from "@/components/queries/queries-inbox-list";
 import { FilesPanel } from "@/components/files/files-panel";
+import { IdeasBoard } from "@/components/factory/ideas-board";
+import { IdeaDetailView } from "@/components/factory/idea-detail";
+import { NewIdeaDialog } from "@/components/factory/new-idea-dialog";
 import { TerminalAttachPanel } from "@/components/terminal/terminal-attach-panel";
 import { WebSettingsPanel } from "@/components/settings/web-settings-panel";
 import { HostConnectionDialog } from "@/components/connection/host-connection-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceStream } from "@/hooks/use-workspace-stream";
 import { useTerminalSizeMode } from "@/hooks/use-terminal-size-mode";
+import { useFactoryIdeas } from "@/hooks/use-factory-ideas";
 import { resolveActiveWorkspace } from "@/lib/workspace-selection";
 import { buildSprintDrilldown } from "@/lib/sprint-drilldown";
 import type { WorkspaceEntry } from "@/domain/models/workspace";
@@ -46,6 +50,7 @@ export default function DashboardPage() {
   const [desktopTab, setDesktopTab] = useState<string>("status");
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
+  const [newIdeaOpen, setNewIdeaOpen] = useState(false);
 
   // Terminal keep-alive tracking: once opened in mirror mode, stays mounted
   const [terminalOpened, setTerminalOpened] = useState(false);
@@ -58,6 +63,33 @@ export default function DashboardPage() {
   const fetchCounterRef = useRef(0);
 
   const { snapshot, connected, problem } = useWorkspaceStream(activeWorkspace?.id ?? null);
+  const factorySummary = snapshot?.snapshot?.factory ?? null;
+  const factoryEnabled = Boolean(factorySummary?.enabled);
+
+  const {
+    selectedIdeaId,
+    selectIdea,
+    detail: ideaDetail,
+    detailLoading: ideaDetailLoading,
+    detailError: ideaDetailError,
+    planMarkdown,
+    feasibilityMarkdown,
+    artifactsLoading,
+    refreshDetail,
+    startIdea,
+    markReady,
+    revokeReady,
+  } = useFactoryIdeas({
+    workspaceId: activeWorkspace?.id ?? null,
+    streamIdeas: factorySummary?.ideas,
+  });
+
+  useEffect(() => {
+    if (!factoryEnabled && (activeTab === "factory" || desktopTab === "factory")) {
+      setActiveTab("status");
+      setDesktopTab("status");
+    }
+  }, [factoryEnabled, activeTab, desktopTab]);
 
   // Terminal sizing mode lifted to page so keep-alive rule can depend on it
   const [terminalMode, onTerminalModeChange] = useTerminalSizeMode();
@@ -260,6 +292,14 @@ export default function DashboardPage() {
     [snapshot?.panes]
   );
 
+  const orchestratorPaneId = useMemo(
+    () =>
+      (snapshot?.panes ?? []).find(
+        (p) => !p.dead && p.role?.toLowerCase().includes("orchestrator")
+      )?.id ?? null,
+    [snapshot?.panes]
+  );
+
   // Stable callback: reads workspace ID from ref at call time
   const handleInteractPaneId = useCallback(async (paneId: string) => {
     const wsId = activeWorkspaceIdRef.current;
@@ -347,6 +387,8 @@ export default function DashboardPage() {
       onSelectWorkspace={handleSelectWorkspace}
       onOpenHostConnection={() => setHostDialogOpen(true)}
       unreadQueryCount={unreadQueries}
+      factoryEnabled={factoryEnabled}
+      factoryNeedsYouCount={factorySummary?.needs_you ?? 0}
     >
       {/* Missing workspace banner */}
       {missingWorkspaceId && (
@@ -406,6 +448,7 @@ export default function DashboardPage() {
             val === "files" ||
             val === "queries" ||
             val === "terminal" ||
+            val === "factory" ||
             val === "settings"
           ) {
             setActiveTab(val as NavTabId);
@@ -421,6 +464,11 @@ export default function DashboardPage() {
               Queries {unreadQueries > 0 && `(${unreadQueries})`}
             </TabsTrigger>
             <TabsTrigger value="terminal">Terminal</TabsTrigger>
+            {factoryEnabled && (
+              <TabsTrigger value="factory">
+                Factory {factorySummary && factorySummary.needs_you > 0 && `(${factorySummary.needs_you})`}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -522,6 +570,44 @@ export default function DashboardPage() {
           )
         )}
 
+        {/* Factory tab */}
+        {factoryEnabled &&
+          factorySummary &&
+          ((desktopTab === "factory" && isDesktop) || activeTab === "factory") &&
+          (selectedIdeaId ? (
+            <IdeaDetailView
+              detail={ideaDetail}
+              loading={ideaDetailLoading}
+              error={ideaDetailError}
+              planMarkdown={planMarkdown}
+              feasibilityMarkdown={feasibilityMarkdown}
+              artifactsLoading={artifactsLoading}
+              orchestratorPaneId={orchestratorPaneId}
+              onBack={() => selectIdea(null)}
+              onRetry={refreshDetail}
+              onOpenTerminal={(paneId) => {
+                if (paneId) {
+                  handleInteractPaneId(paneId);
+                } else {
+                  setActiveTab("terminal");
+                  setDesktopTab("terminal");
+                }
+              }}
+              onOpenQueries={() => {
+                setActiveTab("queries");
+                setDesktopTab("queries");
+              }}
+              onMarkReady={(confirm) => markReady(selectedIdeaId, confirm)}
+              onRevokeReady={() => revokeReady(selectedIdeaId)}
+            />
+          ) : (
+            <IdeasBoard
+              factory={factorySummary}
+              onSelectIdea={(id) => selectIdea(id)}
+              onNewIdea={() => setNewIdeaOpen(true)}
+            />
+          ))}
+
         {/* Settings tab */}
         {((desktopTab === "settings" && isDesktop) || activeTab === "settings") && settings && (
           <WebSettingsPanel
@@ -536,6 +622,16 @@ export default function DashboardPage() {
           />
         )}
       </div>
+
+      {factoryEnabled && (
+        <NewIdeaDialog
+          open={newIdeaOpen}
+          onOpenChange={setNewIdeaOpen}
+          onStartIdea={startIdea}
+          orchestratorPaneId={orchestratorPaneId}
+          onOpenTerminal={handleInteractPaneId}
+        />
+      )}
 
       <HostConnectionDialog
         open={hostDialogOpen}
