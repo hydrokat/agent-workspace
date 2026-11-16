@@ -420,6 +420,26 @@ def generate_minimal_html(doc_type: str, title: str, sprint_id: str, status: str
 """
 
 
+def format_days(value: float) -> str:
+    formatted = f"{value:.2f}"
+    if formatted.endswith("0"):
+        formatted = formatted[:-1]
+    return formatted
+
+
+def count_phase_tasks(phase: PhaseScope, root: Path | None) -> int:
+    if phase.moscow == "Won't Have":
+        return 0
+    if phase.tasks:
+        return len(phase.tasks)
+    if root is None:
+        return 0
+    phase_dir = root / "specs" / phase.phase
+    if not phase_dir.is_dir():
+        return 0
+    return sum(1 for f in phase_dir.glob("t-*.md") if f.is_file())
+
+
 def render_sprint_markdown(
     sprint_id: str,
     title: str,
@@ -440,6 +460,8 @@ def render_sprint_markdown(
             root = find_workspace_root(None)
         except Exception:
             root = None
+
+    total_tasks = sum(count_phase_tasks(p, root) for p in phases)
 
     has_subsets = any(bool(p.tasks) for p in phases)
 
@@ -498,10 +520,10 @@ def render_sprint_markdown(
 - **Start Date**: {start_date}
 - **End Date**: {end_date}
 - **Target Window**: 1 Week (7 Days)
-- **AI-Assisted Capacity Limit**: {capacity_days:.1f} Days
-- **Committed Capacity**: {committed:.1f} Days
+- **AI-Assisted Capacity Limit**: {format_days(capacity_days)} Days
+- **Committed Capacity**: {format_days(committed)} Days
 - **Total Phases**: {len(phases)}
-- **Total Tasks**: {len(phases) * 3}
+- **Total Tasks**: {total_tasks}
 - **Overloaded**: {overloaded}
 {custom_pre_deliverables}
 ## Deliverables
@@ -633,7 +655,8 @@ def cmd_create(args: argparse.Namespace) -> None:
         ))
 
     sprint_dir.mkdir(parents=True, exist_ok=True)
-    audit_entry = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Sprint created with status {status}"
+    created_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    audit_entry = f"{created_ts}: Sprint created with status {status}"
 
     assets_dir = Path(__file__).resolve().parents[1] / "assets"
     sprint_template = assets_dir / "sprint.md"
@@ -651,7 +674,11 @@ def cmd_create(args: argparse.Namespace) -> None:
         text = text.replace("{{status}}", status)
         text = text.replace("{{start_date}}", start_date)
         text = text.replace("{{end_date}}", end_date)
-        text = text.replace("{{capacity_days}}", f"{capacity_days:.1f}")
+        text = text.replace("{{capacity_days}}", format_days(capacity_days))
+        text = text.replace("[Committed Days]", "0.0")
+        text = text.replace("[Total Phases Count]", "0")
+        text = text.replace("[Total Tasks Count]", "0")
+        text = text.replace("[Creation Timestamp]", created_ts)
         write_atomic(sprint_dir / "sprint.md", text)
     else:
         text = render_sprint_markdown(
@@ -1628,6 +1655,13 @@ def cmd_lint(args: argparse.Namespace) -> None:
                 problems.append({"file": "sprint.md", "code": "missing-section", "message": f"missing section: {sec}"})
         for m in FIELD_RE.finditer(content):
             problems.append({"file": "sprint.md", "code": "unrendered-field", "message": f"unrendered token: {m.group(0)}"})
+        for tok in ("[Creation Timestamp]", "[Committed Days]", "[Total Phases Count]", "[Total Tasks Count]"):
+            if tok in content:
+                problems.append({
+                    "file": "sprint.md",
+                    "code": "unrendered-template-token",
+                    "message": f"unrendered template token: {tok}",
+                })
 
         try:
             model = parse_sprint_md(sprint_dir)
