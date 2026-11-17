@@ -161,10 +161,15 @@ pub struct Stage {
 #[serde(rename_all = "snake_case")]
 pub enum RunState {
     Pending,
+    Queued,
     Running,
+    Paused,
+    Review,
     Succeeded,
+    Delivered,
     Failed,
     Cancelled,
+    Withdrawn,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -174,6 +179,12 @@ pub struct Run {
     pub workflow: String,
     pub workflow_version: String,
     pub workflow_sha256: String,
+    #[serde(default)]
+    pub workflow_source: String,
+    #[serde(default)]
+    pub plan_sha256: String,
+    #[serde(default)]
+    pub deploy_requested: bool,
     pub state: RunState,
     #[serde(default)]
     pub stages: Vec<Stage>,

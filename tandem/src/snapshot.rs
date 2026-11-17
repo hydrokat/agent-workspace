@@ -80,6 +80,14 @@ impl SprintView {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunSummary {
+    pub id: String,
+    pub state: crate::factory::model::RunState,
+    pub stages_done: usize,
+    pub stages_total: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdeaCard {
     pub id: String,
@@ -91,6 +99,8 @@ pub struct IdeaCard {
     #[serde(default)]
     pub blockers: usize,
     pub updated: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunSummary>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -186,6 +196,31 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query]) -> FactorySummar
                 if iq.open > 0 {
                     needs_you += 1;
                 }
+                let run = idea.runs.last().and_then(|run_id| {
+                    crate::factory::run::get_run(&fstore, run_id)
+                        .ok()
+                        .flatten()
+                        .map(|r| {
+                            let stages_total = r.stages.len();
+                            let stages_done = r
+                                .stages
+                                .iter()
+                                .filter(|s| {
+                                    matches!(
+                                        s.state,
+                                        crate::factory::model::StageState::Succeeded
+                                            | crate::factory::model::StageState::Skipped
+                                    )
+                                })
+                                .count();
+                            RunSummary {
+                                id: r.id,
+                                state: r.state,
+                                stages_done,
+                                stages_total,
+                            }
+                        })
+                });
                 cards.push(IdeaCard {
                     id: idea.id,
                     title: idea.title,
@@ -194,6 +229,7 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query]) -> FactorySummar
                     risk: idea.risk,
                     blockers: iq.blocking,
                     updated: idea.updated,
+                    run,
                 });
             }
             FactorySummary {

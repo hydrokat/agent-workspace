@@ -6,6 +6,7 @@ import {
   isValidIdeaId,
   isValidIdeaTitle,
   isValidModelId,
+  isValidWorkflowName,
   type Idea,
   type IdeaDetail,
   type ReadyResult,
@@ -120,13 +121,21 @@ export class MarkFactoryIdeaReadyUseCase {
     private readonly gateway: ITandemGateway
   ) {}
 
-  async execute(workspaceId: string, ideaId: string, confirm: string): Promise<ReadyResult> {
+  async execute(
+    workspaceId: string,
+    ideaId: string,
+    confirm: string,
+    options?: { workflow?: string; deploy?: boolean }
+  ): Promise<ReadyResult> {
     requireIdeaId(ideaId);
     if (confirm !== ideaId) {
       throw new FactoryGatewayError("invalid_input", "Confirmation must match idea ID");
     }
+    if (options?.workflow !== undefined && !isValidWorkflowName(options.workflow)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid workflow name");
+    }
     const workspace = await requireWorkspace(this.registry, workspaceId);
-    return this.gateway.factoryMarkReady(workspace.path, ideaId);
+    return this.gateway.factoryMarkReady(workspace.path, ideaId, options);
   }
 }
 

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -7,8 +8,12 @@ use sha2::{Digest, Sha256};
 use super::FactoryError;
 use super::ids::is_valid_idea_id;
 use super::machine::Command;
-use super::model::{Actor, ActorKind, ArtifactRef, Idea, IdeaState};
+use super::model::{Actor, ActorKind, ArtifactRef, Idea, IdeaState, Run};
+use super::run::{CreateRunOptions, create_run};
 use super::store::FactoryStore;
+use super::workflow::load_default_workflow;
+use super::workflow::parse::load_workflow_file;
+use super::workflow::validate::{resolve_workflow_path, validate};
 
 const AGENT_ENV_VARS: &[&str] = &["TANDEM_ROLE", "TANDEM_SESSION_ID", "TANDEM_FACTORY_IDEA"];
 
@@ -58,6 +63,10 @@ pub struct ReadyResult {
     pub idea: Idea,
     pub snapshot: SnapshotVerification,
     pub message: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<Run>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_error: Option<String>,
 }
 
 pub fn ensure_user_caller(env: &dyn Fn(&str) -> Option<String>) -> Result<(), ApprovalError> {
@@ -180,7 +189,133 @@ pub fn mark_ready(
             error: None,
         },
         message: "Ready for development. Production runs arrive with the workflow engine.",
+        run: None,
+        run_error: None,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn mark_ready_with_workflow(
+    store: &FactoryStore,
+    workspace: &Path,
+    idea_id: &str,
+    confirm: &str,
+    via: &str,
+    approved_by: &str,
+    workflow_override: Option<&str>,
+    deploy_requested: bool,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<ReadyResult, ApprovalError> {
+    ensure_user_caller(env)?;
+
+    if !is_valid_idea_id(idea_id) {
+        return Err(ApprovalError::InvalidInput(format!(
+            "invalid idea id: {idea_id}"
+        )));
+    }
+    if confirm != idea_id {
+        return Err(ApprovalError::InvalidInput(format!(
+            "confirmation mismatch: pass --confirm {idea_id}"
+        )));
+    }
+    if !matches!(via, "cli" | "tui" | "web") {
+        return Err(ApprovalError::InvalidInput(format!(
+            "invalid --via value: {via} (expected cli, tui, or web)"
+        )));
+    }
+
+    let idea = store
+        .get_idea(idea_id)?
+        .ok_or_else(|| ApprovalError::InvalidInput(format!("idea not found: {idea_id}")))?;
+    if idea.state != IdeaState::Planning {
+        return Err(ApprovalError::Gate(format!(
+            "idea {idea_id} is in {}; advance to Planning first",
+            idea.state.label()
+        )));
+    }
+    let plan = idea.plan.as_ref().ok_or_else(|| {
+        ApprovalError::Gate(
+            "a plan is required before marking an idea ready for development".into(),
+        )
+    })?;
+    if !plan.missing_sections.is_empty() {
+        return Err(ApprovalError::Gate(format!(
+            "plan is missing required sections: {}",
+            plan.missing_sections.join(", ")
+        )));
+    }
+
+    let settings = store.settings()?;
+    let resolved_wf_name = if let Some(explicit) = workflow_override {
+        let raw = if explicit == "default-delivery" {
+            load_default_workflow(workspace)
+                .map(|(r, _)| r)
+                .map_err(|e| ApprovalError::InvalidInput(e.to_string()))?
+        } else {
+            let path =
+                resolve_workflow_path(workspace, explicit).map_err(ApprovalError::InvalidInput)?;
+            load_workflow_file(&path).map_err(|e| ApprovalError::InvalidInput(e.to_string()))?
+        };
+        let wf = validate(&raw, &settings).map_err(|diags| {
+            let msgs: Vec<String> = diags.iter().map(ToString::to_string).collect();
+            ApprovalError::InvalidInput(format!("workflow {explicit} invalid: {}", msgs.join("; ")))
+        })?;
+        wf.name
+    } else {
+        let rec = plan.workflow.trim();
+        let mut chosen = None;
+        if !rec.is_empty()
+            && rec != "default-delivery"
+            && let Ok(path) = resolve_workflow_path(workspace, rec)
+            && let Ok(raw) = load_workflow_file(&path)
+            && let Ok(wf) = validate(&raw, &settings)
+        {
+            chosen = Some(wf.name);
+        }
+        if let Some(name) = chosen {
+            name
+        } else {
+            let (raw, _) = load_default_workflow(workspace)
+                .map_err(|e| ApprovalError::InvalidInput(e.to_string()))?;
+            let wf = validate(&raw, &settings).map_err(|diags| {
+                let msgs: Vec<String> = diags.iter().map(ToString::to_string).collect();
+                ApprovalError::InvalidInput(format!(
+                    "default workflow invalid: {}",
+                    msgs.join("; ")
+                ))
+            })?;
+            wf.name
+        }
+    };
+
+    let mut ready = mark_ready(store, idea_id, confirm, via, approved_by, env)?;
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "engine".to_string(),
+    };
+    match create_run(
+        store,
+        workspace,
+        idea_id,
+        CreateRunOptions {
+            deploy_requested,
+            workflow: Some(resolved_wf_name),
+        },
+        &sys,
+    ) {
+        Ok(run) => {
+            if let Ok(Some(updated_idea)) = store.get_idea(idea_id) {
+                ready.idea = updated_idea;
+            }
+            ready.run = Some(run);
+            ready.message = "Run queued. Execution arrives with the execution phase.";
+        }
+        Err(err) => {
+            ready.run_error = Some(err.to_string());
+        }
+    }
+
+    Ok(ready)
 }
 
 pub fn revoke_ready(

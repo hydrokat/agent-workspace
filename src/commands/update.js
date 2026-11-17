@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { log, configure } from '../core/log.js';
+import { readTemplate } from '../core/assets.js';
 import { gatherUpdateInfo } from '../core/prompts.js';
 import { ensureDirs, initStarterFiles } from '../core/scaffold.js';
 import { installCanonicalAssets, syncAllProviders, refreshManagedBlock } from '../core/sync.js';
@@ -41,6 +42,7 @@ export async function run({ flags, cwd }) {
   log.step('Ensuring directory structure');
   if (!flags.dryRun) ensureDirs(cwd);
   initStarterFiles(cwd, flags.dryRun);
+  notifyWorkflowDefaultDiff(cwd);
 
   log.step('Refreshing AGENTS.md managed block');
   refreshManagedBlock(cwd, flags.dryRun);
@@ -73,6 +75,16 @@ export async function run({ flags, cwd }) {
     ok ? '✓ doctor passed' : '⚠ doctor reported issues (see above)',
     ...(applied.length ? [`AI CLIs: ${applied.map(describeResult).join(', ')}`] : []),
   ]);
+}
+
+function notifyWorkflowDefaultDiff(cwd) {
+  const workflowPath = join(cwd, 'workflows', 'default-delivery.yaml');
+  if (!existsSync(workflowPath)) return;
+  const current = readFileSync(workflowPath, 'utf8');
+  const shipped = readTemplate('workflows', 'default-delivery.yaml');
+  if (current !== shipped) {
+    log.info('workflows/default-delivery.yaml differs from the shipped default (kept yours); run `tandem factory workflow default` to see the shipped version.');
+  }
 }
 
 async function offerCommit(flags, cwd, before, version) {

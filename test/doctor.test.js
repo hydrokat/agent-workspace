@@ -93,4 +93,17 @@ describe('doctor', () => {
     // clean up
     cleanup(legacyDir);
   });
+
+  it('warns when workflows/default-delivery.yaml is missing without failing', async () => {
+    const wfPath = join(dir, 'workflows/default-delivery.yaml');
+    unlinkSync(wfPath);
+
+    const { code, stdout, stderr } = await runCli(['doctor'], dir);
+    assert.equal(code, 0, 'doctor still exits 0 when default-delivery.yaml is missing');
+    const output = stdout + stderr;
+    assert.ok(output.includes('workflows/default-delivery.yaml'), 'warns about missing default workflow');
+
+    // restore
+    await runCli(['update', '--yes', '--no-link'], dir);
+  });
 });

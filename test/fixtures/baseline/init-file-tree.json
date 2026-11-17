@@ -24,12 +24,20 @@
   ".agent-workspace/tandem/src/factory/artifacts.rs",
   ".agent-workspace/tandem/src/factory/commands.rs",
   ".agent-workspace/tandem/src/factory/events.rs",
+  ".agent-workspace/tandem/src/factory/executor.rs",
   ".agent-workspace/tandem/src/factory/ids.rs",
   ".agent-workspace/tandem/src/factory/machine.rs",
   ".agent-workspace/tandem/src/factory/mod.rs",
   ".agent-workspace/tandem/src/factory/model.rs",
   ".agent-workspace/tandem/src/factory/questions.rs",
+  ".agent-workspace/tandem/src/factory/run.rs",
+  ".agent-workspace/tandem/src/factory/simulate.rs",
   ".agent-workspace/tandem/src/factory/store.rs",
+  ".agent-workspace/tandem/src/factory/workflow/mod.rs",
+  ".agent-workspace/tandem/src/factory/workflow/parse.rs",
+  ".agent-workspace/tandem/src/factory/workflow/scheduler.rs",
+  ".agent-workspace/tandem/src/factory/workflow/schema.rs",
+  ".agent-workspace/tandem/src/factory/workflow/validate.rs",
   ".agent-workspace/tandem/src/gridbar.rs",
   ".agent-workspace/tandem/src/lib.rs",
   ".agent-workspace/tandem/src/main.rs",
@@ -394,5 +402,6 @@
   "run.sh",
   "specs/README.md",
   "specs/in-progress.md",
-  "sprints/README.md"
+  "sprints/README.md",
+  "workflows/default-delivery.yaml"
 ]

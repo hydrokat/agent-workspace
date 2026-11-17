@@ -4,11 +4,15 @@ pub mod approval;
 pub mod artifacts;
 pub mod commands;
 pub mod events;
+pub mod executor;
 pub mod ids;
 pub mod machine;
 pub mod model;
 pub mod questions;
+pub mod run;
+pub mod simulate;
 pub mod store;
+pub mod workflow;
 
 use machine::TransitionError;
 

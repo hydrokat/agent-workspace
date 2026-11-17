@@ -126,10 +126,25 @@ describe('npm pack contents', () => {
     assert.deepEqual(files.filter((f) => /(^|\/)(\.venv|__pycache__|\.pytest_cache|\.mypy_cache)(\/|$)/.test(f) && !f.startsWith('templates/')), []);
   });
 
-  it('ships only .rs files under tandem/src', () => {
+  it('ships only .rs files (and default-delivery.yaml) under tandem/src', () => {
     const src = files.filter((f) => f.startsWith('tandem/src/'));
     assert.ok(src.length > 0);
-    assert.deepEqual(src.filter((f) => !f.endsWith('.rs')), []);
+    assert.deepEqual(
+      src.filter((f) => !f.endsWith('.rs') && f !== 'tandem/src/factory/workflow/default-delivery.yaml'),
+      []
+    );
+  });
+
+  it('ships byte-identical default-delivery.yaml in templates/ and tandem/src/', () => {
+    const tplRel = 'templates/workflows/default-delivery.yaml';
+    const srcRel = 'tandem/src/factory/workflow/default-delivery.yaml';
+    assert.ok(files.includes(tplRel), `${tplRel} packed`);
+    assert.ok(files.includes(srcRel), `${srcRel} packed`);
+    assert.deepEqual(
+      readFileSync(join(ROOT, tplRel)),
+      readFileSync(join(ROOT, srcRel)),
+      'templates/workflows/default-delivery.yaml must be byte-identical to tandem/src/factory/workflow/default-delivery.yaml'
+    );
   });
 
   it('marks run.sh executable in the tarball', () => {

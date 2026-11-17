@@ -42,6 +42,12 @@ pub enum FactoryCommand {
     #[command(about = "check idea question queue")]
     Question(FactoryQuestionArgs),
 
+    #[command(about = "validate and list factory workflows")]
+    Workflow(FactoryWorkflowArgs),
+
+    #[command(about = "manage workflow runs")]
+    Run(FactoryRunArgs),
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -101,6 +107,10 @@ pub struct FactoryIdeaReadyArgs {
     pub confirm: String,
     #[arg(long, default_value = "cli")]
     pub via: String,
+    #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub deploy: bool,
     #[arg(long)]
     pub json: bool,
 }
@@ -196,6 +206,111 @@ pub enum FactoryQuestionCommand {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryQuestionCheckArgs {
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryWorkflowArgs {
+    #[command(subcommand)]
+    pub command: FactoryWorkflowCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryWorkflowCommand {
+    #[command(about = "validate a workflow YAML file by name")]
+    Validate(FactoryWorkflowValidateArgs),
+    #[command(about = "list workflows in <workspace>/workflows/")]
+    List(FactoryWorkflowListArgs),
+    #[command(about = "print the embedded default workflow YAML to stdout")]
+    Default,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryWorkflowValidateArgs {
+    pub name: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryWorkflowListArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunArgs {
+    #[command(subcommand)]
+    pub command: FactoryRunCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryRunCommand {
+    #[command(about = "create a run from a ready idea")]
+    Create(FactoryRunCreateArgs),
+    #[command(about = "show a run")]
+    Show(FactoryRunShowArgs),
+    #[command(about = "list runs")]
+    List(FactoryRunListArgs),
+    #[command(about = "withdraw a queued run before any stage starts")]
+    Withdraw(FactoryRunWithdrawArgs),
+    #[command(about = "simulate a workflow run without executing or writing anything")]
+    Simulate(FactoryRunSimulateArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunCreateArgs {
+    pub idea: String,
+    #[arg(long)]
+    pub deploy: bool,
+    #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunListArgs {
+    #[arg(long)]
+    pub idea: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunWithdrawArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunSimulateArgs {
+    pub idea: Option<String>,
+    #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub ui_changed: bool,
+    #[arg(long)]
+    pub no_ui_changed: bool,
+    #[arg(long)]
+    pub deploy: bool,
+    #[arg(long)]
+    pub approve_deploy: bool,
+    #[arg(long)]
+    pub fail: Vec<String>,
+    #[arg(long)]
+    pub retries: Option<u32>,
     #[arg(long)]
     pub json: bool,
 }
@@ -410,8 +525,130 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Question(q_args) => match &q_args.command {
             FactoryQuestionCommand::Check(a) => a.json,
         },
+        FactoryCommand::Workflow(w_args) => match &w_args.command {
+            FactoryWorkflowCommand::Validate(a) => a.json,
+            FactoryWorkflowCommand::List(a) => a.json,
+            FactoryWorkflowCommand::Default => false,
+        },
+        FactoryCommand::Run(r_args) => match &r_args.command {
+            FactoryRunCommand::Create(a) => a.json,
+            FactoryRunCommand::Show(a) => a.json,
+            FactoryRunCommand::List(a) => a.json,
+            FactoryRunCommand::Withdraw(a) => a.json,
+            FactoryRunCommand::Simulate(a) => a.json,
+        },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
+    }
+}
+
+fn run_simulate(
+    args: &FactoryRunSimulateArgs,
+    workspace: &Path,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let store = FactoryStore::new(workspace);
+    let settings = if store.exists() {
+        store.settings().unwrap_or_default()
+    } else {
+        FactorySettings::default()
+    };
+
+    let wf_name = if let Some(ref name) = args.workflow {
+        Some(name.clone())
+    } else if let Some(ref idea_id) = args.idea {
+        match store.get_idea(idea_id) {
+            Ok(Some(idea)) => idea
+                .plan
+                .as_ref()
+                .map(|p| p.workflow.clone())
+                .filter(|w| !w.is_empty()),
+            Ok(None) => {
+                let _ = writeln!(stderr, "idea not found: {idea_id}");
+                return 1;
+            }
+            Err(e) => {
+                let _ = writeln!(stderr, "{e}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+
+    let loaded = match wf_name.as_deref() {
+        None | Some("default-delivery") => super::workflow::load_default_workflow(workspace)
+            .map(|(raw, src)| {
+                let label = match src {
+                    super::workflow::WorkflowSource::Workspace => "file",
+                    super::workflow::WorkflowSource::Embedded => "embedded",
+                };
+                (raw, label)
+            })
+            .map_err(|e| e.to_string()),
+        Some(name) => {
+            super::workflow::validate::resolve_workflow_path(workspace, name).and_then(|p| {
+                super::workflow::parse::load_workflow_file(&p)
+                    .map(|raw| (raw, "file"))
+                    .map_err(|e| e.to_string())
+            })
+        }
+    };
+
+    let (raw, source) = match loaded {
+        Ok(v) => v,
+        Err(msg) => {
+            let _ = writeln!(stderr, "{msg}");
+            return 1;
+        }
+    };
+
+    let wf = match super::workflow::validate::validate(&raw, &settings) {
+        Ok(wf) => wf,
+        Err(diags) => {
+            for d in &diags {
+                let _ = writeln!(stderr, "{d}");
+            }
+            return 1;
+        }
+    };
+
+    let mut fail_counts = std::collections::HashMap::new();
+    for spec in &args.fail {
+        if let Some((stage, n_str)) = spec.split_once(':') {
+            let Ok(n) = n_str.parse::<u32>() else {
+                let _ = writeln!(stderr, "invalid --fail count: {spec}");
+                return 1;
+            };
+            fail_counts.insert(stage.to_string(), n);
+        } else {
+            fail_counts.insert(spec.clone(), 1);
+        }
+    }
+
+    let script = super::simulate::SimulationScript {
+        ui_changed: args.ui_changed && !args.no_ui_changed,
+        deploy_requested: args.deploy,
+        approve_deploy: args.approve_deploy,
+        fail_counts,
+        max_retries: args.retries,
+    };
+
+    let trace = super::simulate::simulate(&wf, source, &settings, &script);
+    if args.json {
+        if let Ok(line) = serde_json::to_string(&trace) {
+            let _ = writeln!(stdout, "{line}");
+        }
+    } else {
+        let _ = writeln!(stdout, "{}", super::simulate::format_trace_text(&trace));
+    }
+    let _ = stdout.flush();
+
+    match trace.outcome {
+        super::simulate::SimulationOutcome::Finished { .. } => 0,
+        super::simulate::SimulationOutcome::Blocked { .. }
+        | super::simulate::SimulationOutcome::Stopped { .. } => 1,
     }
 }
 
@@ -424,6 +661,11 @@ pub fn run_with_io(
     stderr: &mut dyn Write,
 ) -> i32 {
     let json_mode = json_flag(args);
+    if let FactoryCommand::Run(r_args) = &args.command
+        && let FactoryRunCommand::Simulate(sim_args) = &r_args.command
+    {
+        return run_simulate(sim_args, workspace, stdout, stderr);
+    }
     match execute(args, workspace, config, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
@@ -614,12 +856,15 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let approved_by = resolve_owner(None)?;
-                let res = super::approval::mark_ready(
+                let res = super::approval::mark_ready_with_workflow(
                     &store,
+                    workspace,
                     &a.id,
                     &a.confirm,
                     &a.via,
                     &approved_by,
+                    a.workflow.as_deref(),
+                    a.deploy,
                     &|k| std::env::var(k).ok(),
                 )
                 .map_err(|e| CmdError {
@@ -746,6 +991,173 @@ fn execute(
                     });
                 }
                 serialize_compact(&summary)
+            }
+        },
+        FactoryCommand::Workflow(w_args) => {
+            let settings = if store.exists() {
+                store.settings().unwrap_or_default()
+            } else {
+                FactorySettings::default()
+            };
+            match &w_args.command {
+                FactoryWorkflowCommand::Validate(a) => {
+                    let path = super::workflow::validate::resolve_workflow_path(workspace, &a.name)
+                        .map_err(CmdError::invalid_input)?;
+                    let raw = super::workflow::parse::load_workflow_file(&path)
+                        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                    match super::workflow::validate::validate(&raw, &settings) {
+                        Ok(wf) => serialize_compact(&serde_json::json!({
+                            "valid": true,
+                            "name": wf.name,
+                            "version": wf.version,
+                            "sha256": wf.sha256,
+                            "diagnostics": [],
+                        })),
+                        Err(diags) => {
+                            let msg = diags
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join("; ");
+                            Err(CmdError::invalid_input(msg))
+                        }
+                    }
+                }
+                FactoryWorkflowCommand::List(_) => {
+                    let dir = workspace.join("workflows");
+                    let mut items = Vec::new();
+                    if dir.is_dir()
+                        && let Ok(entries) = fs::read_dir(&dir)
+                    {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
+                                continue;
+                            }
+                            let stem = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("")
+                                .to_string();
+                            match super::workflow::parse::load_workflow_file(&path) {
+                                Ok(raw) => {
+                                    match super::workflow::validate::validate(&raw, &settings) {
+                                        Ok(wf) => items.push(serde_json::json!({
+                                            "name": wf.name,
+                                            "version": wf.version,
+                                            "sha256": wf.sha256,
+                                            "valid": true,
+                                            "diagnostics": 0,
+                                        })),
+                                        Err(diags) => items.push(serde_json::json!({
+                                            "name": raw.name.map(|n| n.value).unwrap_or(stem),
+                                            "version": raw.version.map(|v| v.value).unwrap_or(0),
+                                            "sha256": raw.sha256,
+                                            "valid": false,
+                                            "diagnostics": diags.len(),
+                                        })),
+                                    }
+                                }
+                                Err(_) => items.push(serde_json::json!({
+                                    "name": stem,
+                                    "version": 0,
+                                    "sha256": "",
+                                    "valid": false,
+                                    "diagnostics": 1,
+                                })),
+                            }
+                        }
+                    }
+                    serialize_compact(&serde_json::json!({ "workflows": items }))
+                }
+                FactoryWorkflowCommand::Default => Ok(super::workflow::DEFAULT_WORKFLOW_YAML
+                    .trim_end_matches('\n')
+                    .to_string()),
+            }
+        }
+        FactoryCommand::Run(r_args) => match &r_args.command {
+            FactoryRunCommand::Create(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run = super::run::create_run(
+                    &store,
+                    workspace,
+                    &a.idea,
+                    super::run::CreateRunOptions {
+                        deploy_requested: a.deploy,
+                        workflow: a.workflow.clone(),
+                    },
+                    &actor,
+                )
+                .map_err(|e| CmdError {
+                    exit_code: 1,
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::Show(a) => {
+                let run = super::run::get_run(&store, &a.id)
+                    .map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?
+                    .ok_or_else(|| CmdError::not_found(format!("run {}", a.id)))?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::List(a) => {
+                let runs =
+                    super::run::list_runs(&store, a.idea.as_deref()).map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                serialize_compact(&runs)
+            }
+            FactoryRunCommand::Withdraw(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if a.confirm != a.id {
+                    return Err(CmdError::invalid_input(format!(
+                        "--confirm {} does not match run {}",
+                        a.confirm, a.id
+                    )));
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run =
+                    super::run::withdraw_run(&store, &a.id, &actor).map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::Simulate(_) => {
+                unreachable!("simulate handled directly in run_with_io")
             }
         },
         FactoryCommand::Events(a) => {

@@ -281,5 +281,30 @@ describe('factory mode ideation documentation', () => {
   it('records Factory Mode ideation under Unreleased in CHANGELOG.md', () => {
     assert.ok(changelog.includes('## [Unreleased]'));
     assert.ok(changelog.includes('Factory Mode ideation'));
+    assert.ok(changelog.includes('workflow engine'));
+  });
+
+  it('documents workflow keys, vocabularies, W001-W013, and run simulate in READMEs', () => {
+    assert.ok(readme.includes('run simulate'), 'run simulate in README.md');
+    assert.ok(readme.includes('queued'), 'queued state in README.md');
+    for (const cmd of [
+      'workflow validate',
+      'workflow list',
+      'workflow default',
+      'run simulate',
+      'run create',
+      'run show',
+      'run list',
+      'run withdraw',
+    ]) {
+      assert.ok(tandemReadme.includes(cmd), `${cmd} in tandem/README.md`);
+    }
+    for (let i = 1; i <= 13; i += 1) {
+      const code = `W${String(i).padStart(3, '0')}`;
+      assert.ok(tandemReadme.includes(code), `${code} in tandem/README.md`);
+    }
+    for (const term of ['orchestrator', 'diff_review', 'ui_changed', 'human_approval', 'user-owned']) {
+      assert.ok(tandemReadme.includes(term), `${term} in tandem/README.md`);
+    }
   });
 });

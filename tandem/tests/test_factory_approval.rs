@@ -253,3 +253,142 @@ fn test_approval_cli_parse() {
             if matches!(args.command, FactoryCommand::Idea(ref i) if matches!(i.command, FactoryIdeaCommand::RevokeReady(_)))
     ));
 }
+
+#[test]
+fn test_mark_ready_with_workflow_and_deploy_creates_run_and_refuses_invalid() {
+    use tandem::config::Config;
+    use tandem::factory::commands::run_with_io;
+    use tandem::factory::run::list_runs;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "tandem-test-approval-wf-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+
+    let store = FactoryStore::new(&tmp);
+    store.ensure().unwrap();
+    let user = Actor {
+        kind: ActorKind::User,
+        id: "alice".to_string(),
+    };
+    let orch = Actor {
+        kind: ActorKind::Orchestrator,
+        id: "orch-1".to_string(),
+    };
+    let idea = store
+        .create_idea("Export", "Export CSV", "alice", &user)
+        .unwrap();
+    store
+        .execute(&idea.id, Command::StartDiscovery, &orch)
+        .unwrap();
+    let feas_src = tmp.join("feas.md");
+    fs::write(&feas_src, "# Feasible\n").unwrap();
+    let feas_ref =
+        tandem::factory::artifacts::put(&store, &idea.id, "feasibility", &feas_src).unwrap();
+    store
+        .execute(
+            &idea.id,
+            Command::StoreArtifact {
+                kind: "feasibility".to_string(),
+                artifact: feas_ref,
+                verdict: None,
+                risk: Some(Risk::Low),
+                workflow: None,
+                missing_sections: Vec::new(),
+            },
+            &orch,
+        )
+        .unwrap();
+    store
+        .execute(&idea.id, Command::SelectDirection, &orch)
+        .unwrap();
+    let plan_src = tmp.join("plan.md");
+    fs::write(
+        &plan_src,
+        "# Plan\n\n## Goal\nExport.\n\n## Acceptance Criteria\n- Works\n\n## Files\n- a.rs\n\n## Tests\n- cargo test\n",
+    )
+    .unwrap();
+    let plan_ref = tandem::factory::artifacts::put(&store, &idea.id, "plan", &plan_src).unwrap();
+    store
+        .execute(
+            &idea.id,
+            Command::StoreArtifact {
+                kind: "plan".to_string(),
+                artifact: plan_ref,
+                verdict: None,
+                risk: None,
+                workflow: Some("missing-recommended".to_string()),
+                missing_sections: Vec::new(),
+            },
+            &orch,
+        )
+        .unwrap();
+
+    let cfg = Config {
+        factory: true,
+        state_dir: tmp.join("state"),
+        ..Default::default()
+    };
+
+    // 1. Explicit invalid workflow is refused without changing idea state
+    let cli_bad = Cli::try_parse_from([
+        "tandem",
+        "factory",
+        "idea",
+        "ready",
+        &idea.id,
+        "--confirm",
+        &idea.id,
+        "--workflow",
+        "nonexistent-wf",
+        "--json",
+    ])
+    .unwrap();
+    let Some(tandem::cli::Command::Factory(f_bad)) = cli_bad.command else {
+        panic!("expected factory");
+    };
+    let mut stdin = std::io::empty();
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let code = run_with_io(&f_bad, &tmp, &cfg, &mut stdin, &mut stdout, &mut stderr);
+    assert_ne!(code, 0);
+    assert_eq!(
+        store.get_idea(&idea.id).unwrap().unwrap().state,
+        IdeaState::Planning
+    );
+
+    // 2. Omitted --workflow falls back from missing recommended workflow to default-delivery and creates run with --deploy
+    let cli_ok = Cli::try_parse_from([
+        "tandem",
+        "factory",
+        "idea",
+        "ready",
+        &idea.id,
+        "--confirm",
+        &idea.id,
+        "--deploy",
+        "--json",
+    ])
+    .unwrap();
+    let Some(tandem::cli::Command::Factory(f_ok)) = cli_ok.command else {
+        panic!("expected factory");
+    };
+    stdout.clear();
+    stderr.clear();
+    let code = run_with_io(&f_ok, &tmp, &cfg, &mut stdin, &mut stdout, &mut stderr);
+    assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let v: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(v["idea"]["state"], "queued");
+    let runs = list_runs(&store, Some(&idea.id)).unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].workflow, "default-delivery");
+    assert!(runs[0].deploy_requested);
+
+    let _ = fs::remove_dir_all(&tmp);
+}

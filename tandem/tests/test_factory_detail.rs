@@ -303,9 +303,9 @@ fn test_factory_detail_gate_reasons_and_mark_ready_via_tui() {
     assert!(matches!(outcome, DetailKeyOutcome::Action(_)));
     assert!(matches!(detail.sub_view, DetailSubView::Main));
 
-    // Verify in-process approval recorded via = "tui"
+    // Verify in-process approval recorded via = "tui" and run queued
     let updated = store.get_idea(&id).unwrap().unwrap();
-    assert_eq!(updated.state, IdeaState::ReadyForDevelopment);
+    assert_eq!(updated.state, IdeaState::Queued);
     let evs = events::read_all(&store.root.join("events.jsonl"))
         .unwrap()
         .events;
@@ -315,6 +315,18 @@ fn test_factory_detail_gate_reasons_and_mark_ready_via_tui() {
         .expect("snapshot frozen event must exist");
     assert_eq!(frozen.data["via"], "tui");
     assert_eq!(frozen.data["approved_by"], "argie");
+
+    // Withdraw queued run to return to ReadyForDevelopment
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty()));
+    assert!(matches!(
+        detail.sub_view,
+        DetailSubView::ConfirmWithdraw { .. }
+    ));
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::empty()));
+    assert_eq!(
+        store.get_idea(&id).unwrap().unwrap().state,
+        IdeaState::ReadyForDevelopment
+    );
 
     // Ready banner renders approval + snapshot verified
     let wide = Rect::new(0, 0, 125, 16);
@@ -362,6 +374,7 @@ fn test_factory_detail_responsive_narrow_short_and_snapshot_reload() {
                 risk: idea.risk,
                 blockers: 0,
                 updated: idea.updated,
+                run: None,
             }],
             needs_you: 0,
             ..FactorySummary::default()
@@ -410,6 +423,119 @@ fn test_factory_detail_responsive_narrow_short_and_snapshot_reload() {
             .and_then(|d| d.idea.as_ref())
             .map(|i| i.assumptions.len()),
         Some(2)
+    );
+
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_detail_confirm_ready_workflow_selection_run_section_and_withdraw() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use tandem::factory::model::IdeaState;
+    use tandem::status::factory_detail::{DetailSubView, FactoryDetail};
+
+    let ws = std::env::temp_dir().join(format!(
+        "tandem-test-detail-wf-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&ws);
+    fs::create_dir_all(&ws).unwrap();
+    let (store, id) = setup_planning_idea(&ws, true);
+
+    // Add a second valid workflow and one invalid workflow
+    fs::create_dir_all(ws.join("workflows")).unwrap();
+    let default_yaml = tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
+    fs::write(ws.join("workflows/default-delivery.yaml"), default_yaml).unwrap();
+    fs::write(
+        ws.join("workflows/fast-fix.yaml"),
+        default_yaml.replace("name: default-delivery", "name: fast-fix"),
+    )
+    .unwrap();
+    fs::write(ws.join("workflows/broken-wf.yaml"), "name: broken-wf\n").unwrap();
+
+    let mut detail = FactoryDetail::load(&ws, &id, &[], false);
+
+    // Trigger mark ready via Ctrl+Alt+y -> enters ConfirmReady
+    let ready_key = KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+    detail.handle_key(&ready_key);
+    assert!(matches!(
+        detail.sub_view,
+        DetailSubView::ConfirmReady { .. }
+    ));
+
+    // Render ConfirmReady: shows workflow line, invalid workflow diagnostic, and deployment toggle
+    let wide = Rect::new(0, 0, 120, 20);
+    let mut buf = Buffer::empty(wide);
+    detail.render(1000.0, wide, &mut buf);
+    let text = buffer_text(&buf, wide);
+    assert!(text.contains("Workflow"));
+    assert!(text.contains("w change"));
+    assert!(text.contains("broken-wf"));
+    assert!(text.contains("invalid:"));
+    assert!(text.contains("Deployment"));
+    assert!(text.contains("d toggle"));
+
+    // Cycle workflow with 'w' and toggle deploy with 'd'
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    if let DetailSubView::ConfirmReady {
+        ref workflows,
+        selected_wf,
+        deploy_requested,
+        ..
+    } = detail.sub_view
+    {
+        assert!(workflows[selected_wf].valid);
+        assert!(deploy_requested);
+    } else {
+        panic!("expected ConfirmReady");
+    }
+
+    // Type idea id and press Enter -> creates run and moves to Queued
+    for ch in id.chars() {
+        detail.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    detail.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(detail.sub_view, DetailSubView::Main));
+    assert_eq!(
+        store.get_idea(&id).unwrap().unwrap().state,
+        IdeaState::Queued
+    );
+
+    // Wide render shows Run section with horizontal strip and legend
+    let mut buf = Buffer::empty(wide);
+    detail.render(1000.0, wide, &mut buf);
+    let out_wide = buffer_text(&buf, wide);
+    assert!(out_wide.contains("Run r-"));
+    assert!(out_wide.contains("Queued"));
+    assert!(out_wide.contains("x withdraw"));
+    assert!(out_wide.contains("Run queued. Execution arrives with the execution phase."));
+    assert!(out_wide.contains("○ pending"));
+
+    // Narrow render wraps stage strip to one stage per line with state as word
+    let narrow = Rect::new(0, 0, 60, 25);
+    let mut buf = Buffer::empty(narrow);
+    detail.render(1000.0, narrow, &mut buf);
+    let out_narrow = buffer_text(&buf, narrow);
+    assert!(out_narrow.contains("plan: pending"));
+
+    // Press 'x' then 'y' to withdraw queued run
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    assert!(matches!(
+        detail.sub_view,
+        DetailSubView::ConfirmWithdraw { .. }
+    ));
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    assert_eq!(
+        store.get_idea(&id).unwrap().unwrap().state,
+        IdeaState::ReadyForDevelopment
     );
 
     let _ = fs::remove_dir_all(ws);

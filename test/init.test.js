@@ -17,6 +17,7 @@ describe('init', () => {
     assert.ok(fileExists(dir, 'knowledgebase'), 'knowledgebase exists');
     assert.ok(fileExists(dir, 'specs'), 'specs exists');
     assert.ok(fileExists(dir, 'sprints'), 'sprints exists');
+    assert.ok(fileExists(dir, 'workflows'), 'workflows exists');
     assert.ok(fileExists(dir, '.tmp'), '.tmp exists');
 
     // Starter files
@@ -24,6 +25,10 @@ describe('init', () => {
     assert.ok(fileExists(dir, 'WORKFLOW.md'), 'WORKFLOW.md created');
     assert.ok(fileExists(dir, 'specs/in-progress.md'), 'specs/in-progress.md created');
     assert.ok(fileExists(dir, 'sprints/README.md'), 'sprints/README.md created');
+    assert.ok(
+      fileExists(dir, 'workflows/default-delivery.yaml'),
+      'workflows/default-delivery.yaml created'
+    );
     assert.ok(
       fileExists(dir, 'knowledgebase/guidelines/release-versioning.md'),
       'release versioning guideline created'

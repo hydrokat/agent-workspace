@@ -1,0 +1,43 @@
+# Workflow identifier; must match the filename stem in workflows/.
+name: default-delivery
+# Integer schema/policy version recorded on every run.
+version: 1
+# Event that automatically starts this workflow.
+trigger: ready-for-development
+# Execution bounds and approval gates (can only tighten Factory settings).
+policy:
+  max_parallel_agents: 3
+  default_temperature: 0.4
+  require_human_approval: [production_deploy]
+# Ordered stage graph: agents, dependencies, conditions, and allowed tools.
+stages:
+  - name: plan
+    agent: orchestrator
+    tools: [repo_read, issue_context]
+  - name: create-tests
+    agent: test-engineer
+    depends_on: [plan]
+    tools: [repo_read, repo_write, test_runner]
+  - name: develop
+    agent: implementer
+    depends_on: [create-tests]
+    tools: [repo_read, repo_write, shell]
+  - name: test
+    agent: verifier
+    depends_on: [develop]
+    tools: [test_runner, lint_runner]
+  - name: review
+    agent: reviewer
+    depends_on: [test]
+    tools: [repo_read, diff_review]
+  - name: demo
+    when: ui_changed
+    agent: demo-maker
+    depends_on: [test]
+    tools: [browser, screenshot]
+  - name: deploy
+    when: deploy_requested
+    requires: [human_approval]
+    agent: release-engineer
+    depends_on: [review]
+    tools: [ci, deployment]

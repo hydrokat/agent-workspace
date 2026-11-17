@@ -120,17 +120,69 @@ export interface FactoryEvent {
   data?: Record<string, unknown>;
 }
 
+export type StageState = "pending" | "running" | "succeeded" | "failed" | "skipped" | "blocked";
+
+export type RunState =
+  | "pending"
+  | "queued"
+  | "running"
+  | "paused"
+  | "review"
+  | "succeeded"
+  | "delivered"
+  | "failed"
+  | "cancelled"
+  | "withdrawn";
+
+export interface Stage {
+  name: string;
+  agent: string;
+  state: StageState;
+  attempts?: number;
+  rationale?: string | null;
+}
+
+export interface RunSummary {
+  id: string;
+  idea: string;
+  workflow: string;
+  workflow_version: string;
+  workflow_sha256: string;
+  workflow_source?: string;
+  deploy_requested?: boolean;
+  state: RunState;
+  stages: Stage[];
+  created: number;
+  updated: number;
+}
+
+export interface WorkflowDiagnostic {
+  code: string;
+  line: number;
+  message: string;
+}
+
+export interface WorkflowListItem {
+  name: string;
+  version: number;
+  valid: boolean;
+  diagnostics: WorkflowDiagnostic[];
+}
+
 export interface IdeaDetail {
   idea: Idea;
   events: FactoryEvent[];
   questions: IdeaQuestions;
   plan_snapshot?: SnapshotVerification | null;
+  run?: RunSummary | null;
 }
 
 export interface ReadyResult {
   idea: Idea;
   snapshot: SnapshotVerification;
   message: string;
+  run?: RunSummary | null;
+  run_error?: string | null;
 }
 
 export type FactoryErrorCode =
@@ -179,4 +231,12 @@ export function isValidArtifactKind(kind: string): kind is ArtifactKind {
 
 export function isValidArtifactVersion(version: number): boolean {
   return Number.isInteger(version) && version >= 1;
+}
+
+export function isValidWorkflowName(name: string): boolean {
+  return /^[a-z][a-z0-9-]{0,47}$/.test(name);
+}
+
+export function isValidRunId(id: string): boolean {
+  return /^r-[a-z0-9]{8}$/.test(id);
 }

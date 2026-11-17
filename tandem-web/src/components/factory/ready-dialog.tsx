@@ -11,14 +11,18 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Idea, IdeaQuestions, ReadyResult } from "@/domain/models/factory";
+import type { Idea, IdeaQuestions, ReadyResult, WorkflowListItem } from "@/domain/models/factory";
 
 interface ReadyDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   idea: Idea;
   questions: IdeaQuestions;
-  onConfirmReady: (confirm: string) => Promise<ReadyResult>;
+  workflows?: WorkflowListItem[];
+  onConfirmReady: (
+    confirm: string,
+    options?: { workflow?: string; deploy?: boolean }
+  ) => Promise<ReadyResult>;
 }
 
 export function ReadyDialog({
@@ -26,16 +30,29 @@ export function ReadyDialog({
   onOpenChange,
   idea,
   questions,
+  workflows = [],
   onConfirmReady,
 }: ReadyDialogProps) {
   const [typedId, setTypedId] = useState("");
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string>("default-delivery");
+  const [deployRequested, setDeployRequested] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const recommended = idea.plan?.workflow?.trim() || "default-delivery";
+  const effectiveWorkflows: WorkflowListItem[] =
+    workflows.length > 0
+      ? workflows
+      : [{ name: "default-delivery", version: 1, valid: true, diagnostics: [] }];
 
   useEffect(() => {
     if (open) {
       setTypedId("");
+      setDeployRequested(false);
       setError(null);
+      const validMatch = effectiveWorkflows.find((w) => w.valid && w.name === recommended);
+      const fallback = effectiveWorkflows.find((w) => w.valid);
+      setSelectedWorkflow(validMatch?.name ?? fallback?.name ?? "default-delivery");
     }
   }, [open, idea.id]);
 
@@ -49,7 +66,10 @@ export function ReadyDialog({
     setError(null);
     setSubmitting(true);
     try {
-      await onConfirmReady(typedId.trim());
+      await onConfirmReady(typedId.trim(), {
+        workflow: selectedWorkflow,
+        deploy: deployRequested,
+      });
       onOpenChange(false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unable to mark idea ready.");
@@ -83,6 +103,43 @@ export function ReadyDialog({
               Plan is missing sections: {missingSections.join(", ")}.
             </div>
           )}
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="ready-workflow-select" className="text-xs font-medium text-foreground">
+              Workflow
+            </label>
+            <select
+              id="ready-workflow-select"
+              value={selectedWorkflow}
+              onChange={(e) => setSelectedWorkflow(e.target.value)}
+              disabled={submitting}
+              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              {effectiveWorkflows.map((wf) => {
+                const isRec = wf.name === recommended;
+                const diagText = wf.diagnostics?.[0]?.message;
+                const label = wf.valid
+                  ? `${wf.name} v${wf.version}${isRec ? " (recommended)" : ""}`
+                  : `${wf.name} v${wf.version} — invalid: ${diagText ?? "validation failed"}`;
+                return (
+                  <option key={wf.name} value={wf.name} disabled={!wf.valid}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-foreground">
+            <input
+              type="checkbox"
+              checked={deployRequested}
+              onChange={(e) => setDeployRequested(e.target.checked)}
+              disabled={submitting}
+              className="h-4 w-4"
+            />
+            <span>Request deployment (needs a separate approval)</span>
+          </label>
 
           <div className="flex flex-col gap-1.5">
             <label htmlFor="ready-confirm-id" className="text-xs font-medium text-foreground">

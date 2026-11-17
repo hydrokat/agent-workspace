@@ -28,6 +28,13 @@ export async function run({ flags, cwd }) {
   }
   results.push(check(existsSync(join(cwd, 'AGENTS.md')), 'AGENTS.md present'));
 
+  const defaultWorkflowPath = join(cwd, 'workflows', 'default-delivery.yaml');
+  if (!existsSync(defaultWorkflowPath)) {
+    log.warn('Workflow missing: workflows/default-delivery.yaml (run `agent-workspace update` or `tandem factory workflow default`)');
+  } else {
+    results.push(check(true, 'Workflow exists: workflows/default-delivery.yaml'));
+  }
+
   const templateSkills = new Set(listSkills());
   for (const skillName of listSkills()) {
     const skillPath = join(cwd, '.agents', 'skills', skillName, 'SKILL.md');
