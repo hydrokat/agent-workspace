@@ -104,6 +104,9 @@ pub enum FactoryIdeaCommand {
 
     #[command(about = "revoke ready-for-development tag before a run exists")]
     RevokeReady(FactoryIdeaRevokeReadyArgs),
+
+    #[command(about = "cancel an idea and any active run")]
+    Cancel(FactoryIdeaCancelArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -124,6 +127,15 @@ pub struct FactoryIdeaReadyArgs {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryIdeaRevokeReadyArgs {
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaCancelArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -269,6 +281,12 @@ pub enum FactoryRunCommand {
     Cleanup(FactoryRunCleanupArgs),
     #[command(about = "grant one more retry attempt on a paused stage")]
     Retry(FactoryRunRetryArgs),
+    #[command(about = "pause a running or queued run")]
+    Pause(FactoryRunPauseArgs),
+    #[command(about = "resume a paused run from the last valid stage")]
+    Resume(FactoryRunResumeArgs),
+    #[command(about = "cancel an active run while keeping its worktree and branch")]
+    Cancel(FactoryRunCancelArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -353,6 +371,31 @@ pub struct FactoryRunRetryArgs {
     pub stage: String,
     #[arg(long)]
     pub hypothesis: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunPauseArgs {
+    pub run: String,
+    #[arg(long, help = "stop running jobs immediately")]
+    pub now: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunResumeArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunCancelArgs {
+    pub run: String,
+    #[arg(long)]
+    pub confirm: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -599,6 +642,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryIdeaCommand::SelectDirection(a) => a.json,
             FactoryIdeaCommand::Ready(a) => a.json,
             FactoryIdeaCommand::RevokeReady(a) => a.json,
+            FactoryIdeaCommand::Cancel(a) => a.json,
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => a.json,
@@ -621,6 +665,9 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Target(a) => a.json,
             FactoryRunCommand::Cleanup(a) => a.json,
             FactoryRunCommand::Retry(a) => a.json,
+            FactoryRunCommand::Pause(a) => a.json,
+            FactoryRunCommand::Resume(a) => a.json,
+            FactoryRunCommand::Cancel(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -980,6 +1027,28 @@ fn execute(
                 })?;
                 serialize_compact(&updated)
             }
+            FactoryIdeaCommand::Cancel(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::cancel_idea(&store, &a.id, &a.confirm, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_cancel_idea_text(&res))
+                }
+            }
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => {
@@ -1295,6 +1364,79 @@ fn execute(
                 )
                 .map_err(|e| CmdError::invalid_input(e.to_string()))?;
                 serialize_compact(&run)
+            }
+            FactoryRunCommand::Pause(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::pause_run_by_user(&store, &a.run, a.now, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_pause_run_text(&res, a.now))
+                }
+            }
+            FactoryRunCommand::Resume(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run =
+                    super::runner::resume_paused_run(&store, &a.run, &actor).map_err(|e| {
+                        CmdError {
+                            exit_code: e.exit_code(),
+                            code: e.code(),
+                            message: e.to_string(),
+                        }
+                    })?;
+                if a.json {
+                    serialize_compact(&run)
+                } else {
+                    Ok(format!("Run {} resumed.", run.id))
+                }
+            }
+            FactoryRunCommand::Cancel(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::cancel_run(&store, &a.run, &a.confirm, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_cancel_run_text(&res))
+                }
             }
         },
         FactoryCommand::Provider(p_args) => {
@@ -1645,6 +1787,82 @@ fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<I
     crate::commands::add_agent(&spec, workspace, config)
         .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
     Ok(idea)
+}
+
+fn format_stopped_jobs_line(jobs: &[super::runner::StoppedJobInfo]) -> Option<String> {
+    if jobs.is_empty() {
+        return None;
+    }
+    let details: Vec<String> = jobs
+        .iter()
+        .map(|j| format!("{}, attempt {}", j.stage, j.attempt))
+        .collect();
+    let noun = if jobs.len() == 1 { "job" } else { "jobs" };
+    Some(format!(
+        "Stopped {} running {noun} ({}).",
+        jobs.len(),
+        details.join("; ")
+    ))
+}
+
+fn format_pause_run_text(res: &super::runner::PauseRunResult, now: bool) -> String {
+    let mut lines = Vec::new();
+    if let Some(stopped) = format_stopped_jobs_line(&res.stopped_jobs) {
+        lines.push(stopped);
+    }
+    if now {
+        lines.push(format!("Run {} paused (--now).", res.run.id));
+    } else {
+        lines.push(format!(
+            "Run {} paused. Running jobs will finish; no new stage will start.",
+            res.run.id
+        ));
+    }
+    lines.push(format!(
+        "Resume with: tandem factory run resume {}",
+        res.run.id
+    ));
+    lines.join("\n")
+}
+
+fn format_cancel_run_text(res: &super::runner::CancelRunResult) -> String {
+    let mut lines = Vec::new();
+    if let Some(stopped) = format_stopped_jobs_line(&res.stopped_jobs) {
+        lines.push(stopped);
+    }
+    lines.push(format!(
+        "Run {} cancelled. Idea {} is Ready for development again.",
+        res.run.id, res.idea.id
+    ));
+    if let (Some(wt), Some(branch)) = (&res.run.worktree_path, &res.run.branch) {
+        lines.push(format!("The work is kept: {wt} on branch {branch}."));
+        lines.push(format!(
+            "Remove it with: tandem factory run cleanup {} --confirm {}",
+            res.run.id, res.run.id
+        ));
+    }
+    lines.join("\n")
+}
+
+fn format_cancel_idea_text(res: &super::runner::CancelIdeaResult) -> String {
+    let mut lines = Vec::new();
+    if let Some(stopped) = format_stopped_jobs_line(&res.stopped_jobs) {
+        lines.push(stopped);
+    }
+    lines.push(format!("Idea {} cancelled.", res.idea.id));
+    for run in &res.cancelled_runs {
+        if let (Some(wt), Some(branch)) = (&run.worktree_path, &run.branch) {
+            lines.push(format!(
+                "The work for {} is kept: {wt} on branch {branch}.",
+                run.id
+            ));
+            lines.push(format!(
+                "Remove it with: tandem factory run cleanup {} --confirm {}",
+                run.id, run.id
+            ));
+        }
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]

@@ -149,12 +149,15 @@ pub fn next(
         let attempts = stage_by_name
             .get(stage_def.name.as_str())
             .map_or(0, |s| s.attempts);
+        let interrupted_attempts = stage_by_name
+            .get(stage_def.name.as_str())
+            .map_or(0, |s| s.interrupted_attempts);
 
         match state {
             StageState::Succeeded | StageState::Skipped | StageState::Running => {}
             StageState::Failed => {
                 let max_retries = stage_def.budget.max_retries.unwrap_or(0);
-                let retries_used = attempts.saturating_sub(1);
+                let retries_used = attempts.saturating_sub(1 + interrupted_attempts);
                 decision.failed.push(FailedStage {
                     name: stage_def.name.clone(),
                     attempts,

@@ -29,6 +29,9 @@ pub enum Command {
     WithdrawRun {
         run: String,
     },
+    CancelRun {
+        run: String,
+    },
     StartRun {
         run: String,
     },
@@ -78,6 +81,7 @@ impl Command {
             Self::RevokeReady => "RevokeReady",
             Self::CreateRun { .. } => "CreateRun",
             Self::WithdrawRun { .. } => "WithdrawRun",
+            Self::CancelRun { .. } => "CancelRun",
             Self::StartRun { .. } => "StartRun",
             Self::StagesComplete { .. } => "StagesComplete",
             Self::ChangesRequested { .. } => "ChangesRequested",
@@ -240,6 +244,10 @@ pub enum EventData {
     },
     #[serde(rename = "run.resumed")]
     RunResumed { run: String },
+    #[serde(rename = "run.cancelled")]
+    RunCancelled { run: String },
+    #[serde(rename = "stage.interrupted")]
+    StageInterrupted { run: String, stage: String },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -415,9 +423,9 @@ pub fn decide(
 
         (IdeaState::ReadyForDevelopment, Command::RevokeReady) => {
             ensure_actor(cmd, actor, &[ActorKind::User])?;
-            if facts.has_active_run || !idea.runs.is_empty() {
+            if facts.has_active_run {
                 return Err(TransitionError::InvalidInput(
-                    "cannot revoke ready state after a run exists".to_string(),
+                    "cannot revoke ready state while an active run exists".to_string(),
                 ));
             }
             Ok(vec![EventData::IdeaReadyRevoked {}])
@@ -442,6 +450,15 @@ pub fn decide(
             ensure_actor(cmd, actor, &[ActorKind::User])?;
             let run = ensure_non_empty_id(run, "run id")?;
             Ok(vec![EventData::RunWithdrawn { run }])
+        }
+
+        (
+            IdeaState::Queued | IdeaState::InDevelopment | IdeaState::Review,
+            Command::CancelRun { run },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::User])?;
+            let run = ensure_non_empty_id(run, "run id")?;
+            Ok(vec![EventData::RunCancelled { run }])
         }
 
         (IdeaState::Queued, Command::StartRun { run }) => {
@@ -703,6 +720,15 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.runs.retain(|r| r != run);
                     idea.updated = ts;
                 }
+                EventData::RunCancelled { .. }
+                    if matches!(
+                        idea.state,
+                        IdeaState::Queued | IdeaState::InDevelopment | IdeaState::Review
+                    ) =>
+                {
+                    idea.state = IdeaState::ReadyForDevelopment;
+                    idea.updated = ts;
+                }
                 EventData::RunStarted { .. } if idea.state == IdeaState::Queued => {
                     idea.state = IdeaState::InDevelopment;
                     idea.updated = ts;
@@ -860,6 +886,30 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                     run.state = RunState::Running;
                     run.pause_reason = None;
                     run.action_commands.clear();
+                    run.updated = ts;
+                }
+                EventData::RunCancelled { .. }
+                    if matches!(
+                        run.state,
+                        RunState::Pending
+                            | RunState::Queued
+                            | RunState::Running
+                            | RunState::Paused
+                            | RunState::Review
+                    ) =>
+                {
+                    run.state = RunState::Cancelled;
+                    run.pause_reason = None;
+                    run.action_commands.clear();
+                    run.updated = ts;
+                }
+                EventData::StageInterrupted { stage, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Pending;
+                        st.interrupted_attempts += 1;
+                        st.finished = Some(ts);
+                        st.rationale = Some("interrupted".to_string());
+                    }
                     run.updated = ts;
                 }
                 _ => {}

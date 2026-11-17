@@ -158,7 +158,7 @@ impl FactoryStore {
                     .is_some_and(|p| p.missing_sections.is_empty())
             }),
             open_blocking_questions,
-            has_active_run: false,
+            has_active_run: self.has_active_run_for_idea(idea_id),
         };
         let decided = machine::decide(current.as_ref(), &command, actor, &facts)?;
 
@@ -214,6 +214,22 @@ impl FactoryStore {
 
         let log = read_all(&self.events_path())?;
         Ok(replay_single_idea(&log.events, id))
+    }
+
+    fn has_active_run_for_idea(&self, idea_id: &str) -> bool {
+        let Ok(runs) = super::run::list_runs(self, Some(idea_id)) else {
+            return false;
+        };
+        runs.iter().any(|r| {
+            matches!(
+                r.state,
+                super::model::RunState::Pending
+                    | super::model::RunState::Queued
+                    | super::model::RunState::Running
+                    | super::model::RunState::Paused
+                    | super::model::RunState::Review
+            )
+        })
     }
 
     pub fn list_ideas(&self) -> Result<Vec<Idea>, FactoryError> {
@@ -413,7 +429,9 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::RunTargetSelected { run, .. }
         | EventData::StageModelUpgraded { run, .. }
         | EventData::RunPaused { run, .. }
-        | EventData::RunResumed { run } => Some(run.clone()),
+        | EventData::RunResumed { run }
+        | EventData::RunCancelled { run }
+        | EventData::StageInterrupted { run, .. } => Some(run.clone()),
         _ => None,
     }
 }

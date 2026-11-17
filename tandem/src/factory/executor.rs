@@ -12,6 +12,7 @@ pub struct StageJob {
 pub enum StageOutcome {
     Succeeded,
     Failed { reason: String },
+    Interrupted,
 }
 
 pub trait Executor {
