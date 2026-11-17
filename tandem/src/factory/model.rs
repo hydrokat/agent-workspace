@@ -148,6 +148,8 @@ pub struct Stage {
     #[serde(default)]
     pub attempts: u32,
     #[serde(default)]
+    pub interrupted_attempts: u32,
+    #[serde(default)]
     pub started: Option<f64>,
     #[serde(default)]
     pub finished: Option<f64>,

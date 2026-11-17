@@ -106,6 +106,7 @@ fn test_all_model_types_round_trip_json() {
         agent: "senior-backend-dev".to_string(),
         state: StageState::Succeeded,
         attempts: 1,
+        interrupted_attempts: 0,
         started: Some(1700000020.0),
         finished: Some(1700000080.0),
         artifacts: vec![artifact.clone()],

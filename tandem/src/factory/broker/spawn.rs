@@ -63,6 +63,12 @@ struct LogState {
     exceeded: Arc<AtomicBool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitOutcome {
+    Exited(ExitStatus),
+    Stopped(ExitStatus),
+}
+
 #[derive(Debug)]
 pub struct RunningJob {
     child: Child,
@@ -93,6 +99,47 @@ impl RunningJob {
                     });
                 }
                 return Ok(status);
+            }
+
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(SpawnError::TimedOut { timeout });
+            }
+
+            let sleep_for = (deadline - now).min(Duration::from_millis(15));
+            thread::sleep(sleep_for);
+        }
+    }
+
+    pub fn wait_with_stop(
+        &mut self,
+        timeout: Duration,
+        should_stop: &dyn Fn() -> bool,
+        grace: Duration,
+    ) -> Result<WaitOutcome, SpawnError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self.log_exceeded.load(Ordering::Acquire) {
+                self.kill_and_reap();
+                self.join_io_threads();
+                return Err(SpawnError::LogCapExceeded {
+                    limit: MAX_LOG_BYTES,
+                });
+            }
+
+            if let Some(status) = self.child.try_wait()? {
+                self.join_io_threads();
+                if self.log_exceeded.load(Ordering::Acquire) {
+                    return Err(SpawnError::LogCapExceeded {
+                        limit: MAX_LOG_BYTES,
+                    });
+                }
+                return Ok(WaitOutcome::Exited(status));
+            }
+
+            if should_stop() {
+                let status = self.stop(grace)?;
+                return Ok(WaitOutcome::Stopped(status));
             }
 
             let now = Instant::now();
