@@ -76,6 +76,7 @@
   ".agent-workspace/tandem/src/status/app.rs",
   ".agent-workspace/tandem/src/status/banners.rs",
   ".agent-workspace/tandem/src/status/factory_detail.rs",
+  ".agent-workspace/tandem/src/status/factory_run.rs",
   ".agent-workspace/tandem/src/status/factory_tab.rs",
   ".agent-workspace/tandem/src/status/mod.rs",
   ".agent-workspace/tandem/src/status/notify.rs",
