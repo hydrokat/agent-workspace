@@ -859,7 +859,16 @@ impl FactoryTab {
             } else {
                 "0".to_string()
             };
-            let state = idea.state.label();
+            let state = if let Some(ref run) = idea.run {
+                format!(
+                    "{} {}/{}",
+                    idea.state.label(),
+                    run.stages_done,
+                    run.stages_total
+                )
+            } else {
+                idea.state.label().to_string()
+            };
             let clean_title = clean(&idea.title);
             let clean_owner = clean(&idea.owner);
 
@@ -872,7 +881,7 @@ impl FactoryTab {
                 let line1 = format!(
                     "{marker}{:<11} {:<22} {:<5} {narrow_blockers}",
                     truncate_to_width(&idea.id, 11),
-                    truncate_to_width(state, 22),
+                    truncate_to_width(&state, 22),
                     risk,
                 );
                 write_clipped(buf, area.x, y, max_w, &line1, style);
@@ -890,7 +899,7 @@ impl FactoryTab {
                     format!(
                         "{marker}{:<12} {:<22} {:<6} {:<9} {:<6} {:<9} ",
                         truncate_to_width(&idea.id, 12),
-                        truncate_to_width(state, 22),
+                        truncate_to_width(&state, 22),
                         risk,
                         blockers_str,
                         truncate_to_width(&clean_owner, 6),
@@ -900,7 +909,7 @@ impl FactoryTab {
                     format!(
                         "{marker}{:<12} {:<22} {:<5} {:<9} {:<8} ",
                         truncate_to_width(&idea.id, 12),
-                        truncate_to_width(state, 22),
+                        truncate_to_width(&state, 22),
                         risk,
                         blockers_str,
                         truncate_to_width(&updated, 8),

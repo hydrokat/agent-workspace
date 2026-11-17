@@ -7,13 +7,21 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use unicode_width::UnicodeWidthStr;
 
-use crate::factory::approval::{SnapshotVerification, mark_ready, revoke_ready, verify_snapshot};
+use crate::factory::approval::{
+    SnapshotVerification, mark_ready_with_workflow, revoke_ready, verify_snapshot,
+};
 use crate::factory::artifacts::{self, REQUIRED_PLAN_SECTIONS};
 use crate::factory::events::{self, Event};
 use crate::factory::machine::EventData;
-use crate::factory::model::{FeasibilityVerdict, Idea, IdeaState, Risk};
+use crate::factory::model::{
+    Actor, ActorKind, FeasibilityVerdict, Idea, IdeaState, Risk, Run, RunState, StageState,
+};
 use crate::factory::questions::{self, IdeaQuestions};
+use crate::factory::run::{get_run, withdraw_run};
 use crate::factory::store::FactoryStore;
+use crate::factory::workflow::load_default_workflow;
+use crate::factory::workflow::parse::load_workflow_file;
+use crate::factory::workflow::validate::validate;
 use crate::sanitize::clean;
 use crate::snapshot::IdeaCard;
 use crate::status::render::age;
@@ -21,6 +29,15 @@ use crate::tmux::keys::{FACTORY_MARK_READY_KEY, display_shortcut, matches_crosst
 use crate::ui::input::TextInput;
 use crate::ui::scroll::ScrollView;
 use crate::ui::text::truncate_to_width;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowOption {
+    pub name: String,
+    pub version: u32,
+    pub valid: bool,
+    pub diagnostic: Option<String>,
+    pub recommended: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DetailSubView {
@@ -33,8 +50,14 @@ pub enum DetailSubView {
     ConfirmReady {
         input: TextInput,
         error: Option<String>,
+        workflows: Vec<WorkflowOption>,
+        selected_wf: usize,
+        deploy_requested: bool,
     },
     ConfirmRevoke,
+    ConfirmWithdraw {
+        run_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +79,7 @@ pub struct FactoryDetail {
     pub idea_id: String,
     pub workspace: PathBuf,
     pub idea: Option<Idea>,
+    pub run: Option<Run>,
     pub events: Vec<Event>,
     pub questions: IdeaQuestions,
     pub snapshot_verification: Option<SnapshotVerification>,
@@ -85,6 +109,7 @@ impl FactoryDetail {
             idea_id: idea_id.to_string(),
             workspace: workspace.to_path_buf(),
             idea: None,
+            run: None,
             events: Vec::new(),
             questions: IdeaQuestions::default(),
             snapshot_verification: None,
@@ -115,16 +140,22 @@ impl FactoryDetail {
                 self.loaded_updated = Some(idea.updated);
                 self.loaded_state = Some(idea.state);
                 self.snapshot_verification = verify_snapshot(&store, &idea);
+                self.run = idea
+                    .runs
+                    .last()
+                    .and_then(|run_id| get_run(&store, run_id).ok().flatten());
                 self.idea = Some(idea);
                 self.error = None;
             }
             Ok(None) => {
                 self.idea = None;
+                self.run = None;
                 self.snapshot_verification = None;
                 self.error = Some(format!("idea not found: {}", self.idea_id));
             }
             Err(err) => {
                 self.idea = None;
+                self.run = None;
                 self.snapshot_verification = None;
                 self.error = Some(clean(&err.to_string()));
             }
@@ -186,9 +217,31 @@ impl FactoryDetail {
                 }
                 DetailKeyOutcome::Consumed
             }
-            DetailSubView::ConfirmReady { input, error } => match event.code {
+            DetailSubView::ConfirmReady {
+                input,
+                error,
+                workflows,
+                selected_wf,
+                deploy_requested,
+            } => match event.code {
                 KeyCode::Esc => {
                     self.sub_view = DetailSubView::Main;
+                    DetailKeyOutcome::Consumed
+                }
+                KeyCode::Char('w') if input.value.is_empty() => {
+                    let valid_indices: Vec<usize> = workflows
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, w)| w.valid)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if let Some(pos) = valid_indices.iter().position(|&i| i == *selected_wf) {
+                        *selected_wf = valid_indices[(pos + 1) % valid_indices.len()];
+                    }
+                    DetailKeyOutcome::Consumed
+                }
+                KeyCode::Char('d') if input.value.is_empty() => {
+                    *deploy_requested = !*deploy_requested;
                     DetailKeyOutcome::Consumed
                 }
                 KeyCode::Enter => {
@@ -197,12 +250,28 @@ impl FactoryDetail {
                         *error = Some(format!("Type \"{}\" to confirm.", self.idea_id));
                         return DetailKeyOutcome::Consumed;
                     }
+                    let wf_name = workflows.get(*selected_wf).map(|w| w.name.as_str());
+                    let deploy = *deploy_requested;
                     let store = FactoryStore::new(&self.workspace);
                     let owner = self.owner.clone();
                     let env_fn = |var: &str| std::env::var(var).ok();
-                    match mark_ready(&store, &self.idea_id, &typed, "tui", &owner, &env_fn) {
+                    match mark_ready_with_workflow(
+                        &store,
+                        &self.workspace,
+                        &self.idea_id,
+                        &typed,
+                        "tui",
+                        &owner,
+                        wf_name,
+                        deploy,
+                        &env_fn,
+                    ) {
                         Ok(res) => {
-                            self.notice = res.message.to_string();
+                            self.notice = if let Some(ref run_err) = res.run_error {
+                                format!("Ready, but run failed: {run_err}")
+                            } else {
+                                res.message.to_string()
+                            };
                             self.sub_view = DetailSubView::Main;
                             self.reload(&[], self.pane_open);
                             DetailKeyOutcome::Action(DetailAction::Refresh)
@@ -219,6 +288,36 @@ impl FactoryDetail {
                     DetailKeyOutcome::Consumed
                 }
             },
+            DetailSubView::ConfirmWithdraw { run_id } => {
+                let run_id = run_id.clone();
+                match event.code {
+                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                        self.sub_view = DetailSubView::Main;
+                        DetailKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                        let store = FactoryStore::new(&self.workspace);
+                        let actor = Actor {
+                            kind: ActorKind::User,
+                            id: self.owner.clone(),
+                        };
+                        match withdraw_run(&store, &run_id, &actor) {
+                            Ok(_) => {
+                                self.notice = format!("Withdrew run {run_id}.");
+                                self.sub_view = DetailSubView::Main;
+                                self.reload(&[], self.pane_open);
+                                DetailKeyOutcome::Action(DetailAction::Refresh)
+                            }
+                            Err(err) => {
+                                self.notice = clean(&err.to_string());
+                                self.sub_view = DetailSubView::Main;
+                                DetailKeyOutcome::Consumed
+                            }
+                        }
+                    }
+                    _ => DetailKeyOutcome::Consumed,
+                }
+            }
             DetailSubView::ConfirmRevoke => match event.code {
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
                     self.sub_view = DetailSubView::Main;
@@ -261,6 +360,17 @@ impl FactoryDetail {
                     }
                     KeyCode::Char('a') => {
                         self.open_assumptions();
+                        DetailKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('x') => {
+                        if let Some(ref run) = self.run
+                            && run.state == RunState::Queued
+                        {
+                            self.notice.clear();
+                            self.sub_view = DetailSubView::ConfirmWithdraw {
+                                run_id: run.id.clone(),
+                            };
+                        }
                         DetailKeyOutcome::Consumed
                     }
                     KeyCode::Char('o') => {
@@ -334,8 +444,21 @@ impl FactoryDetail {
                 }
                 let mut input = TextInput::with_placeholder(&self.idea_id);
                 input.focused = true;
+                let recommended = idea
+                    .plan
+                    .as_ref()
+                    .map(|p| p.workflow.as_str())
+                    .unwrap_or("");
+                let (workflows, selected_wf) =
+                    Self::load_workflow_options(&self.workspace, recommended);
                 self.notice.clear();
-                self.sub_view = DetailSubView::ConfirmReady { input, error: None };
+                self.sub_view = DetailSubView::ConfirmReady {
+                    input,
+                    error: None,
+                    workflows,
+                    selected_wf,
+                    deploy_requested: false,
+                };
             }
             IdeaState::ReadyForDevelopment => {
                 self.notice.clear();
@@ -348,6 +471,108 @@ impl FactoryDetail {
                 );
             }
         }
+    }
+
+    fn load_workflow_options(workspace: &Path, recommended: &str) -> (Vec<WorkflowOption>, usize) {
+        let store = FactoryStore::new(workspace);
+        let settings = if store.exists() {
+            store.settings().unwrap_or_default()
+        } else {
+            Default::default()
+        };
+
+        let mut valid_opts = Vec::new();
+        let mut invalid_opts = Vec::new();
+
+        let mut seen_default = false;
+        let dir = workspace.join("workflows");
+        if dir.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&dir)
+        {
+            let mut paths: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("yaml"))
+                .collect();
+            paths.sort();
+            for path in paths {
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                if stem == "default-delivery" {
+                    seen_default = true;
+                }
+                match load_workflow_file(&path) {
+                    Ok(raw) => match validate(&raw, &settings) {
+                        Ok(wf) => {
+                            let is_rec = wf.name == recommended || stem == recommended;
+                            valid_opts.push(WorkflowOption {
+                                name: wf.name,
+                                version: wf.version,
+                                valid: true,
+                                diagnostic: None,
+                                recommended: is_rec,
+                            });
+                        }
+                        Err(diags) => {
+                            let first = diags
+                                .first()
+                                .map(|d| format!("{} {}", d.code, d.message))
+                                .unwrap_or_else(|| "invalid".to_string());
+                            let ver = raw
+                                .version
+                                .as_ref()
+                                .and_then(|v| u32::try_from(v.value).ok())
+                                .unwrap_or(1);
+                            invalid_opts.push(WorkflowOption {
+                                name: stem,
+                                version: ver,
+                                valid: false,
+                                diagnostic: Some(first),
+                                recommended: false,
+                            });
+                        }
+                    },
+                    Err(err) => {
+                        invalid_opts.push(WorkflowOption {
+                            name: stem,
+                            version: 1,
+                            valid: false,
+                            diagnostic: Some(err.to_string()),
+                            recommended: false,
+                        });
+                    }
+                }
+            }
+        }
+
+        if !seen_default
+            && let Ok((raw, _)) = load_default_workflow(workspace)
+            && let Ok(wf) = validate(&raw, &settings)
+        {
+            let is_rec = wf.name == recommended;
+            valid_opts.insert(
+                0,
+                WorkflowOption {
+                    name: wf.name,
+                    version: wf.version,
+                    valid: true,
+                    diagnostic: None,
+                    recommended: is_rec,
+                },
+            );
+        }
+
+        let selected = valid_opts
+            .iter()
+            .position(|w| w.recommended)
+            .or_else(|| valid_opts.iter().position(|w| w.name == "default-delivery"))
+            .unwrap_or(0);
+
+        valid_opts.extend(invalid_opts);
+        (valid_opts, selected)
     }
 
     fn unmet_gate_reason(&self, idea: &Idea) -> Option<String> {
@@ -419,7 +644,13 @@ impl FactoryDetail {
                 }
                 return;
             }
-            DetailSubView::ConfirmReady { input, error } => {
+            DetailSubView::ConfirmReady {
+                input,
+                error,
+                workflows,
+                selected_wf,
+                deploy_requested,
+            } => {
                 let header_style = Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD);
@@ -456,6 +687,41 @@ impl FactoryDetail {
                         ),
                         text_style,
                     );
+                    y += 1;
+                }
+                if y < bottom {
+                    let wf_line = if let Some(wf) = workflows.get(*selected_wf) {
+                        let rec = if wf.recommended {
+                            " (recommended by the Orchestrator)"
+                        } else {
+                            ""
+                        };
+                        format!("Workflow     {} v{}{}   w change", wf.name, wf.version, rec)
+                    } else {
+                        "Workflow     default-delivery v1   w change".to_string()
+                    };
+                    write_clipped(buf, area.x, y, max_w, &wf_line, text_style);
+                    y += 1;
+                }
+                for inv in workflows.iter().filter(|w| !w.valid) {
+                    if y >= bottom {
+                        break;
+                    }
+                    let diag = inv.diagnostic.as_deref().unwrap_or("invalid");
+                    let line = format!(
+                        "             {} v{} · invalid: {}",
+                        inv.name, inv.version, diag
+                    );
+                    write_clipped(buf, area.x, y, max_w, &line, dim_style);
+                    y += 1;
+                }
+                if y < bottom {
+                    let deploy_line = if *deploy_requested {
+                        "Deployment   requested (needs a separate approval when requested)   d toggle"
+                    } else {
+                        "Deployment   not requested (needs a separate approval when requested)   d toggle"
+                    };
+                    write_clipped(buf, area.x, y, max_w, deploy_line, text_style);
                     y += 1;
                 }
                 if y < bottom {
@@ -501,6 +767,31 @@ impl FactoryDetail {
                         area.y + 1,
                         max_w,
                         "y / Enter confirm revoke   n / Esc cancel",
+                        dim_style,
+                    );
+                }
+                return;
+            }
+            DetailSubView::ConfirmWithdraw { run_id } => {
+                let header_style = Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD);
+                let dim_style = Style::default().fg(Color::DarkGray);
+                write_clipped(
+                    buf,
+                    area.x,
+                    area.y,
+                    max_w,
+                    &format!("Withdraw queued run {}?", run_id),
+                    header_style,
+                );
+                if area.height >= 2 {
+                    write_clipped(
+                        buf,
+                        area.x,
+                        area.y + 1,
+                        max_w,
+                        "y / Enter confirm withdraw   n / Esc cancel",
                         dim_style,
                     );
                 }
@@ -677,7 +968,99 @@ impl FactoryDetail {
             y += 1;
         }
 
-        if idea.state == IdeaState::ReadyForDevelopment && y < bottom {
+        if let Some(ref run) = self.run
+            && y < bottom
+        {
+            let run_state_label = match run.state {
+                RunState::Pending => "Pending",
+                RunState::Queued => "Queued",
+                RunState::Running => "Running",
+                RunState::Paused => "Paused",
+                RunState::Review => "Review",
+                RunState::Succeeded => "Succeeded",
+                RunState::Delivered => "Delivered",
+                RunState::Failed => "Failed",
+                RunState::Cancelled => "Cancelled",
+                RunState::Withdrawn => "Withdrawn",
+            };
+            let withdraw_hint = if run.state == RunState::Queued {
+                "   x withdraw"
+            } else {
+                ""
+            };
+            let run_hdr = format!(
+                "Run {}   {}   {} v{}{}",
+                run.id, run_state_label, run.workflow, run.workflow_version, withdraw_hint
+            );
+            write_clipped(buf, area.x, y, max_w, &run_hdr, ok_style);
+            y += 1;
+
+            if narrow {
+                for st in &run.stages {
+                    if y >= bottom {
+                        break;
+                    }
+                    let word = match st.state {
+                        StageState::Pending => "pending",
+                        StageState::Running => "running",
+                        StageState::Succeeded => "done",
+                        StageState::Failed => "failed",
+                        StageState::Skipped => "skipped",
+                        StageState::Blocked => "blocked",
+                    };
+                    write_clipped(
+                        buf,
+                        area.x,
+                        y,
+                        max_w,
+                        &format!("  {}: {}", st.name, word),
+                        text_style,
+                    );
+                    y += 1;
+                }
+            } else if y < bottom {
+                let mut strip = String::new();
+                for (idx, st) in run.stages.iter().enumerate() {
+                    if idx > 0 {
+                        strip.push_str("  ");
+                    }
+                    let sym = match st.state {
+                        StageState::Pending => "○",
+                        StageState::Running => "●",
+                        StageState::Succeeded => "✓",
+                        StageState::Failed => "✗",
+                        StageState::Skipped => "–",
+                        StageState::Blocked => "!",
+                    };
+                    strip.push_str(&format!("{} {}", st.name, sym));
+                }
+                write_clipped(buf, area.x, y, max_w, &strip, text_style);
+                y += 1;
+            }
+
+            if run.state == RunState::Queued && y < bottom && !short {
+                write_clipped(
+                    buf,
+                    area.x,
+                    y,
+                    max_w,
+                    "Run queued. Execution arrives with the execution phase.",
+                    dim_style,
+                );
+                y += 1;
+            }
+            if y < bottom && !short {
+                write_clipped(
+                    buf,
+                    area.x,
+                    y,
+                    max_w,
+                    "○ pending   ● running   ✓ done   ✗ failed   – skipped   ! blocked",
+                    dim_style,
+                );
+                y += 1;
+            }
+        } else if idea.state == IdeaState::ReadyForDevelopment && y < bottom {
             let banner = self.ready_banner_line(now);
             write_clipped(buf, area.x, y, max_w, &banner, ok_style);
             y += 1;
@@ -687,7 +1070,7 @@ impl FactoryDetail {
                     area.x,
                     y,
                     max_w,
-                    "Production runs arrive with the workflow engine.",
+                    "Run queued. Execution arrives with the execution phase.",
                     dim_style,
                 );
                 y += 1;

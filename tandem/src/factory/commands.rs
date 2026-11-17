@@ -108,6 +108,10 @@ pub struct FactoryIdeaReadyArgs {
     #[arg(long, default_value = "cli")]
     pub via: String,
     #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub deploy: bool,
+    #[arg(long)]
     pub json: bool,
 }
 
@@ -852,12 +856,15 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let approved_by = resolve_owner(None)?;
-                let res = super::approval::mark_ready(
+                let res = super::approval::mark_ready_with_workflow(
                     &store,
+                    workspace,
                     &a.id,
                     &a.confirm,
                     &a.via,
                     &approved_by,
+                    a.workflow.as_deref(),
+                    a.deploy,
                     &|k| std::env::var(k).ok(),
                 )
                 .map_err(|e| CmdError {

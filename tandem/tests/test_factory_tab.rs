@@ -68,6 +68,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             risk: None,
             blockers: 0,
             updated: now - 120.0,
+            run: None,
         },
         IdeaCard {
             id: "i-b81xw0pe".to_string(),
@@ -77,6 +78,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             risk: Some(Risk::Medium),
             blockers: 0,
             updated: now - 3600.0,
+            run: None,
         },
         IdeaCard {
             id: "i-c92yz1qf".to_string(),
@@ -86,6 +88,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             risk: Some(Risk::High),
             blockers: 0,
             updated: now - 30.0,
+            run: None,
         },
     ]
 }
@@ -232,6 +235,7 @@ fn test_factory_tab_selection_follows_idea_id_across_refresh() {
         risk: None,
         blockers: 0,
         updated: now,
+        run: None,
     }];
     reordered.extend(ideas);
 
