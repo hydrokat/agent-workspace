@@ -193,6 +193,10 @@ pub struct Run {
     pub base_commit: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub pause_reason: Option<String>,
+    #[serde(default)]
+    pub action_commands: Vec<String>,
     pub state: RunState,
     #[serde(default)]
     pub stages: Vec<Stage>,

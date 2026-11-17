@@ -244,6 +244,37 @@ pub fn sidebar_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> 
     }
 }
 
+pub fn runner_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> Launch {
+    let mut cmd = self_cmd
+        .map(|s| s.to_vec())
+        .unwrap_or_else(selfexec::self_argv);
+    cmd.push("factory".to_string());
+    cmd.push("runner".to_string());
+
+    let mut env = HashMap::new();
+    if let Some(ws) = workspace {
+        env.insert(
+            "TANDEM_WORKSPACE".to_string(),
+            ws.to_string_lossy().to_string(),
+        );
+    }
+
+    Launch {
+        argv: cmd,
+        role: "runner".to_string(),
+        index: 0,
+        label: "runner".to_string(),
+        kind: "own".to_string(),
+        env,
+        cwd: None,
+        session_id: String::new(),
+        spec: String::new(),
+        cli_version: String::new(),
+        name: String::new(),
+        idea: String::new(),
+    }
+}
+
 pub fn coord_dir_for(workspace: &Path, config: &Config) -> PathBuf {
     config
         .coord_dir
@@ -320,6 +351,11 @@ pub fn start(
 
     let (cols, rows) = crossterm::terminal::size().unwrap_or((160, 45));
     layout.build(cols as usize, rows as usize, &sidebar_l, &main_l, &status_l)?;
+
+    if config.factory {
+        let runner_l = with_factory_env(runner_launch(None, Some(workspace)), true);
+        let _ = layout.add_agent(&runner_l, false);
+    }
 
     for spec in ordered_specs.iter().skip(1) {
         let l = with_factory_env(

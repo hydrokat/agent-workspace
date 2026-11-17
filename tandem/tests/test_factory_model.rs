@@ -124,6 +124,8 @@ fn test_all_model_types_round_trip_json() {
         branch: None,
         base_commit: None,
         worktree_path: None,
+        pause_reason: None,
+        action_commands: Vec::new(),
         state: RunState::Running,
         stages: vec![stage.clone()],
         budget: Some(budget.clone()),

@@ -12,6 +12,7 @@ pub mod model;
 pub mod questions;
 pub mod routing;
 pub mod run;
+pub mod runner;
 pub mod simulate;
 pub mod store;
 pub mod workflow;

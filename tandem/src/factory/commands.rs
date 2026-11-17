@@ -51,6 +51,9 @@ pub enum FactoryCommand {
     #[command(about = "manage headless provider gates and consent")]
     Provider(FactoryProviderArgs),
 
+    #[command(about = "run the factory execution loop (factory sessions only)")]
+    Runner,
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -264,6 +267,8 @@ pub enum FactoryRunCommand {
     Target(FactoryRunTargetArgs),
     #[command(about = "remove a completed/cancelled/withdrawn run worktree")]
     Cleanup(FactoryRunCleanupArgs),
+    #[command(about = "grant one more retry attempt on a paused stage")]
+    Retry(FactoryRunRetryArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -338,6 +343,16 @@ pub struct FactoryRunCleanupArgs {
     pub run: String,
     #[arg(long)]
     pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunRetryArgs {
+    pub run: String,
+    pub stage: String,
+    #[arg(long)]
+    pub hypothesis: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -605,12 +620,14 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Simulate(a) => a.json,
             FactoryRunCommand::Target(a) => a.json,
             FactoryRunCommand::Cleanup(a) => a.json,
+            FactoryRunCommand::Retry(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
             FactoryProviderCommand::Consent(a) => a.json,
             FactoryProviderCommand::Revoke(a) => a.json,
         },
+        FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
     }
@@ -1261,6 +1278,24 @@ fn execute(
                 .map_err(|e| CmdError::invalid_input(e.to_string()))?;
                 serialize_compact(&serde_json::json!({ "cleaned": a.run }))
             }
+            FactoryRunCommand::Retry(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run = super::runner::retry_paused_stage(
+                    &store,
+                    &a.run,
+                    &a.stage,
+                    &a.hypothesis,
+                    &actor,
+                )
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                serialize_compact(&run)
+            }
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {
@@ -1316,6 +1351,17 @@ fn execute(
                     serialize_compact(&gate)
                 }
             }
+        }
+        FactoryCommand::Runner => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            let mut exec = super::executor::BrokerExecutor {
+                workspace: workspace.to_path_buf(),
+            };
+            super::runner::run_loop(workspace, &mut exec)
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+            Ok("{}".to_string())
         }
         FactoryCommand::Events(a) => {
             if let Some(ref id) = a.idea

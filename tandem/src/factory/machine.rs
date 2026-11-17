@@ -231,6 +231,15 @@ pub enum EventData {
         from: String,
         to: String,
     },
+    #[serde(rename = "run.paused")]
+    RunPaused {
+        run: String,
+        reason: String,
+        #[serde(default)]
+        commands: Vec<String>,
+    },
+    #[serde(rename = "run.resumed")]
+    RunResumed { run: String },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -750,6 +759,8 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             branch: None,
             base_commit: None,
             worktree_path: None,
+            pause_reason: None,
+            action_commands: Vec::new(),
             state: RunState::Queued,
             stages: stages.clone(),
             budget: None,
@@ -835,6 +846,20 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                 }
                 EventData::RunTargetSelected { target, .. } => {
                     run.target = Some(target.clone());
+                    run.updated = ts;
+                }
+                EventData::RunPaused {
+                    reason, commands, ..
+                } => {
+                    run.state = RunState::Paused;
+                    run.pause_reason = Some(reason.clone());
+                    run.action_commands = commands.clone();
+                    run.updated = ts;
+                }
+                EventData::RunResumed { .. } => {
+                    run.state = RunState::Running;
+                    run.pause_reason = None;
+                    run.action_commands.clear();
                     run.updated = ts;
                 }
                 _ => {}
