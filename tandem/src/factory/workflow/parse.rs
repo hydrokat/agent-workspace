@@ -77,10 +77,11 @@ fn strip_comment(line: &str) -> &str {
             '\\' if in_double => escaped = true,
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '#' if !in_single && !in_double => {
-                if idx == 0 || line[..idx].ends_with(char::is_whitespace) {
-                    return &line[..idx];
-                }
+            '#' if !in_single
+                && !in_double
+                && (idx == 0 || line[..idx].ends_with(char::is_whitespace)) =>
+            {
+                return &line[..idx];
             }
             _ => {}
         }
@@ -108,10 +109,12 @@ fn unquote_scalar(raw: &str, line: usize) -> Result<String, ParseError> {
             message: "YAML tags (!) are not allowed".to_string(),
         });
     }
-    if t.starts_with('"') && t.ends_with('"') && t.len() >= 2 {
-        Ok(t[1..t.len() - 1].to_string())
-    } else if t.starts_with('\'') && t.ends_with('\'') && t.len() >= 2 {
-        Ok(t[1..t.len() - 1].to_string())
+    if let Some(inner) = t
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| t.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+    {
+        Ok(inner.to_string())
     } else {
         Ok(t.to_string())
     }

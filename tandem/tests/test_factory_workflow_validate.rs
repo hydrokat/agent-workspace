@@ -167,8 +167,10 @@ stages:
     );
 
     // W009: max_parallel_agents above factory setting
-    let mut strict = FactorySettings::default();
-    strict.max_parallel_agents = 2;
+    let strict = FactorySettings {
+        max_parallel_agents: 2,
+        ..Default::default()
+    };
     assert_code(VALID_WORKFLOW, "W009", &strict);
 
     // W010: temperature out of 0.0..=1.0
@@ -257,7 +259,8 @@ fn test_default_workflow_is_valid_and_matches_template() {
         .join("templates")
         .join("workflows")
         .join("default-delivery.yaml");
-    let template = fs::read_to_string(&template_path).expect("template default-delivery.yaml should exist");
+    let template =
+        fs::read_to_string(&template_path).expect("template default-delivery.yaml should exist");
     assert_eq!(
         DEFAULT_WORKFLOW_YAML, template,
         "embedded default-delivery.yaml must be byte-identical to templates/workflows/default-delivery.yaml"
@@ -276,8 +279,10 @@ fn test_workflow_default_cli_prints_embedded_default() {
     };
     let tmp = std::env::temp_dir().join(format!("tandem-wf-def-{}", std::process::id()));
     let _ = fs::create_dir_all(&tmp);
-    let mut cfg = Config::default();
-    cfg.state_dir = tmp.join("state");
+    let cfg = Config {
+        state_dir: tmp.join("state"),
+        ..Default::default()
+    };
     let mut stdin = std::io::empty();
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
