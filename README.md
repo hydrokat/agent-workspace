@@ -228,14 +228,16 @@ your-project-agent-workspace/
 │   │   ├── frontend-dev/
 │   │   ├── qa-engineer/
 │   │   ├── security-auditor/
-│   │   └── ...                        # 13 agents total
+│   │   └── ...                        # 18 agents total
 │   └── skills/
 │       ├── spec-planner/
 │       ├── pm-new-sprint/
 │       ├── pm-sprint-implement/
+│       ├── ui-ux-pro-max/
+│       ├── marketing-plan/
 │       ├── workspace-init/
 │       ├── workspace-sync/
-│       └── ...
+│       └── ...                        # includes pricing, offers, social, sales-enablement
 ├── .claude/                           # Generated — do not edit manually
 │   ├── agents/                        # Claude-compatible agent files (model injected)
 │   └── skills/

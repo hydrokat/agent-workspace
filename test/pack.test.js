@@ -54,8 +54,23 @@ describe('npm pack contents', () => {
       'knowledge/assets/business-flow.md',
       'test-failures/SKILL.md', 'test-failures/agents/openai.yaml', 'test-failures/scripts/run_tests.py',
       'factory-orchestrator/SKILL.md', 'factory-orchestrator/agents/openai.yaml', 'factory-orchestrator/scripts/factory.py',
+      'ui-ux-pro-max/SKILL.md', 'ui-ux-pro-max/agents/openai.yaml', 'ui-ux-pro-max/assets/design-system-brief.md',
+      'marketing-plan/SKILL.md', 'marketing-plan/agents/openai.yaml', 'marketing-plan/assets/marketing-plan.md',
+      'pricing/SKILL.md', 'pricing/agents/openai.yaml', 'pricing/assets/pricing-strategy.md',
+      'sales-enablement/SKILL.md', 'sales-enablement/agents/openai.yaml', 'sales-enablement/assets/sales-enablement.md',
+      'social/SKILL.md', 'social/agents/openai.yaml', 'social/assets/social-campaign.md',
+      'offers/SKILL.md', 'offers/agents/openai.yaml', 'offers/assets/offer-design.md',
     ];
     for (const rel of required) assert.ok(files.includes(`${skills}/${rel}`), `${rel} packed`);
+    for (const agent of [
+      'devops-engineer',
+      'marketing-executive',
+      'design-executive',
+      'research-agent',
+      'customer-support',
+    ]) {
+      assert.ok(files.includes(`templates/agents/${agent}/AGENT.md`), `${agent} packed`);
+    }
   });
 
   it('ships the generic knowledgebase notes for the script-first workflow', () => {

@@ -239,5 +239,14 @@ describe('update cleans up stale skills and agents', () => {
     assert.ok(fileExists(dir, 'sprints/README.md'), 'sprints/README.md present');
     assert.equal(readFile(dir, 'sprints/s-001-user/sprint.md'), userSprint, 'user sprint untouched');
     assert.ok(fileExists(dir, '.agents/agents/project-manager/AGENT.md'), 'project-manager installed on update');
+    for (const agent of [
+      'devops-engineer',
+      'marketing-executive',
+      'design-executive',
+      'research-agent',
+      'customer-support',
+    ]) {
+      assert.ok(fileExists(dir, `.agents/agents/${agent}/AGENT.md`), `${agent} installed on update`);
+    }
   });
 });

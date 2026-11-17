@@ -76,6 +76,11 @@ Common routing:
 - `security-auditor`: auth, authorization, sensitive data, injection, dependency risk.
 - `business-analyst`: requirements interpretation, workflow impact, acceptance criteria.
 - `technical-writer`: knowledgebase updates, implementation notes, documentation cleanup.
+- `devops-engineer`: CI/CD pipelines, build caching, runner and deployment automation.
+- `marketing-executive`: marketing plans, positioning, pricing, offers, social, sales enablement.
+- `design-executive`: UX architecture, visual design systems (`ui-ux-pro-max`), creative direction.
+- `research-agent`: multi-source internal and external research with verifiable citations.
+- `customer-support`: user-perspective reproduction, workarounds, and troubleshooting guides.
 
 If subagent tooling is available, delegate bounded work to the assigned agent. If it is not available, explicitly act in that role and state the role in progress notes. Load all task-relevant skills before delegating or executing work.
 

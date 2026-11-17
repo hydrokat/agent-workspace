@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sales Enablement"
+  short_description: "Create battlecards, objection matrices, discovery scripts, and ROI briefs"
+  default_prompt: "/sales-enablement"

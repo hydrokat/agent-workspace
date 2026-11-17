@@ -101,4 +101,21 @@ describe('init with multiple providers', () => {
     assert.ok(manifest.providers.includes('antigravity'));
     assert.ok(manifest.providers.includes('codex'));
   });
+
+  it('installs the 5 specialist agents with provider-specific models', () => {
+    for (const agent of [
+      'devops-engineer',
+      'marketing-executive',
+      'design-executive',
+      'research-agent',
+      'customer-support',
+    ]) {
+      assert.ok(fileExists(dir, `.agents/agents/${agent}/AGENT.md`), `${agent} canonical`);
+      assert.ok(fileExists(dir, `.claude/agents/${agent}.md`), `${agent} claude`);
+      assert.ok(fileExists(dir, `.gemini/agents/${agent}.md`), `${agent} antigravity`);
+      assert.ok(readFile(dir, `.claude/agents/${agent}.md`).includes('model:'), `${agent} claude model`);
+      assert.ok(readFile(dir, `.gemini/agents/${agent}.md`).includes('model:'), `${agent} gemini model`);
+      assert.ok(readFile(dir, `.agents/agents/${agent}/AGENT.md`).includes('model:'), `${agent} codex model`);
+    }
+  });
 });

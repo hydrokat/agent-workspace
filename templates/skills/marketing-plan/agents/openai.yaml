@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marketing Plan"
+  short_description: "Build ICP, positioning, channel, and 30/60/90-day GTM plans"
+  default_prompt: "/marketing-plan"

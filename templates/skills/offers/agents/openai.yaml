@@ -1,0 +1,4 @@
+interface:
+  display_name: "Offers"
+  short_description: "Engineer high-converting offers, bonuses, guarantees, and lead magnets"
+  default_prompt: "/offers"

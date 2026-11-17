@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added: Specialist agents & marketing/design skills (`p-020`)
+- **5 specialist agent templates**: Added `devops-engineer`, `marketing-executive`, `design-executive`, `research-agent`, and `customer-support` with provider model mappings (`src/data/models.json`, `templates/AGENTS.md`) and orchestrator/spec-implement routing.
+- **6 bundled marketing & design skills**: Added `ui-ux-pro-max`, `marketing-plan`, `pricing`, `sales-enablement`, `social`, and `offers` under `templates/skills/` with `agents/openai.yaml` and structured `assets/` templates; refreshed `init-file-tree.json`, `npm-pack-files.json`, and `manifest.json` golden snapshots.
+
 ### Added: Factory Mode workflow engine (`p-015`)
 - **Workflow parser, schema & validator (`W001`–`W013`)**: Bounded YAML subset parser, strict vocabularies, `tandem factory workflow validate|list|default`, and user-owned `workflows/default-delivery.yaml` installed by `init`/`update`/`doctor`.
 - **Runs, pure scheduler & dry-run simulator**: `tandem factory run create|show|list|withdraw|simulate` with verified plan snapshots, byte-identical `runs/<run-id>/workflow.yaml`, stage event folding, and `FakeExecutor` dry-run traces.

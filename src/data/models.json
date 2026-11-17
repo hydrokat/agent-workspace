@@ -76,5 +76,35 @@
     "antigravity": "gemini-2.0-flash-lite",
     "codex": "gpt-5.4-mini",
     "opencode": "anthropic/claude-haiku-4-5"
+  },
+  "devops-engineer": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.3-codex",
+    "opencode": "anthropic/claude-sonnet-4-6"
+  },
+  "marketing-executive": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.4",
+    "opencode": "anthropic/claude-sonnet-4-6"
+  },
+  "design-executive": {
+    "claude": "claude-opus-4-7",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.5",
+    "opencode": "anthropic/claude-opus-4-7"
+  },
+  "research-agent": {
+    "claude": "claude-opus-4-7",
+    "antigravity": "gemini-2.5-pro",
+    "codex": "gpt-5.5",
+    "opencode": "anthropic/claude-opus-4-7"
+  },
+  "customer-support": {
+    "claude": "claude-sonnet-4-6",
+    "antigravity": "gemini-2.0-flash",
+    "codex": "gpt-5.4",
+    "opencode": "anthropic/claude-sonnet-4-6"
   }
 }
