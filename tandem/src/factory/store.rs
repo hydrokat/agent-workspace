@@ -408,7 +408,9 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::StageSucceeded { run, .. }
         | EventData::StageFailed { run, .. }
         | EventData::StageSkipped { run, .. }
-        | EventData::StageBlocked { run, .. } => Some(run.clone()),
+        | EventData::StageBlocked { run, .. }
+        | EventData::WorkspacePrepared { run, .. }
+        | EventData::RunTargetSelected { run, .. } => Some(run.clone()),
         _ => None,
     }
 }

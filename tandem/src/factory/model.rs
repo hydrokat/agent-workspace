@@ -185,6 +185,14 @@ pub struct Run {
     pub plan_sha256: String,
     #[serde(default)]
     pub deploy_requested: bool,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub base_commit: Option<String>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
     pub state: RunState,
     #[serde(default)]
     pub stages: Vec<Stage>,

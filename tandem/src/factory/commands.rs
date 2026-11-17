@@ -260,6 +260,10 @@ pub enum FactoryRunCommand {
     Withdraw(FactoryRunWithdrawArgs),
     #[command(about = "simulate a workflow run without executing or writing anything")]
     Simulate(FactoryRunSimulateArgs),
+    #[command(about = "select target repository for a run")]
+    Target(FactoryRunTargetArgs),
+    #[command(about = "remove a completed/cancelled/withdrawn run worktree")]
+    Cleanup(FactoryRunCleanupArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -314,6 +318,26 @@ pub struct FactoryRunSimulateArgs {
     pub fail: Vec<String>,
     #[arg(long)]
     pub retries: Option<u32>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunProviderStub;
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunTargetArgs {
+    pub run: String,
+    pub name: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunCleanupArgs {
+    pub run: String,
+    #[arg(long)]
+    pub confirm: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -579,6 +603,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::List(a) => a.json,
             FactoryRunCommand::Withdraw(a) => a.json,
             FactoryRunCommand::Simulate(a) => a.json,
+            FactoryRunCommand::Target(a) => a.json,
+            FactoryRunCommand::Cleanup(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -1206,6 +1232,34 @@ fn execute(
             }
             FactoryRunCommand::Simulate(_) => {
                 unreachable!("simulate handled directly in run_with_io")
+            }
+            FactoryRunCommand::Target(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let run = super::workspace::set_run_target(&store, workspace, &a.run, &a.name)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::Cleanup(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if a.confirm != a.run {
+                    return Err(CmdError::invalid_input(format!(
+                        "--confirm {} does not match run {}",
+                        a.confirm, a.run
+                    )));
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                super::workspace::cleanup_worktree(&store, workspace, &a.run, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                serialize_compact(&serde_json::json!({ "cleaned": a.run }))
             }
         },
         FactoryCommand::Provider(p_args) => {

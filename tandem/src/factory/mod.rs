@@ -14,6 +14,7 @@ pub mod run;
 pub mod simulate;
 pub mod store;
 pub mod workflow;
+pub mod workspace;
 
 use machine::TransitionError;
 

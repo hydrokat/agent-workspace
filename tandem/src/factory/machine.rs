@@ -214,6 +214,16 @@ pub enum EventData {
     },
     #[serde(rename = "provider.revoked")]
     ProviderRevoked { provider: String },
+    #[serde(rename = "workspace.prepared")]
+    WorkspacePrepared {
+        run: String,
+        target: String,
+        branch: String,
+        base_commit: String,
+        worktree_path: String,
+    },
+    #[serde(rename = "run.target_selected")]
+    RunTargetSelected { run: String, target: String },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -729,6 +739,10 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             workflow_source: source.clone(),
             plan_sha256: plan_sha256.clone(),
             deploy_requested: *deploy_requested,
+            target: None,
+            branch: None,
+            base_commit: None,
+            worktree_path: None,
             state: RunState::Queued,
             stages: stages.clone(),
             budget: None,
@@ -797,6 +811,23 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.state = StageState::Blocked;
                         st.rationale = Some(reason.clone());
                     }
+                    run.updated = ts;
+                }
+                EventData::WorkspacePrepared {
+                    target,
+                    branch,
+                    base_commit,
+                    worktree_path,
+                    ..
+                } => {
+                    run.target = Some(target.clone());
+                    run.branch = Some(branch.clone());
+                    run.base_commit = Some(base_commit.clone());
+                    run.worktree_path = Some(worktree_path.clone());
+                    run.updated = ts;
+                }
+                EventData::RunTargetSelected { target, .. } => {
+                    run.target = Some(target.clone());
                     run.updated = ts;
                 }
                 _ => {}
