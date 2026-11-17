@@ -48,6 +48,12 @@ pub enum FactoryCommand {
     #[command(about = "manage workflow runs")]
     Run(FactoryRunArgs),
 
+    #[command(about = "manage headless provider gates and consent")]
+    Provider(FactoryProviderArgs),
+
+    #[command(about = "run the factory execution loop (factory sessions only)")]
+    Runner,
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -98,6 +104,9 @@ pub enum FactoryIdeaCommand {
 
     #[command(about = "revoke ready-for-development tag before a run exists")]
     RevokeReady(FactoryIdeaRevokeReadyArgs),
+
+    #[command(about = "cancel an idea and any active run")]
+    Cancel(FactoryIdeaCancelArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -118,6 +127,15 @@ pub struct FactoryIdeaReadyArgs {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryIdeaRevokeReadyArgs {
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaCancelArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -257,6 +275,20 @@ pub enum FactoryRunCommand {
     Withdraw(FactoryRunWithdrawArgs),
     #[command(about = "simulate a workflow run without executing or writing anything")]
     Simulate(FactoryRunSimulateArgs),
+    #[command(about = "select target repository for a run")]
+    Target(FactoryRunTargetArgs),
+    #[command(about = "remove a completed/cancelled/withdrawn run worktree")]
+    Cleanup(FactoryRunCleanupArgs),
+    #[command(about = "grant one more retry attempt on a paused stage")]
+    Retry(FactoryRunRetryArgs),
+    #[command(about = "pause a running or queued run")]
+    Pause(FactoryRunPauseArgs),
+    #[command(about = "resume a paused run from the last valid stage")]
+    Resume(FactoryRunResumeArgs),
+    #[command(about = "cancel an active run while keeping its worktree and branch")]
+    Cancel(FactoryRunCancelArgs),
+    #[command(about = "tail a job log for a run")]
+    Log(FactoryRunLogArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -311,6 +343,111 @@ pub struct FactoryRunSimulateArgs {
     pub fail: Vec<String>,
     #[arg(long)]
     pub retries: Option<u32>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunProviderStub;
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunTargetArgs {
+    pub run: String,
+    pub name: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunCleanupArgs {
+    pub run: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunRetryArgs {
+    pub run: String,
+    pub stage: String,
+    #[arg(long)]
+    pub hypothesis: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunPauseArgs {
+    pub run: String,
+    #[arg(long, help = "stop running jobs immediately")]
+    pub now: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunResumeArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunCancelArgs {
+    pub run: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunLogArgs {
+    pub run: String,
+    pub job: String,
+    #[arg(long, default_value_t = 65536)]
+    pub tail: usize,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderArgs {
+    #[command(subcommand)]
+    pub command: FactoryProviderCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryProviderCommand {
+    #[command(about = "show provider terms verdicts and gate state")]
+    Status(FactoryProviderStatusArgs),
+    #[command(about = "record user consent to open a provider gate")]
+    Consent(FactoryProviderConsentArgs),
+    #[command(about = "close a provider gate")]
+    Revoke(FactoryProviderRevokeArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderStatusArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderConsentArgs {
+    pub provider: String,
+    #[arg(long)]
+    pub auth: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderRevokeArgs {
+    pub provider: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -517,6 +654,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryIdeaCommand::SelectDirection(a) => a.json,
             FactoryIdeaCommand::Ready(a) => a.json,
             FactoryIdeaCommand::RevokeReady(a) => a.json,
+            FactoryIdeaCommand::Cancel(a) => a.json,
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => a.json,
@@ -536,7 +674,20 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::List(a) => a.json,
             FactoryRunCommand::Withdraw(a) => a.json,
             FactoryRunCommand::Simulate(a) => a.json,
+            FactoryRunCommand::Target(a) => a.json,
+            FactoryRunCommand::Cleanup(a) => a.json,
+            FactoryRunCommand::Retry(a) => a.json,
+            FactoryRunCommand::Pause(a) => a.json,
+            FactoryRunCommand::Resume(a) => a.json,
+            FactoryRunCommand::Cancel(a) => a.json,
+            FactoryRunCommand::Log(a) => a.json,
         },
+        FactoryCommand::Provider(p_args) => match &p_args.command {
+            FactoryProviderCommand::Status(a) => a.json,
+            FactoryProviderCommand::Consent(a) => a.json,
+            FactoryProviderCommand::Revoke(a) => a.json,
+        },
+        FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
     }
@@ -889,6 +1040,28 @@ fn execute(
                 })?;
                 serialize_compact(&updated)
             }
+            FactoryIdeaCommand::Cancel(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::cancel_idea(&store, &a.id, &a.confirm, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_cancel_idea_text(&res))
+                }
+            }
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => {
@@ -1159,7 +1332,215 @@ fn execute(
             FactoryRunCommand::Simulate(_) => {
                 unreachable!("simulate handled directly in run_with_io")
             }
+            FactoryRunCommand::Target(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let run =
+                    super::workspace::set_run_target(&store, workspace, &a.run, &a.name, &|k| {
+                        std::env::var(k).ok()
+                    })
+                    .map_err(|e| match e {
+                        super::workspace::WorkspaceError::Approval(ae) => CmdError {
+                            exit_code: ae.exit_code(),
+                            code: ae.code(),
+                            message: ae.to_string(),
+                        },
+                        other => CmdError::invalid_input(other.to_string()),
+                    })?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::Cleanup(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if a.confirm != a.run {
+                    return Err(CmdError::invalid_input(format!(
+                        "--confirm {} does not match run {}",
+                        a.confirm, a.run
+                    )));
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                super::workspace::cleanup_worktree(&store, workspace, &a.run, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                serialize_compact(&serde_json::json!({ "cleaned": a.run }))
+            }
+            FactoryRunCommand::Retry(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run = super::runner::retry_paused_stage(
+                    &store,
+                    &a.run,
+                    &a.stage,
+                    &a.hypothesis,
+                    &actor,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::Pause(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::pause_run_by_user(&store, &a.run, a.now, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_pause_run_text(&res, a.now))
+                }
+            }
+            FactoryRunCommand::Resume(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run =
+                    super::runner::resume_paused_run(&store, &a.run, &actor).map_err(|e| {
+                        CmdError {
+                            exit_code: e.exit_code(),
+                            code: e.code(),
+                            message: e.to_string(),
+                        }
+                    })?;
+                if a.json {
+                    serialize_compact(&run)
+                } else {
+                    Ok(format!("Run {} resumed.", run.id))
+                }
+            }
+            FactoryRunCommand::Cancel(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::cancel_run(&store, &a.run, &a.confirm, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_cancel_run_text(&res))
+                }
+            }
+            FactoryRunCommand::Log(a) => read_run_job_log(&store, a),
         },
+        FactoryCommand::Provider(p_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            match &p_args.command {
+                FactoryProviderCommand::Status(_) => {
+                    let settings = if store.exists() {
+                        store.settings().map_err(map_factory_error)?
+                    } else {
+                        FactorySettings::default()
+                    };
+                    let today = super::broker::gate::today_iso_date();
+                    let items = super::broker::gate::provider_statuses(&settings, &today);
+                    serialize_compact(&items)
+                }
+                FactoryProviderCommand::Consent(a) => {
+                    let auth_type = super::broker::gate::AuthType::parse(&a.auth).ok_or_else(|| {
+                        CmdError::invalid_input(format!(
+                            "invalid --auth value: {} (expected subscription, api-key, or cloud)",
+                            a.auth
+                        ))
+                    })?;
+                    let consented_by = resolve_owner(None)?;
+                    let gate = super::broker::gate::consent_provider(
+                        &store,
+                        &a.provider,
+                        auth_type,
+                        &a.confirm,
+                        &consented_by,
+                        &|k| std::env::var(k).ok(),
+                    )
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                    serialize_compact(&gate)
+                }
+                FactoryProviderCommand::Revoke(a) => {
+                    let revoked_by = resolve_owner(None)?;
+                    let gate = super::broker::gate::revoke_provider(
+                        &store,
+                        &a.provider,
+                        &revoked_by,
+                        &|k| std::env::var(k).ok(),
+                    )
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                    serialize_compact(&gate)
+                }
+            }
+        }
+        FactoryCommand::Runner => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            let mut exec = super::executor::BrokerExecutor {
+                workspace: workspace.to_path_buf(),
+            };
+            super::runner::run_loop(workspace, &mut exec)
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+            Ok("{}".to_string())
+        }
         FactoryCommand::Events(a) => {
             if let Some(ref id) = a.idea
                 && !is_valid_idea_id(id)
@@ -1442,6 +1823,187 @@ fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<I
     crate::commands::add_agent(&spec, workspace, config)
         .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
     Ok(idea)
+}
+
+fn format_stopped_jobs_line(jobs: &[super::runner::StoppedJobInfo]) -> Option<String> {
+    if jobs.is_empty() {
+        return None;
+    }
+    let details: Vec<String> = jobs
+        .iter()
+        .map(|j| format!("{}, attempt {}", j.stage, j.attempt))
+        .collect();
+    let noun = if jobs.len() == 1 { "job" } else { "jobs" };
+    Some(format!(
+        "Stopped {} running {noun} ({}).",
+        jobs.len(),
+        details.join("; ")
+    ))
+}
+
+fn format_pause_run_text(res: &super::runner::PauseRunResult, now: bool) -> String {
+    let mut lines = Vec::new();
+    if let Some(stopped) = format_stopped_jobs_line(&res.stopped_jobs) {
+        lines.push(stopped);
+    }
+    if now {
+        lines.push(format!("Run {} paused (--now).", res.run.id));
+    } else {
+        lines.push(format!(
+            "Run {} paused. Running jobs will finish; no new stage will start.",
+            res.run.id
+        ));
+    }
+    lines.push(format!(
+        "Resume with: tandem factory run resume {}",
+        res.run.id
+    ));
+    lines.join("\n")
+}
+
+fn format_cancel_run_text(res: &super::runner::CancelRunResult) -> String {
+    let mut lines = Vec::new();
+    if let Some(stopped) = format_stopped_jobs_line(&res.stopped_jobs) {
+        lines.push(stopped);
+    }
+    lines.push(format!(
+        "Run {} cancelled. Idea {} is Ready for development again.",
+        res.run.id, res.idea.id
+    ));
+    if let (Some(wt), Some(branch)) = (&res.run.worktree_path, &res.run.branch) {
+        lines.push(format!("The work is kept: {wt} on branch {branch}."));
+        lines.push(format!(
+            "Remove it with: tandem factory run cleanup {} --confirm {}",
+            res.run.id, res.run.id
+        ));
+    }
+    lines.join("\n")
+}
+
+fn format_cancel_idea_text(res: &super::runner::CancelIdeaResult) -> String {
+    let mut lines = Vec::new();
+    if let Some(stopped) = format_stopped_jobs_line(&res.stopped_jobs) {
+        lines.push(stopped);
+    }
+    lines.push(format!("Idea {} cancelled.", res.idea.id));
+    for run in &res.cancelled_runs {
+        if let (Some(wt), Some(branch)) = (&run.worktree_path, &run.branch) {
+            lines.push(format!(
+                "The work for {} is kept: {wt} on branch {branch}.",
+                run.id
+            ));
+            lines.push(format!(
+                "Remove it with: tandem factory run cleanup {} --confirm {}",
+                run.id, run.id
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+const MAX_RUN_LOG_TAIL_BYTES: usize = 262_144;
+
+fn is_valid_correlation_id_for_run(run_id: &str, job_id: &str) -> bool {
+    let Some(rest) = job_id
+        .strip_prefix(run_id)
+        .and_then(|s| s.strip_prefix('.'))
+    else {
+        return false;
+    };
+    let Some((stage, attempt)) = rest.split_once('.') else {
+        return false;
+    };
+    let mut stage_bytes = stage.bytes();
+    let stage_ok = matches!(stage_bytes.next(), Some(b) if b.is_ascii_lowercase())
+        && stage.len() <= 48
+        && stage_bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    let attempt_ok =
+        (1..=2).contains(&attempt.len()) && attempt.bytes().all(|b| b.is_ascii_digit());
+    stage_ok && attempt_ok
+}
+
+fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<String, CmdError> {
+    use std::io::{Seek, SeekFrom};
+
+    if !super::ids::is_valid_run_id(&args.run) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid run id {}",
+            args.run
+        )));
+    }
+    if args.tail == 0 || args.tail > MAX_RUN_LOG_TAIL_BYTES {
+        return Err(CmdError::invalid_input(format!(
+            "tail bytes must be between 1 and {MAX_RUN_LOG_TAIL_BYTES}"
+        )));
+    }
+    if !is_valid_correlation_id_for_run(&args.run, &args.job) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid job id {}",
+            args.job
+        )));
+    }
+
+    super::run::get_run(store, &args.run)
+        .map_err(|e| CmdError {
+            exit_code: 1,
+            code: e.code(),
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| CmdError::not_found(format!("run {}", args.run)))?;
+
+    let job_dir = store
+        .root
+        .join("runs")
+        .join(&args.run)
+        .join("jobs")
+        .join(&args.job);
+    super::events::reject_if_symlink(&job_dir)
+        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+    if !job_dir.exists() {
+        return Err(CmdError::not_found(format!("job {}", args.job)));
+    }
+
+    let log_path = job_dir.join("log.txt");
+    super::events::reject_if_symlink(&log_path)
+        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+
+    let cleaned = if !log_path.exists() {
+        String::new()
+    } else {
+        let mut file = File::open(&log_path)
+            .map_err(|e| CmdError::invalid_input(format!("cannot open log: {e}")))?;
+        let len = file
+            .metadata()
+            .map_err(|e| CmdError::invalid_input(format!("cannot stat log: {e}")))?
+            .len();
+        let start = len.saturating_sub(args.tail as u64);
+        if start > 0 {
+            file.seek(SeekFrom::Start(start))
+                .map_err(|e| CmdError::invalid_input(format!("cannot seek log: {e}")))?;
+        }
+        let mut buf = Vec::with_capacity(args.tail.min(len as usize));
+        file.take(args.tail as u64)
+            .read_to_end(&mut buf)
+            .map_err(|e| CmdError::invalid_input(format!("cannot read log: {e}")))?;
+
+        let raw = String::from_utf8_lossy(&buf);
+        let aligned = if start > 0 {
+            raw.trim_start_matches('\u{FFFD}')
+        } else {
+            raw.as_ref()
+        };
+        sanitize::clean(aligned)
+    };
+
+    if args.json {
+        serialize_compact(&serde_json::json!({
+            "run": args.run,
+            "job": args.job,
+            "log": cleaned
+        }))
+    } else {
+        Ok(cleaned)
+    }
 }
 
 #[cfg(test)]

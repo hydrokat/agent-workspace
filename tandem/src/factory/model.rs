@@ -148,6 +148,8 @@ pub struct Stage {
     #[serde(default)]
     pub attempts: u32,
     #[serde(default)]
+    pub interrupted_attempts: u32,
+    #[serde(default)]
     pub started: Option<f64>,
     #[serde(default)]
     pub finished: Option<f64>,
@@ -155,6 +157,8 @@ pub struct Stage {
     pub artifacts: Vec<ArtifactRef>,
     #[serde(default)]
     pub rationale: Option<String>,
+    #[serde(default)]
+    pub retry_hypothesis: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +189,18 @@ pub struct Run {
     pub plan_sha256: String,
     #[serde(default)]
     pub deploy_requested: bool,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub base_commit: Option<String>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub pause_reason: Option<String>,
+    #[serde(default)]
+    pub action_commands: Vec<String>,
     pub state: RunState,
     #[serde(default)]
     pub stages: Vec<Stage>,
@@ -247,11 +263,15 @@ pub struct ProviderGate {
     pub provider: String,
     pub state: ProviderGateState,
     #[serde(default)]
+    pub auth_type: Option<String>,
+    #[serde(default)]
     pub verified_on: Option<String>,
     #[serde(default)]
     pub terms_record: Option<String>,
     #[serde(default)]
     pub consented_at: Option<f64>,
+    #[serde(default)]
+    pub consented_by: Option<String>,
 }
 
 fn default_max_parallel_agents() -> usize {
@@ -268,9 +288,11 @@ fn default_provider_gates() -> Vec<ProviderGate> {
         .map(|provider| ProviderGate {
             provider: (*provider).to_string(),
             state: ProviderGateState::Closed,
+            auth_type: None,
             verified_on: None,
             terms_record: None,
             consented_at: None,
+            consented_by: None,
         })
         .collect()
 }

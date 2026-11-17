@@ -5,8 +5,9 @@ pub mod opencode;
 
 pub use agy::{AgyAdapter, RunnerFn, parse_models};
 pub use base::{
-    Adapter, AdapterError, AgentSpec, Model, session_env, session_id, session_name,
-    validate_model_for_cli, validate_model_id, validate_opencode_model_id,
+    Adapter, AdapterError, AgentSpec, Capabilities, HeadlessAdapter, HeadlessRequest, Model,
+    OutputFormat, ToolFlag, session_env, session_id, session_name, validate_model_for_cli,
+    validate_model_id, validate_opencode_model_id, validate_tool_name,
 };
 pub use claude::{CLAUDE_ALIASES, ClaudeAdapter, statusline_settings};
 pub use opencode::{OpencodeAdapter, parse_opencode_models};

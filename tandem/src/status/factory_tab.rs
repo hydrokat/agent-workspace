@@ -18,6 +18,7 @@ use crate::factory::questions;
 use crate::sanitize::clean;
 use crate::snapshot::{FactorySummary, IdeaCard, StatusSnapshot};
 use crate::status::factory_detail::{DetailAction, DetailKeyOutcome, FactoryDetail};
+use crate::status::factory_run::{FactoryRun, RunKeyOutcome};
 use crate::status::render::age;
 use crate::tmux::keys::{FACTORY_NEW_IDEA_KEY, display_shortcut, matches_crossterm_event};
 use crate::ui::input::TextInput;
@@ -34,6 +35,7 @@ pub enum FactoryView {
     Board,
     NewIdea,
     Detail,
+    RunMonitor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,7 +74,14 @@ impl IdeaFilter {
     pub fn matches(&self, idea: &IdeaCard, queries: &[Query]) -> bool {
         match self {
             Self::All => true,
-            Self::NeedsYou => idea.blockers > 0 || questions::for_idea(queries, &idea.id).open > 0,
+            Self::NeedsYou => {
+                idea.blockers > 0
+                    || questions::for_idea(queries, &idea.id).open > 0
+                    || idea
+                        .run
+                        .as_ref()
+                        .is_some_and(|r| r.state == crate::factory::model::RunState::Paused)
+            }
             Self::State(s) => idea.state == *s,
         }
     }
@@ -399,6 +408,7 @@ pub struct FactoryTab {
     pub view: FactoryView,
     pub filter: IdeaFilter,
     pub detail: Option<FactoryDetail>,
+    pub run_monitor: Option<FactoryRun>,
     pub new_idea: Option<NewIdeaModal>,
     pub notice: String,
     pub platform: String,
@@ -437,6 +447,7 @@ impl FactoryTab {
             view: FactoryView::Board,
             filter: IdeaFilter::All,
             detail: None,
+            run_monitor: None,
             new_idea: None,
             notice: String::new(),
             platform: std::env::consts::OS.to_string(),
@@ -454,6 +465,10 @@ impl FactoryTab {
                 .as_ref()
                 .is_some_and(|m| m.step == NewIdeaStep::Model),
             FactoryView::Detail => self.detail.as_ref().is_some_and(|d| d.captures_input()),
+            FactoryView::RunMonitor => self
+                .run_monitor
+                .as_ref()
+                .is_some_and(|m| m.captures_input()),
         }
     }
 
@@ -498,6 +513,16 @@ impl FactoryTab {
                 .as_ref()
                 .and_then(|f| f.ideas.iter().find(|i| i.id == detail.idea_id));
             detail.sync_if_changed(card, &snapshot.queries, pane_open);
+        }
+        if self.view == FactoryView::RunMonitor
+            && let Some(ref mut monitor) = self.run_monitor
+        {
+            let run_summary = snapshot
+                .factory
+                .as_ref()
+                .and_then(|f| f.ideas.iter().find(|i| i.id == monitor.idea_id))
+                .and_then(|i| i.run.as_ref());
+            monitor.sync_if_changed(run_summary);
         }
     }
 
@@ -622,8 +647,39 @@ impl FactoryTab {
                     DetailKeyOutcome::Action(DetailAction::OpenOrResumeOrchestrator {
                         idea_id,
                     }) => Some(FactoryAction::OpenOrResumeOrchestrator { idea_id }),
+                    DetailKeyOutcome::Action(DetailAction::OpenRunMonitor { run_id }) => {
+                        if let Some(ref ws) = self.workspace {
+                            let monitor =
+                                FactoryRun::load(ws, &detail.idea_id, &run_id, &self.platform);
+                            self.run_monitor = Some(monitor);
+                            self.view = FactoryView::RunMonitor;
+                        }
+                        None
+                    }
                     DetailKeyOutcome::Action(DetailAction::Refresh) => Some(FactoryAction::Refresh),
                     DetailKeyOutcome::Consumed | DetailKeyOutcome::Ignored => None,
+                }
+            }
+            FactoryView::RunMonitor => {
+                let Some(ref mut monitor) = self.run_monitor else {
+                    self.view = FactoryView::Detail;
+                    return None;
+                };
+                monitor.platform = self.platform.clone();
+                match monitor.handle_key(event) {
+                    RunKeyOutcome::BackToDetail => {
+                        self.run_monitor = None;
+                        if let Some(ref mut detail) = self.detail {
+                            let pane_open = detail.pane_open;
+                            detail.reload(&snapshot.queries, pane_open);
+                            self.view = FactoryView::Detail;
+                        } else {
+                            self.view = FactoryView::Board;
+                        }
+                        None
+                    }
+                    RunKeyOutcome::Refresh => Some(FactoryAction::Refresh),
+                    RunKeyOutcome::Consumed | RunKeyOutcome::Ignored => None,
                 }
             }
             FactoryView::Board => {
@@ -689,6 +745,12 @@ impl FactoryTab {
             FactoryView::Detail => {
                 if let Some(ref mut detail) = self.detail {
                     detail.render(snapshot.now, area, buf);
+                }
+                return;
+            }
+            FactoryView::RunMonitor => {
+                if let Some(ref mut monitor) = self.run_monitor {
+                    monitor.render(snapshot.now, area, buf);
                 }
                 return;
             }

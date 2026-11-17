@@ -3,7 +3,10 @@ use serde::Serialize;
 use crate::conversations::valid_id;
 use crate::selfexec::self_command;
 
-use super::base::{Adapter, AdapterError, AgentSpec, Model, session_name, validate_model_id};
+use super::base::{
+    Adapter, AdapterError, AgentSpec, Capabilities, HeadlessAdapter, HeadlessRequest, Model,
+    ToolFlag, session_name, validate_model_id, validate_tool_name,
+};
 
 pub const CLAUDE_ALIASES: [&str; 3] = ["opus", "sonnet", "fable"];
 
@@ -107,5 +110,49 @@ impl Adapter for ClaudeAdapter {
                 label: format!("{alias} (latest)"),
             })
             .collect())
+    }
+}
+
+impl HeadlessAdapter for ClaudeAdapter {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            prompt_on_stdin: true,
+            structured_output: true,
+            usage_reporting: true,
+            temperature: false,
+        }
+    }
+
+    fn build_headless_argv(&self, request: &HeadlessRequest) -> Result<Vec<String>, AdapterError> {
+        let valid_model = validate_model_id(&request.model)?;
+        let mut allowed = Vec::new();
+        let mut disallowed = Vec::new();
+
+        for tool in &request.tools {
+            match tool {
+                ToolFlag::Allow(name) => allowed.push(validate_tool_name(name)?),
+                ToolFlag::Disallow(name) => disallowed.push(validate_tool_name(name)?),
+            }
+        }
+
+        let mut argv = vec![
+            "claude".to_string(),
+            "-p".to_string(),
+            "--model".to_string(),
+            valid_model,
+            "--output-format".to_string(),
+            request.output.as_str().to_string(),
+        ];
+
+        if !allowed.is_empty() {
+            argv.push("--allowedTools".to_string());
+            argv.push(allowed.join(","));
+        }
+        if !disallowed.is_empty() {
+            argv.push("--disallowedTools".to_string());
+            argv.push(disallowed.join(","));
+        }
+
+        Ok(argv)
     }
 }

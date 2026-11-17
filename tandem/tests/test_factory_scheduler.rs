@@ -75,10 +75,12 @@ fn make_stages(wf: &Workflow, overrides: &[(&str, StageState, u32)]) -> Vec<Stag
                 agent: s.agent.as_str().to_string(),
                 state,
                 attempts,
+                interrupted_attempts: 0,
                 started: None,
                 finished: None,
                 artifacts: vec![],
                 rationale: None,
+                retry_hypothesis: None,
             }
         })
         .collect()

@@ -308,7 +308,7 @@ pub fn mark_ready_with_workflow(
                 ready.idea = updated_idea;
             }
             ready.run = Some(run);
-            ready.message = "Run queued. Execution arrives with the execution phase.";
+            ready.message = "Run queued.";
         }
         Err(err) => {
             ready.run_error = Some(err.to_string());

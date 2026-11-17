@@ -136,10 +136,12 @@ pub fn create_run(
             agent: s.agent.as_str().to_string(),
             state: StageState::Pending,
             attempts: 0,
+            interrupted_attempts: 0,
             started: None,
             finished: None,
             artifacts: Vec::new(),
             rationale: None,
+            retry_hypothesis: None,
         })
         .collect();
 

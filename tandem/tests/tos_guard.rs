@@ -448,25 +448,134 @@ pub fn check_respawn_pane(src_dir: &Path) -> Vec<String> {
     violations
 }
 
-pub fn check_factory_spawns_nothing(src_dir: &Path) -> Vec<String> {
+pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
     let mut violations = Vec::new();
     let factory_dir = src_dir.join("factory");
-    let forbidden = ["std::process", "Command::new"];
+    let broker_dir = factory_dir.join("broker");
+    let spawn_markers = ["std::process", "Command::new"];
+    let allowed_broker_spawners: &[(&str, &[&str])] = &[
+        ("spawn.rs", &["claude", "agy", "opencode"]),
+        ("git.rs", &["git"]),
+    ];
+    let gate_env_keywords = ["GATE", "BYPASS", "SKIP_TERMS", "OVERRIDE", "ALLOW_PROVIDER"];
 
     for file in collect_rs_files(&factory_dir) {
         let rel_path = file.strip_prefix(src_dir).unwrap_or(&file);
+        let rel_str = rel_path.to_string_lossy().replace('\\', "/");
         let content = fs::read_to_string(&file).unwrap_or_default();
+        let in_broker = file.starts_with(&broker_dir);
+        let file_name = file.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+        // Rule 1 & 2: spawning only under factory/broker/ and only in listed files/programs
+        let mut spawns_in_file = false;
         for (line_no, line) in content.lines().enumerate() {
-            for pattern in &forbidden {
-                if line.contains(pattern) {
+            for marker in &spawn_markers {
+                if line.contains(marker) {
+                    spawns_in_file = true;
+                    if !in_broker {
+                        violations.push(format!(
+                            "{}:{}: process spawning outside factory/broker/ ('{}')",
+                            rel_path.display(),
+                            line_no + 1,
+                            marker
+                        ));
+                    }
+                }
+            }
+        }
+
+        if in_broker && spawns_in_file {
+            match allowed_broker_spawners
+                .iter()
+                .find(|(name, _)| *name == file_name)
+            {
+                None => {
                     violations.push(format!(
-                        "{}:{}: forbidden process spawning in factory '{}'",
+                        "{}: unlisted broker file spawns processes",
+                        rel_path.display()
+                    ));
+                }
+                Some((_, allowed_progs)) => {
+                    for (line_no, line) in content.lines().enumerate() {
+                        if let Some(idx) = line.find("Command::new(\"") {
+                            let rest = &line[idx + "Command::new(\"".len()..];
+                            if let Some(end) = rest.find('"') {
+                                let prog = &rest[..end];
+                                if !allowed_progs.contains(&prog) {
+                                    violations.push(format!(
+                                        "{}:{}: broker file '{}' may not spawn '{}'",
+                                        rel_path.display(),
+                                        line_no + 1,
+                                        file_name,
+                                        prog
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Rule 4: GatePass constructed only in factory/broker/gate.rs
+        if rel_str != "factory/broker/gate.rs" {
+            for (line_no, line) in content.lines().enumerate() {
+                if line.contains("GatePass {") || line.contains("GatePass{") {
+                    violations.push(format!(
+                        "{}:{}: GatePass constructed outside gate.rs",
                         rel_path.display(),
-                        line_no + 1,
-                        pattern
+                        line_no + 1
                     ));
                 }
             }
+        }
+
+        // Rule 5: no env-based gate decision under src/factory/
+        let is_gate_or_terms =
+            rel_str == "factory/broker/gate.rs" || rel_str == "factory/broker/terms.rs";
+        for (line_no, line) in content.lines().enumerate() {
+            let reads_env =
+                line.contains("env::var") || line.contains("option_env!") || line.contains("env!(");
+            if !reads_env {
+                continue;
+            }
+            if is_gate_or_terms {
+                violations.push(format!(
+                    "{}:{}: gate/terms module must not read environment variables",
+                    rel_path.display(),
+                    line_no + 1
+                ));
+                continue;
+            }
+            let upper = line.to_ascii_uppercase();
+            if gate_env_keywords.iter().any(|kw| upper.contains(kw)) {
+                violations.push(format!(
+                    "{}:{}: environment variable used to decide a gate",
+                    rel_path.display(),
+                    line_no + 1
+                ));
+            }
+        }
+    }
+
+    // Rule 3: spawn_provider in factory/broker/spawn.rs must take a GatePass parameter
+    let spawn_rs = broker_dir.join("spawn.rs");
+    if spawn_rs.exists() {
+        let content = fs::read_to_string(&spawn_rs).unwrap_or_default();
+        let has_valid_sig = content.find("fn spawn_provider(").is_some_and(|start| {
+            let sig_rest = &content[start..];
+            let sig_end = sig_rest
+                .find('{')
+                .or_else(|| sig_rest.find("->"))
+                .unwrap_or(sig_rest.len());
+            let params = &sig_rest[..sig_end];
+            params.contains("GatePass") && !params.contains("Option<GatePass>")
+        });
+        if !has_valid_sig {
+            violations.push(
+                "factory/broker/spawn.rs: spawn_provider must take a required GatePass parameter"
+                    .to_string(),
+            );
         }
     }
 
@@ -510,9 +619,9 @@ fn test_respawn_pane_only_runs_through_the_layout_restart_paths() {
 }
 
 #[test]
-fn test_factory_spawns_nothing() {
+fn test_factory_spawn_sites() {
     let src = manifest_dir().join("src");
-    let violations = check_factory_spawns_nothing(&src);
+    let violations = check_factory_spawn_sites(&src);
     assert_eq!(violations, Vec::<String>::new());
 }
 
@@ -570,16 +679,66 @@ fn test_negative_tos_violations_are_detected() {
     assert!(v5[0].contains("arbitrary_kill"));
 
     let tmp_factory = tmp_src.join("factory");
-    fs::create_dir_all(&tmp_factory).unwrap();
+    let tmp_broker = tmp_factory.join("broker");
+    fs::create_dir_all(&tmp_broker).unwrap();
+
+    // Rule 1: spawning outside factory/broker/
     fs::write(
-        tmp_factory.join("bad.rs"),
+        tmp_factory.join("bad_outside.rs"),
         "pub fn spawn() { let _ = std::process::Command::new(\"ls\"); }",
     )
     .unwrap();
-    let v6 = check_factory_spawns_nothing(&tmp_src);
-    assert_eq!(v6.len(), 2);
-    assert!(v6.iter().any(|v| v.contains("std::process")));
-    assert!(v6.iter().any(|v| v.contains("Command::new")));
+    // Rule 2: unlisted broker file spawning
+    fs::write(
+        tmp_broker.join("rogue.rs"),
+        "pub fn spawn() { let _ = std::process::Command::new(\"curl\"); }",
+    )
+    .unwrap();
+    // Rule 3: spawn_provider without GatePass
+    fs::write(
+        tmp_broker.join("spawn.rs"),
+        "pub fn spawn_provider(cmd: ProviderCommand) {}",
+    )
+    .unwrap();
+    // Rule 4: GatePass constructed outside gate.rs
+    fs::write(
+        tmp_broker.join("forged.rs"),
+        "pub fn forge() -> GatePass { GatePass { _sealed: () } }",
+    )
+    .unwrap();
+    // Rule 5: env-based gate override
+    fs::write(
+        tmp_factory.join("bad_env_gate.rs"),
+        "pub fn bypass() -> bool { std::env::var(\"TANDEM_BYPASS_GATE\").is_ok() }",
+    )
+    .unwrap();
+
+    let v6 = check_factory_spawn_sites(&tmp_src);
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("bad_outside.rs") && v.contains("outside factory/broker/")),
+        "expected Rule 1 violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("rogue.rs") && v.contains("unlisted broker file")),
+        "expected Rule 2 violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("spawn.rs") && v.contains("GatePass parameter")),
+        "expected Rule 3 violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("forged.rs") && v.contains("outside gate.rs")),
+        "expected Rule 4 violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("bad_env_gate.rs") && v.contains("decide a gate")),
+        "expected Rule 5 violation, got {v6:?}"
+    );
 
     let _ = fs::remove_dir_all(&tmp);
 }

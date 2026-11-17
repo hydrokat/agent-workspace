@@ -1,6 +1,7 @@
 pub mod app;
 pub mod banners;
 pub mod factory_detail;
+pub mod factory_run;
 pub mod factory_tab;
 pub mod notify;
 pub mod qr;

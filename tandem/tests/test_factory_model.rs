@@ -106,10 +106,12 @@ fn test_all_model_types_round_trip_json() {
         agent: "senior-backend-dev".to_string(),
         state: StageState::Succeeded,
         attempts: 1,
+        interrupted_attempts: 0,
         started: Some(1700000020.0),
         finished: Some(1700000080.0),
         artifacts: vec![artifact.clone()],
         rationale: Some("clean".to_string()),
+        retry_hypothesis: None,
     };
     let run = Run {
         id: "r-12345678".to_string(),
@@ -120,6 +122,12 @@ fn test_all_model_types_round_trip_json() {
         workflow_source: "embedded".to_string(),
         plan_sha256: "deadbeef".to_string(),
         deploy_requested: false,
+        target: None,
+        branch: None,
+        base_commit: None,
+        worktree_path: None,
+        pause_reason: None,
+        action_commands: Vec::new(),
         state: RunState::Running,
         stages: vec![stage.clone()],
         budget: Some(budget.clone()),
@@ -158,9 +166,11 @@ fn test_all_model_types_round_trip_json() {
     let gate = ProviderGate {
         provider: "claude".to_string(),
         state: ProviderGateState::Closed,
+        auth_type: None,
         verified_on: Some("2026-11-16".to_string()),
         terms_record: Some("factory-provider-terms.md".to_string()),
         consented_at: None,
+        consented_by: None,
     };
     let settings = FactorySettings {
         max_parallel_agents: 2,

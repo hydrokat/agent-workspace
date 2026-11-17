@@ -1,0 +1,4 @@
+interface:
+  display_name: "Factory Planner"
+  short_description: "Turn an approved Factory Mode plan snapshot into specs and slices.json."
+  default_prompt: "Follow the factory-planner playbook to inspect the target repo read-only, generate specs in $TANDEM_FACTORY_RUN_DIR/artifacts, and write slices.json and result.json."

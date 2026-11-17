@@ -88,10 +88,12 @@ pub fn simulate(
             agent: s.agent.as_str().to_string(),
             state: StageState::Pending,
             attempts: 0,
+            interrupted_attempts: 0,
             started: None,
             finished: None,
             artifacts: Vec::new(),
             rationale: None,
+            retry_hypothesis: None,
         })
         .collect();
 
@@ -268,6 +270,27 @@ pub fn simulate(
                         step: step_num,
                         stage: stage_name.clone(),
                         action: "failed".to_string(),
+                        reason,
+                    });
+                }
+                StageOutcome::Interrupted => {
+                    st.state = StageState::Pending;
+                    st.interrupted_attempts += 1;
+                    step_num += 1;
+                    steps.push(SimulationStep {
+                        step: step_num,
+                        stage: stage_name.clone(),
+                        action: "interrupted".to_string(),
+                        reason: String::new(),
+                    });
+                }
+                StageOutcome::Blocked { reason, .. } => {
+                    st.state = StageState::Blocked;
+                    step_num += 1;
+                    steps.push(SimulationStep {
+                        step: step_num,
+                        stage: stage_name.clone(),
+                        action: "blocked".to_string(),
                         reason,
                     });
                 }

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 pub mod approval;
 pub mod artifacts;
+pub mod broker;
 pub mod commands;
 pub mod events;
 pub mod executor;
@@ -9,10 +10,14 @@ pub mod ids;
 pub mod machine;
 pub mod model;
 pub mod questions;
+pub mod routing;
 pub mod run;
+pub mod runner;
 pub mod simulate;
+pub mod stages;
 pub mod store;
 pub mod workflow;
+pub mod workspace;
 
 use machine::TransitionError;
 

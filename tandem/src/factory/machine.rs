@@ -29,6 +29,9 @@ pub enum Command {
     WithdrawRun {
         run: String,
     },
+    CancelRun {
+        run: String,
+    },
     StartRun {
         run: String,
     },
@@ -78,6 +81,7 @@ impl Command {
             Self::RevokeReady => "RevokeReady",
             Self::CreateRun { .. } => "CreateRun",
             Self::WithdrawRun { .. } => "WithdrawRun",
+            Self::CancelRun { .. } => "CancelRun",
             Self::StartRun { .. } => "StartRun",
             Self::StagesComplete { .. } => "StagesComplete",
             Self::ChangesRequested { .. } => "ChangesRequested",
@@ -204,6 +208,52 @@ pub enum EventData {
     IdeaAssumptionAdded { text: String },
     #[serde(rename = "idea.cancelled")]
     IdeaCancelled { reason: String },
+    #[serde(rename = "provider.consented")]
+    ProviderConsented {
+        provider: String,
+        auth_type: String,
+        verified_on: String,
+        terms_record: String,
+        consented_by: String,
+    },
+    #[serde(rename = "provider.revoked")]
+    ProviderRevoked { provider: String },
+    #[serde(rename = "workspace.prepared")]
+    WorkspacePrepared {
+        run: String,
+        target: String,
+        branch: String,
+        base_commit: String,
+        worktree_path: String,
+    },
+    #[serde(rename = "run.target_selected")]
+    RunTargetSelected { run: String, target: String },
+    #[serde(rename = "stage.model_upgraded")]
+    StageModelUpgraded {
+        run: String,
+        stage: String,
+        from: String,
+        to: String,
+    },
+    #[serde(rename = "run.paused")]
+    RunPaused {
+        run: String,
+        reason: String,
+        #[serde(default)]
+        commands: Vec<String>,
+    },
+    #[serde(rename = "run.resumed")]
+    RunResumed { run: String },
+    #[serde(rename = "stage.retry_requested")]
+    StageRetryRequested {
+        run: String,
+        stage: String,
+        hypothesis: String,
+    },
+    #[serde(rename = "run.cancelled")]
+    RunCancelled { run: String },
+    #[serde(rename = "stage.interrupted")]
+    StageInterrupted { run: String, stage: String },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -379,9 +429,9 @@ pub fn decide(
 
         (IdeaState::ReadyForDevelopment, Command::RevokeReady) => {
             ensure_actor(cmd, actor, &[ActorKind::User])?;
-            if facts.has_active_run || !idea.runs.is_empty() {
+            if facts.has_active_run {
                 return Err(TransitionError::InvalidInput(
-                    "cannot revoke ready state after a run exists".to_string(),
+                    "cannot revoke ready state while an active run exists".to_string(),
                 ));
             }
             Ok(vec![EventData::IdeaReadyRevoked {}])
@@ -406,6 +456,15 @@ pub fn decide(
             ensure_actor(cmd, actor, &[ActorKind::User])?;
             let run = ensure_non_empty_id(run, "run id")?;
             Ok(vec![EventData::RunWithdrawn { run }])
+        }
+
+        (
+            IdeaState::Queued | IdeaState::InDevelopment | IdeaState::Review,
+            Command::CancelRun { run },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::User])?;
+            let run = ensure_non_empty_id(run, "run id")?;
+            Ok(vec![EventData::RunCancelled { run }])
         }
 
         (IdeaState::Queued, Command::StartRun { run }) => {
@@ -667,6 +726,15 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.runs.retain(|r| r != run);
                     idea.updated = ts;
                 }
+                EventData::RunCancelled { .. }
+                    if matches!(
+                        idea.state,
+                        IdeaState::Queued | IdeaState::InDevelopment | IdeaState::Review
+                    ) =>
+                {
+                    idea.state = IdeaState::ReadyForDevelopment;
+                    idea.updated = ts;
+                }
                 EventData::RunStarted { .. } if idea.state == IdeaState::Queued => {
                     idea.state = IdeaState::InDevelopment;
                     idea.updated = ts;
@@ -719,6 +787,12 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             workflow_source: source.clone(),
             plan_sha256: plan_sha256.clone(),
             deploy_requested: *deploy_requested,
+            target: None,
+            branch: None,
+            base_commit: None,
+            worktree_path: None,
+            pause_reason: None,
+            action_commands: Vec::new(),
             state: RunState::Queued,
             stages: stages.clone(),
             budget: None,
@@ -763,6 +837,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.state = StageState::Succeeded;
                         st.finished = Some(ts);
                         st.rationale = None;
+                        st.retry_hypothesis = None;
                     }
                     run.updated = ts;
                 }
@@ -786,6 +861,69 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                     if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
                         st.state = StageState::Blocked;
                         st.rationale = Some(reason.clone());
+                    }
+                    run.updated = ts;
+                }
+                EventData::WorkspacePrepared {
+                    target,
+                    branch,
+                    base_commit,
+                    worktree_path,
+                    ..
+                } => {
+                    run.target = Some(target.clone());
+                    run.branch = Some(branch.clone());
+                    run.base_commit = Some(base_commit.clone());
+                    run.worktree_path = Some(worktree_path.clone());
+                    run.updated = ts;
+                }
+                EventData::RunTargetSelected { target, .. } => {
+                    run.target = Some(target.clone());
+                    run.updated = ts;
+                }
+                EventData::RunPaused {
+                    reason, commands, ..
+                } => {
+                    run.state = RunState::Paused;
+                    run.pause_reason = Some(reason.clone());
+                    run.action_commands = commands.clone();
+                    run.updated = ts;
+                }
+                EventData::RunResumed { .. } => {
+                    run.state = RunState::Running;
+                    run.pause_reason = None;
+                    run.action_commands.clear();
+                    run.updated = ts;
+                }
+                EventData::StageRetryRequested {
+                    stage, hypothesis, ..
+                } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.retry_hypothesis = Some(hypothesis.clone());
+                    }
+                    run.updated = ts;
+                }
+                EventData::RunCancelled { .. }
+                    if matches!(
+                        run.state,
+                        RunState::Pending
+                            | RunState::Queued
+                            | RunState::Running
+                            | RunState::Paused
+                            | RunState::Review
+                    ) =>
+                {
+                    run.state = RunState::Cancelled;
+                    run.pause_reason = None;
+                    run.action_commands.clear();
+                    run.updated = ts;
+                }
+                EventData::StageInterrupted { stage, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Pending;
+                        st.interrupted_attempts += 1;
+                        st.finished = Some(ts);
+                        st.rationale = Some("interrupted".to_string());
                     }
                     run.updated = ts;
                 }

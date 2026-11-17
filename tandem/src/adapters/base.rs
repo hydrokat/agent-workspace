@@ -175,6 +175,60 @@ pub trait Adapter: Send + Sync {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutputFormat {
+    #[default]
+    Text,
+    Json,
+    StreamJson,
+}
+
+impl OutputFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Json => "json",
+            Self::StreamJson => "stream-json",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolFlag {
+    Allow(String),
+    Disallow(String),
+}
+
+pub fn validate_tool_name(name: &str) -> Result<&str, AdapterError> {
+    if name.is_empty() || name.starts_with('-') || name.chars().any(char::is_control) {
+        return Err(AdapterError::InvalidInput(format!(
+            "invalid tool name: {name}"
+        )));
+    }
+    Ok(name)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeadlessRequest {
+    pub model: String,
+    pub tools: Vec<ToolFlag>,
+    pub temperature: Option<f32>,
+    pub output: OutputFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Capabilities {
+    pub prompt_on_stdin: bool,
+    pub structured_output: bool,
+    pub usage_reporting: bool,
+    pub temperature: bool,
+}
+
+pub trait HeadlessAdapter: Send + Sync {
+    fn capabilities(&self) -> Capabilities;
+    fn build_headless_argv(&self, request: &HeadlessRequest) -> Result<Vec<String>, AdapterError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

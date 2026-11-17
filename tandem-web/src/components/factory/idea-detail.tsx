@@ -15,10 +15,13 @@ import {
   formatShortTime,
 } from "./format";
 import { ReadyDialog } from "./ready-dialog";
-import { RunTimeline } from "./run-timeline";
+import { RunMonitor } from "./run-monitor";
+import { useFactoryRun } from "@/hooks/use-factory-run";
 import type { WorkflowListItem } from "@/domain/models/factory";
 
 interface IdeaDetailViewProps {
+  workspaceId?: string | null;
+  streamKey?: string;
   detail: IdeaDetail | null;
   loading: boolean;
   error: string | null;
@@ -75,6 +78,8 @@ function SafeMarkdownText({ text }: { text: string }) {
 }
 
 export function IdeaDetailView({
+  workspaceId = null,
+  streamKey,
   detail,
   loading,
   error,
@@ -98,6 +103,22 @@ export function IdeaDetailView({
   const [revoking, setRevoking] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    run: activeRun,
+    providers,
+    logText,
+    logLoading,
+    logError,
+    controlling,
+    controlError,
+    fetchLog,
+    controlRun,
+  } = useFactoryRun({
+    workspaceId,
+    runId: detail?.run?.id ?? null,
+    initialRun: detail?.run ?? null,
+    streamKey,
+  });
 
   const readyEvent = useMemo(() => {
     if (!detail) return null;
@@ -476,7 +497,20 @@ export function IdeaDetailView({
             </CardContent>
           </Card>
 
-          {detail.run && <RunTimeline run={detail.run} onWithdraw={onWithdrawRun} />}
+          {activeRun && (
+            <RunMonitor
+              run={activeRun}
+              providers={providers}
+              logText={logText}
+              logLoading={logLoading}
+              logError={logError}
+              controlling={controlling}
+              controlError={controlError}
+              onControl={controlRun}
+              onFetchLog={fetchLog}
+              onWithdraw={onWithdrawRun}
+            />
+          )}
         </div>
       </div>
 
