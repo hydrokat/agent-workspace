@@ -257,6 +257,55 @@ pub fn drive_run_step(
         Err(e) => return Err(RunnerError::Workspace(e)),
     }
 
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "runner".to_string(),
+    };
+
+    if run.baseline_passed.is_none()
+        && run.stages.iter().all(|s| s.attempts == 0)
+        && let Some(wt_str) = run.worktree_path.as_deref()
+    {
+        let target_name = run.target.as_deref().unwrap_or("workspace");
+        if let Ok(confirmed) = super::checks::require_confirmed_checks(&settings, target_name) {
+            let artifact_dir = store.run_dir(run_id).join("artifacts");
+            let _ = fs::create_dir_all(&artifact_dir);
+            let report = super::stages::test::run_test_stage_checks(
+                &confirmed,
+                Path::new(wt_str),
+                &artifact_dir,
+                0,
+            )
+            .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+            let failed_checks: Vec<String> = report
+                .outcomes
+                .iter()
+                .filter(|o| !o.passed())
+                .map(|o| o.argv.join(" "))
+                .collect();
+            run = append_run_events(
+                store,
+                &run.idea.clone(),
+                &run.id.clone(),
+                Some(run),
+                vec![EventData::RunBaseline {
+                    run: run_id.to_string(),
+                    passed: report.all_passed,
+                    failed_checks,
+                }],
+                &sys,
+            )?;
+            if !report.all_passed {
+                return pause_run(
+                    store,
+                    run,
+                    "checks fail on the base branch".to_string(),
+                    vec![format!("tandem factory run resume {run_id}")],
+                );
+            }
+        }
+    }
+
     let is_ui = has_ui_slices(store, run_id);
     let facts = RunFacts {
         ui_changed: if is_ui { TriState::Yes } else { TriState::No },
@@ -265,10 +314,6 @@ pub fn drive_run_step(
     };
     let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages);
     let decision = next(&wf, &run.stages, &facts, &limits);
-    let sys = Actor {
-        kind: ActorKind::System,
-        id: "runner".to_string(),
-    };
 
     if !decision.skip.is_empty() {
         let evs: Vec<EventData> = decision
@@ -511,7 +556,41 @@ pub fn drive_run_step(
                 &sys,
             )?;
 
-            if !has_new_hypothesis && !already_paused {
+            if stage_name == "test"
+                && let Some(dev_def) = wf.stages.iter().find(|s| s.name == "develop")
+            {
+                let dev_max_retries = dev_def.budget.max_retries.unwrap_or(0);
+                let dev_retries_used = run_after_fail
+                    .stages
+                    .iter()
+                    .find(|s| s.name == "develop")
+                    .map_or(0, |s| s.attempts.saturating_sub(1 + s.interrupted_attempts));
+                if dev_retries_used < dev_max_retries {
+                    append_run_events(
+                        store,
+                        &run_after_fail.idea.clone(),
+                        &run_after_fail.id.clone(),
+                        Some(run_after_fail),
+                        vec![EventData::StageReopened {
+                            run: run_id.to_string(),
+                            stage: "develop".to_string(),
+                            reason,
+                        }],
+                        &sys,
+                    )?;
+                } else if !already_paused {
+                    pause_run(
+                        store,
+                        run_after_fail,
+                        format!(
+                            "stage \"develop\" retries are used up after test failure: {reason}"
+                        ),
+                        vec![format!(
+                            "tandem factory run retry {run_id} develop --hypothesis \"<new hypothesis>\""
+                        )],
+                    )?;
+                }
+            } else if !has_new_hypothesis && !already_paused {
                 pause_run(
                     store,
                     run_after_fail,

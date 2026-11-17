@@ -254,6 +254,19 @@ pub enum EventData {
     RunCancelled { run: String },
     #[serde(rename = "stage.interrupted")]
     StageInterrupted { run: String, stage: String },
+    #[serde(rename = "stage.reopened")]
+    StageReopened {
+        run: String,
+        stage: String,
+        reason: String,
+    },
+    #[serde(rename = "run.baseline")]
+    RunBaseline {
+        run: String,
+        passed: bool,
+        #[serde(default)]
+        failed_checks: Vec<String>,
+    },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -793,6 +806,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             worktree_path: None,
             pause_reason: None,
             action_commands: Vec::new(),
+            baseline_passed: None,
             state: RunState::Queued,
             stages: stages.clone(),
             budget: None,
@@ -925,6 +939,28 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.finished = Some(ts);
                         st.rationale = Some("interrupted".to_string());
                     }
+                    run.updated = ts;
+                }
+                EventData::StageReopened { stage, reason, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Pending;
+                        st.finished = None;
+                        st.rationale = Some(reason.clone());
+                        st.retry_hypothesis = Some(reason.clone());
+                    }
+                    // Reset test stage from Failed to Pending so the scheduler waits on the reopened stage.
+                    if stage == "develop"
+                        && let Some(test_st) = run
+                            .stages
+                            .iter_mut()
+                            .find(|s| s.name == "test" && s.state == StageState::Failed)
+                    {
+                        test_st.state = StageState::Pending;
+                    }
+                    run.updated = ts;
+                }
+                EventData::RunBaseline { passed, .. } => {
+                    run.baseline_passed = Some(*passed);
                     run.updated = ts;
                 }
                 _ => {}

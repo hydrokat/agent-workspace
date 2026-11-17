@@ -202,6 +202,8 @@ pub struct Run {
     pub pause_reason: Option<String>,
     #[serde(default)]
     pub action_commands: Vec<String>,
+    #[serde(default)]
+    pub baseline_passed: Option<bool>,
     pub state: RunState,
     #[serde(default)]
     pub stages: Vec<Stage>,

@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::factory::broker::result::JobResult;
 
 pub mod plan;
+pub mod test;
 
 #[derive(Debug, Clone)]
 pub struct StageContext<'a> {
@@ -39,6 +40,7 @@ pub trait StageContract {
 pub fn contract_for_stage(stage: &str) -> Option<Box<dyn StageContract>> {
     match stage {
         "plan" => Some(Box::new(plan::PlanStageContract)),
+        "test" => Some(Box::new(test::TestStageContract)),
         _ => None,
     }
 }

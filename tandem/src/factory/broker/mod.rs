@@ -1,3 +1,4 @@
+pub mod checks;
 pub mod context;
 pub mod gate;
 pub mod git;

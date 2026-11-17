@@ -69,6 +69,16 @@ fn ensure_context_file(
 
 impl Executor for BrokerExecutor {
     fn run(&mut self, job: &StageJob) -> StageOutcome {
+        self.run_with_env(job, std::env::vars().collect())
+    }
+}
+
+impl BrokerExecutor {
+    pub fn run_with_env(
+        &self,
+        job: &StageJob,
+        parent_env: BTreeMap<String, String>,
+    ) -> StageOutcome {
         let store = FactoryStore::new(&self.workspace);
         let run = match super::run::get_run(&store, &job.run) {
             Ok(Some(r)) => r,
@@ -118,6 +128,53 @@ impl Executor for BrokerExecutor {
                 reason: format!("stage {} not found in workflow", job.stage),
             };
         };
+
+        let worktree_path = run
+            .worktree_path
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.workspace.clone());
+        let artifact_dir = store.run_dir(&job.run).join("artifacts");
+        if !artifact_dir.exists() {
+            let _ = fs::create_dir_all(&artifact_dir);
+        }
+
+        let mut check_failures_summary: Option<String> = None;
+        if job.stage == "test" {
+            let target_name = run.target.as_deref().unwrap_or("workspace");
+            let confirmed = match super::checks::require_confirmed_checks(&settings, target_name) {
+                Ok(c) => c,
+                Err(e) => {
+                    return StageOutcome::Blocked {
+                        reason: e.to_string(),
+                        action_commands: vec![format!(
+                            "tandem factory checks discover --target {target_name}"
+                        )],
+                    };
+                }
+            };
+            let report = match super::stages::test::run_test_stage_checks(
+                &confirmed,
+                &worktree_path,
+                &artifact_dir,
+                job.attempt,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    return StageOutcome::Failed {
+                        reason: e.to_string(),
+                    };
+                }
+            };
+            if report.all_passed {
+                return StageOutcome::Succeeded;
+            }
+            let summary_path = artifact_dir
+                .join("checks")
+                .join(format!("failures-attempt{}.md", job.attempt));
+            let _ = write_atomic(&summary_path, report.failures_summary.as_bytes());
+            check_failures_summary = Some(report.failures_summary);
+        }
 
         let today = today_iso_date();
         let open_providers: Vec<&str> = KNOWN_PROVIDERS
@@ -172,15 +229,6 @@ impl Executor for BrokerExecutor {
             }
         };
 
-        let worktree_path = run
-            .worktree_path
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| self.workspace.clone());
-        let artifact_dir = store.run_dir(&job.run).join("artifacts");
-        if !artifact_dir.exists() {
-            let _ = fs::create_dir_all(&artifact_dir);
-        }
         let plan_snapshot_path = store
             .root
             .join("ideas")
@@ -224,6 +272,9 @@ impl Executor for BrokerExecutor {
         };
 
         let mut dependency_summaries = Vec::new();
+        if let Some(ref failures) = check_failures_summary {
+            dependency_summaries.push(("checks".to_string(), failures.clone()));
+        }
         for dep in &stage_def.depends_on {
             if let Some(dep_stage) = run.stages.iter().find(|s| s.name == *dep)
                 && dep_stage.attempts > 0
@@ -307,7 +358,6 @@ impl Executor for BrokerExecutor {
 
         let mut was_interrupted = false;
         let mut pass_opt = Some(pass);
-        let parent_env: BTreeMap<String, String> = std::env::vars().collect();
 
         let job_outcome = run_job_idempotent(&store, &spec, &assembled, |prepared| {
             let pass = pass_opt
@@ -364,10 +414,19 @@ impl Executor for BrokerExecutor {
             Ok(r) => r,
             Err(e) => {
                 return StageOutcome::Failed {
-                    reason: e.to_string(),
+                    reason: check_failures_summary.unwrap_or_else(|| e.to_string()),
                 };
             }
         };
+
+        if let Some(failures) = check_failures_summary {
+            let diagnosis = parsed
+                .rationale
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| (!parsed.summary.trim().is_empty()).then_some(parsed.summary))
+                .unwrap_or(failures);
+            return StageOutcome::Failed { reason: diagnosis };
+        }
 
         match parsed.status {
             JobResultStatus::Succeeded => {

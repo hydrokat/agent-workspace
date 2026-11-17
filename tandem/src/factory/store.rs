@@ -432,7 +432,9 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::RunResumed { run }
         | EventData::StageRetryRequested { run, .. }
         | EventData::RunCancelled { run }
-        | EventData::StageInterrupted { run, .. } => Some(run.clone()),
+        | EventData::StageInterrupted { run, .. }
+        | EventData::StageReopened { run, .. }
+        | EventData::RunBaseline { run, .. } => Some(run.clone()),
         _ => None,
     }
 }
