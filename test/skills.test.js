@@ -176,4 +176,20 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.ok(agentsMd.includes('TANDEM_ROLE'));
     assert.ok(agentsMd.includes('factory-orchestrator'));
   });
+
+  it('installs the 6 marketing and design skills with openai.yaml and assets', () => {
+    for (const [name, asset] of [
+      ['ui-ux-pro-max', 'assets/design-system-brief.md'],
+      ['marketing-plan', 'assets/marketing-plan.md'],
+      ['pricing', 'assets/pricing-strategy.md'],
+      ['sales-enablement', 'assets/sales-enablement.md'],
+      ['social', 'assets/social-campaign.md'],
+      ['offers', 'assets/offer-design.md'],
+    ]) {
+      has(`${name}/SKILL.md`);
+      has(`${name}/agents/openai.yaml`);
+      has(`${name}/${asset}`);
+      assert.ok(fileExists(dir, `.claude/skills/${name}/SKILL.md`), `${name} claude`);
+    }
+  });
 });
