@@ -80,12 +80,45 @@ impl SprintView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+fn default_job_limit() -> usize {
+    3
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StageSummary {
+    pub name: String,
+    pub agent: String,
+    pub state: crate::factory::model::StageState,
+    #[serde(default)]
+    pub attempt: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
     pub id: String,
     pub state: crate::factory::model::RunState,
     pub stages_done: usize,
     pub stages_total: usize,
+    #[serde(default)]
+    pub stages: Vec<StageSummary>,
+    #[serde(default)]
+    pub running_jobs: usize,
+    #[serde(default = "default_job_limit")]
+    pub job_limit: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_secs: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pause_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -181,46 +214,149 @@ fn state_key(state: IdeaState) -> &'static str {
     }
 }
 
-fn collect_factory_summary(workspace: &Path, queries: &[Query]) -> FactorySummary {
+fn summarize_run(
+    fstore: &FactoryStore,
+    r: crate::factory::model::Run,
+    job_limit: usize,
+    now: f64,
+) -> RunSummary {
+    use crate::factory::broker::job::{JobInput, JobState, job_dir, jobs_dir, read_job_state};
+    use crate::factory::broker::result::JobResult;
+    use crate::factory::model::{RunState, StageState};
+
+    let stages_total = r.stages.len();
+    let stages_done = r
+        .stages
+        .iter()
+        .filter(|s| matches!(s.state, StageState::Succeeded | StageState::Skipped))
+        .count();
+
+    let mut stages = Vec::with_capacity(stages_total);
+    for s in &r.stages {
+        let (provider, model) = if s.attempts > 0 {
+            let input_path = job_dir(fstore, &r.id, &s.name, s.attempts).join("input.json");
+            std::fs::read_to_string(&input_path)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<JobInput>(&raw).ok())
+                .map(|inp| (Some(inp.provider), Some(inp.model)))
+                .unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
+        stages.push(StageSummary {
+            name: s.name.clone(),
+            agent: s.agent.clone(),
+            state: s.state,
+            attempt: s.attempts,
+            provider,
+            model,
+            started: s.started,
+            finished: s.finished,
+        });
+    }
+
+    let jdir = jobs_dir(fstore, &r.id);
+    let mut running_jobs = 0usize;
+    let mut saw_job_dir = false;
+    let mut total_cost: Option<f64> = None;
+    if jdir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&jdir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            saw_job_dir = true;
+            if matches!(read_job_state(&path), Ok(JobState::Running)) {
+                running_jobs += 1;
+            }
+            let res_path = path.join("result.json");
+            if let Ok(raw) = std::fs::read_to_string(&res_path)
+                && let Ok(res) = serde_json::from_str::<JobResult>(&raw)
+                && let Some(cost) = res.usage.and_then(|u| u.cost_usd)
+            {
+                total_cost = Some(total_cost.unwrap_or(0.0) + cost);
+            }
+        }
+    }
+    if !saw_job_dir {
+        running_jobs = r
+            .stages
+            .iter()
+            .filter(|s| s.state == StageState::Running)
+            .count();
+    }
+
+    let start_ts = r
+        .stages
+        .iter()
+        .filter_map(|s| s.started)
+        .fold(None, |acc: Option<f64>, t| {
+            Some(acc.map_or(t, |a| a.min(t)))
+        })
+        .unwrap_or(r.created);
+    let end_ts = if matches!(
+        r.state,
+        RunState::Queued | RunState::Running | RunState::Paused
+    ) && now > 0.0
+    {
+        now
+    } else {
+        r.updated
+    };
+    let elapsed_secs = Some((end_ts - start_ts).max(0.0));
+    let pause_reason = if r.state == RunState::Paused {
+        r.pause_reason
+    } else {
+        None
+    };
+
+    RunSummary {
+        id: r.id,
+        state: r.state,
+        stages_done,
+        stages_total,
+        stages,
+        running_jobs,
+        job_limit,
+        elapsed_secs,
+        cost_usd: total_cost,
+        pause_reason,
+    }
+}
+
+fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> FactorySummary {
     let fstore = FactoryStore::new(workspace);
     match fstore.list_ideas() {
         Ok(ideas) => {
             let mut by_state = HashMap::new();
             let mut cards = Vec::with_capacity(ideas.len());
             let mut needs_you = 0usize;
+            let mut job_limit_cache: Option<usize> = None;
             for idea in ideas {
                 *by_state
                     .entry(state_key(idea.state).to_string())
                     .or_insert(0) += 1;
                 let iq = crate::factory::questions::for_idea(queries, &idea.id);
-                if iq.open > 0 {
-                    needs_you += 1;
-                }
                 let run = idea.runs.last().and_then(|run_id| {
+                    let limit = *job_limit_cache.get_or_insert_with(|| {
+                        fstore
+                            .settings()
+                            .map(|s| s.max_parallel_agents.max(1))
+                            .unwrap_or_else(|_| default_job_limit())
+                    });
                     crate::factory::run::get_run(&fstore, run_id)
                         .ok()
                         .flatten()
-                        .map(|r| {
-                            let stages_total = r.stages.len();
-                            let stages_done = r
-                                .stages
-                                .iter()
-                                .filter(|s| {
-                                    matches!(
-                                        s.state,
-                                        crate::factory::model::StageState::Succeeded
-                                            | crate::factory::model::StageState::Skipped
-                                    )
-                                })
-                                .count();
-                            RunSummary {
-                                id: r.id,
-                                state: r.state,
-                                stages_done,
-                                stages_total,
-                            }
-                        })
+                        .map(|r| summarize_run(&fstore, r, limit, now))
                 });
+                let run_paused = run
+                    .as_ref()
+                    .is_some_and(|r| r.state == crate::factory::model::RunState::Paused);
+                if iq.open > 0 || run_paused {
+                    needs_you += 1;
+                }
                 cards.push(IdeaCard {
                     id: idea.id,
                     title: idea.title,
@@ -293,7 +429,7 @@ pub fn collect_with_factory(
     let ongoing_specs = ongoing_specs(&phases, &claims, &entries, raw_sprint.as_ref());
     let ongoing_tasks = ongoing_tasks(&phases, &claims, &sessions, &entries, now);
     let factory = if factory_enabled {
-        Some(collect_factory_summary(workspace, &queries))
+        Some(collect_factory_summary(workspace, &queries, now))
     } else {
         None
     };

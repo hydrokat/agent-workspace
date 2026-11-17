@@ -516,7 +516,7 @@ fn test_detail_confirm_ready_workflow_selection_run_section_and_withdraw() {
     assert!(out_wide.contains("Run r-"));
     assert!(out_wide.contains("Queued"));
     assert!(out_wide.contains("x withdraw"));
-    assert!(out_wide.contains("Run queued. Execution arrives with the execution phase."));
+    assert!(!out_wide.contains("Execution arrives with the execution phase."));
     assert!(out_wide.contains("○ pending"));
 
     // Narrow render wraps stage strip to one stage per line with state as word

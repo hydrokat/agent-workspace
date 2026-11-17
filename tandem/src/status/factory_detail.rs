@@ -71,6 +71,7 @@ pub enum DetailKeyOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DetailAction {
     OpenOrResumeOrchestrator { idea_id: String },
+    OpenRunMonitor { run_id: String },
     Refresh,
 }
 
@@ -350,6 +351,14 @@ impl FactoryDetail {
                 }
                 match event.code {
                     KeyCode::Esc => DetailKeyOutcome::BackToBoard,
+                    KeyCode::Enter => {
+                        if let Some(ref run) = self.run {
+                            return DetailKeyOutcome::Action(DetailAction::OpenRunMonitor {
+                                run_id: run.id.clone(),
+                            });
+                        }
+                        DetailKeyOutcome::Ignored
+                    }
                     KeyCode::Char('f') => {
                         self.open_artifact("feasibility", "Feasibility study");
                         DetailKeyOutcome::Consumed
@@ -1038,17 +1047,6 @@ impl FactoryDetail {
                 y += 1;
             }
 
-            if run.state == RunState::Queued && y < bottom && !short {
-                write_clipped(
-                    buf,
-                    area.x,
-                    y,
-                    max_w,
-                    "Run queued. Execution arrives with the execution phase.",
-                    dim_style,
-                );
-                y += 1;
-            }
             if y < bottom && !short {
                 write_clipped(
                     buf,
@@ -1064,17 +1062,6 @@ impl FactoryDetail {
             let banner = self.ready_banner_line(now);
             write_clipped(buf, area.x, y, max_w, &banner, ok_style);
             y += 1;
-            if y < bottom && !short {
-                write_clipped(
-                    buf,
-                    area.x,
-                    y,
-                    max_w,
-                    "Run queued. Execution arrives with the execution phase.",
-                    dim_style,
-                );
-                y += 1;
-            }
         }
 
         let reserve_bottom = 1 + u16::from(!self.notice.is_empty());
@@ -1123,11 +1110,16 @@ impl FactoryDetail {
             } else {
                 "resume"
             };
+            let run_hint = if self.run.is_some() {
+                "Enter run   "
+            } else {
+                ""
+            };
             let hints = if narrow {
-                format!("{ready_key} {action_label}   f/p/a read   Esc back")
+                format!("{ready_key} {action_label}   {run_hint}f/p/a read   Esc back")
             } else {
                 format!(
-                    "{ready_key} {action_label}   f feasibility   p plan   a assumptions   o {orch_label}   Esc back"
+                    "{ready_key} {action_label}   {run_hint}f feasibility   p plan   a assumptions   o {orch_label}   Esc back"
                 )
             };
             write_clipped(buf, area.x, bottom - 1, max_w, &hints, dim_style);
