@@ -158,9 +158,11 @@ fn test_all_model_types_round_trip_json() {
     let gate = ProviderGate {
         provider: "claude".to_string(),
         state: ProviderGateState::Closed,
+        auth_type: None,
         verified_on: Some("2026-11-16".to_string()),
         terms_record: Some("factory-provider-terms.md".to_string()),
         consented_at: None,
+        consented_by: None,
     };
     let settings = FactorySettings {
         max_parallel_agents: 2,

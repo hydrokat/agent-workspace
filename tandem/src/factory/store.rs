@@ -349,6 +349,16 @@ impl FactoryStore {
         }
     }
 
+    pub(super) fn save_settings(&self, settings: &FactorySettings) -> Result<(), FactoryError> {
+        self.ensure()?;
+        let path = self.settings_path();
+        reject_if_symlink(&path)?;
+        let bytes = serde_json::to_vec_pretty(settings)?;
+        write_atomic(&path, &bytes)?;
+        set_private_file_mode(&path)?;
+        Ok(())
+    }
+
     pub(super) fn load_idea_for_update(&self, idea_id: &str) -> Result<Option<Idea>, FactoryError> {
         let path = self.idea_path(idea_id);
         reject_if_symlink(&path)?;

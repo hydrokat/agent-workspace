@@ -48,6 +48,9 @@ pub enum FactoryCommand {
     #[command(about = "manage workflow runs")]
     Run(FactoryRunArgs),
 
+    #[command(about = "manage headless provider gates and consent")]
+    Provider(FactoryProviderArgs),
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -316,6 +319,46 @@ pub struct FactoryRunSimulateArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderArgs {
+    #[command(subcommand)]
+    pub command: FactoryProviderCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryProviderCommand {
+    #[command(about = "show provider terms verdicts and gate state")]
+    Status(FactoryProviderStatusArgs),
+    #[command(about = "record user consent to open a provider gate")]
+    Consent(FactoryProviderConsentArgs),
+    #[command(about = "close a provider gate")]
+    Revoke(FactoryProviderRevokeArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderStatusArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderConsentArgs {
+    pub provider: String,
+    #[arg(long)]
+    pub auth: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryProviderRevokeArgs {
+    pub provider: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryIdeaStartArgs {
     #[arg(long, help = "CLI provider (claude or agy)")]
     pub cli: String,
@@ -536,6 +579,11 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::List(a) => a.json,
             FactoryRunCommand::Withdraw(a) => a.json,
             FactoryRunCommand::Simulate(a) => a.json,
+        },
+        FactoryCommand::Provider(p_args) => match &p_args.command {
+            FactoryProviderCommand::Status(a) => a.json,
+            FactoryProviderCommand::Consent(a) => a.json,
+            FactoryProviderCommand::Revoke(a) => a.json,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
@@ -1160,6 +1208,61 @@ fn execute(
                 unreachable!("simulate handled directly in run_with_io")
             }
         },
+        FactoryCommand::Provider(p_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            match &p_args.command {
+                FactoryProviderCommand::Status(_) => {
+                    let settings = if store.exists() {
+                        store.settings().map_err(map_factory_error)?
+                    } else {
+                        FactorySettings::default()
+                    };
+                    let today = super::broker::gate::today_iso_date();
+                    let items = super::broker::gate::provider_statuses(&settings, &today);
+                    serialize_compact(&items)
+                }
+                FactoryProviderCommand::Consent(a) => {
+                    let auth_type = super::broker::gate::AuthType::parse(&a.auth).ok_or_else(|| {
+                        CmdError::invalid_input(format!(
+                            "invalid --auth value: {} (expected subscription, api-key, or cloud)",
+                            a.auth
+                        ))
+                    })?;
+                    let consented_by = resolve_owner(None)?;
+                    let gate = super::broker::gate::consent_provider(
+                        &store,
+                        &a.provider,
+                        auth_type,
+                        &a.confirm,
+                        &consented_by,
+                        &|k| std::env::var(k).ok(),
+                    )
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                    serialize_compact(&gate)
+                }
+                FactoryProviderCommand::Revoke(a) => {
+                    let revoked_by = resolve_owner(None)?;
+                    let gate = super::broker::gate::revoke_provider(
+                        &store,
+                        &a.provider,
+                        &revoked_by,
+                        &|k| std::env::var(k).ok(),
+                    )
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                    serialize_compact(&gate)
+                }
+            }
+        }
         FactoryCommand::Events(a) => {
             if let Some(ref id) = a.idea
                 && !is_valid_idea_id(id)

@@ -204,6 +204,16 @@ pub enum EventData {
     IdeaAssumptionAdded { text: String },
     #[serde(rename = "idea.cancelled")]
     IdeaCancelled { reason: String },
+    #[serde(rename = "provider.consented")]
+    ProviderConsented {
+        provider: String,
+        auth_type: String,
+        verified_on: String,
+        terms_record: String,
+        consented_by: String,
+    },
+    #[serde(rename = "provider.revoked")]
+    ProviderRevoked { provider: String },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {

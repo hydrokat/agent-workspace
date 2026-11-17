@@ -247,11 +247,15 @@ pub struct ProviderGate {
     pub provider: String,
     pub state: ProviderGateState,
     #[serde(default)]
+    pub auth_type: Option<String>,
+    #[serde(default)]
     pub verified_on: Option<String>,
     #[serde(default)]
     pub terms_record: Option<String>,
     #[serde(default)]
     pub consented_at: Option<f64>,
+    #[serde(default)]
+    pub consented_by: Option<String>,
 }
 
 fn default_max_parallel_agents() -> usize {
@@ -268,9 +272,11 @@ fn default_provider_gates() -> Vec<ProviderGate> {
         .map(|provider| ProviderGate {
             provider: (*provider).to_string(),
             state: ProviderGateState::Closed,
+            auth_type: None,
             verified_on: None,
             terms_record: None,
             consented_at: None,
+            consented_by: None,
         })
         .collect()
 }
