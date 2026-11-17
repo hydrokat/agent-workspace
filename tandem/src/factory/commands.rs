@@ -42,6 +42,9 @@ pub enum FactoryCommand {
     #[command(about = "check idea question queue")]
     Question(FactoryQuestionArgs),
 
+    #[command(about = "validate and list factory workflows")]
+    Workflow(FactoryWorkflowArgs),
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -196,6 +199,33 @@ pub enum FactoryQuestionCommand {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryQuestionCheckArgs {
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryWorkflowArgs {
+    #[command(subcommand)]
+    pub command: FactoryWorkflowCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryWorkflowCommand {
+    #[command(about = "validate a workflow YAML file by name")]
+    Validate(FactoryWorkflowValidateArgs),
+    #[command(about = "list workflows in <workspace>/workflows/")]
+    List(FactoryWorkflowListArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryWorkflowValidateArgs {
+    pub name: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryWorkflowListArgs {
     #[arg(long)]
     pub json: bool,
 }
@@ -409,6 +439,10 @@ fn json_flag(args: &FactoryArgs) -> bool {
         },
         FactoryCommand::Question(q_args) => match &q_args.command {
             FactoryQuestionCommand::Check(a) => a.json,
+        },
+        FactoryCommand::Workflow(w_args) => match &w_args.command {
+            FactoryWorkflowCommand::Validate(a) => a.json,
+            FactoryWorkflowCommand::List(a) => a.json,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
@@ -748,6 +782,85 @@ fn execute(
                 serialize_compact(&summary)
             }
         },
+        FactoryCommand::Workflow(w_args) => {
+            let settings = if store.exists() {
+                store.settings().unwrap_or_default()
+            } else {
+                FactorySettings::default()
+            };
+            match &w_args.command {
+                FactoryWorkflowCommand::Validate(a) => {
+                    let path = super::workflow::validate::resolve_workflow_path(workspace, &a.name)
+                        .map_err(CmdError::invalid_input)?;
+                    let raw = super::workflow::parse::load_workflow_file(&path)
+                        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                    match super::workflow::validate::validate(&raw, &settings) {
+                        Ok(wf) => serialize_compact(&serde_json::json!({
+                            "valid": true,
+                            "name": wf.name,
+                            "version": wf.version,
+                            "sha256": wf.sha256,
+                            "diagnostics": [],
+                        })),
+                        Err(diags) => {
+                            let msg = diags
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join("; ");
+                            Err(CmdError::invalid_input(msg))
+                        }
+                    }
+                }
+                FactoryWorkflowCommand::List(_) => {
+                    let dir = workspace.join("workflows");
+                    let mut items = Vec::new();
+                    if dir.is_dir()
+                        && let Ok(entries) = fs::read_dir(&dir)
+                    {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
+                                continue;
+                            }
+                            let stem = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("")
+                                .to_string();
+                            match super::workflow::parse::load_workflow_file(&path) {
+                                Ok(raw) => {
+                                    match super::workflow::validate::validate(&raw, &settings) {
+                                        Ok(wf) => items.push(serde_json::json!({
+                                            "name": wf.name,
+                                            "version": wf.version,
+                                            "sha256": wf.sha256,
+                                            "valid": true,
+                                            "diagnostics": 0,
+                                        })),
+                                        Err(diags) => items.push(serde_json::json!({
+                                            "name": raw.name.map(|n| n.value).unwrap_or(stem),
+                                            "version": raw.version.map(|v| v.value).unwrap_or(0),
+                                            "sha256": raw.sha256,
+                                            "valid": false,
+                                            "diagnostics": diags.len(),
+                                        })),
+                                    }
+                                }
+                                Err(_) => items.push(serde_json::json!({
+                                    "name": stem,
+                                    "version": 0,
+                                    "sha256": "",
+                                    "valid": false,
+                                    "diagnostics": 1,
+                                })),
+                            }
+                        }
+                    }
+                    serialize_compact(&serde_json::json!({ "workflows": items }))
+                }
+            }
+        }
         FactoryCommand::Events(a) => {
             if let Some(ref id) = a.idea
                 && !is_valid_idea_id(id)
