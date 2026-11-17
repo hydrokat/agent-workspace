@@ -410,7 +410,8 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::StageSkipped { run, .. }
         | EventData::StageBlocked { run, .. }
         | EventData::WorkspacePrepared { run, .. }
-        | EventData::RunTargetSelected { run, .. } => Some(run.clone()),
+        | EventData::RunTargetSelected { run, .. }
+        | EventData::StageModelUpgraded { run, .. } => Some(run.clone()),
         _ => None,
     }
 }

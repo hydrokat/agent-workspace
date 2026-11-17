@@ -1,0 +1,276 @@
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::adapters::agy::AgyAdapter;
+use crate::adapters::base::{HeadlessAdapter, ToolFlag, validate_model_id};
+use crate::adapters::claude::ClaudeAdapter;
+use crate::factory::model::FactorySettings;
+use crate::factory::workflow::schema::{StageDef, Workflow, WorkflowAgent, WorkflowTool};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelTier {
+    Economy,
+    Standard,
+    Premium,
+}
+
+impl ModelTier {
+    pub fn upgrade(self) -> Option<Self> {
+        match self {
+            Self::Economy => Some(Self::Standard),
+            Self::Standard => Some(Self::Premium),
+            Self::Premium => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderModelTiers {
+    pub economy: String,
+    pub standard: String,
+    pub premium: String,
+}
+
+impl ProviderModelTiers {
+    pub fn for_tier(&self, tier: ModelTier) -> &str {
+        match tier {
+            ModelTier::Economy => &self.economy,
+            ModelTier::Standard => &self.standard,
+            ModelTier::Premium => &self.premium,
+        }
+    }
+}
+
+pub fn default_model_tiers() -> BTreeMap<String, ProviderModelTiers> {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "claude".to_string(),
+        ProviderModelTiers {
+            economy: "claude-haiku-4-5".to_string(),
+            standard: "claude-sonnet-4-6".to_string(),
+            premium: "claude-opus-4-7".to_string(),
+        },
+    );
+    map.insert(
+        "agy".to_string(),
+        ProviderModelTiers {
+            economy: "gemini-2.0-flash-lite".to_string(),
+            standard: "gemini-2.0-flash".to_string(),
+            premium: "gemini-2.5-pro".to_string(),
+        },
+    );
+    map
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RoutingContext {
+    pub preferred_provider: Option<String>,
+    pub is_ui_work: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemperatureSupport {
+    Supported(f32),
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Route {
+    pub agent_definition: &'static str,
+    pub provider: String,
+    pub tier: ModelTier,
+    pub upgraded_from: Option<ModelTier>,
+    pub model: String,
+    pub tool_flags: Vec<ToolFlag>,
+    pub temperature: TemperatureSupport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Unroutable {
+    #[error("no provider gate is open")]
+    NoOpenProvider,
+    #[error("provider {provider} has no headless adapter")]
+    UnsupportedProvider { provider: String },
+    #[error("provider {provider} has no safe flag mapping for tool {tool:?}")]
+    UnsupportedTool {
+        provider: String,
+        tool: WorkflowTool,
+    },
+    #[error("invalid model id {model} for provider {provider}: {reason}")]
+    InvalidModel {
+        provider: String,
+        model: String,
+        reason: String,
+    },
+}
+
+pub fn map_agent_definition(agent: WorkflowAgent, is_ui_work: bool) -> &'static str {
+    match agent {
+        WorkflowAgent::Orchestrator => "tech-lead-orchestrator",
+        WorkflowAgent::TestEngineer | WorkflowAgent::Verifier => "qa-engineer",
+        WorkflowAgent::Implementer => {
+            if is_ui_work {
+                "frontend-dev"
+            } else {
+                "senior-backend-dev"
+            }
+        }
+        WorkflowAgent::Reviewer => "code-reviewer",
+        WorkflowAgent::DemoMaker => "frontend-dev",
+        WorkflowAgent::ReleaseEngineer => "terminal-agent",
+    }
+}
+
+pub fn base_tier_for_stage(stage: &StageDef) -> ModelTier {
+    match stage.agent {
+        WorkflowAgent::Orchestrator | WorkflowAgent::Implementer => ModelTier::Standard,
+        WorkflowAgent::TestEngineer
+        | WorkflowAgent::Verifier
+        | WorkflowAgent::Reviewer
+        | WorkflowAgent::DemoMaker
+        | WorkflowAgent::ReleaseEngineer => ModelTier::Economy,
+    }
+}
+
+fn choose_provider<'a>(
+    open_providers: &[&'a str],
+    preferred: Option<&str>,
+) -> Result<&'a str, Unroutable> {
+    if open_providers.is_empty() {
+        return Err(Unroutable::NoOpenProvider);
+    }
+    if let Some(pref) = preferred
+        && let Some(&found) = open_providers.iter().find(|&&p| p == pref)
+    {
+        return Ok(found);
+    }
+    Ok(open_providers[0])
+}
+
+fn map_tool_for_provider(
+    provider: &str,
+    tool: WorkflowTool,
+    out: &mut Vec<ToolFlag>,
+) -> Result<(), Unroutable> {
+    match provider {
+        "claude" => match tool {
+            WorkflowTool::RepoRead | WorkflowTool::IssueContext | WorkflowTool::DiffReview => {
+                for name in ["Read", "Glob", "Grep"] {
+                    let flag = ToolFlag::Allow(name.to_string());
+                    if !out.contains(&flag) {
+                        out.push(flag);
+                    }
+                }
+                Ok(())
+            }
+            WorkflowTool::RepoWrite => {
+                for name in ["Edit", "Write"] {
+                    let flag = ToolFlag::Allow(name.to_string());
+                    if !out.contains(&flag) {
+                        out.push(flag);
+                    }
+                }
+                Ok(())
+            }
+            WorkflowTool::Shell | WorkflowTool::TestRunner | WorkflowTool::LintRunner => {
+                let flag = ToolFlag::Allow("Bash".to_string());
+                if !out.contains(&flag) {
+                    out.push(flag);
+                }
+                Ok(())
+            }
+            WorkflowTool::Ci | WorkflowTool::Deployment => {
+                let flag = ToolFlag::Allow("Bash(gh:*)".to_string());
+                if !out.contains(&flag) {
+                    out.push(flag);
+                }
+                Ok(())
+            }
+            WorkflowTool::Browser | WorkflowTool::Screenshot => Err(Unroutable::UnsupportedTool {
+                provider: provider.to_string(),
+                tool,
+            }),
+        },
+        "agy" => match tool {
+            WorkflowTool::RepoRead | WorkflowTool::IssueContext | WorkflowTool::DiffReview => {
+                Ok(())
+            }
+            _ => Err(Unroutable::UnsupportedTool {
+                provider: provider.to_string(),
+                tool,
+            }),
+        },
+        _ => Err(Unroutable::UnsupportedProvider {
+            provider: provider.to_string(),
+        }),
+    }
+}
+
+pub fn route(
+    stage: &StageDef,
+    workflow: &Workflow,
+    _settings: &FactorySettings,
+    open_providers: &[&str],
+    attempt: u32,
+    ctx: &RoutingContext,
+) -> Result<Route, Unroutable> {
+    let provider = choose_provider(open_providers, ctx.preferred_provider.as_deref())?;
+    let caps = match provider {
+        "claude" => ClaudeAdapter::default().capabilities(),
+        "agy" => AgyAdapter::default().capabilities(),
+        other => {
+            return Err(Unroutable::UnsupportedProvider {
+                provider: other.to_string(),
+            });
+        }
+    };
+
+    let base_tier = base_tier_for_stage(stage);
+    let mut tier = base_tier;
+    for _ in 1..attempt {
+        if let Some(next_tier) = tier.upgrade() {
+            tier = next_tier;
+        }
+    }
+    let upgraded_from = if tier != base_tier {
+        Some(base_tier)
+    } else {
+        None
+    };
+
+    let tiers = default_model_tiers();
+    let provider_tiers = tiers
+        .get(provider)
+        .ok_or_else(|| Unroutable::UnsupportedProvider {
+            provider: provider.to_string(),
+        })?;
+    let model = provider_tiers.for_tier(tier).to_string();
+    validate_model_id(&model).map_err(|reason| Unroutable::InvalidModel {
+        provider: provider.to_string(),
+        model: model.clone(),
+        reason: reason.to_string(),
+    })?;
+
+    let mut tool_flags = Vec::new();
+    for tool in &stage.tools {
+        map_tool_for_provider(provider, *tool, &mut tool_flags)?;
+    }
+
+    let temperature = if caps.temperature {
+        TemperatureSupport::Supported(workflow.policy.default_temperature as f32)
+    } else {
+        TemperatureSupport::Unsupported
+    };
+
+    Ok(Route {
+        agent_definition: map_agent_definition(stage.agent, ctx.is_ui_work),
+        provider: provider.to_string(),
+        tier,
+        upgraded_from,
+        model,
+        tool_flags,
+        temperature,
+    })
+}

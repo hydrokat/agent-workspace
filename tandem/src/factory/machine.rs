@@ -224,6 +224,13 @@ pub enum EventData {
     },
     #[serde(rename = "run.target_selected")]
     RunTargetSelected { run: String, target: String },
+    #[serde(rename = "stage.model_upgraded")]
+    StageModelUpgraded {
+        run: String,
+        stage: String,
+        from: String,
+        to: String,
+    },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {

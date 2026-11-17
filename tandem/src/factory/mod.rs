@@ -10,6 +10,7 @@ pub mod ids;
 pub mod machine;
 pub mod model;
 pub mod questions;
+pub mod routing;
 pub mod run;
 pub mod simulate;
 pub mod store;
