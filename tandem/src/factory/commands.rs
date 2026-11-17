@@ -251,6 +251,8 @@ pub enum FactoryRunCommand {
     List(FactoryRunListArgs),
     #[command(about = "withdraw a queued run before any stage starts")]
     Withdraw(FactoryRunWithdrawArgs),
+    #[command(about = "simulate a workflow run without executing or writing anything")]
+    Simulate(FactoryRunSimulateArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -284,6 +286,27 @@ pub struct FactoryRunWithdrawArgs {
     pub id: String,
     #[arg(long)]
     pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunSimulateArgs {
+    pub idea: Option<String>,
+    #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub ui_changed: bool,
+    #[arg(long)]
+    pub no_ui_changed: bool,
+    #[arg(long)]
+    pub deploy: bool,
+    #[arg(long)]
+    pub approve_deploy: bool,
+    #[arg(long)]
+    pub fail: Vec<String>,
+    #[arg(long)]
+    pub retries: Option<u32>,
     #[arg(long)]
     pub json: bool,
 }
@@ -508,9 +531,120 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Show(a) => a.json,
             FactoryRunCommand::List(a) => a.json,
             FactoryRunCommand::Withdraw(a) => a.json,
+            FactoryRunCommand::Simulate(a) => a.json,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
+    }
+}
+
+fn run_simulate(
+    args: &FactoryRunSimulateArgs,
+    workspace: &Path,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let store = FactoryStore::new(workspace);
+    let settings = if store.exists() {
+        store.settings().unwrap_or_default()
+    } else {
+        FactorySettings::default()
+    };
+
+    let wf_name = if let Some(ref name) = args.workflow {
+        Some(name.clone())
+    } else if let Some(ref idea_id) = args.idea {
+        match store.get_idea(idea_id) {
+            Ok(Some(idea)) => idea
+                .plan
+                .as_ref()
+                .map(|p| p.workflow.clone())
+                .filter(|w| !w.is_empty()),
+            Ok(None) => {
+                let _ = writeln!(stderr, "idea not found: {idea_id}");
+                return 1;
+            }
+            Err(e) => {
+                let _ = writeln!(stderr, "{e}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+
+    let loaded = match wf_name.as_deref() {
+        None | Some("default-delivery") => super::workflow::load_default_workflow(workspace)
+            .map(|(raw, src)| {
+                let label = match src {
+                    super::workflow::WorkflowSource::Workspace => "file",
+                    super::workflow::WorkflowSource::Embedded => "embedded",
+                };
+                (raw, label)
+            })
+            .map_err(|e| e.to_string()),
+        Some(name) => {
+            super::workflow::validate::resolve_workflow_path(workspace, name).and_then(|p| {
+                super::workflow::parse::load_workflow_file(&p)
+                    .map(|raw| (raw, "file"))
+                    .map_err(|e| e.to_string())
+            })
+        }
+    };
+
+    let (raw, source) = match loaded {
+        Ok(v) => v,
+        Err(msg) => {
+            let _ = writeln!(stderr, "{msg}");
+            return 1;
+        }
+    };
+
+    let wf = match super::workflow::validate::validate(&raw, &settings) {
+        Ok(wf) => wf,
+        Err(diags) => {
+            for d in &diags {
+                let _ = writeln!(stderr, "{d}");
+            }
+            return 1;
+        }
+    };
+
+    let mut fail_counts = std::collections::HashMap::new();
+    for spec in &args.fail {
+        if let Some((stage, n_str)) = spec.split_once(':') {
+            let Ok(n) = n_str.parse::<u32>() else {
+                let _ = writeln!(stderr, "invalid --fail count: {spec}");
+                return 1;
+            };
+            fail_counts.insert(stage.to_string(), n);
+        } else {
+            fail_counts.insert(spec.clone(), 1);
+        }
+    }
+
+    let script = super::simulate::SimulationScript {
+        ui_changed: args.ui_changed && !args.no_ui_changed,
+        deploy_requested: args.deploy,
+        approve_deploy: args.approve_deploy,
+        fail_counts,
+        max_retries: args.retries,
+    };
+
+    let trace = super::simulate::simulate(&wf, source, &settings, &script);
+    if args.json {
+        if let Ok(line) = serde_json::to_string(&trace) {
+            let _ = writeln!(stdout, "{line}");
+        }
+    } else {
+        let _ = writeln!(stdout, "{}", super::simulate::format_trace_text(&trace));
+    }
+    let _ = stdout.flush();
+
+    match trace.outcome {
+        super::simulate::SimulationOutcome::Finished { .. } => 0,
+        super::simulate::SimulationOutcome::Blocked { .. }
+        | super::simulate::SimulationOutcome::Stopped { .. } => 1,
     }
 }
 
@@ -523,6 +657,11 @@ pub fn run_with_io(
     stderr: &mut dyn Write,
 ) -> i32 {
     let json_mode = json_flag(args);
+    if let FactoryCommand::Run(r_args) = &args.command
+        && let FactoryRunCommand::Simulate(sim_args) = &r_args.command
+    {
+        return run_simulate(sim_args, workspace, stdout, stderr);
+    }
     match execute(args, workspace, config, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
@@ -1009,6 +1148,9 @@ fn execute(
                         message: e.to_string(),
                     })?;
                 serialize_compact(&run)
+            }
+            FactoryRunCommand::Simulate(_) => {
+                unreachable!("simulate handled directly in run_with_io")
             }
         },
         FactoryCommand::Events(a) => {
