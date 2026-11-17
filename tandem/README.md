@@ -200,14 +200,52 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory artifact show ID --kind <feasibility\|plan> [--version N]` | Print a stored artifact |
 | `tandem factory question check ID --json` | Check open-question ceiling (exits `3` when >= 5 open questions) |
 | `tandem factory events [--since SEQ] [--idea ID] --json` | Read event log entries |
-| `tandem factory rebuild --json` | Rebuild materialized idea files from the event log |
+| `tandem factory rebuild --json` | Rebuild materialized idea and run files from the event log |
+| `tandem factory workflow validate <NAME\|PATH> [--json]` | Validate a workflow YAML file against factory settings |
+| `tandem factory workflow list [--json]` | List workflows in `<workspace>/workflows/` with validity |
+| `tandem factory workflow default` | Print the embedded `default-delivery.yaml` to stdout |
+| `tandem factory run create <IDEA> [--workflow NAME] [--deploy] --json` | Create and queue a run from a verified plan snapshot (user-only) |
+| `tandem factory run show <RUN> --json` | Show a run and its stages |
+| `tandem factory run list [--idea ID] --json` | List runs sorted by creation time descending |
+| `tandem factory run withdraw <RUN> --confirm <RUN> --json` | Withdraw a queued run before any stage starts (user-only) |
+| `tandem factory run simulate [IDEA] [--workflow NAME] [--ui-changed] [--deploy] [--approve-deploy] [--fail STAGE[:N]] [--retries N] [--json]` | Dry-run a workflow in memory (writes nothing, spawns nothing) |
 
-Exit codes: `0` success, `1` not found or invalid input, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`), gate not met, or question ceiling reached.
+Exit codes: `0` success, `1` not found, invalid input, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`), gate not met, or question ceiling reached.
 
 - **Required plan sections (`##`)**: `Scope`, `Acceptance criteria`, `Risks`, `Estimates`, `Workflow recommendation`.
 - **Question tagging**: Questions asked with `task = "idea:<id>"` feed `blockers`, `needs_you`, and Gate 2.
-- **User-only rule**: `ready` and `revoke-ready` refuse when `TANDEM_ROLE`, `TANDEM_SESSION_ID`, or `TANDEM_FACTORY_IDEA` is set. This is a guard-rail and audit trail (`approved_by`, `via`), not an OS sandbox.
-- **Factory tab & Web views**: TUI Factory tab (`Alt+f`) provides new idea (`Ctrl+Alt+n`), lifecycle filter, detail/artifact reader, mark ready (`Ctrl+Alt+y`), and revoke; `tandem-web` exposes `/api/workspaces/:id/factory/...` routes and the Factory board/detail UI when `factory.enabled` is true.
+- **User-only rule**: `ready`, `revoke-ready`, `run create`, and `run withdraw` refuse when `TANDEM_ROLE`, `TANDEM_SESSION_ID`, or `TANDEM_FACTORY_IDEA` is set. This is a guard-rail and audit trail (`approved_by`, `via`), not an OS sandbox.
+- **Orchestrator recommendation**: The Orchestrator may recommend a workflow by name in the plan, but cannot edit workflow policy; the validator's upper bounds always apply to whatever the user selects.
+- **Factory tab & Web views**: TUI Factory tab (`Alt+f`) provides new idea (`Ctrl+Alt+n`), lifecycle filter, detail/artifact reader, mark ready (`Ctrl+Alt+y` with workflow selector & deploy toggle), run strip, withdraw (`x`), and revoke; `tandem-web` exposes `/api/workspaces/:id/factory/...` routes including `workflows` and `runs/:runId` with the workflow selector and run timeline.
+
+### Workflow reference (`workflows/*.yaml`)
+
+`init` installs `<workspace>/workflows/default-delivery.yaml`, which is **user-owned** after creation (`update` never overwrites it; run `tandem factory workflow default` to view the shipped default). If removed, the engine falls back to the embedded default (`workflow source: embedded`).
+
+- **Top-level keys**: `name` (`string`, `^[a-z][a-z0-9-]{0,47}$`), `version` (`u32 >= 1`), `trigger` (`ready-for-development`), `policy` (object), `stages` (non-empty list, max 16 stages).
+- **Policy keys**: `max_parallel_agents` (`u32`, `<= factorySettings.max_parallel_agents`), `default_temperature` (`0.0..=1.0`), `require_human_approval_for` (list of protected actions: `deploy`, `merge`, `force_push`).
+- **Stage keys**: `name` (`^[a-z][a-z0-9-]{0,47}$`), `agent` (vocab), `depends_on` (list of prior stage names), `tools` (non-empty list from tool vocab), `when` (optional condition), `requires` (optional requirements list), `produces` (optional evidence kinds list), `budget` (`max_cost_usd`, `max_duration_secs`, `max_retries`).
+- **Vocabularies**:
+  - **Agents**: `orchestrator`, `test-engineer`, `implementer`, `verifier`, `reviewer`, `demo-maker`, `release-engineer`.
+  - **Tools (class)**: `read_file` (`read`), `search_code` (`read`), `git_diff` (`read`), `write_file` (`write`), `edit_file` (`write`), `run_tests` (`exec`), `run_checks` (`exec`), `diff_review` (`review`), `capture_demo` (`artifact`), `deploy` (`deploy`).
+  - **Conditions (`when`)**: `ui_changed`, `deploy_requested`.
+  - **Requirements (`requires`)**: `human_approval`.
+  - **Evidence (`produces`)**: `plan`, `tests`, `patch`, `test_report`, `review_report`, `demo_artifact`, `deploy_record`.
+- **Execution rules**: (1) A stage starts only when every `depends_on` stage has succeeded or was skipped. (2) False `when` skips the stage with a reason; unknown `when` waits. (3) `requires: [human_approval]` blocks until a matching approval exists. (4) A failed stage never advances dependents. (5) Running stages never exceed `min(policy.max_parallel_agents, settings.max_parallel_agents)` (file order breaks ties).
+- **Validation diagnostics (`W001`–`W013`)**:
+  - `W001`: Invalid workflow `name` (fix: lowercase `[a-z0-9-]`, <= 48 chars).
+  - `W002`: Missing or invalid `version` (fix: positive integer `version: 1`).
+  - `W003`: Unknown `trigger` (fix: `trigger: ready-for-development`).
+  - `W004`: Duplicate or invalid stage `name` (fix: unique lowercase identifier per stage).
+  - `W005`: Unknown `depends_on` reference (fix: reference an existing stage name).
+  - `W006`: Dependency cycle detected (fix: break the cycle so stages form a DAG).
+  - `W007`: Unknown `agent` or `tools` entry (fix: use values from the vocabularies above).
+  - `W008`: Unknown `when`, `requires`, or `produces` entry (fix: use supported vocab values).
+  - `W009`: `max_parallel_agents` is 0 or exceeds `settings.max_parallel_agents` (fix: lower `max_parallel_agents`).
+  - `W010`: `default_temperature` outside `0.0..=1.0` or negative budget (fix: clamp temperature to `0.0..=1.0`).
+  - `W011`: No stage grants `diff_review` or `write`-class stage lacks `test` coverage (fix: include a `reviewer` stage with `diff_review` and a `run_tests` stage).
+  - `W012`: `deploy` tool used without `requires: [human_approval]` (fix: add `requires: [human_approval]` on the deploy stage).
+  - `W013`: Stage count is 0 or exceeds 16 (fix: keep 1–16 stages).
 
 ### Storage layout
 

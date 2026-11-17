@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added: Factory Mode workflow engine (`p-015`)
+- **Workflow parser, schema & validator (`W001`–`W013`)**: Bounded YAML subset parser, strict vocabularies, `tandem factory workflow validate|list|default`, and user-owned `workflows/default-delivery.yaml` installed by `init`/`update`/`doctor`.
+- **Runs, pure scheduler & dry-run simulator**: `tandem factory run create|show|list|withdraw|simulate` with verified plan snapshots, byte-identical `runs/<run-id>/workflow.yaml`, stage event folding, and `FakeExecutor` dry-run traces.
+- **TUI & `tandem-web` workflow selection & run timeline**: Workflow selector + deploy toggle in mark-ready confirmation, stage progress strips/timelines, and queued-run withdrawal.
+
 ### Added: Factory Mode ideation (`p-014`)
 - **Orchestrator role & lifecycle**: Factory sessions use `orchestrator` panes bound to ideas (`TANDEM_FACTORY_IDEA`, `@tandem_idea`) with `tandem factory idea start` / `resume` and durable conversation sync.
 - **Ideation artifacts & Gate 1**: Versioned, SHA-256-verified `feasibility` and `plan` artifacts (`artifact put` / `show`), required 5-section plan validation, assumptions (`idea assume`), and Gate 1 (`idea select-direction`).
