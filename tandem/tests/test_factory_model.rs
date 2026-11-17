@@ -177,6 +177,7 @@ fn test_all_model_types_round_trip_json() {
         default_temperature: 0.2,
         provider_gates: vec![gate.clone()],
         default_budget: budget.clone(),
+        ..FactorySettings::default()
     };
 
     macro_rules! assert_round_trip {

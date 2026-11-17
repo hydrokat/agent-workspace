@@ -51,6 +51,9 @@ pub enum FactoryCommand {
     #[command(about = "manage headless provider gates and consent")]
     Provider(FactoryProviderArgs),
 
+    #[command(about = "discover, confirm, and inspect project test and lint commands")]
+    Checks(FactoryChecksArgs),
+
     #[command(about = "run the factory execution loop (factory sessions only)")]
     Runner,
 
@@ -453,6 +456,56 @@ pub struct FactoryProviderRevokeArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksArgs {
+    #[command(subcommand)]
+    pub command: FactoryChecksCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryChecksCommand {
+    #[command(about = "propose test and lint commands by reading target files")]
+    Discover(FactoryChecksDiscoverArgs),
+    #[command(about = "confirm test and lint commands for a target (user-only)")]
+    Set(FactoryChecksSetArgs),
+    #[command(about = "show configured check commands")]
+    Show(FactoryChecksShowArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksDiscoverArgs {
+    #[arg(long)]
+    pub target: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksSetArgs {
+    #[arg(long)]
+    pub target: String,
+    #[arg(long)]
+    pub test: Option<String>,
+    #[arg(long)]
+    pub lint: Option<String>,
+    #[arg(long)]
+    pub timeout_secs: Option<u64>,
+    #[arg(long)]
+    pub ui_paths: Option<String>,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksShowArgs {
+    #[arg(long)]
+    pub target: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryIdeaStartArgs {
     #[arg(long, help = "CLI provider (claude or agy)")]
     pub cli: String,
@@ -686,6 +739,11 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryProviderCommand::Status(a) => a.json,
             FactoryProviderCommand::Consent(a) => a.json,
             FactoryProviderCommand::Revoke(a) => a.json,
+        },
+        FactoryCommand::Checks(c_args) => match &c_args.command {
+            FactoryChecksCommand::Discover(a) => a.json,
+            FactoryChecksCommand::Set(a) => a.json,
+            FactoryChecksCommand::Show(a) => a.json,
         },
         FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
@@ -1530,6 +1588,12 @@ fn execute(
                 }
             }
         }
+        FactoryCommand::Checks(c_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            handle_checks_command(&c_args.command, &store, workspace)
+        }
         FactoryCommand::Runner => {
             if !enabled {
                 return Err(CmdError::factory_disabled());
@@ -2003,6 +2067,167 @@ fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<St
         }))
     } else {
         Ok(cleaned)
+    }
+}
+
+fn map_checks_error(err: super::checks::ChecksError) -> CmdError {
+    CmdError {
+        exit_code: err.exit_code(),
+        code: err.code(),
+        message: err.to_string(),
+    }
+}
+
+fn resolve_checks_target(
+    workspace: &Path,
+    explicit: Option<&str>,
+) -> Result<(String, std::path::PathBuf), CmdError> {
+    if let Some(name) = explicit {
+        super::checks::validate_target_name(name).map_err(map_checks_error)?;
+        let path = super::workspace::target_path_for_name(workspace, name)
+            .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+        return Ok((name.to_string(), path));
+    }
+    match super::workspace::resolve_target(workspace) {
+        super::workspace::TargetResolution::Resolved { name, path } => Ok((name, path)),
+        super::workspace::TargetResolution::Ambiguous { choices } => {
+            Err(CmdError::invalid_input(format!(
+                "multiple targets found ({}); pass --target <name>",
+                choices.join(", ")
+            )))
+        }
+    }
+}
+
+fn format_discover_text(report: &super::checks::DiscoverReport) -> String {
+    let mut lines = vec![format!("target {}", report.target)];
+    for p in &report.proposals {
+        let kind = match p.kind {
+            super::checks::CheckKind::Test => "test",
+            super::checks::CheckKind::Lint => "lint",
+        };
+        let note = p
+            .note
+            .as_deref()
+            .map(|n| format!(", {n}"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  {kind:<6} {}  ({}: line {}{note})",
+            p.argv.join(" "),
+            p.source_file,
+            p.source_line
+        ));
+    }
+    if report.proposals.is_empty() {
+        lines.push("  (no check commands discovered)".to_string());
+    }
+    if let Some(ref cfg) = report.confirmed {
+        let by = cfg.confirmed_by.as_deref().unwrap_or("unknown");
+        lines.push(format!(
+            "Confirmed by {by} (timeout {}s).",
+            cfg.timeout_secs
+        ));
+    } else {
+        lines.push(format!(
+            "Nothing is confirmed yet. Confirm with: {}",
+            report.confirm_command
+        ));
+    }
+    lines.join("\n")
+}
+
+fn format_show_checks_text(checks: &BTreeMap<String, super::checks::ChecksConfig>) -> String {
+    if checks.is_empty() {
+        return "No check commands confirmed yet.".to_string();
+    }
+    let mut lines = Vec::new();
+    for (target, cfg) in checks {
+        lines.push(format!(
+            "target {target} (timeout {}s, confirmed_by={})",
+            cfg.timeout_secs,
+            cfg.confirmed_by.as_deref().unwrap_or("none")
+        ));
+        for cmd in &cfg.test {
+            lines.push(format!("  test   {}", cmd.join(" ")));
+        }
+        for cmd in &cfg.lint {
+            lines.push(format!("  lint   {}", cmd.join(" ")));
+        }
+    }
+    lines.join("\n")
+}
+
+fn handle_checks_command(
+    cmd: &FactoryChecksCommand,
+    store: &FactoryStore,
+    workspace: &Path,
+) -> Result<String, CmdError> {
+    match cmd {
+        FactoryChecksCommand::Discover(a) => {
+            let (target_name, target_path) = resolve_checks_target(workspace, a.target.as_deref())?;
+            let settings = if store.exists() {
+                store.settings().map_err(map_factory_error)?
+            } else {
+                FactorySettings::default()
+            };
+            let confirmed = settings.checks.get(&target_name).cloned();
+            let report = super::checks::discover_checks(&target_name, &target_path, confirmed)
+                .map_err(map_checks_error)?;
+            if a.json {
+                serialize_compact(&report)
+            } else {
+                Ok(format_discover_text(&report))
+            }
+        }
+        FactoryChecksCommand::Set(a) => {
+            let test_cmds: Vec<Vec<String>> = match a.test.as_deref() {
+                Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --test JSON argv list: {e}"))
+                })?,
+                None => Vec::new(),
+            };
+            let lint_cmds: Vec<Vec<String>> = match a.lint.as_deref() {
+                Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --lint JSON argv list: {e}"))
+                })?,
+                None => Vec::new(),
+            };
+            let ui_paths: Vec<String> = match a.ui_paths.as_deref() {
+                Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --ui-paths JSON list: {e}"))
+                })?,
+                None => Vec::new(),
+            };
+            let confirmed_by = resolve_owner(None)?;
+            let cfg = super::checks::set_checks(
+                store,
+                &a.target,
+                test_cmds,
+                lint_cmds,
+                a.timeout_secs,
+                ui_paths,
+                &a.confirm,
+                &confirmed_by,
+                &|k| std::env::var(k).ok(),
+            )
+            .map_err(map_checks_error)?;
+            if a.json {
+                serialize_compact(&cfg)
+            } else {
+                let mut map = BTreeMap::new();
+                map.insert(a.target.clone(), cfg);
+                Ok(format_show_checks_text(&map))
+            }
+        }
+        FactoryChecksCommand::Show(a) => {
+            let map =
+                super::checks::show_checks(store, a.target.as_deref()).map_err(map_checks_error)?;
+            if a.json {
+                serialize_compact(&map)
+            } else {
+                Ok(format_show_checks_text(&map))
+            }
+        }
     }
 }
 

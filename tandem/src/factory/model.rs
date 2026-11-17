@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const KNOWN_PROVIDERS: &[&str] = &["claude", "agy", "opencode"];
 pub const TITLE_MAX_LEN: usize = 120;
@@ -307,6 +308,8 @@ pub struct FactorySettings {
     pub provider_gates: Vec<ProviderGate>,
     #[serde(default)]
     pub default_budget: Budget,
+    #[serde(default)]
+    pub checks: BTreeMap<String, super::checks::ChecksConfig>,
 }
 
 impl Default for FactorySettings {
@@ -316,6 +319,7 @@ impl Default for FactorySettings {
             default_temperature: default_temperature(),
             provider_gates: default_provider_gates(),
             default_budget: Budget::default(),
+            checks: BTreeMap::new(),
         }
     }
 }

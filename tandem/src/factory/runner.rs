@@ -356,6 +356,26 @@ pub fn drive_run_step(
         .iter()
         .find(|s| s.name == stage_name)
         .ok_or_else(|| RunnerError::InvalidInput(format!("stage {stage_name} missing")))?;
+
+    let needs_checks = stage_def.name == "test"
+        || stage_def.name == "check"
+        || stage_def
+            .tools
+            .iter()
+            .any(|t| matches!(t, super::workflow::schema::WorkflowTool::LintRunner));
+    if needs_checks {
+        let target_name = run.target.as_deref().unwrap_or("workspace").to_string();
+        if super::checks::require_confirmed_checks(&settings, &target_name).is_err() {
+            return pause_run(
+                store,
+                run,
+                "test and lint commands are not confirmed".to_string(),
+                vec![format!(
+                    "tandem factory checks discover --target {target_name}"
+                )],
+            );
+        }
+    }
     let current_attempts = run
         .stages
         .iter()
