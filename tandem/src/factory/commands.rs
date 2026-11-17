@@ -287,6 +287,8 @@ pub enum FactoryRunCommand {
     Resume(FactoryRunResumeArgs),
     #[command(about = "cancel an active run while keeping its worktree and branch")]
     Cancel(FactoryRunCancelArgs),
+    #[command(about = "tail a job log for a run")]
+    Log(FactoryRunLogArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -396,6 +398,16 @@ pub struct FactoryRunCancelArgs {
     pub run: String,
     #[arg(long)]
     pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunLogArgs {
+    pub run: String,
+    pub job: String,
+    #[arg(long, default_value_t = 65536)]
+    pub tail: usize,
     #[arg(long)]
     pub json: bool,
 }
@@ -668,6 +680,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Pause(a) => a.json,
             FactoryRunCommand::Resume(a) => a.json,
             FactoryRunCommand::Cancel(a) => a.json,
+            FactoryRunCommand::Log(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -1438,6 +1451,7 @@ fn execute(
                     Ok(format_cancel_run_text(&res))
                 }
             }
+            FactoryRunCommand::Log(a) => read_run_job_log(&store, a),
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {
@@ -1863,6 +1877,111 @@ fn format_cancel_idea_text(res: &super::runner::CancelIdeaResult) -> String {
         }
     }
     lines.join("\n")
+}
+
+const MAX_RUN_LOG_TAIL_BYTES: usize = 262_144;
+
+fn is_valid_correlation_id_for_run(run_id: &str, job_id: &str) -> bool {
+    let Some(rest) = job_id
+        .strip_prefix(run_id)
+        .and_then(|s| s.strip_prefix('.'))
+    else {
+        return false;
+    };
+    let Some((stage, attempt)) = rest.split_once('.') else {
+        return false;
+    };
+    let mut stage_bytes = stage.bytes();
+    let stage_ok = matches!(stage_bytes.next(), Some(b) if b.is_ascii_lowercase())
+        && stage.len() <= 48
+        && stage_bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    let attempt_ok =
+        (1..=2).contains(&attempt.len()) && attempt.bytes().all(|b| b.is_ascii_digit());
+    stage_ok && attempt_ok
+}
+
+fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<String, CmdError> {
+    use std::io::{Seek, SeekFrom};
+
+    if !super::ids::is_valid_run_id(&args.run) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid run id {}",
+            args.run
+        )));
+    }
+    if args.tail == 0 || args.tail > MAX_RUN_LOG_TAIL_BYTES {
+        return Err(CmdError::invalid_input(format!(
+            "tail bytes must be between 1 and {MAX_RUN_LOG_TAIL_BYTES}"
+        )));
+    }
+    if !is_valid_correlation_id_for_run(&args.run, &args.job) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid job id {}",
+            args.job
+        )));
+    }
+
+    super::run::get_run(store, &args.run)
+        .map_err(|e| CmdError {
+            exit_code: 1,
+            code: e.code(),
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| CmdError::not_found(format!("run {}", args.run)))?;
+
+    let job_dir = store
+        .root
+        .join("runs")
+        .join(&args.run)
+        .join("jobs")
+        .join(&args.job);
+    super::events::reject_if_symlink(&job_dir)
+        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+    if !job_dir.exists() {
+        return Err(CmdError::not_found(format!("job {}", args.job)));
+    }
+
+    let log_path = job_dir.join("log.txt");
+    super::events::reject_if_symlink(&log_path)
+        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+
+    let cleaned = if !log_path.exists() {
+        String::new()
+    } else {
+        let mut file = File::open(&log_path)
+            .map_err(|e| CmdError::invalid_input(format!("cannot open log: {e}")))?;
+        let len = file
+            .metadata()
+            .map_err(|e| CmdError::invalid_input(format!("cannot stat log: {e}")))?
+            .len();
+        let start = len.saturating_sub(args.tail as u64);
+        if start > 0 {
+            file.seek(SeekFrom::Start(start))
+                .map_err(|e| CmdError::invalid_input(format!("cannot seek log: {e}")))?;
+        }
+        let mut buf = Vec::with_capacity(args.tail.min(len as usize));
+        file.take(args.tail as u64)
+            .read_to_end(&mut buf)
+            .map_err(|e| CmdError::invalid_input(format!("cannot read log: {e}")))?;
+
+        let raw = String::from_utf8_lossy(&buf);
+        let aligned = if start > 0 {
+            raw.trim_start_matches('\u{FFFD}')
+        } else {
+            raw.as_ref()
+        };
+        sanitize::clean(aligned)
+    };
+
+    if args.json {
+        serialize_compact(&serde_json::json!({
+            "run": args.run,
+            "job": args.job,
+            "log": cleaned
+        }))
+    } else {
+        Ok(cleaned)
+    }
 }
 
 #[cfg(test)]

@@ -633,3 +633,89 @@ fn cli_run_control_commands_work_and_enforce_factory_mode() {
 
     let _ = fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn test_factory_run_log_tails_sanitizes_and_validates() {
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        args: FactoryArgs,
+    }
+
+    let ws = temp_ws("run-log");
+    let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let corr_id = format!("{run_id}.develop.1");
+    let jdir = job_dir(&store, &run_id, "develop", 1);
+    fs::create_dir_all(&jdir).unwrap();
+
+    let mut payload = "A".repeat(300_000);
+    payload.push_str("\n\x1b[31mRED\x1b[0m\x00\x07TAIL_END\n");
+    fs::write(jdir.join("log.txt"), payload.as_bytes()).unwrap();
+
+    let cfg = Config {
+        factory: true,
+        ..Default::default()
+    };
+
+    let parsed =
+        Wrapper::try_parse_from(["factory", "run", "log", &run_id, &corr_id, "--tail", "64"])
+            .unwrap();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = run_with_io(
+        &parsed.args,
+        &ws,
+        &cfg,
+        &mut Cursor::new(b""),
+        &mut out,
+        &mut err,
+    );
+    assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&err));
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.len() <= 64);
+    assert!(text.contains("REDTAIL_END"));
+    assert!(!text.contains('\x1b'));
+    assert!(!text.contains('\x00'));
+
+    let parsed_over = Wrapper::try_parse_from([
+        "factory", "run", "log", &run_id, &corr_id, "--tail", "262145",
+    ])
+    .unwrap();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = run_with_io(
+        &parsed_over.args,
+        &ws,
+        &cfg,
+        &mut Cursor::new(b""),
+        &mut out,
+        &mut err,
+    );
+    assert_eq!(code, 1);
+
+    let parsed_bad_job = Wrapper::try_parse_from([
+        "factory",
+        "run",
+        "log",
+        &run_id,
+        "r-00000000.develop.1",
+        "--tail",
+        "100",
+    ])
+    .unwrap();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = run_with_io(
+        &parsed_bad_job.args,
+        &ws,
+        &cfg,
+        &mut Cursor::new(b""),
+        &mut out,
+        &mut err,
+    );
+    assert_eq!(code, 1);
+
+    let _ = fs::remove_dir_all(&ws);
+}

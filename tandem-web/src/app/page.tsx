@@ -576,6 +576,10 @@ export default function DashboardPage() {
           ((desktopTab === "factory" && isDesktop) || activeTab === "factory") &&
           (selectedIdeaId ? (
             <IdeaDetailView
+              workspaceId={activeWorkspace?.id ?? null}
+              streamKey={String(
+                factorySummary.ideas.find((i) => i.id === selectedIdeaId)?.updated ?? ""
+              )}
               detail={ideaDetail}
               loading={ideaDetailLoading}
               error={ideaDetailError}

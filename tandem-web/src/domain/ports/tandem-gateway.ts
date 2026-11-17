@@ -3,7 +3,10 @@ import type {
   FactoryCli,
   Idea,
   IdeaDetail,
+  ProviderStatusItem,
   ReadyResult,
+  RunControlAction,
+  RunControlOptions,
   RunSummary,
   WorkflowListItem,
 } from "../models/factory";
@@ -64,4 +67,18 @@ export interface ITandemGateway {
   factoryListWorkflows(workspacePath: string): Promise<WorkflowListItem[]>;
   factoryWithdrawRun(workspacePath: string, runId: string): Promise<RunSummary>;
   factoryGetRun(workspacePath: string, runId: string): Promise<RunSummary | null>;
+  factoryShowRun(workspacePath: string, runId: string): Promise<RunSummary>;
+  factoryRunLog(
+    workspacePath: string,
+    runId: string,
+    correlationId: string,
+    bytes: number
+  ): Promise<string>;
+  factoryRunControl(
+    workspacePath: string,
+    runId: string,
+    action: RunControlAction,
+    options?: RunControlOptions
+  ): Promise<RunSummary>;
+  factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]>;
 }

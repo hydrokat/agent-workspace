@@ -139,6 +139,10 @@ export interface Stage {
   agent: string;
   state: StageState;
   attempts?: number;
+  interrupted_attempts?: number;
+  started?: number | null;
+  finished?: number | null;
+  artifacts?: ArtifactRef[];
   rationale?: string | null;
 }
 
@@ -150,10 +154,36 @@ export interface RunSummary {
   workflow_sha256: string;
   workflow_source?: string;
   deploy_requested?: boolean;
+  target?: string | null;
+  branch?: string | null;
+  base_commit?: string | null;
+  worktree_path?: string | null;
+  pause_reason?: string | null;
   state: RunState;
   stages: Stage[];
   created: number;
   updated: number;
+}
+
+export type RunControlAction = "pause" | "resume" | "cancel" | "retry";
+
+export interface RunControlOptions {
+  confirm?: string;
+  stage?: string;
+  hypothesis?: string;
+  now?: boolean;
+}
+
+export type ProviderGateState = "open" | "closed";
+
+export interface ProviderStatusItem {
+  provider: string;
+  auth_type: string;
+  verdict: string;
+  verified_on: string;
+  reverify_by: string;
+  gate: ProviderGateState;
+  reason?: string | null;
 }
 
 export interface WorkflowDiagnostic {
@@ -237,6 +267,33 @@ export function isValidWorkflowName(name: string): boolean {
   return /^[a-z][a-z0-9-]{0,47}$/.test(name);
 }
 
+export const MAX_LOG_TAIL_BYTES = 262_144;
+export const HYPOTHESIS_MAX_LEN = 500;
+
 export function isValidRunId(id: string): boolean {
   return /^r-[a-z0-9]{8}$/.test(id);
+}
+
+export function isValidCorrelationId(id: string): boolean {
+  return /^r-[a-z0-9]{8}\.[a-z][a-z0-9-]{0,47}\.[0-9]{1,2}$/.test(id);
+}
+
+export function isValidStageName(name: string): boolean {
+  return /^[a-z][a-z0-9-]{0,47}$/.test(name);
+}
+
+export function isValidRunControlAction(action: string): action is RunControlAction {
+  return action === "pause" || action === "resume" || action === "cancel" || action === "retry";
+}
+
+export function isValidLogTailBytes(bytes: number): boolean {
+  return Number.isInteger(bytes) && bytes >= 1 && bytes <= MAX_LOG_TAIL_BYTES;
+}
+
+export function isValidHypothesis(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || [...trimmed].length > HYPOTHESIS_MAX_LEN) {
+    return false;
+  }
+  return !/[\x00-\x1f\x7f]/.test(trimmed);
 }
