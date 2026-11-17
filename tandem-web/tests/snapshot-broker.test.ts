@@ -56,6 +56,12 @@ class FakeGateway implements ITandemGateway {
   async answerQuery(): Promise<void> {}
   async listIps(): Promise<ListIpsResult> { return { ips: [], workspaces: [] }; }
   async executeAction(): Promise<void> {}
+  async factoryListIdeas() { return []; }
+  async factoryShowIdea(): Promise<never> { throw new Error("unused"); }
+  async factoryReadArtifact() { return ""; }
+  async factoryStartIdea(): Promise<never> { throw new Error("unused"); }
+  async factoryMarkReady(): Promise<never> { throw new Error("unused"); }
+  async factoryRevokeReady(): Promise<never> { throw new Error("unused"); }
 }
 
 class FakeRegistry implements IWorkspaceRegistry {

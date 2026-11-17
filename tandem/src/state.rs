@@ -13,6 +13,11 @@ pub const STATE_VERSION: u32 = 3;
 pub const READABLE_VERSIONS: [u32; 3] = [1, 2, 3];
 pub const CLIS: [&str; 3] = ["claude", "agy", "opencode"];
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
+pub const FACTORY_ROLES: [&str; 1] = ["orchestrator"];
+
+pub fn roles(factory: bool) -> &'static [&'static str] {
+    if factory { &FACTORY_ROLES } else { &ROLES }
+}
 pub const MAX_AGENTS: usize = 40;
 pub const DEFAULT_SIDEBAR_COLS: usize = 26;
 pub const DEFAULT_STATUS_ROWS: usize = 10;
@@ -286,6 +291,12 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
         .filter(|s| crate::adapters::base::is_valid_label(s))
         .map(ToString::to_string);
 
+    let idea = obj
+        .get("idea")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+
     Some(AgentSpec {
         cli: cli.to_string(),
         role: role.to_string(),
@@ -295,6 +306,7 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
         cwd,
         conversation,
         name,
+        idea,
     })
 }
 

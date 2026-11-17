@@ -29,6 +29,7 @@ fn test_tmux_parity_fixture() {
             spec: "spec1".to_string(),
             cli_version: "1.0".to_string(),
             name: String::new(),
+            idea: String::new(),
         },
         PaneInfo {
             id: "%2".to_string(),
@@ -43,6 +44,7 @@ fn test_tmux_parity_fixture() {
             spec: "spec2".to_string(),
             cli_version: "1.0".to_string(),
             name: String::new(),
+            idea: String::new(),
         },
         PaneInfo {
             id: "%3".to_string(),
@@ -57,6 +59,7 @@ fn test_tmux_parity_fixture() {
             spec: "spec3".to_string(),
             cli_version: "1.0".to_string(),
             name: String::new(),
+            idea: String::new(),
         },
     ];
 

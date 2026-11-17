@@ -121,6 +121,7 @@ pub fn agent_launch(
         "skip_permissions": spec.skip_permissions,
         "cwd": spec.cwd,
         "conversation": spec.conversation,
+        "idea": spec.idea,
     })
     .to_string();
 
@@ -133,7 +134,11 @@ pub fn agent_launch(
         argv,
         role: spec.role.clone(),
         index: spec.index,
-        label: format!("{}·{}", spec.cli, spec.model),
+        label: if let Some(ref idea_id) = spec.idea {
+            format!("{idea_id} {}·{}", spec.cli, spec.model)
+        } else {
+            format!("{}·{}", spec.cli, spec.model)
+        },
         kind: "agent".to_string(),
         env: env_map,
         cwd: Some(cwd),
@@ -141,6 +146,7 @@ pub fn agent_launch(
         spec: spec_json,
         cli_version,
         name: spec.name.clone().unwrap_or_default(),
+        idea: spec.idea.clone().unwrap_or_default(),
     }
 }
 
@@ -174,6 +180,7 @@ pub fn placeholder_launch(
         spec: String::new(),
         cli_version: String::new(),
         name: String::new(),
+        idea: String::new(),
     }
 }
 
@@ -203,6 +210,7 @@ pub fn status_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> L
         spec: String::new(),
         cli_version: String::new(),
         name: String::new(),
+        idea: String::new(),
     }
 }
 
@@ -232,6 +240,7 @@ pub fn sidebar_launch(self_cmd: Option<&[String]>, workspace: Option<&Path>) -> 
         spec: String::new(),
         cli_version: String::new(),
         name: String::new(),
+        idea: String::new(),
     }
 }
 
@@ -294,6 +303,11 @@ pub fn start(
         with_factory_env(
             agent_launch(first, &coord_str, workspace, resume, claude_dir),
             config.factory,
+        )
+    } else if config.factory {
+        with_factory_env(
+            placeholder_launch("orchestrator", None, Some(workspace)),
+            true,
         )
     } else {
         with_factory_env(
@@ -565,6 +579,14 @@ pub fn pane_spec(pane: &PaneInfo, coord_dir: Option<&Path>) -> Option<AgentSpec>
     } else {
         None
     };
+    let idea = if !pane.idea.is_empty() {
+        Some(pane.idea.clone())
+    } else {
+        raw.get("idea")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+    };
     Some(AgentSpec {
         cli,
         role: pane.role.clone(),
@@ -574,6 +596,7 @@ pub fn pane_spec(pane: &PaneInfo, coord_dir: Option<&Path>) -> Option<AgentSpec>
         cwd,
         conversation: conv,
         name,
+        idea,
     })
 }
 
@@ -646,6 +669,35 @@ pub fn save_state_for(
     let snapshot = capture_state(layout, clean)?;
     if snapshot.agents.is_empty() {
         return Err(anyhow::anyhow!("no agents to save"));
+    }
+    if factory {
+        let store = crate::factory::store::FactoryStore::new(workspace);
+        for agent in &snapshot.agents {
+            if agent.role == "orchestrator"
+                && let Some(ref idea_id) = agent.idea
+                && let Ok(Some(idea)) = store.get_idea(idea_id)
+                && !idea.state.is_terminal()
+            {
+                let current_conv = idea
+                    .orchestrator
+                    .as_ref()
+                    .and_then(|o| o.conversation.as_deref());
+                if agent.conversation.as_deref() != current_conv {
+                    let _ = store.execute(
+                        idea_id,
+                        crate::factory::machine::Command::BindOrchestrator {
+                            cli: agent.cli.clone(),
+                            model: agent.model.clone(),
+                            conversation: agent.conversation.clone(),
+                        },
+                        &crate::factory::model::Actor {
+                            kind: crate::factory::model::ActorKind::System,
+                            id: "tandem".to_string(),
+                        },
+                    );
+                }
+            }
+        }
     }
     state::save(&state::state_path_for(workspace, factory), &snapshot)?;
     Ok(snapshot)
@@ -1408,6 +1460,12 @@ pub fn show_help() {
 }
 
 pub fn placeholder(role: &str) {
+    if role == "orchestrator" {
+        println!("No Orchestrator yet. Create an idea in the Factory tab.");
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    }
     let add_key = keys::display_shortcut(
         &keys::key_for("add-agent", &keys::default_keymap()),
         platform_name(),

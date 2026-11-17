@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added: Factory Mode ideation (`p-014`)
+- **Orchestrator role & lifecycle**: Factory sessions use `orchestrator` panes bound to ideas (`TANDEM_FACTORY_IDEA`, `@tandem_idea`) with `tandem factory idea start` / `resume` and durable conversation sync.
+- **Ideation artifacts & Gate 1**: Versioned, SHA-256-verified `feasibility` and `plan` artifacts (`artifact put` / `show`), required 5-section plan validation, assumptions (`idea assume`), and Gate 1 (`idea select-direction`).
+- **Pending-question queue**: Per-idea `idea:<id>` query counts (`blockers`, `needs_you`) and `question check` ceiling (`5`).
+- **Gate 2 (`ready-for-development`) & UI**: User-only `idea ready` / `revoke-ready` freezing `plan-snapshot.md` (with tamper detection), `factory-orchestrator` skill + `factory.py`, TUI Factory detail/reader/approval flows, and `tandem-web` Factory API + board/detail views.
+
 ## [1.16.0] — 2026-11-16
 
 ### Added: Factory Mode foundations (`./run.sh --factory`)

@@ -36,6 +36,12 @@ pub enum FactoryCommand {
     #[command(about = "manage factory ideas")]
     Idea(FactoryIdeaArgs),
 
+    #[command(about = "manage idea artifacts (feasibility studies and plans)")]
+    Artifact(FactoryArtifactArgs),
+
+    #[command(about = "check idea question queue")]
+    Question(FactoryQuestionArgs),
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -65,6 +71,157 @@ pub enum FactoryIdeaCommand {
 
     #[command(about = "show an idea and its events")]
     Show(FactoryIdeaShowArgs),
+
+    #[command(about = "create an idea and launch its Orchestrator pane")]
+    Start(FactoryIdeaStartArgs),
+
+    #[command(about = "reopen or focus an idea's Orchestrator pane")]
+    Resume(FactoryIdeaResumeArgs),
+
+    #[command(about = "set or update an idea's title and description")]
+    Describe(FactoryIdeaDescribeArgs),
+
+    #[command(about = "record an assumption on an idea")]
+    Assume(FactoryIdeaAssumeArgs),
+
+    #[command(about = "advance idea from Ideation to Planning (Gate 1)")]
+    SelectDirection(FactoryIdeaSelectDirectionArgs),
+
+    #[command(about = "mark idea ready for development (user-only Gate 2)")]
+    Ready(FactoryIdeaReadyArgs),
+
+    #[command(about = "revoke ready-for-development tag before a run exists")]
+    RevokeReady(FactoryIdeaRevokeReadyArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaReadyArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long, default_value = "cli")]
+    pub via: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaRevokeReadyArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaDescribeArgs {
+    pub id: String,
+    #[arg(long)]
+    pub title: String,
+    #[arg(long = "text-file")]
+    pub text_file: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaAssumeArgs {
+    pub id: String,
+    #[arg(long)]
+    pub text: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaSelectDirectionArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryArtifactArgs {
+    #[command(subcommand)]
+    pub command: FactoryArtifactCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryArtifactCommand {
+    #[command(about = "store a feasibility study or plan artifact")]
+    Put(FactoryArtifactPutArgs),
+    #[command(about = "show a stored artifact")]
+    Show(FactoryArtifactShowArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryArtifactPutArgs {
+    pub id: String,
+    #[arg(long)]
+    pub kind: String,
+    #[arg(long)]
+    pub file: String,
+    #[arg(long)]
+    pub verdict: Option<String>,
+    #[arg(long)]
+    pub risk: Option<String>,
+    #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryArtifactShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub kind: String,
+    #[arg(long)]
+    pub version: Option<u32>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryQuestionArgs {
+    #[command(subcommand)]
+    pub command: FactoryQuestionCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryQuestionCommand {
+    #[command(about = "check whether an idea has reached the open-question ceiling")]
+    Check(FactoryQuestionCheckArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryQuestionCheckArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaStartArgs {
+    #[arg(long, help = "CLI provider (claude or agy)")]
+    pub cli: String,
+
+    #[arg(long, help = "model id")]
+    pub model: String,
+
+    #[arg(long, help = "optional idea title")]
+    pub title: Option<String>,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaResumeArgs {
+    #[arg(help = "idea id (i-xxxxxxxx)")]
+    pub id: String,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -199,6 +356,9 @@ struct IdeaListOutput {
 struct IdeaShowOutput {
     idea: Idea,
     events: Vec<Event>,
+    questions: super::questions::IdeaQuestions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plan_snapshot: Option<super::approval::SnapshotVerification>,
 }
 
 #[derive(Serialize)]
@@ -235,6 +395,20 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryIdeaCommand::New(a) => a.json,
             FactoryIdeaCommand::List(a) => a.json,
             FactoryIdeaCommand::Show(a) => a.json,
+            FactoryIdeaCommand::Start(a) => a.json,
+            FactoryIdeaCommand::Resume(a) => a.json,
+            FactoryIdeaCommand::Describe(a) => a.json,
+            FactoryIdeaCommand::Assume(a) => a.json,
+            FactoryIdeaCommand::SelectDirection(a) => a.json,
+            FactoryIdeaCommand::Ready(a) => a.json,
+            FactoryIdeaCommand::RevokeReady(a) => a.json,
+        },
+        FactoryCommand::Artifact(art_args) => match &art_args.command {
+            FactoryArtifactCommand::Put(a) => a.json,
+            FactoryArtifactCommand::Show(a) => a.json,
+        },
+        FactoryCommand::Question(q_args) => match &q_args.command {
+            FactoryQuestionCommand::Check(a) => a.json,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
@@ -364,10 +538,214 @@ fn execute(
                     Vec::new()
                 };
                 idea_events.retain(|ev| ev.idea == a.id);
+                let coord_dir = crate::commands::coord_dir_for(workspace, config);
+                let coord_queries =
+                    crate::coordination::store::CoordStore::new(coord_dir).queries();
+                let questions = super::questions::for_idea(&coord_queries, &a.id);
+                let plan_snapshot = super::approval::verify_snapshot(&store, &idea);
                 serialize_compact(&IdeaShowOutput {
                     idea,
                     events: idea_events,
+                    questions,
+                    plan_snapshot,
                 })
+            }
+            FactoryIdeaCommand::Start(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let bound =
+                    start_idea_cmd(workspace, config, &a.cli, &a.model, a.title.as_deref())?;
+                serialize_compact(&bound)
+            }
+            FactoryIdeaCommand::Resume(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let idea = resume_idea_cmd(workspace, config, &a.id)?;
+                serialize_compact(&idea)
+            }
+            FactoryIdeaCommand::Describe(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let raw_text = read_text_input(None, Some(&a.text_file), stdin)?;
+                let actor = resolve_actor(config);
+                let updated = store
+                    .execute(
+                        &a.id,
+                        super::machine::Command::Describe {
+                            title: a.title.clone(),
+                            text: raw_text,
+                        },
+                        &actor,
+                    )
+                    .map_err(map_factory_error)?;
+                serialize_compact(&updated)
+            }
+            FactoryIdeaCommand::Assume(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = resolve_actor(config);
+                let updated = store
+                    .execute(
+                        &a.id,
+                        super::machine::Command::AddAssumption {
+                            text: a.text.clone(),
+                        },
+                        &actor,
+                    )
+                    .map_err(map_factory_error)?;
+                serialize_compact(&updated)
+            }
+            FactoryIdeaCommand::SelectDirection(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let actor = resolve_actor(config);
+                let updated = store
+                    .execute(&a.id, super::machine::Command::SelectDirection, &actor)
+                    .map_err(map_factory_error)?;
+                serialize_compact(&updated)
+            }
+            FactoryIdeaCommand::Ready(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let approved_by = resolve_owner(None)?;
+                let res = super::approval::mark_ready(
+                    &store,
+                    &a.id,
+                    &a.confirm,
+                    &a.via,
+                    &approved_by,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                serialize_compact(&res)
+            }
+            FactoryIdeaCommand::RevokeReady(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let user_id = resolve_owner(None)?;
+                let updated = super::approval::revoke_ready(&store, &a.id, &user_id, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                serialize_compact(&updated)
+            }
+        },
+        FactoryCommand::Artifact(art_args) => match &art_args.command {
+            FactoryArtifactCommand::Put(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let verdict = match a.verdict.as_deref() {
+                    Some("feasible") => Some(super::model::FeasibilityVerdict::Feasible),
+                    Some("feasible-with-risks") => {
+                        Some(super::model::FeasibilityVerdict::FeasibleWithRisks)
+                    }
+                    Some("infeasible") => Some(super::model::FeasibilityVerdict::Infeasible),
+                    Some(other) => {
+                        return Err(CmdError::invalid_input(format!(
+                            "invalid verdict: {other} (expected feasible, feasible-with-risks, or infeasible)"
+                        )));
+                    }
+                    None => None,
+                };
+                let risk = match a.risk.as_deref() {
+                    Some("low") => Some(super::model::Risk::Low),
+                    Some("medium") => Some(super::model::Risk::Medium),
+                    Some("high") => Some(super::model::Risk::High),
+                    Some(other) => {
+                        return Err(CmdError::invalid_input(format!(
+                            "invalid risk: {other} (expected low, medium, or high)"
+                        )));
+                    }
+                    None => None,
+                };
+                let src = Path::new(&a.file);
+                let artifact = super::artifacts::put(&store, &a.id, &a.kind, src)
+                    .map_err(map_factory_error)?;
+                let missing_sections = if a.kind == "plan" {
+                    let text =
+                        super::artifacts::read(&store, &a.id, "plan", Some(artifact.version))
+                            .map_err(map_factory_error)?;
+                    super::artifacts::missing_plan_sections(&text)
+                } else {
+                    Vec::new()
+                };
+                let actor = resolve_actor(config);
+                let updated = store
+                    .execute(
+                        &a.id,
+                        super::machine::Command::StoreArtifact {
+                            kind: a.kind.clone(),
+                            artifact: artifact.clone(),
+                            verdict,
+                            risk,
+                            workflow: a.workflow.clone(),
+                            missing_sections: missing_sections.clone(),
+                        },
+                        &actor,
+                    )
+                    .map_err(map_factory_error)?;
+                serialize_compact(&serde_json::json!({
+                    "kind": artifact.kind,
+                    "version": artifact.version,
+                    "sha256": artifact.sha256,
+                    "bytes": artifact.bytes,
+                    "missing_sections": missing_sections,
+                    "state": updated.state,
+                }))
+            }
+            FactoryArtifactCommand::Show(a) => {
+                if !is_valid_idea_id(&a.id) {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid idea id: {}",
+                        a.id
+                    )));
+                }
+                let text = super::artifacts::read(&store, &a.id, &a.kind, a.version)
+                    .map_err(map_factory_error)?;
+                Ok(text)
+            }
+        },
+        FactoryCommand::Question(q_args) => match &q_args.command {
+            FactoryQuestionCommand::Check(a) => {
+                if !is_valid_idea_id(&a.id) {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid idea id: {}",
+                        a.id
+                    )));
+                }
+                let coord_dir = crate::commands::coord_dir_for(workspace, config);
+                let coord_queries =
+                    crate::coordination::store::CoordStore::new(coord_dir).queries();
+                let summary = super::questions::for_idea(&coord_queries, &a.id);
+                if summary.at_limit() {
+                    return Err(CmdError {
+                        exit_code: 3,
+                        code: "question_limit_reached",
+                        message: format!(
+                            "idea {} already has {} open questions (limit {}); state an assumption instead",
+                            a.id,
+                            summary.open,
+                            super::questions::OPEN_QUESTION_LIMIT
+                        ),
+                    });
+                }
+                serialize_compact(&summary)
             }
         },
         FactoryCommand::Events(a) => {
@@ -549,6 +927,109 @@ fn map_factory_error(err: FactoryError) -> CmdError {
             message: e.to_string(),
         },
     }
+}
+
+pub fn start_idea(
+    workspace: &Path,
+    config: &Config,
+    cli: &str,
+    model: &str,
+    title: Option<&str>,
+) -> Result<Idea, String> {
+    start_idea_cmd(workspace, config, cli, model, title).map_err(|e| e.message)
+}
+
+pub fn resume_idea(workspace: &Path, config: &Config, idea_id: &str) -> Result<Idea, String> {
+    resume_idea_cmd(workspace, config, idea_id).map_err(|e| e.message)
+}
+
+fn start_idea_cmd(
+    workspace: &Path,
+    config: &Config,
+    cli: &str,
+    model: &str,
+    title: Option<&str>,
+) -> Result<Idea, CmdError> {
+    if !matches!(cli, "claude" | "agy") {
+        return Err(CmdError::invalid_input(format!(
+            "unsupported orchestrator cli: {cli} (expected claude or agy)"
+        )));
+    }
+    let validated_model = crate::adapters::base::validate_model_id(model)
+        .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+    let raw_title = title.unwrap_or("New idea");
+    let validated_title = validate_title(raw_title).map_err(|e| CmdError::invalid_input(e.0))?;
+    let owner = resolve_owner(None)?;
+    let actor = resolve_actor(config);
+    let store = FactoryStore::new(workspace);
+    let idea = store
+        .create_idea(&validated_title, "", &owner, &actor)
+        .map_err(map_factory_error)?;
+    let bound = store
+        .execute(
+            &idea.id,
+            super::machine::Command::BindOrchestrator {
+                cli: cli.to_string(),
+                model: validated_model.clone(),
+                conversation: None,
+            },
+            &actor,
+        )
+        .map_err(map_factory_error)?;
+    let mut spec =
+        crate::adapters::base::AgentSpec::new(cli.to_string(), "orchestrator", validated_model);
+    spec.idea = Some(bound.id.clone());
+    if let Err(err) = crate::commands::add_agent(&spec, workspace, config) {
+        let _ = store.execute(
+            &bound.id,
+            super::machine::Command::Cancel {
+                reason: "orchestrator failed to start".to_string(),
+            },
+            &actor,
+        );
+        return Err(CmdError::invalid_input(format!(
+            "orchestrator failed to start: {err}"
+        )));
+    }
+    Ok(bound)
+}
+
+fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<Idea, CmdError> {
+    if !is_valid_idea_id(idea_id) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid idea id: {idea_id}"
+        )));
+    }
+    let store = FactoryStore::new(workspace);
+    let idea = store
+        .get_idea(idea_id)
+        .map_err(map_factory_error)?
+        .ok_or_else(|| CmdError::not_found(format!("idea not found: {idea_id}")))?;
+    if idea.state.is_terminal() {
+        return Err(CmdError::invalid_input(format!(
+            "cannot resume terminal idea {} ({})",
+            idea.id,
+            idea.state.label()
+        )));
+    }
+    let orch = idea
+        .orchestrator
+        .as_ref()
+        .ok_or_else(|| CmdError::invalid_input(format!("idea {} has no orchestrator", idea.id)))?;
+    let layout = crate::commands::make_layout(workspace, config);
+    if let Ok(panes) = layout.panes()
+        && let Some(existing) = panes.iter().find(|p| p.idea == idea.id)
+    {
+        let _ = layout.show_pane(&existing.id);
+        return Ok(idea);
+    }
+    let mut spec =
+        crate::adapters::base::AgentSpec::new(orch.cli.clone(), "orchestrator", orch.model.clone());
+    spec.idea = Some(idea.id.clone());
+    spec.conversation = orch.conversation.clone();
+    crate::commands::add_agent(&spec, workspace, config)
+        .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
+    Ok(idea)
 }
 
 #[cfg(test)]

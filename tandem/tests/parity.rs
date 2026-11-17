@@ -54,6 +54,7 @@ fn test_parity_adapters() {
             cwd: Some("/workspace".to_string()),
             conversation,
             name: None,
+            idea: None,
         };
 
         let (adapter_claude, adapter_agy);

@@ -246,3 +246,40 @@ describe('repo-level runtime reference guard', () => {
     );
   });
 });
+
+describe('factory mode ideation documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+  const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
+
+  it('documents the ideation walkthrough and governance limit in root README', () => {
+    assert.ok(readme.includes('Export team activity as CSV'), 'example idea in root README');
+    assert.ok(readme.includes('ready-for-development'), 'ready tag in root README');
+    assert.ok(readme.includes('guard-rail') || readme.includes('audit trail'), 'user-only limit in root README');
+  });
+
+  it('documents all ideation CLI commands, plan sections, and exit codes in tandem README', () => {
+    for (const cmd of [
+      'idea start',
+      'idea resume',
+      'idea describe',
+      'idea assume',
+      'idea select-direction',
+      'idea ready',
+      'idea revoke-ready',
+      'artifact put',
+      'artifact show',
+      'question check',
+    ]) {
+      assert.ok(tandemReadme.includes(cmd), `${cmd} in tandem/README.md`);
+    }
+    for (const sec of ['Scope', 'Acceptance criteria', 'Risks', 'Estimates', 'Workflow recommendation']) {
+      assert.ok(tandemReadme.includes(sec), `plan section ${sec} in tandem/README.md`);
+    }
+  });
+
+  it('records Factory Mode ideation under Unreleased in CHANGELOG.md', () => {
+    assert.ok(changelog.includes('## [Unreleased]'));
+    assert.ok(changelog.includes('Factory Mode ideation'));
+  });
+});

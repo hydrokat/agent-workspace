@@ -41,6 +41,8 @@ pub struct AgentSpec {
     pub conversation: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idea: Option<String>,
 }
 
 impl AgentSpec {
@@ -54,6 +56,7 @@ impl AgentSpec {
             cwd: None,
             conversation: None,
             name: None,
+            idea: None,
         }
     }
 }
@@ -151,6 +154,10 @@ pub fn session_env(spec: &AgentSpec, coord_dir: &str) -> BTreeMap<String, String
     env.insert("TANDEM_ROLE".to_string(), spec.role.clone());
     env.insert("TANDEM_CLI".to_string(), spec.cli.clone());
     env.insert("TANDEM_COORD_DIR".to_string(), coord_dir.to_string());
+    if let Some(ref idea) = spec.idea {
+        env.insert("TANDEM_FACTORY".to_string(), "1".to_string());
+        env.insert("TANDEM_FACTORY_IDEA".to_string(), idea.clone());
+    }
     env
 }
 

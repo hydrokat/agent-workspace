@@ -171,30 +171,35 @@ fn state_key(state: IdeaState) -> &'static str {
     }
 }
 
-fn collect_factory_summary(workspace: &Path) -> FactorySummary {
+fn collect_factory_summary(workspace: &Path, queries: &[Query]) -> FactorySummary {
     let fstore = FactoryStore::new(workspace);
     match fstore.list_ideas() {
         Ok(ideas) => {
             let mut by_state = HashMap::new();
             let mut cards = Vec::with_capacity(ideas.len());
+            let mut needs_you = 0usize;
             for idea in ideas {
                 *by_state
                     .entry(state_key(idea.state).to_string())
                     .or_insert(0) += 1;
+                let iq = crate::factory::questions::for_idea(queries, &idea.id);
+                if iq.open > 0 {
+                    needs_you += 1;
+                }
                 cards.push(IdeaCard {
                     id: idea.id,
                     title: idea.title,
                     state: idea.state,
                     owner: idea.owner,
                     risk: idea.risk,
-                    blockers: 0,
+                    blockers: iq.blocking,
                     updated: idea.updated,
                 });
             }
             FactorySummary {
                 enabled: true,
                 ideas: cards,
-                needs_you: 0,
+                needs_you,
                 by_state,
                 error: None,
             }
@@ -248,10 +253,11 @@ pub fn collect_with_factory(
     let entries = parse_in_progress(&workspace.join("specs").join("in-progress.md"));
     let sessions = store.sessions();
 
+    let queries = store.queries();
     let ongoing_specs = ongoing_specs(&phases, &claims, &entries, raw_sprint.as_ref());
     let ongoing_tasks = ongoing_tasks(&phases, &claims, &sessions, &entries, now);
     let factory = if factory_enabled {
-        Some(collect_factory_summary(workspace))
+        Some(collect_factory_summary(workspace, &queries))
     } else {
         None
     };
@@ -261,7 +267,7 @@ pub fn collect_with_factory(
         entries,
         sessions,
         claims: claims.clone(),
-        queries: store.queries(),
+        queries,
         conflicts: find_conflicts(&claims),
         codebases,
         workspace_git: git_info(workspace, git_timeout),
