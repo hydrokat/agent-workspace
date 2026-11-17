@@ -9,6 +9,7 @@ pub mod machine;
 pub mod model;
 pub mod questions;
 pub mod store;
+pub mod workflow;
 
 use machine::TransitionError;
 
