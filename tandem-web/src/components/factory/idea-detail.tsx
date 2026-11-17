@@ -15,6 +15,8 @@ import {
   formatShortTime,
 } from "./format";
 import { ReadyDialog } from "./ready-dialog";
+import { RunTimeline } from "./run-timeline";
+import type { WorkflowListItem } from "@/domain/models/factory";
 
 interface IdeaDetailViewProps {
   detail: IdeaDetail | null;
@@ -28,8 +30,13 @@ interface IdeaDetailViewProps {
   onRetry: () => void;
   onOpenTerminal: (paneId?: string) => void;
   onOpenQueries: () => void;
-  onMarkReady: (confirm: string) => Promise<ReadyResult>;
+  onMarkReady: (
+    confirm: string,
+    options?: { workflow?: string; deploy?: boolean }
+  ) => Promise<ReadyResult>;
   onRevokeReady: () => Promise<Idea>;
+  onWithdrawRun?: (runId: string) => Promise<void>;
+  workflows?: WorkflowListItem[];
 }
 
 function SafeMarkdownText({ text }: { text: string }) {
@@ -81,6 +88,8 @@ export function IdeaDetailView({
   onOpenQueries,
   onMarkReady,
   onRevokeReady,
+  onWithdrawRun,
+  workflows,
 }: IdeaDetailViewProps) {
   const [readyOpen, setReadyOpen] = useState(false);
   const [feasibilityOpen, setFeasibilityOpen] = useState(false);
@@ -147,9 +156,12 @@ export function IdeaDetailView({
   const planVersion = idea.plan?.artifact.version;
   const missingSections = idea.plan?.missing_sections ?? [];
 
-  const handleConfirmReady = async (confirm: string) => {
+  const handleConfirmReady = async (
+    confirm: string,
+    options?: { workflow?: string; deploy?: boolean }
+  ) => {
     setActionError(null);
-    const result = await onMarkReady(confirm);
+    const result = await onMarkReady(confirm, options);
     setActionMessage(result.message || "Marked ready for development.");
     return result;
   };
@@ -184,7 +196,7 @@ export function IdeaDetailView({
               {planSnapshot?.verified ? " (snapshot verified)" : ""}
             </span>
             <span className="text-xs text-muted-foreground">
-              Production runs arrive with the workflow engine.
+              Run queued. Execution arrives with the execution phase.
             </span>
           </div>
 
@@ -463,6 +475,8 @@ export function IdeaDetailView({
               )}
             </CardContent>
           </Card>
+
+          {detail.run && <RunTimeline run={detail.run} onWithdraw={onWithdrawRun} />}
         </div>
       </div>
 
@@ -471,6 +485,7 @@ export function IdeaDetailView({
         onOpenChange={setReadyOpen}
         idea={idea}
         questions={questions}
+        workflows={workflows}
         onConfirmReady={handleConfirmReady}
       />
     </div>

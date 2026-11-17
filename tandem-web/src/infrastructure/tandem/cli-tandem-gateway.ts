@@ -12,6 +12,8 @@ import {
   type Idea,
   type IdeaDetail,
   type ReadyResult,
+  type RunSummary,
+  type WorkflowListItem,
 } from "../../domain/models/factory";
 import type { WorkspaceSnapshotPayload } from "../../domain/models/snapshot";
 import type {
@@ -233,7 +235,16 @@ export class CliTandemGateway implements ITandemGateway {
       ideaId,
       "--json",
     ]);
-    return JSON.parse(stdout) as IdeaDetail;
+    const detail = JSON.parse(stdout) as IdeaDetail;
+    const latestRunId = detail.idea.runs?.[detail.idea.runs.length - 1];
+    if (latestRunId && !detail.run) {
+      try {
+        detail.run = await this.factoryGetRun(workspacePath, latestRunId);
+      } catch {
+        detail.run = null;
+      }
+    }
+    return detail;
   }
 
   async factoryReadArtifact(
@@ -265,18 +276,20 @@ export class CliTandemGateway implements ITandemGateway {
     return JSON.parse(stdout) as Idea;
   }
 
-  async factoryMarkReady(workspacePath: string, ideaId: string): Promise<ReadyResult> {
-    const stdout = await this.runFactory(workspacePath, [
-      "factory",
-      "idea",
-      "ready",
-      ideaId,
-      "--confirm",
-      ideaId,
-      "--via",
-      "web",
-      "--json",
-    ]);
+  async factoryMarkReady(
+    workspacePath: string,
+    ideaId: string,
+    options?: { workflow?: string; deploy?: boolean }
+  ): Promise<ReadyResult> {
+    const args = ["factory", "idea", "ready", ideaId, "--confirm", ideaId, "--via", "web"];
+    if (options?.workflow) {
+      args.push("--workflow", options.workflow);
+    }
+    if (options?.deploy) {
+      args.push("--deploy");
+    }
+    args.push("--json");
+    const stdout = await this.runFactory(workspacePath, args);
     return JSON.parse(stdout) as ReadyResult;
   }
 
@@ -289,5 +302,34 @@ export class CliTandemGateway implements ITandemGateway {
       "--json",
     ]);
     return JSON.parse(stdout) as Idea;
+  }
+
+  async factoryListWorkflows(workspacePath: string): Promise<WorkflowListItem[]> {
+    const stdout = await this.runFactory(workspacePath, ["factory", "workflow", "list", "--json"]);
+    const parsed = JSON.parse(stdout) as
+      | WorkflowListItem[]
+      | { workflows?: WorkflowListItem[]; items?: WorkflowListItem[] };
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return parsed.workflows ?? parsed.items ?? [];
+  }
+
+  async factoryWithdrawRun(workspacePath: string, runId: string): Promise<RunSummary> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "withdraw",
+      runId,
+      "--confirm",
+      runId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as RunSummary;
+  }
+
+  async factoryGetRun(workspacePath: string, runId: string): Promise<RunSummary | null> {
+    const stdout = await this.runFactory(workspacePath, ["factory", "run", "show", runId, "--json"]);
+    return JSON.parse(stdout) as RunSummary;
   }
 }

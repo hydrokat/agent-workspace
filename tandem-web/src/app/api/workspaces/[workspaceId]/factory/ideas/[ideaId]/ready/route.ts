@@ -14,11 +14,23 @@ export async function POST(
   try {
     const { workspaceId, ideaId } = await props.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { confirm } = body;
+    const { confirm, workflow, deploy } = body;
 
     if (typeof confirm !== "string") {
       return NextResponse.json(
         { error: { code: "BAD_REQUEST", message: "confirm string is required" } },
+        { status: 400 }
+      );
+    }
+    if (workflow !== undefined && typeof workflow !== "string") {
+      return NextResponse.json(
+        { error: { code: "BAD_REQUEST", message: "workflow must be a string" } },
+        { status: 400 }
+      );
+    }
+    if (deploy !== undefined && typeof deploy !== "boolean") {
+      return NextResponse.json(
+        { error: { code: "BAD_REQUEST", message: "deploy must be a boolean" } },
         { status: 400 }
       );
     }
@@ -27,7 +39,10 @@ export async function POST(
       new FileWorkspaceRegistry(),
       new CliTandemGateway()
     );
-    const result = await useCase.execute(workspaceId, ideaId, confirm);
+    const result = await useCase.execute(workspaceId, ideaId, confirm, {
+      workflow,
+      deploy,
+    });
     return NextResponse.json(result);
   } catch (error: unknown) {
     return factoryErrorResponse(error);

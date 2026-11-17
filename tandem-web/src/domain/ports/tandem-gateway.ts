@@ -4,6 +4,8 @@ import type {
   Idea,
   IdeaDetail,
   ReadyResult,
+  RunSummary,
+  WorkflowListItem,
 } from "../models/factory";
 import type { IpCandidate } from "../models/network";
 import type { WorkspaceSnapshotPayload } from "../models/snapshot";
@@ -53,6 +55,13 @@ export interface ITandemGateway {
     model: string,
     title?: string
   ): Promise<Idea>;
-  factoryMarkReady(workspacePath: string, ideaId: string): Promise<ReadyResult>;
+  factoryMarkReady(
+    workspacePath: string,
+    ideaId: string,
+    options?: { workflow?: string; deploy?: boolean }
+  ): Promise<ReadyResult>;
   factoryRevokeReady(workspacePath: string, ideaId: string): Promise<Idea>;
+  factoryListWorkflows(workspacePath: string): Promise<WorkflowListItem[]>;
+  factoryWithdrawRun(workspacePath: string, runId: string): Promise<RunSummary>;
+  factoryGetRun(workspacePath: string, runId: string): Promise<RunSummary | null>;
 }
