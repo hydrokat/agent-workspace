@@ -209,6 +209,16 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory run list [--idea ID] --json` | List runs sorted by creation time descending |
 | `tandem factory run withdraw <RUN> --confirm <RUN> --json` | Withdraw a queued run before any stage starts (user-only) |
 | `tandem factory run simulate [IDEA] [--workflow NAME] [--ui-changed] [--deploy] [--approve-deploy] [--fail STAGE[:N]] [--retries N] [--json]` | Dry-run a workflow in memory (writes nothing, spawns nothing) |
+| `tandem factory run target <RUN> <NAME> [--json]` | Select the target repository when multiple git codebases exist |
+| `tandem factory run pause <RUN> [--now] [--json]` | Pause a running or queued run (`--now` stops active jobs immediately) |
+| `tandem factory run resume <RUN> [--json]` | Resume a paused run from the last valid stage |
+| `tandem factory run retry <RUN> <STAGE> --hypothesis TEXT [--json]` | Grant one more retry attempt on a paused stage with a new hypothesis |
+| `tandem factory run cancel <RUN> --confirm <RUN> [--json]` | Cancel an active run while keeping its worktree and branch |
+| `tandem factory run cleanup <RUN> --confirm <RUN> [--json]` | Remove a completed, cancelled, or withdrawn run's clean worktree |
+| `tandem factory run log <RUN> <JOB> [--tail N] [--json]` | Tail a job's `log.txt` (default last `65536` bytes) |
+| `tandem factory provider status [--json]` | Show provider terms verdicts, expiry, consent, and gate state |
+| `tandem factory provider consent <PROVIDER> --auth <TYPE> --confirm <PROVIDER> [--json]` | Record user consent to open a headless provider gate |
+| `tandem factory provider revoke <PROVIDER> [--json]` | Close a provider gate in factory settings |
 
 Exit codes: `0` success, `1` not found, invalid input, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`), gate not met, or question ceiling reached.
 
@@ -254,8 +264,55 @@ Exit codes: `0` success, `1` not found, invalid input, or simulation stopped/blo
 ├── .gitignore            # "*"
 ├── events.jsonl          # append-only event log (0600)
 ├── settings.json         # factory settings and provider gates (all closed by default)
-└── ideas/<idea-id>.json  # materialized idea state (0600)
+├── ideas/<idea-id>.json  # materialized idea state (0600)
+└── runs/<run-id>/
+    ├── workflow.yaml     # byte-identical copy of the resolved workflow
+    ├── run.json          # materialized run state
+    └── jobs/<run-id>.<stage>.<attempt>/
+        ├── state         # prepared | running | finished | interrupted
+        ├── input.json    # correlation_id, stage, attempt, model, tool_grants, cwd, context_manifest
+        ├── prompt.md     # assembled prompt for the stage job
+        ├── result.json   # structured outcome written by the job
+        └── log.txt       # raw stdout/stderr output
 ```
+
+### Provider gate & consent
+
+> **Governance stance:** Factory Mode accelerates execution; it does not transfer accountability. Teams keep approval, merge, deployment, and compliance responsibility.
+
+Before any headless stage runs, tandem checks five conditions for the provider:
+1. **Verified terms**: the `(provider, auth_type)` pair has a verified terms row whose verdict allows headless execution.
+2. **Not expired**: today's date is on or before the terms row's `reverify_by` date.
+3. **Explicit user consent**: consent is recorded in `settings.json` (`consented_at` present).
+4. **Matches the current terms**: the consent's `verified_on` date matches the current terms row's `verified_on` date (otherwise re-consent is required).
+5. **Gate is open**: `gate.state` is `open` (not revoked or closed).
+
+tandem **handles no credentials**: each provider CLI (`claude`, `agy`) uses your own already-configured authentication and environment. Give or revoke consent with:
+
+```bash
+tandem factory provider status --json
+tandem factory provider consent claude --auth api-key --confirm claude --json
+tandem factory provider revoke claude --json
+```
+
+### Runner, retries, model tiers & action requests
+
+- **Operating loop**: The runner acquires `.agent-workspace/factory/`'s runner lock, checks for an open provider gate, verifies `plan-snapshot.md` against its recorded SHA-256, prepares the run worktree, and steps the workflow scheduler through runnable stages (producing `slices.json` and slice task files in the `plan` stage).
+- **Retries & new-hypothesis rule**: A failed stage pauses the run unless a retry provides a non-empty, distinct **new hypothesis** explaining what changed. Grant one more attempt with `tandem factory run retry <run> <stage> --hypothesis "<new hypothesis>"`.
+- **Model tiers**: Stages route across `economy` (`claude-haiku-4-5` / `gemini-2.0-flash-lite`), `standard` (`claude-sonnet-4-6` / `gemini-2.0-flash`), and `premium` (`claude-opus-4-7` / `gemini-2.5-pro`).
+- **Action requests**: When a stage requires user action or input, `run.json` records the exact commands in `action_commands` so the user can resolve the blocker before running `tandem factory run resume <run>`.
+- **`result.json` schema**: `status` (`succeeded` | `failed` | `needs_input`), `summary`, `files_changed`, `artifacts`, `rationale` (required when `failed`), `hypothesis` (required on retry), and optional `usage` (`input_tokens`, `output_tokens`, `cost_usd`).
+
+### Run worktree, target selection & cleanup
+
+- **Worktree & branch**: Each run executes in an isolated git worktree at `worktrees/factory-<run-id>` on branch `feat/<idea-id>-<slug>` (suffixed `-2`, `-3`, ... if that branch already exists), branched from the repository's primary branch (`main`, `trunk`, `master`, or `HEAD`).
+- **Target rule**: If 0 or 1 git codebases exist under `codebase-symlinks/`, tandem selects it automatically. If multiple git codebases exist, select one before starting with `tandem factory run target <run> <name>`.
+- **Cleanup**: `tandem factory run cleanup <run> --confirm <run>` removes the worktree for completed, cancelled, or withdrawn runs (refusing dirty worktrees with uncommitted changes).
+
+### Known limits (execution)
+
+- Jobs are stopped with a kill after a grace period and their own child processes may survive.
+- Cost is unknown unless the provider reports usage.
 
 ## Development
 

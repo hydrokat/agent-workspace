@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-11-18
+
+### Added: Factory Mode execution (`p-016`)
+- **Provider gate & consent**: Five-condition headless execution gate (`verified terms`, `not expired`, `explicit user consent`, `matches the current terms`, `gate is open`), `tandem factory provider status|consent|revoke`, and zero-credential handling.
+- **Headless runner, model routing & `plan` stage**: Workspace runner lock, `economy`/`standard`/`premium` tier routing, job directory layout (`state`, `input.json`, `prompt.md`, `result.json`, `log.txt`), retry new-hypothesis rule, and `plan` stage contract (`slices.json`).
+- **Isolated run worktrees & controls**: `worktrees/factory-<run-id>` on `feat/<idea-id>-<slug>`, `tandem factory run target|pause|resume|retry|cancel|cleanup|log`, and `action_commands` surfacing for blocked runs.
+
 ### Added: Specialist agents & marketing/design skills (`p-020`)
 - **5 specialist agent templates**: Added `devops-engineer`, `marketing-executive`, `design-executive`, `research-agent`, and `customer-support` with provider model mappings (`src/data/models.json`, `templates/AGENTS.md`) and orchestrator/spec-implement routing.
 - **6 bundled marketing & design skills**: Added `ui-ux-pro-max`, `marketing-plan`, `pricing`, `sales-enablement`, `social`, and `offers` under `templates/skills/` with `agents/openai.yaml` and structured `assets/` templates; refreshed `init-file-tree.json`, `npm-pack-files.json`, and `manifest.json` golden snapshots.

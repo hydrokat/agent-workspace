@@ -308,3 +308,90 @@ describe('factory mode ideation documentation', () => {
     }
   });
 });
+
+describe('factory mode execution documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+  const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
+
+  it('documents execution walkthrough, deferred scope, and governance stance in root README', () => {
+    assert.ok(readme.includes('p-017'), 'p-017 deferred scope in README.md');
+    assert.ok(readme.includes('p-018'), 'p-018 deferred scope in README.md');
+    assert.ok(readme.includes('provider consent'), 'provider consent in README.md');
+    assert.ok(
+      readme.includes('Factory Mode accelerates execution; it does not transfer accountability.'),
+      'governance stance in README.md'
+    );
+    assert.ok(
+      readme.includes('Teams keep approval, merge, deployment, and compliance responsibility.'),
+      'governance accountability in README.md'
+    );
+  });
+
+  it('documents provider gate 5 conditions, no-credentials statement, and governance stance in tandem README', () => {
+    for (const phrase of [
+      'verified terms',
+      'not expired',
+      'explicit user consent',
+      'matches the current terms',
+      'gate is open',
+      'handles no credentials',
+      'Factory Mode accelerates execution; it does not transfer accountability.',
+      'Teams keep approval, merge, deployment, and compliance responsibility.',
+    ]) {
+      assert.ok(
+        tandemReadme.toLowerCase().includes(phrase.toLowerCase()),
+        `"${phrase}" in tandem/README.md`
+      );
+    }
+  });
+
+  it('documents runner loop, retries, model tiers, action requests, job layout, result schema, and worktree rules in tandem README', () => {
+    for (const term of [
+      'new hypothesis',
+      'economy',
+      'standard',
+      'premium',
+      'action_commands',
+      'input.json',
+      'prompt.md',
+      'result.json',
+      'log.txt',
+      'files_changed',
+      'worktrees/factory-',
+      'feat/',
+    ]) {
+      assert.ok(tandemReadme.includes(term), `${term} in tandem/README.md`);
+    }
+  });
+
+  it('documents run execution and provider CLI commands and known limits in tandem README', () => {
+    for (const cmd of [
+      'run pause',
+      'run resume',
+      'run cancel',
+      'run retry',
+      'run target',
+      'run cleanup',
+      'run log',
+      'provider status',
+      'provider consent',
+      'provider revoke',
+    ]) {
+      assert.ok(tandemReadme.includes(cmd), `${cmd} in tandem/README.md`);
+    }
+    assert.ok(
+      tandemReadme.toLowerCase().includes('child processes may survive'),
+      'child process kill known limit in tandem/README.md'
+    );
+    assert.ok(
+      tandemReadme.toLowerCase().includes('cost is unknown unless the provider reports usage'),
+      'unknown cost known limit in tandem/README.md'
+    );
+  });
+
+  it('records Factory Mode execution under the next minor version in CHANGELOG.md', () => {
+    assert.match(changelog, /^## \[1\.17\.0\]/m, '1.17.0 heading in CHANGELOG.md');
+    assert.ok(changelog.includes('p-016'), 'p-016 in CHANGELOG.md');
+  });
+});
