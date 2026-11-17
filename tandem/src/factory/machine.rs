@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use super::model::{
     Actor, ActorKind, ApprovalGate, ArtifactRef, FeasibilityVerdict, Idea, IdeaState,
-    OrchestratorRef, Plan, PrLink, Risk, validate_owner, validate_text, validate_title,
+    OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, validate_owner,
+    validate_text, validate_title,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +24,9 @@ pub enum Command {
     },
     RevokeReady,
     CreateRun {
+        run: String,
+    },
+    WithdrawRun {
         run: String,
     },
     StartRun {
@@ -73,6 +77,7 @@ impl Command {
             Self::MarkReadyWithSnapshot { .. } => "MarkReadyWithSnapshot",
             Self::RevokeReady => "RevokeReady",
             Self::CreateRun { .. } => "CreateRun",
+            Self::WithdrawRun { .. } => "WithdrawRun",
             Self::StartRun { .. } => "StartRun",
             Self::StagesComplete { .. } => "StagesComplete",
             Self::ChangesRequested { .. } => "ChangesRequested",
@@ -120,9 +125,53 @@ pub enum EventData {
     #[serde(rename = "idea.ready_revoked")]
     IdeaReadyRevoked {},
     #[serde(rename = "run.created")]
-    RunCreated { run: String },
+    RunCreated {
+        run: String,
+        #[serde(default)]
+        workflow: String,
+        #[serde(default)]
+        version: String,
+        #[serde(default)]
+        sha256: String,
+        #[serde(default)]
+        source: String,
+        #[serde(default)]
+        plan_sha256: String,
+        #[serde(default)]
+        deploy_requested: bool,
+        #[serde(default)]
+        stages: Vec<Stage>,
+    },
+    #[serde(rename = "run.withdrawn")]
+    RunWithdrawn { run: String },
     #[serde(rename = "run.started")]
     RunStarted { run: String },
+    #[serde(rename = "stage.started")]
+    StageStarted {
+        run: String,
+        stage: String,
+        attempt: u32,
+    },
+    #[serde(rename = "stage.succeeded")]
+    StageSucceeded { run: String, stage: String },
+    #[serde(rename = "stage.failed")]
+    StageFailed {
+        run: String,
+        stage: String,
+        reason: String,
+    },
+    #[serde(rename = "stage.skipped")]
+    StageSkipped {
+        run: String,
+        stage: String,
+        reason: String,
+    },
+    #[serde(rename = "stage.blocked")]
+    StageBlocked {
+        run: String,
+        stage: String,
+        reason: String,
+    },
     #[serde(rename = "run.stages_complete")]
     RunStagesComplete { run: String },
     #[serde(rename = "run.changes_requested")]
@@ -341,7 +390,22 @@ pub fn decide(
         (IdeaState::ReadyForDevelopment, Command::CreateRun { run }) => {
             ensure_actor(cmd, actor, &[ActorKind::System])?;
             let run = ensure_non_empty_id(run, "run id")?;
-            Ok(vec![EventData::RunCreated { run }])
+            Ok(vec![EventData::RunCreated {
+                run,
+                workflow: String::new(),
+                version: String::new(),
+                sha256: String::new(),
+                source: String::new(),
+                plan_sha256: String::new(),
+                deploy_requested: false,
+                stages: Vec::new(),
+            }])
+        }
+
+        (IdeaState::Queued, Command::WithdrawRun { run }) => {
+            ensure_actor(cmd, actor, &[ActorKind::User])?;
+            let run = ensure_non_empty_id(run, "run id")?;
+            Ok(vec![EventData::RunWithdrawn { run }])
         }
 
         (IdeaState::Queued, Command::StartRun { run }) => {
@@ -589,11 +653,18 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.state = IdeaState::Planning;
                     idea.updated = ts;
                 }
-                EventData::RunCreated { run } if idea.state == IdeaState::ReadyForDevelopment => {
+                EventData::RunCreated { run, .. }
+                    if idea.state == IdeaState::ReadyForDevelopment =>
+                {
                     idea.state = IdeaState::Queued;
                     if !idea.runs.contains(run) {
                         idea.runs.push(run.clone());
                     }
+                    idea.updated = ts;
+                }
+                EventData::RunWithdrawn { run } if idea.state == IdeaState::Queued => {
+                    idea.state = IdeaState::ReadyForDevelopment;
+                    idea.runs.retain(|r| r != run);
                     idea.updated = ts;
                 }
                 EventData::RunStarted { .. } if idea.state == IdeaState::Queued => {
@@ -621,6 +692,106 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                 _ => {}
             }
             Some(idea)
+        }
+    }
+}
+
+pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) -> Option<Run> {
+    match (run, event) {
+        (
+            None,
+            EventData::RunCreated {
+                run,
+                workflow,
+                version,
+                sha256,
+                source,
+                plan_sha256,
+                deploy_requested,
+                stages,
+            },
+        ) => Some(Run {
+            id: run.clone(),
+            idea: idea_id.to_string(),
+            workflow: workflow.clone(),
+            workflow_version: version.clone(),
+            workflow_sha256: sha256.clone(),
+            workflow_source: source.clone(),
+            plan_sha256: plan_sha256.clone(),
+            deploy_requested: *deploy_requested,
+            state: RunState::Queued,
+            stages: stages.clone(),
+            budget: None,
+            created: ts,
+            updated: ts,
+        }),
+        (None, _) => None,
+        (Some(mut run), ev) => {
+            match ev {
+                EventData::RunStarted { .. } if run.state == RunState::Queued => {
+                    run.state = RunState::Running;
+                    run.updated = ts;
+                }
+                EventData::RunWithdrawn { .. } if run.state == RunState::Queued => {
+                    run.state = RunState::Withdrawn;
+                    run.updated = ts;
+                }
+                EventData::RunStagesComplete { .. } if run.state == RunState::Running => {
+                    run.state = RunState::Review;
+                    run.updated = ts;
+                }
+                EventData::RunChangesRequested { .. } if run.state == RunState::Review => {
+                    run.state = RunState::Running;
+                    run.updated = ts;
+                }
+                EventData::IdeaDelivered { .. } if run.state == RunState::Review => {
+                    run.state = RunState::Delivered;
+                    run.updated = ts;
+                }
+                EventData::StageStarted { stage, attempt, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Running;
+                        st.attempts = *attempt;
+                        st.started = Some(ts);
+                        st.finished = None;
+                        st.rationale = None;
+                    }
+                    run.updated = ts;
+                }
+                EventData::StageSucceeded { stage, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Succeeded;
+                        st.finished = Some(ts);
+                        st.rationale = None;
+                    }
+                    run.updated = ts;
+                }
+                EventData::StageFailed { stage, reason, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Failed;
+                        st.finished = Some(ts);
+                        st.rationale = Some(reason.clone());
+                    }
+                    run.updated = ts;
+                }
+                EventData::StageSkipped { stage, reason, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Skipped;
+                        st.finished = Some(ts);
+                        st.rationale = Some(reason.clone());
+                    }
+                    run.updated = ts;
+                }
+                EventData::StageBlocked { stage, reason, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Blocked;
+                        st.rationale = Some(reason.clone());
+                    }
+                    run.updated = ts;
+                }
+                _ => {}
+            }
+            Some(run)
         }
     }
 }

@@ -10,9 +10,9 @@ use super::events::{
     self, Event, append_locked, read_all, reject_if_symlink, set_private_dir_mode,
     set_private_file_mode,
 };
-use super::ids::{self, is_valid_idea_id};
+use super::ids::{self, is_valid_idea_id, is_valid_run_id};
 use super::machine::{self, Command, EventData, Facts};
-use super::model::{Actor, FactorySettings, Idea};
+use super::model::{Actor, FactorySettings, Idea, Run};
 use crate::coordination::filelock::exclusive_lock;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,15 +38,27 @@ impl FactoryStore {
         self.root.is_dir() && !self.root.is_symlink()
     }
 
-    fn ideas_dir(&self) -> PathBuf {
+    pub(super) fn ideas_dir(&self) -> PathBuf {
         self.root.join("ideas")
     }
 
-    fn events_path(&self) -> PathBuf {
+    pub(super) fn runs_dir(&self) -> PathBuf {
+        self.root.join("runs")
+    }
+
+    pub(super) fn run_dir(&self, id: &str) -> PathBuf {
+        self.runs_dir().join(id)
+    }
+
+    pub(super) fn run_json_path(&self, id: &str) -> PathBuf {
+        self.run_dir(id).join("run.json")
+    }
+
+    pub(super) fn events_path(&self) -> PathBuf {
         self.root.join("events.jsonl")
     }
 
-    fn lock_path(&self) -> PathBuf {
+    pub(super) fn lock_path(&self) -> PathBuf {
         self.root.join(".lock")
     }
 
@@ -58,7 +70,7 @@ impl FactoryStore {
         self.root.join("settings.json")
     }
 
-    fn idea_path(&self, id: &str) -> PathBuf {
+    pub(super) fn idea_path(&self, id: &str) -> PathBuf {
         self.ideas_dir().join(format!("{id}.json"))
     }
 
@@ -275,6 +287,7 @@ impl FactoryStore {
 
         let log = read_all(&self.events_path())?;
         let mut by_id: BTreeMap<String, Option<Idea>> = BTreeMap::new();
+        let mut runs_by_id: BTreeMap<String, Option<Run>> = BTreeMap::new();
 
         for ev in &log.events {
             let Ok(ev_data) = ev.to_event_data() else {
@@ -282,6 +295,11 @@ impl FactoryStore {
             };
             let entry = by_id.entry(ev.idea.clone()).or_insert(None);
             *entry = machine::apply(entry.take(), &ev_data, ev.ts);
+
+            if let Some(run_id) = event_run_id(&ev_data) {
+                let run_entry = runs_by_id.entry(run_id).or_insert(None);
+                *run_entry = machine::apply_run(run_entry.take(), &ev_data, &ev.idea, ev.ts);
+            }
         }
 
         let mut rebuilt = 0usize;
@@ -293,6 +311,20 @@ impl FactoryStore {
                 let serialized = serde_json::to_vec_pretty(&idea)?;
                 write_atomic(&self.idea_path(&id), &serialized)?;
                 rebuilt += 1;
+            }
+        }
+
+        for (run_id, run_opt) in runs_by_id {
+            if let Some(run) = run_opt {
+                if !is_valid_run_id(&run_id) {
+                    continue;
+                }
+                let dir = self.run_dir(&run_id);
+                if !dir.exists() {
+                    create_private_dir(&dir)?;
+                }
+                let serialized = serde_json::to_vec_pretty(&run)?;
+                write_atomic(&self.run_json_path(&run_id), &serialized)?;
             }
         }
 
@@ -317,7 +349,7 @@ impl FactoryStore {
         }
     }
 
-    fn load_idea_for_update(&self, idea_id: &str) -> Result<Option<Idea>, FactoryError> {
+    pub(super) fn load_idea_for_update(&self, idea_id: &str) -> Result<Option<Idea>, FactoryError> {
         let path = self.idea_path(idea_id);
         reject_if_symlink(&path)?;
 
@@ -354,18 +386,24 @@ fn replay_single_idea(events: &[Event], idea_id: &str) -> Option<Idea> {
     acc
 }
 
-fn event_run_id(ev: &EventData) -> Option<String> {
+pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
     match ev {
-        EventData::RunCreated { run }
+        EventData::RunCreated { run, .. }
+        | EventData::RunWithdrawn { run }
         | EventData::RunStarted { run }
         | EventData::RunStagesComplete { run }
         | EventData::RunChangesRequested { run }
-        | EventData::IdeaDelivered { run, .. } => Some(run.clone()),
+        | EventData::IdeaDelivered { run, .. }
+        | EventData::StageStarted { run, .. }
+        | EventData::StageSucceeded { run, .. }
+        | EventData::StageFailed { run, .. }
+        | EventData::StageSkipped { run, .. }
+        | EventData::StageBlocked { run, .. } => Some(run.clone()),
         _ => None,
     }
 }
 
-fn create_private_dir(path: &Path) -> Result<(), FactoryError> {
+pub(super) fn create_private_dir(path: &Path) -> Result<(), FactoryError> {
     let mut builder = DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -378,7 +416,7 @@ fn create_private_dir(path: &Path) -> Result<(), FactoryError> {
     Ok(())
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
+pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
     reject_if_symlink(path)?;
     let tmp_path = path.with_extension(
         path.extension()
@@ -397,7 +435,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
     Ok(())
 }
 
-fn current_time() -> f64 {
+pub(super) fn current_time() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| (d.as_millis() as f64) / 1000.0)

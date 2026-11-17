@@ -516,6 +516,13 @@ fn test_event_data_serde_envelope_fields() {
         (
             EventData::RunCreated {
                 run: "r-12345678".to_string(),
+                workflow: String::new(),
+                version: String::new(),
+                sha256: String::new(),
+                source: String::new(),
+                plan_sha256: String::new(),
+                deploy_requested: false,
+                stages: Vec::new(),
             },
             "run.created",
         ),

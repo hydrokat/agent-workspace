@@ -8,6 +8,7 @@ pub mod ids;
 pub mod machine;
 pub mod model;
 pub mod questions;
+pub mod run;
 pub mod store;
 pub mod workflow;
 

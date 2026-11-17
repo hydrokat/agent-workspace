@@ -45,6 +45,9 @@ pub enum FactoryCommand {
     #[command(about = "validate and list factory workflows")]
     Workflow(FactoryWorkflowArgs),
 
+    #[command(about = "manage workflow runs")]
+    Run(FactoryRunArgs),
+
     #[command(about = "read factory events from the log")]
     Events(FactoryEventsArgs),
 
@@ -228,6 +231,59 @@ pub struct FactoryWorkflowValidateArgs {
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryWorkflowListArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunArgs {
+    #[command(subcommand)]
+    pub command: FactoryRunCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryRunCommand {
+    #[command(about = "create a run from a ready idea")]
+    Create(FactoryRunCreateArgs),
+    #[command(about = "show a run")]
+    Show(FactoryRunShowArgs),
+    #[command(about = "list runs")]
+    List(FactoryRunListArgs),
+    #[command(about = "withdraw a queued run before any stage starts")]
+    Withdraw(FactoryRunWithdrawArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunCreateArgs {
+    pub idea: String,
+    #[arg(long)]
+    pub deploy: bool,
+    #[arg(long)]
+    pub workflow: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunListArgs {
+    #[arg(long)]
+    pub idea: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunWithdrawArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -446,6 +502,12 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryWorkflowCommand::Validate(a) => a.json,
             FactoryWorkflowCommand::List(a) => a.json,
             FactoryWorkflowCommand::Default => false,
+        },
+        FactoryCommand::Run(r_args) => match &r_args.command {
+            FactoryRunCommand::Create(a) => a.json,
+            FactoryRunCommand::Show(a) => a.json,
+            FactoryRunCommand::List(a) => a.json,
+            FactoryRunCommand::Withdraw(a) => a.json,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
@@ -867,6 +929,88 @@ fn execute(
                     .to_string()),
             }
         }
+        FactoryCommand::Run(r_args) => match &r_args.command {
+            FactoryRunCommand::Create(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run = super::run::create_run(
+                    &store,
+                    workspace,
+                    &a.idea,
+                    super::run::CreateRunOptions {
+                        deploy_requested: a.deploy,
+                        workflow: a.workflow.clone(),
+                    },
+                    &actor,
+                )
+                .map_err(|e| CmdError {
+                    exit_code: 1,
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::Show(a) => {
+                let run = super::run::get_run(&store, &a.id)
+                    .map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?
+                    .ok_or_else(|| CmdError::not_found(format!("run {}", a.id)))?;
+                serialize_compact(&run)
+            }
+            FactoryRunCommand::List(a) => {
+                let runs =
+                    super::run::list_runs(&store, a.idea.as_deref()).map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                serialize_compact(&runs)
+            }
+            FactoryRunCommand::Withdraw(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if a.confirm != a.id {
+                    return Err(CmdError::invalid_input(format!(
+                        "--confirm {} does not match run {}",
+                        a.confirm, a.id
+                    )));
+                }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let run =
+                    super::run::withdraw_run(&store, &a.id, &actor).map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                serialize_compact(&run)
+            }
+        },
         FactoryCommand::Events(a) => {
             if let Some(ref id) = a.idea
                 && !is_valid_idea_id(id)
