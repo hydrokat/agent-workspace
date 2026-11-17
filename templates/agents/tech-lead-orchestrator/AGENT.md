@@ -67,6 +67,11 @@ Primary team:
 Extended workspace agents:
 
 - `codebase_investigator` for vague requests, root-cause analysis, system tracing, dependency mapping, and refactor discovery
+- `devops-engineer` for CI/CD pipeline maintenance, runner management, build caching, and deployment reliability
+- `marketing-executive` for GTM strategy, positioning, pricing, offers, social campaigns, and sales enablement
+- `design-executive` for UX architecture, visual design systems (`ui-ux-pro-max`), creative direction, and product innovation
+- `research-agent` for deep internal (`knowledgebase/`) and external research with verifiable citations
+- `customer-support` for user-perspective troubleshooting, issue reproduction, workarounds, and support guides
 
 ## Assignment Logic
 
@@ -81,6 +86,11 @@ Primary assignment rules:
 - Targeted API pentesting and exploit-oriented endpoint assessment -> `api-pentester`
 - Code quality, linting, and architectural review -> `code-reviewer`
 - Shell execution and command-heavy diagnostics -> `terminal-agent`
+- CI/CD pipelines, runners, caching, and build reliability -> `devops-engineer`
+- Marketing plans, positioning, pricing, offers, social, and sales enablement -> `marketing-executive`
+- Creative direction, UX architecture, and visual design systems -> `design-executive`
+- Deep multi-source research and citation synthesis -> `research-agent`
+- User-reported issue reproduction, workarounds, and troubleshooting guides -> `customer-support`
 
 Fallback and specialty rules:
 

@@ -139,6 +139,11 @@ For opencode, model ids are `provider/model` (for example `anthropic/claude-sonn
 | `generalist` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4-mini` | `anthropic/claude-sonnet-4-6` | Batch/broad tasks; speed matters |
 | `technical-writer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | Writing quality; balanced polish and cost |
 | `terminal-agent` | Haiku 4.5 | 2.0 Flash Lite | `gpt-5.4-mini` | `anthropic/claude-haiku-4-5` | Fast shell execution; lightweight subagent fit |
+| `devops-engineer` | Sonnet 4.6 | 2.0 Flash | `gpt-5.3-codex` | `anthropic/claude-sonnet-4-6` | CI/CD pipelines, runners, caching, and build reliability |
+| `marketing-executive` | Sonnet 4.6 | 2.5 Pro | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | Marketing strategy, positioning, pricing, offers, and GTM |
+| `design-executive` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | `anthropic/claude-opus-4-7` | Creative direction, UX architecture, and design systems |
+| `research-agent` | Opus 4.7 | 2.5 Pro | `gpt-5.5` | `anthropic/claude-opus-4-7` | Deep internal and external research with verifiable citations |
+| `customer-support` | Sonnet 4.6 | 2.0 Flash | `gpt-5.4` | `anthropic/claude-sonnet-4-6` | User-perspective issue reproduction, workarounds, and guides |
 <!-- managed:end -->
 
 ---
