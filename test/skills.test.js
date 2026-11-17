@@ -192,4 +192,17 @@ describe('script-first skills ship their scripts and templates', () => {
       assert.ok(fileExists(dir, `.claude/skills/${name}/SKILL.md`), `${name} claude`);
     }
   });
+
+  it('installs factory-planner with valid front matter, provider sync, and specs.py reuse', () => {
+    has('factory-planner/SKILL.md');
+    has('factory-planner/agents/openai.yaml');
+    assert.ok(fileExists(dir, '.claude/skills/factory-planner/SKILL.md'), 'installed for claude provider');
+
+    const text = skill('factory-planner');
+    assert.match(text, /^---\nname: factory-planner\n/);
+    assert.ok(text.includes('spec-planner/scripts/specs.py'), 'reuses specs.py');
+    assert.ok(text.includes('--root "$TANDEM_FACTORY_RUN_DIR/artifacts"'), 'points specs.py at artifact dir');
+    assert.ok(text.includes('slices.json'), 'documents slices.json');
+    assert.ok(text.includes('result.json'), 'documents result.json');
+  });
 });
