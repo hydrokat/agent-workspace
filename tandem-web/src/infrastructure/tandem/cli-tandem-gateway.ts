@@ -11,7 +11,10 @@ import {
   type FactoryErrorCode,
   type Idea,
   type IdeaDetail,
+  type ProviderStatusItem,
   type ReadyResult,
+  type RunControlAction,
+  type RunControlOptions,
   type RunSummary,
   type WorkflowListItem,
 } from "../../domain/models/factory";
@@ -331,5 +334,57 @@ export class CliTandemGateway implements ITandemGateway {
   async factoryGetRun(workspacePath: string, runId: string): Promise<RunSummary | null> {
     const stdout = await this.runFactory(workspacePath, ["factory", "run", "show", runId, "--json"]);
     return JSON.parse(stdout) as RunSummary;
+  }
+
+  async factoryShowRun(workspacePath: string, runId: string): Promise<RunSummary> {
+    const stdout = await this.runFactory(workspacePath, ["factory", "run", "show", runId, "--json"]);
+    return JSON.parse(stdout) as RunSummary;
+  }
+
+  async factoryRunLog(
+    workspacePath: string,
+    runId: string,
+    correlationId: string,
+    bytes: number
+  ): Promise<string> {
+    return this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "log",
+      runId,
+      correlationId,
+      "--tail",
+      String(bytes),
+    ]);
+  }
+
+  async factoryRunControl(
+    workspacePath: string,
+    runId: string,
+    action: RunControlAction,
+    options?: RunControlOptions
+  ): Promise<RunSummary> {
+    const args: string[] = ["factory", "run", action, runId];
+    if (action === "pause" && options?.now) {
+      args.push("--now");
+    } else if (action === "cancel") {
+      args.push("--confirm", options?.confirm ?? "");
+    } else if (action === "retry") {
+      args.push(options?.stage ?? "", "--hypothesis", options?.hypothesis ?? "");
+    }
+    args.push("--json");
+    const stdout = await this.runFactory(workspacePath, args);
+    const parsed = JSON.parse(stdout) as RunSummary | { run: RunSummary };
+    return "run" in parsed ? parsed.run : parsed;
+  }
+
+  async factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "provider",
+      "status",
+      "--json",
+    ]);
+    return JSON.parse(stdout) as ProviderStatusItem[];
   }
 }
