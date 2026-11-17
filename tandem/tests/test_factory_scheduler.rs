@@ -80,6 +80,7 @@ fn make_stages(wf: &Workflow, overrides: &[(&str, StageState, u32)]) -> Vec<Stag
                 finished: None,
                 artifacts: vec![],
                 rationale: None,
+                retry_hypothesis: None,
             }
         })
         .collect()

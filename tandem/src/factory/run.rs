@@ -141,6 +141,7 @@ pub fn create_run(
             finished: None,
             artifacts: Vec::new(),
             rationale: None,
+            retry_hypothesis: None,
         })
         .collect();
 

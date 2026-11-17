@@ -155,7 +155,9 @@ pub fn set_run_target(
     workspace: &Path,
     run_id: &str,
     target_name: &str,
+    env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Run, WorkspaceError> {
+    ensure_user_caller(env)?;
     if !is_valid_run_id(run_id) {
         return Err(FactoryError::InvalidInput(format!("invalid run id: {run_id}")).into());
     }
@@ -344,8 +346,29 @@ pub fn cleanup_worktree(
                 .join("worktrees")
                 .join(format!("factory-{run_id}"))
         });
+    reject_if_symlink(&wt_path)?;
     if !wt_path.exists() {
         return Ok(());
+    }
+    let wt_root = workspace.join("worktrees");
+    reject_if_symlink(&wt_root)?;
+    if !wt_root.exists() {
+        return Err(FactoryError::InvalidInput(format!(
+            "worktree path {} escapes {}",
+            wt_path.display(),
+            wt_root.display()
+        ))
+        .into());
+    }
+    let canon_root = wt_root.canonicalize()?;
+    let canon_wt = wt_path.canonicalize()?;
+    if !canon_wt.starts_with(&canon_root) || canon_wt == canon_root {
+        return Err(FactoryError::InvalidInput(format!(
+            "worktree path {} escapes {}",
+            wt_path.display(),
+            wt_root.display()
+        ))
+        .into());
     }
 
     let status = run_git(

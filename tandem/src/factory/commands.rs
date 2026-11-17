@@ -1336,8 +1336,18 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                let run = super::workspace::set_run_target(&store, workspace, &a.run, &a.name)
-                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                let run =
+                    super::workspace::set_run_target(&store, workspace, &a.run, &a.name, &|k| {
+                        std::env::var(k).ok()
+                    })
+                    .map_err(|e| match e {
+                        super::workspace::WorkspaceError::Approval(ae) => CmdError {
+                            exit_code: ae.exit_code(),
+                            code: ae.code(),
+                            message: ae.to_string(),
+                        },
+                        other => CmdError::invalid_input(other.to_string()),
+                    })?;
                 serialize_compact(&run)
             }
             FactoryRunCommand::Cleanup(a) => {
@@ -1364,6 +1374,13 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
+                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
+                    CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    }
+                })?;
                 let actor = Actor {
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
@@ -1374,8 +1391,13 @@ fn execute(
                     &a.stage,
                     &a.hypothesis,
                     &actor,
+                    &|k| std::env::var(k).ok(),
                 )
-                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
                 serialize_compact(&run)
             }
             FactoryRunCommand::Pause(a) => {

@@ -244,6 +244,12 @@ pub enum EventData {
     },
     #[serde(rename = "run.resumed")]
     RunResumed { run: String },
+    #[serde(rename = "stage.retry_requested")]
+    StageRetryRequested {
+        run: String,
+        stage: String,
+        hypothesis: String,
+    },
     #[serde(rename = "run.cancelled")]
     RunCancelled { run: String },
     #[serde(rename = "stage.interrupted")]
@@ -831,6 +837,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.state = StageState::Succeeded;
                         st.finished = Some(ts);
                         st.rationale = None;
+                        st.retry_hypothesis = None;
                     }
                     run.updated = ts;
                 }
@@ -886,6 +893,14 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                     run.state = RunState::Running;
                     run.pause_reason = None;
                     run.action_commands.clear();
+                    run.updated = ts;
+                }
+                EventData::StageRetryRequested {
+                    stage, hypothesis, ..
+                } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.retry_hypothesis = Some(hypothesis.clone());
+                    }
                     run.updated = ts;
                 }
                 EventData::RunCancelled { .. }

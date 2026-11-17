@@ -157,6 +157,8 @@ pub struct Stage {
     pub artifacts: Vec<ArtifactRef>,
     #[serde(default)]
     pub rationale: Option<String>,
+    #[serde(default)]
+    pub retry_hypothesis: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

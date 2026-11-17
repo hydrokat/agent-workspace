@@ -111,6 +111,7 @@ fn test_all_model_types_round_trip_json() {
         finished: Some(1700000080.0),
         artifacts: vec![artifact.clone()],
         rationale: Some("clean".to_string()),
+        retry_hypothesis: None,
     };
     let run = Run {
         id: "r-12345678".to_string(),

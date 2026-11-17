@@ -282,3 +282,46 @@ fn prepare_creates_idempotent_worktree_outside_artifact_channel_and_cleanup_resp
 
     let _ = fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn set_run_target_rejects_agent_caller_and_cleanup_rejects_escape() {
+    let ws = temp_dir("sec-wt");
+    init_git_repo(&ws, "trunk");
+    let (store, _idea_id, run_id) = setup_queued_run(&ws);
+
+    let err_target =
+        tandem::factory::workspace::set_run_target(&store, &ws, &run_id, "workspace", &|k| {
+            if k == "TANDEM_ROLE" {
+                Some("orchestrator".to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_err();
+    assert!(matches!(err_target, WorkspaceError::Approval(_)));
+
+    let user = Actor {
+        kind: ActorKind::User,
+        id: "alice".into(),
+    };
+    tandem::factory::workspace::set_run_target(&store, &ws, &run_id, "workspace", &|_| None)
+        .unwrap();
+
+    // Tamper run.json worktree_path to point outside workspace/worktrees
+    let outside = temp_dir("outside-wt");
+    let run_json = store.root.join("runs").join(&run_id).join("run.json");
+    let mut run = get_run(&store, &run_id).unwrap().unwrap();
+    run.worktree_path = Some(outside.to_string_lossy().to_string());
+    fs::write(&run_json, serde_json::to_vec_pretty(&run).unwrap()).unwrap();
+    let _ = tandem::factory::run::withdraw_run(&store, &run_id, &user).unwrap();
+    // Re-write tampered worktree_path after withdraw
+    let mut withdrawn = get_run(&store, &run_id).unwrap().unwrap();
+    withdrawn.worktree_path = Some(outside.to_string_lossy().to_string());
+    fs::write(&run_json, serde_json::to_vec_pretty(&withdrawn).unwrap()).unwrap();
+
+    let err_cleanup = cleanup_worktree(&store, &ws, &run_id, &user, &|_| None).unwrap_err();
+    assert!(matches!(err_cleanup, WorkspaceError::Factory(_)));
+
+    let _ = fs::remove_dir_all(&ws);
+    let _ = fs::remove_dir_all(&outside);
+}

@@ -93,6 +93,7 @@ pub fn simulate(
             finished: None,
             artifacts: Vec::new(),
             rationale: None,
+            retry_hypothesis: None,
         })
         .collect();
 
@@ -281,6 +282,16 @@ pub fn simulate(
                         stage: stage_name.clone(),
                         action: "interrupted".to_string(),
                         reason: String::new(),
+                    });
+                }
+                StageOutcome::Blocked { reason, .. } => {
+                    st.state = StageState::Blocked;
+                    step_num += 1;
+                    steps.push(SimulationStep {
+                        step: step_num,
+                        stage: stage_name.clone(),
+                        action: "blocked".to_string(),
+                        reason,
                     });
                 }
             }

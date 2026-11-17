@@ -808,3 +808,36 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
 
     let _ = fs::remove_dir_all(ws);
 }
+
+#[test]
+fn read_log_tail_sanitized_rejects_symlink_and_trims_partial_utf8() {
+    let ws = temp_workspace("log-tail");
+    let target = ws.join("real.log");
+    fs::write(&target, "secret").unwrap();
+    let link = ws.join("link.log");
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let (text, truncated) = tandem::status::factory_run::read_log_tail_sanitized(&link);
+        assert_eq!(text, "No log output yet.");
+        assert!(!truncated);
+    }
+
+    // Write > 64 KiB with a multi-byte UTF-8 char straddling the 64 KiB boundary
+    let big = ws.join("big.log");
+    let prefix_len = tandem::status::factory_run::LOG_TAIL_BYTES - 1;
+    let mut bytes = vec![b'a'; prefix_len + 10];
+    // Place 'é' (0xC3 0xA9) across the cut boundary (last byte of tail start is 0xA9)
+    let cut_offset = bytes.len() - tandem::status::factory_run::LOG_TAIL_BYTES;
+    bytes[cut_offset - 1] = 0xC3;
+    bytes[cut_offset] = 0xA9;
+    bytes[cut_offset + 1] = b'Z';
+    fs::write(&big, &bytes).unwrap();
+
+    let (tail, truncated) = tandem::status::factory_run::read_log_tail_sanitized(&big);
+    assert!(truncated);
+    assert!(!tail.starts_with('\u{FFFD}'));
+    assert!(tail.starts_with('Z'));
+
+    let _ = fs::remove_dir_all(ws);
+}

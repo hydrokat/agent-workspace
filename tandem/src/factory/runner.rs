@@ -5,17 +5,19 @@ use std::time::Duration;
 
 use serde::Serialize;
 
+use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
 use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapshot};
 use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
-use crate::factory::events::{Event, append_locked, set_private_file_mode};
+use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
 use crate::factory::executor::{Executor, StageJob, StageOutcome};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
 use crate::factory::machine::{self, Command, EventData};
 use crate::factory::model::{Actor, ActorKind, Idea, KNOWN_PROVIDERS, Run, RunState, StageState};
 use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
+use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
 use crate::factory::workflow::parse::load_workflow_file;
 use crate::factory::workflow::scheduler::{RunFacts, SchedulerLimits, TriState, next};
@@ -89,6 +91,20 @@ pub struct CancelIdeaResult {
     pub stopped_jobs: Vec<StoppedJobInfo>,
 }
 
+pub fn has_ui_slices(store: &FactoryStore, run_id: &str) -> bool {
+    let slices_path = store.run_dir(run_id).join("artifacts/slices.json");
+    if !slices_path.exists() || reject_if_symlink(&slices_path).is_err() {
+        return false;
+    }
+    let Ok(raw) = fs::read_to_string(&slices_path) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_str::<SlicesManifest>(&raw) else {
+        return false;
+    };
+    manifest.slices.iter().any(|s| s.ui)
+}
+
 pub fn stop_request_path(store: &FactoryStore, run_id: &str) -> PathBuf {
     store.run_dir(run_id).join("stop.req")
 }
@@ -125,6 +141,17 @@ fn append_run_events(
     if events.is_empty() {
         return run_opt.ok_or_else(|| RunnerError::InvalidInput("missing run".to_string()));
     }
+    store.ensure()?;
+    let lock_path = store.lock_path();
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    set_private_file_mode(&lock_path)?;
+    let _guard = exclusive_lock(&lock_file)?;
+
     let ts = current_time();
     let mut pending = Vec::with_capacity(events.len());
     for ev_data in &events {
@@ -136,9 +163,9 @@ fn append_run_events(
             ev_data,
         )?);
     }
-    let appended = append_locked(&store.events_path(), &pending)?;
-    let mut next_run = run_opt;
+    let mut next_run = get_run(store, run_id)?.or(run_opt);
     let mut next_idea = store.get_idea(idea_id)?;
+    let appended = append_locked(&store.events_path(), &pending)?;
     for (ev, ev_data) in appended.iter().zip(events.iter()) {
         next_run = machine::apply_run(next_run, ev_data, idea_id, ev.ts);
         next_idea = machine::apply(next_idea, ev_data, ev.ts);
@@ -230,8 +257,9 @@ pub fn drive_run_step(
         Err(e) => return Err(RunnerError::Workspace(e)),
     }
 
+    let is_ui = has_ui_slices(store, run_id);
     let facts = RunFacts {
-        ui_changed: TriState::No,
+        ui_changed: if is_ui { TriState::Yes } else { TriState::No },
         deploy_requested: run.deploy_requested,
         approvals: Vec::new(),
     };
@@ -342,7 +370,7 @@ pub fn drive_run_step(
         .map(|o| o.cli);
     let r_ctx = RoutingContext {
         preferred_provider,
-        is_ui_work: false,
+        is_ui_work: is_ui,
     };
 
     let routed = match route(
@@ -474,6 +502,25 @@ pub fn drive_run_step(
                 )?;
             }
         }
+        StageOutcome::Blocked {
+            reason,
+            action_commands,
+        } => {
+            let idea_id = current_run.idea.clone();
+            let run_after_block = append_run_events(
+                store,
+                &idea_id,
+                run_id,
+                Some(current_run),
+                vec![EventData::StageBlocked {
+                    run: run_id.to_string(),
+                    stage: stage_name,
+                    reason: reason.clone(),
+                }],
+                &sys,
+            )?;
+            pause_run(store, run_after_block, reason, action_commands)?;
+        }
     }
 
     Ok(())
@@ -572,27 +619,7 @@ pub fn pause_run_by_user(
     })
 }
 
-pub fn resume_paused_run(
-    store: &FactoryStore,
-    run_id: &str,
-    actor: &Actor,
-) -> Result<Run, RunnerError> {
-    if actor.kind != ActorKind::User {
-        return Err(RunnerError::Approval(ApprovalError::AgentCaller));
-    }
-    if !is_valid_run_id(run_id) {
-        return Err(RunnerError::InvalidInput(format!(
-            "invalid run id: {run_id}"
-        )));
-    }
-    let run = get_run(store, run_id)?
-        .ok_or_else(|| RunnerError::Run(RunError::NotFound(format!("run {run_id}"))))?;
-    if run.state != RunState::Paused {
-        return Err(RunnerError::InvalidInput(format!(
-            "run {run_id} is not paused"
-        )));
-    }
-
+fn verify_run_resumable(store: &FactoryStore, run: &Run) -> Result<(), RunnerError> {
     let idea = store
         .get_idea(&run.idea)?
         .ok_or_else(|| RunnerError::InvalidInput(format!("idea {} not found", run.idea)))?;
@@ -611,7 +638,7 @@ pub fn resume_paused_run(
     }
 
     let settings = store.settings()?;
-    let wf_path = store.run_dir(run_id).join("workflow.yaml");
+    let wf_path = store.run_dir(&run.id).join("workflow.yaml");
     let raw = load_workflow_file(&wf_path).map_err(|e| {
         RunnerError::Gate(format!("Cannot resume: run workflow copy invalid ({e})."))
     })?;
@@ -648,8 +675,11 @@ pub fn resume_paused_run(
             "Cannot resume: the {preferred} gate is closed ({reason})."
         )));
     }
+    Ok(())
+}
 
-    let stop_path = stop_request_path(store, run_id);
+fn collect_resume_events(store: &FactoryStore, run: &Run) -> Vec<EventData> {
+    let stop_path = stop_request_path(store, &run.id);
     if stop_path.exists() {
         let _ = fs::remove_file(&stop_path);
     }
@@ -663,6 +693,33 @@ pub fn resume_paused_run(
             });
         }
     }
+    evs
+}
+
+pub fn resume_paused_run(
+    store: &FactoryStore,
+    run_id: &str,
+    actor: &Actor,
+) -> Result<Run, RunnerError> {
+    if actor.kind != ActorKind::User {
+        return Err(RunnerError::Approval(ApprovalError::AgentCaller));
+    }
+    if !is_valid_run_id(run_id) {
+        return Err(RunnerError::InvalidInput(format!(
+            "invalid run id: {run_id}"
+        )));
+    }
+    let run = get_run(store, run_id)?
+        .ok_or_else(|| RunnerError::Run(RunError::NotFound(format!("run {run_id}"))))?;
+    if run.state != RunState::Paused {
+        return Err(RunnerError::InvalidInput(format!(
+            "run {run_id} is not paused"
+        )));
+    }
+
+    verify_run_resumable(store, &run)?;
+
+    let mut evs = collect_resume_events(store, &run);
     evs.push(EventData::RunResumed {
         run: run_id.to_string(),
     });
@@ -809,8 +866,19 @@ pub fn retry_paused_stage(
     stage: &str,
     hypothesis: &str,
     actor: &Actor,
+    env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Run, RunnerError> {
-    if hypothesis.trim().is_empty() {
+    ensure_user_caller(env)?;
+    if actor.kind != ActorKind::User {
+        return Err(RunnerError::Approval(ApprovalError::AgentCaller));
+    }
+    if !is_valid_run_id(run_id) {
+        return Err(RunnerError::InvalidInput(format!(
+            "invalid run id: {run_id}"
+        )));
+    }
+    let trimmed_hypothesis = hypothesis.trim();
+    if trimmed_hypothesis.is_empty() {
         return Err(RunnerError::InvalidInput(
             "hypothesis must not be empty".to_string(),
         ));
@@ -827,18 +895,27 @@ pub fn retry_paused_stage(
             "stage {stage} not found in run {run_id}"
         )));
     }
-    let updated = append_run_events(
+
+    verify_run_resumable(store, &run)?;
+
+    let mut evs = collect_resume_events(store, &run);
+    evs.push(EventData::StageRetryRequested {
+        run: run_id.to_string(),
+        stage: stage.to_string(),
+        hypothesis: trimmed_hypothesis.to_string(),
+    });
+    evs.push(EventData::RunResumed {
+        run: run_id.to_string(),
+    });
+
+    append_run_events(
         store,
         &run.idea.clone(),
         &run.id.clone(),
         Some(run),
-        vec![EventData::RunResumed {
-            run: run_id.to_string(),
-        }],
+        evs,
         actor,
-    )?;
-    let _ = fs::metadata(store.run_dir(run_id));
-    Ok(updated)
+    )
 }
 
 pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), RunnerError> {

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
@@ -386,12 +387,22 @@ fn build_env(
     env
 }
 
+fn is_executable(meta: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        meta.is_file() && meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        meta.is_file()
+    }
+}
+
 fn find_in_path(program: &str, path_var: &str) -> Option<PathBuf> {
     for dir in std::env::split_paths(path_var) {
         let candidate = dir.join(program);
         if let Ok(meta) = fs::metadata(&candidate)
-            && meta.is_file()
-            && meta.permissions().mode() & 0o111 != 0
+            && is_executable(&meta)
         {
             return Some(candidate);
         }

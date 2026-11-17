@@ -460,7 +460,9 @@ impl FactoryRun {
                     }
                     let store = FactoryStore::new(&self.workspace);
                     let stage = stage_name.clone();
-                    match retry_paused_stage(&store, &self.run_id, &stage, &hyp, &actor) {
+                    match retry_paused_stage(&store, &self.run_id, &stage, &hyp, &actor, &|k| {
+                        std::env::var(k).ok()
+                    }) {
                         Ok(_) => {
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Retrying stage {stage}.");
@@ -575,7 +577,9 @@ impl FactoryRun {
                         return RunKeyOutcome::Consumed;
                     };
                     let store = FactoryStore::new(&self.workspace);
-                    match set_run_target(&store, &self.workspace, &self.run_id, &target) {
+                    match set_run_target(&store, &self.workspace, &self.run_id, &target, &|k| {
+                        std::env::var(k).ok()
+                    }) {
                         Ok(_) => {
                             let _ = resume_paused_run(&store, &self.run_id, &actor);
                             self.sub_view = RunSubView::Main;
@@ -1557,6 +1561,9 @@ fn render_target_picker(
 }
 
 pub fn read_log_tail_sanitized(path: &Path) -> (String, bool) {
+    if events::reject_if_symlink(path).is_err() {
+        return ("No log output yet.".to_string(), false);
+    }
     let Ok(mut file) = File::open(path) else {
         return ("No log output yet.".to_string(), false);
     };
@@ -1576,7 +1583,12 @@ pub fn read_log_tail_sanitized(path: &Path) -> (String, bool) {
         return ("No log output yet.".to_string(), false);
     }
     let raw = String::from_utf8_lossy(&buf);
-    let cleaned = clean(&raw);
+    let aligned = if truncated {
+        raw.trim_start_matches('\u{FFFD}')
+    } else {
+        raw.as_ref()
+    };
+    let cleaned = clean(aligned);
     if cleaned.trim().is_empty() {
         return ("No log output yet.".to_string(), truncated);
     }
@@ -1618,6 +1630,9 @@ fn format_activity_row(ev: &Event, narrow: bool) -> String {
         Ok(EventData::RunResumed { .. }) => {
             ("run".to_string(), "resumed".to_string(), String::new())
         }
+        Ok(EventData::StageRetryRequested {
+            stage, hypothesis, ..
+        }) => (clean(&stage), "retry".to_string(), clean(&hypothesis)),
         Ok(EventData::RunCancelled { .. }) => {
             ("run".to_string(), "cancelled".to_string(), String::new())
         }

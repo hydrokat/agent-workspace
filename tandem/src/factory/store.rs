@@ -430,6 +430,7 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::StageModelUpgraded { run, .. }
         | EventData::RunPaused { run, .. }
         | EventData::RunResumed { run }
+        | EventData::StageRetryRequested { run, .. }
         | EventData::RunCancelled { run }
         | EventData::StageInterrupted { run, .. } => Some(run.clone()),
         _ => None,
