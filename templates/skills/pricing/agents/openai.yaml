@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pricing"
+  short_description: "Design value-based pricing tiers, value metrics, and packaging"
+  default_prompt: "/pricing"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI/UX Pro Max"
+  short_description: "Design systems, visual styles, palettes, typography, and UX audits"
+  default_prompt: "/ui-ux-pro-max"
