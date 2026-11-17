@@ -432,3 +432,121 @@ fn broker_executor_handles_closed_gate_and_idempotent_result_and_ui_slices() {
 
     let _ = fs::remove_dir_all(&ws);
 }
+
+#[cfg(unix)]
+#[test]
+fn broker_executor_runs_end_to_end_with_fake_provider_script() {
+    use std::ffi::OsString;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let ws = temp_ws("broker-e2e");
+    let state_dir = ws.join(".state");
+    fs::create_dir_all(&state_dir).unwrap();
+    let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    consent_provider(
+        &store,
+        "claude",
+        AuthType::ApiKey,
+        "claude",
+        "alice",
+        &|_| None,
+    )
+    .unwrap();
+
+    let fake_bin = ws.join("fake-bin");
+    fs::create_dir_all(&fake_bin).unwrap();
+    let script_path = fake_bin.join("claude");
+    let script = r#"#!/bin/sh
+cat >/dev/null
+echo "fake claude stdout stage=$TANDEM_STAGE attempt=$TANDEM_ATTEMPT"
+echo "fake claude stderr" >&2
+RUN_DIR="$(dirname "$(dirname "$TANDEM_JOB_DIR")")"
+if [ "$TANDEM_STAGE" = "plan" ] && [ "$TANDEM_ATTEMPT" = "1" ]; then
+  cat > "$TANDEM_JOB_DIR/result.json" <<'EOF'
+{"status":"failed","summary":"attempt 1 failed","files_changed":[],"artifacts":[],"rationale":"synthetic failure","hypothesis":"create missing artifacts"}
+EOF
+  exit 1
+fi
+if [ "$TANDEM_STAGE" = "plan" ]; then
+  mkdir -p "$RUN_DIR/artifacts/specs/p-001-demo"
+  printf '# Impl\n' > "$RUN_DIR/artifacts/specs/p-001-demo/impl.md"
+  cat > "$RUN_DIR/artifacts/slices.json" <<'EOF'
+{"phase":"p-001-demo","slices":[{"id":"t-001","title":"Slice","type":"New Feature","paths":["README.md"],"dependencies":[],"acceptance_criteria":["Works"],"ui":false}]}
+EOF
+  cat > "$TANDEM_JOB_DIR/result.json" <<'EOF'
+{"status":"succeeded","summary":"plan complete","files_changed":[],"artifacts":["specs/p-001-demo/impl.md","slices.json"],"hypothesis":"create impl and slices"}
+EOF
+  exit 0
+fi
+cat > "$TANDEM_JOB_DIR/result.json" <<'EOF'
+{"status":"failed","summary":"stop here","files_changed":[],"artifacts":[],"rationale":"no structured result"}
+EOF
+exit 1
+"#;
+    fs::write(&script_path, script).unwrap();
+    let mut perms = fs::metadata(&script_path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).unwrap();
+
+    let mut new_path = OsString::from(fake_bin.as_os_str());
+    if let Some(orig) = std::env::var_os("PATH") {
+        new_path.push(":");
+        new_path.push(orig);
+    }
+
+    let mut child = StdCommand::new(env!("CARGO_BIN_EXE_tandem"))
+        .args(["factory", "runner"])
+        .env("PATH", &new_path)
+        .env("TANDEM_WORKSPACE", &ws)
+        .env("XDG_STATE_HOME", &state_dir)
+        .env("TANDEM_FACTORY", "1")
+        .env_remove("TANDEM_ROLE")
+        .env_remove("TANDEM_SESSION_ID")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn tandem factory runner");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut final_run = None;
+    while Instant::now() < deadline {
+        if let Ok(Some(run)) = get_run(&store, &run_id)
+            && run.state == RunState::Paused
+        {
+            final_run = Some(run);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let run = final_run.expect("runner should pause after create-tests fails");
+    let plan_stage = run.stages.iter().find(|s| s.name == "plan").unwrap();
+    assert_eq!(
+        plan_stage.state,
+        StageState::Succeeded,
+        "plan_stage={plan_stage:?} pause_reason={:?}",
+        run.pause_reason
+    );
+    assert_eq!(plan_stage.attempts, 2);
+
+    let log1 = fs::read_to_string(
+        tandem::factory::broker::job::job_dir(&store, &run_id, "plan", 1).join("log.txt"),
+    )
+    .unwrap();
+    assert!(log1.contains("fake claude stdout stage=plan attempt=1"));
+    assert!(log1.contains("fake claude stderr"));
+
+    let ct_stage = run
+        .stages
+        .iter()
+        .find(|s| s.name == "create-tests")
+        .unwrap();
+    assert_eq!(ct_stage.attempts, 1);
+
+    let _ = fs::remove_dir_all(&ws);
+}

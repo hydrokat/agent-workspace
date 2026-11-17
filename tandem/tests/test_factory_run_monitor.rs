@@ -645,6 +645,7 @@ fn test_pause_resume_cancel_and_retry_controls() {
     monitor.reload();
     monitor.handle_key(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
     assert!(matches!(monitor.sub_view, RunSubView::RetryPrompt { .. }));
+    assert!(monitor.captures_input());
 
     // Empty hypothesis rejected
     monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -838,6 +839,164 @@ fn read_log_tail_sanitized_rejects_symlink_and_trims_partial_utf8() {
     assert!(truncated);
     assert!(!tail.starts_with('\u{FFFD}'));
     assert!(tail.starts_with('Z'));
+
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
+    use tandem::status::factory_run::RunKeyOutcome;
+
+    let ws = temp_workspace("nav-esc");
+    let (store, idea_id, run_id) = setup_run(&ws);
+    tandem::factory::broker::gate::consent_provider(
+        &store,
+        "claude",
+        tandem::factory::broker::gate::AuthType::ApiKey,
+        "claude",
+        "argie",
+        &no_agent_env,
+    )
+    .unwrap();
+
+    let log_path = prepare_stage_job(
+        &store,
+        &run_id,
+        "plan",
+        1,
+        "claude",
+        "sonnet",
+        JobState::Finished,
+        None,
+    );
+    let mut big_log = "LINE\n".repeat(15_000);
+    big_log.push_str("END_OF_LOG\n");
+    fs::write(&log_path, &big_log).unwrap();
+
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let area = Rect::new(0, 0, 120, 26);
+
+    // Main does not capture input; Esc returns BackToDetail
+    assert!(!monitor.captures_input());
+    monitor.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(monitor.selected_stage, 1);
+    monitor.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(monitor.selected_stage, 0);
+    assert_eq!(
+        monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        RunKeyOutcome::BackToDetail
+    );
+
+    // StageDetail -> 'l' opens LogReader -> scroll + render truncated -> Esc returns Main
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::StageDetail { .. }));
+    assert!(!monitor.captures_input());
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::LogReader { .. }));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let mut buf = Buffer::empty(area);
+    monitor.render(200.0, area, &mut buf);
+    let log_out = buffer_text(&buf, area);
+    assert!(log_out.contains("LINE"));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+
+    // Paused with retries exhausted -> 'r' opens RetryPrompt -> render error -> Esc back
+    pause_run_by_user(&store, &run_id, false, &user_actor(), &no_agent_env).unwrap();
+    append_run_event(
+        &store,
+        &idea_id,
+        &run_id,
+        150.0,
+        EventData::RunPaused {
+            run: run_id.clone(),
+            reason: "stage \"plan\" failed and retries are used up".to_string(),
+            commands: vec![format!(
+                "tandem factory run retry {run_id} plan --hypothesis \"<new hypothesis>\""
+            )],
+        },
+    );
+    monitor.reload();
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::RetryPrompt { .. }));
+    assert!(monitor.captures_input());
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let mut buf = Buffer::empty(area);
+    monitor.render(200.0, area, &mut buf);
+    assert!(buffer_text(&buf, area).contains("Hypothesis must not be empty"));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+
+    // Paused -> 'c' opens ConfirmCancel -> wrong id error render -> Esc back
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::ConfirmCancel { .. }));
+    for ch in "bad".chars() {
+        monitor.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let mut buf = Buffer::empty(area);
+    monitor.render(200.0, area, &mut buf);
+    assert!(buffer_text(&buf, area).contains(&run_id));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+
+    // Gate closed -> 'a' opens ConsentDialog -> Up/Down/Left/Right + wrong confirm render + Esc
+    append_run_event(
+        &store,
+        &idea_id,
+        &run_id,
+        160.0,
+        EventData::RunPaused {
+            run: run_id.clone(),
+            reason: "the claude gate is closed (no consent).".to_string(),
+            commands: vec![
+                "tandem factory provider consent claude --auth api-key --confirm claude"
+                    .to_string(),
+            ],
+        },
+    );
+    monitor.reload();
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::ConsentDialog { .. }));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let mut buf = Buffer::empty(area);
+    monitor.render(200.0, area, &mut buf);
+    assert!(buffer_text(&buf, area).contains("confirm consent"));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+
+    // Target ambiguous -> 't' opens TargetPicker -> Down/Up + Esc
+    fs::create_dir_all(ws.join("codebase-symlinks/repo-a/.git")).unwrap();
+    fs::create_dir_all(ws.join("codebase-symlinks/repo-b/.git")).unwrap();
+    append_run_event(
+        &store,
+        &idea_id,
+        &run_id,
+        170.0,
+        EventData::RunPaused {
+            run: run_id.clone(),
+            reason: "choose a target repository: repo-a, repo-b".to_string(),
+            commands: vec![
+                format!("tandem factory run target {run_id} repo-a"),
+                format!("tandem factory run target {run_id} repo-b"),
+            ],
+        },
+    );
+    monitor.reload();
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::TargetPicker { .. }));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+
+    // sync_if_changed with None
+    monitor.sync_if_changed(None);
 
     let _ = fs::remove_dir_all(ws);
 }

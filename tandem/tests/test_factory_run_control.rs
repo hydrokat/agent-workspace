@@ -719,3 +719,398 @@ fn test_factory_run_log_tails_sanitizes_and_validates() {
 
     let _ = fs::remove_dir_all(&ws);
 }
+
+fn run_tandem_cli(
+    ws: &Path,
+    state_dir: &Path,
+    args: &[&str],
+    extra_env: &[(&str, &str)],
+) -> std::process::Output {
+    let mut cmd = StdCommand::new(env!("CARGO_BIN_EXE_tandem"));
+    cmd.args(args)
+        .env("TANDEM_WORKSPACE", ws)
+        .env("XDG_STATE_HOME", state_dir)
+        .env_remove("TANDEM_FACTORY")
+        .env_remove("TANDEM_ROLE")
+        .env_remove("TANDEM_SESSION_ID")
+        .env_remove("TANDEM_FACTORY_IDEA");
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+    cmd.output().expect("run tandem binary")
+}
+
+#[test]
+fn cli_binary_provider_status_consent_and_revoke() {
+    let ws = temp_ws("cli-bin-provider");
+    let state_dir = ws.join(".state");
+    fs::create_dir_all(&state_dir).unwrap();
+    let factory_env = &[("TANDEM_FACTORY", "1")];
+
+    // Disabled factory mode -> exit 2
+    let disabled = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "provider", "status", "--json"],
+        &[],
+    );
+    assert_eq!(disabled.status.code(), Some(2));
+
+    // Status --json -> exit 0
+    let status = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "provider", "status", "--json"],
+        factory_env,
+    );
+    assert_eq!(
+        status.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status_json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert!(
+        status_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["provider"] == "claude")
+    );
+
+    // Invalid --auth -> exit 1 + JSON error envelope
+    let bad_auth = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "provider",
+            "consent",
+            "claude",
+            "--auth",
+            "invalid",
+            "--confirm",
+            "claude",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(bad_auth.status.code(), Some(1));
+    let err_json: serde_json::Value = serde_json::from_slice(&bad_auth.stdout).unwrap();
+    assert!(err_json["error"]["code"].is_string());
+
+    // Mismatched --confirm -> exit 1
+    let bad_confirm = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "provider",
+            "consent",
+            "claude",
+            "--auth",
+            "subscription",
+            "--confirm",
+            "wrong",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(bad_confirm.status.code(), Some(1));
+
+    // Subscription auth for claude is not-allowed by terms -> exit 3
+    let sub_denied = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "provider",
+            "consent",
+            "claude",
+            "--auth",
+            "subscription",
+            "--confirm",
+            "claude",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(sub_denied.status.code(), Some(3));
+
+    // Valid api-key consent -> exit 0
+    let consent = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "provider",
+            "consent",
+            "claude",
+            "--auth",
+            "api-key",
+            "--confirm",
+            "claude",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(
+        consent.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&consent.stderr)
+    );
+    let consent_json: serde_json::Value = serde_json::from_slice(&consent.stdout).unwrap();
+    assert_eq!(consent_json["state"], "open");
+
+    // Revoke -> exit 0
+    let revoke = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "provider", "revoke", "claude", "--json"],
+        factory_env,
+    );
+    assert_eq!(revoke.status.code(), Some(0));
+    let revoke_json: serde_json::Value = serde_json::from_slice(&revoke.stdout).unwrap();
+    assert_eq!(revoke_json["state"], "closed");
+
+    // Revoke unknown provider -> exit 1
+    let bad_revoke = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "provider", "revoke", "unknown-provider"],
+        factory_env,
+    );
+    assert_eq!(bad_revoke.status.code(), Some(1));
+
+    let _ = fs::remove_dir_all(&ws);
+}
+
+#[test]
+fn cli_binary_run_target_retry_pause_resume_cancel_and_cleanup() {
+    let ws = temp_ws("cli-bin-run");
+    let state_dir = ws.join(".state");
+    fs::create_dir_all(&state_dir).unwrap();
+    let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let repo_a = ws.join("codebase-symlinks/repo-a");
+    let repo_b = ws.join("codebase-symlinks/repo-b");
+    fs::create_dir_all(&repo_a).unwrap();
+    fs::create_dir_all(&repo_b).unwrap();
+    init_git_repo(&repo_a);
+    init_git_repo(&repo_b);
+
+    let factory_env = &[("TANDEM_FACTORY", "1")];
+    let agent_env = &[("TANDEM_FACTORY", "1"), ("TANDEM_ROLE", "orchestrator")];
+
+    // Open gate via CLI (non-json)
+    let consent = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "provider",
+            "consent",
+            "claude",
+            "--auth",
+            "api-key",
+            "--confirm",
+            "claude",
+        ],
+        factory_env,
+    );
+    assert_eq!(consent.status.code(), Some(0));
+
+    // Target: agent caller forbidden -> exit 3
+    let target_agent = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "run", "target", &run_id, "repo-a", "--json"],
+        agent_env,
+    );
+    assert_eq!(target_agent.status.code(), Some(3));
+
+    // Target: unknown repo -> exit 1
+    let target_bad = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "run", "target", &run_id, "nope", "--json"],
+        factory_env,
+    );
+    assert_eq!(target_bad.status.code(), Some(1));
+
+    // Target: valid -> exit 0
+    let target_ok = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "run", "target", &run_id, "repo-a", "--json"],
+        factory_env,
+    );
+    assert_eq!(
+        target_ok.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&target_ok.stderr)
+    );
+    let target_json: serde_json::Value = serde_json::from_slice(&target_ok.stdout).unwrap();
+    assert_eq!(target_json["target"], "repo-a");
+
+    // Drive one failing step so run pauses with retries exhausted on `plan`
+    let mut exec = HookExecutor {
+        calls: Arc::new(Mutex::new(Vec::new())),
+        hook: |_| StageOutcome::Failed {
+            reason: "no structured result".to_string(),
+        },
+    };
+    drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
+    assert_eq!(
+        get_run(&store, &run_id).unwrap().unwrap().state,
+        RunState::Paused
+    );
+
+    // Retry: agent caller forbidden -> exit 3
+    let retry_agent = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "run",
+            "retry",
+            &run_id,
+            "plan",
+            "--hypothesis",
+            "try again",
+            "--json",
+        ],
+        agent_env,
+    );
+    assert_eq!(retry_agent.status.code(), Some(3));
+
+    // Retry: empty hypothesis -> exit 1
+    let retry_empty = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "run",
+            "retry",
+            &run_id,
+            "plan",
+            "--hypothesis",
+            "   ",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(retry_empty.status.code(), Some(1));
+
+    // Retry: valid -> exit 0
+    let retry_ok = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "run",
+            "retry",
+            &run_id,
+            "plan",
+            "--hypothesis",
+            "use smaller slice",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(
+        retry_ok.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&retry_ok.stderr)
+    );
+    let retry_json: serde_json::Value = serde_json::from_slice(&retry_ok.stdout).unwrap();
+    assert_eq!(retry_json["state"], "running");
+
+    // Pause (human-readable) -> Resume (human-readable)
+    let pause_txt = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "run", "pause", &run_id],
+        factory_env,
+    );
+    assert_eq!(pause_txt.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&pause_txt.stdout).contains("paused"));
+
+    let resume_txt = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "run", "resume", &run_id],
+        factory_env,
+    );
+    assert_eq!(resume_txt.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&resume_txt.stdout).contains("resumed"));
+
+    // Cancel: wrong confirm -> exit 1, then valid --json -> exit 0
+    let cancel_bad = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &["factory", "run", "cancel", &run_id, "--confirm", "wrong"],
+        factory_env,
+    );
+    assert_eq!(cancel_bad.status.code(), Some(1));
+
+    let cancel_ok = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "run",
+            "cancel",
+            &run_id,
+            "--confirm",
+            &run_id,
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(cancel_ok.status.code(), Some(0));
+
+    // Cleanup: wrong confirm -> exit 1, then valid --json -> exit 0
+    let cleanup_bad = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "run",
+            "cleanup",
+            &run_id,
+            "--confirm",
+            "wrong",
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(cleanup_bad.status.code(), Some(1));
+
+    let cleanup_ok = run_tandem_cli(
+        &ws,
+        &state_dir,
+        &[
+            "factory",
+            "run",
+            "cleanup",
+            &run_id,
+            "--confirm",
+            &run_id,
+            "--json",
+        ],
+        factory_env,
+    );
+    assert_eq!(
+        cleanup_ok.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&cleanup_ok.stderr)
+    );
+    let cleanup_json: serde_json::Value = serde_json::from_slice(&cleanup_ok.stdout).unwrap();
+    assert_eq!(cleanup_json["cleaned"], run_id);
+
+    let _ = fs::remove_dir_all(&ws);
+}
