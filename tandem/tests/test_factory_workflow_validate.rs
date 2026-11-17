@@ -228,4 +228,82 @@ fn test_workflow_cli_parse() {
         Some(tandem::cli::Command::Factory(args))
             if matches!(args.command, FactoryCommand::Workflow(ref w) if matches!(w.command, FactoryWorkflowCommand::List(_)))
     ));
+
+    let def = Cli::try_parse_from(["tandem", "factory", "workflow", "default"]).unwrap();
+    assert!(matches!(
+        def.command,
+        Some(tandem::cli::Command::Factory(args))
+            if matches!(args.command, FactoryCommand::Workflow(ref w) if matches!(w.command, FactoryWorkflowCommand::Default))
+    ));
+}
+
+#[test]
+fn test_default_workflow_is_valid_and_matches_template() {
+    use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
+
+    let raw = parse_workflow_str(DEFAULT_WORKFLOW_YAML).expect("default workflow should parse");
+    let wf = validate(&raw, &FactorySettings::default()).expect("default workflow should validate");
+    assert_eq!(wf.name, "default-delivery");
+    assert_eq!(wf.version, 1);
+    assert_eq!(wf.stages.len(), 7);
+
+    let demo = wf.stages.iter().find(|s| s.name == "demo").unwrap();
+    assert_eq!(demo.depends_on, vec!["test"]);
+    let deploy = wf.stages.iter().find(|s| s.name == "deploy").unwrap();
+    assert_eq!(deploy.depends_on, vec!["review"]);
+
+    let template_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("templates")
+        .join("workflows")
+        .join("default-delivery.yaml");
+    let template = fs::read_to_string(&template_path).expect("template default-delivery.yaml should exist");
+    assert_eq!(
+        DEFAULT_WORKFLOW_YAML, template,
+        "embedded default-delivery.yaml must be byte-identical to templates/workflows/default-delivery.yaml"
+    );
+}
+
+#[test]
+fn test_workflow_default_cli_prints_embedded_default() {
+    use tandem::config::Config;
+    use tandem::factory::commands::run_with_io;
+    use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
+
+    let cli = Cli::try_parse_from(["tandem", "factory", "workflow", "default"]).unwrap();
+    let Some(tandem::cli::Command::Factory(args)) = cli.command else {
+        panic!("expected factory command");
+    };
+    let tmp = std::env::temp_dir().join(format!("tandem-wf-def-{}", std::process::id()));
+    let _ = fs::create_dir_all(&tmp);
+    let mut cfg = Config::default();
+    cfg.state_dir = tmp.join("state");
+    let mut stdin = std::io::empty();
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let code = run_with_io(&args, &tmp, &cfg, &mut stdin, &mut stdout, &mut stderr);
+    let _ = fs::remove_dir_all(&tmp);
+    assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&stderr));
+    assert_eq!(String::from_utf8(stdout).unwrap(), DEFAULT_WORKFLOW_YAML);
+}
+
+#[test]
+fn test_load_default_workflow_falls_back_to_embedded() {
+    use tandem::factory::workflow::{DEFAULT_WORKFLOW_YAML, WorkflowSource, load_default_workflow};
+
+    let tmp = std::env::temp_dir().join(format!("tandem-wf-fallback-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+
+    let (raw, source) = load_default_workflow(&tmp).expect("fallback to embedded should succeed");
+    assert_eq!(source, WorkflowSource::Embedded);
+    assert_eq!(raw.raw_text, DEFAULT_WORKFLOW_YAML);
+
+    fs::create_dir_all(tmp.join("workflows")).unwrap();
+    fs::write(tmp.join("workflows/default-delivery.yaml"), VALID_WORKFLOW).unwrap();
+    let (raw2, source2) = load_default_workflow(&tmp).expect("workspace workflow should load");
+    assert_eq!(source2, WorkflowSource::Workspace);
+    assert_eq!(raw2.raw_text, VALID_WORKFLOW);
+
+    let _ = fs::remove_dir_all(&tmp);
 }

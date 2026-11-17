@@ -215,6 +215,8 @@ pub enum FactoryWorkflowCommand {
     Validate(FactoryWorkflowValidateArgs),
     #[command(about = "list workflows in <workspace>/workflows/")]
     List(FactoryWorkflowListArgs),
+    #[command(about = "print the embedded default workflow YAML to stdout")]
+    Default,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -443,6 +445,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Workflow(w_args) => match &w_args.command {
             FactoryWorkflowCommand::Validate(a) => a.json,
             FactoryWorkflowCommand::List(a) => a.json,
+            FactoryWorkflowCommand::Default => false,
         },
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
@@ -859,6 +862,9 @@ fn execute(
                     }
                     serialize_compact(&serde_json::json!({ "workflows": items }))
                 }
+                FactoryWorkflowCommand::Default => Ok(super::workflow::DEFAULT_WORKFLOW_YAML
+                    .trim_end_matches('\n')
+                    .to_string()),
             }
         }
         FactoryCommand::Events(a) => {

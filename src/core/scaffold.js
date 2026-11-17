@@ -23,6 +23,7 @@ export function ensureDirs(target) {
     'knowledgebase/db-schema',
     'specs',
     'sprints',
+    'workflows',
     '.agent-workspace',
     '.tmp',
   ];
@@ -59,6 +60,7 @@ export function initStarterFiles(target, dryRun = false) {
     ['specs/README.md', readTemplate('specs', 'README.md')],
     ['specs/in-progress.md', readTemplate('specs', 'in-progress.md')],
     ['sprints/README.md', readTemplate('sprints', 'README.md')],
+    ['workflows/default-delivery.yaml', readTemplate('workflows', 'default-delivery.yaml')],
     ['.agent-workspace/.gitignore', 'tandem-session.json\ncoordination/\n*.bak\n'],
   ];
   for (const [rel, content] of starters) {

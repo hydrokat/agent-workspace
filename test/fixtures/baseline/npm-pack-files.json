@@ -203,6 +203,11 @@
   "tandem/src/factory/model.rs",
   "tandem/src/factory/questions.rs",
   "tandem/src/factory/store.rs",
+  "tandem/src/factory/workflow/default-delivery.yaml",
+  "tandem/src/factory/workflow/mod.rs",
+  "tandem/src/factory/workflow/parse.rs",
+  "tandem/src/factory/workflow/schema.rs",
+  "tandem/src/factory/workflow/validate.rs",
   "tandem/src/gridbar.rs",
   "tandem/src/lib.rs",
   "tandem/src/main.rs",
@@ -426,5 +431,6 @@
   "templates/skills/workspace-sync/scripts/workspace-sync.sh",
   "templates/specs/README.md",
   "templates/specs/in-progress.md",
-  "templates/sprints/README.md"
+  "templates/sprints/README.md",
+  "templates/workflows/default-delivery.yaml"
 ]

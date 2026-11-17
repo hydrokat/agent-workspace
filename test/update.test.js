@@ -74,6 +74,31 @@ describe('update', () => {
     assert.ok(readFile(dir, rel).includes('# Key Decisions'));
   });
 
+  it('keeps edited workflows/default-delivery.yaml without backup and notifies about shipped default', async () => {
+    const rel = 'workflows/default-delivery.yaml';
+    const custom = readFile(dir, rel) + '\n# custom user edit\n';
+    writeFile(dir, rel, custom);
+
+    const { code, stdout, stderr } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0, 'update exits 0');
+    assert.equal(readFile(dir, rel), custom, 'user-owned workflow file untouched');
+    assert.ok(!fileExists(dir, rel + '.bak'), 'never creates .bak for user-owned workflow');
+    const output = stdout + stderr;
+    assert.ok(
+      output.includes('tandem factory workflow default'),
+      'prints notice naming tandem factory workflow default'
+    );
+  });
+
+  it('recreates deleted workflows/default-delivery.yaml on update', async () => {
+    const rel = 'workflows/default-delivery.yaml';
+    unlinkSync(join(dir, rel));
+
+    const { code } = await runCli(['update', '--yes', '--no-link'], dir);
+    assert.equal(code, 0, 'update exits 0');
+    assert.ok(fileExists(dir, rel), 'default-delivery.yaml recreated when missing');
+  });
+
   it('installs release versioning guideline on update', async () => {
     unlinkSync(join(dir, 'knowledgebase/guidelines/release-versioning.md'));
 
