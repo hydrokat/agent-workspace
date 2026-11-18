@@ -17,6 +17,7 @@ pub mod questions;
 pub mod routing;
 pub mod run;
 pub mod runner;
+pub mod settings;
 pub mod simulate;
 pub mod stages;
 pub mod store;

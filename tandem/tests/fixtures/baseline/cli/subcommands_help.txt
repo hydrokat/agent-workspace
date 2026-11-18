@@ -90,6 +90,7 @@ Commands:
   run       manage workflow runs
   provider  manage headless provider gates and consent
   checks    discover, confirm, and inspect project test and lint commands
+  settings  inspect and update factory settings
   runner    run the factory execution loop (factory sessions only)
   events    read factory events from the log
   rebuild   rebuild materialized idea files from the event log

@@ -399,15 +399,19 @@ pub fn validate(
     }
 
     if diags.is_empty() {
-        Ok(Workflow {
-            name,
-            version,
-            trigger,
-            policy: Policy {
+        let policy = crate::factory::settings::effective(
+            &Policy {
                 max_parallel_agents: max_parallel,
                 default_temperature: default_temp,
                 require_human_approval: approvals,
             },
+            settings,
+        );
+        Ok(Workflow {
+            name,
+            version,
+            trigger,
+            policy,
             stages,
             sha256: raw.sha256.clone(),
             raw_text: raw.raw_text.clone(),

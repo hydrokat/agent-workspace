@@ -228,7 +228,7 @@ fn map_tool_for_provider(
 pub fn route(
     stage: &StageDef,
     workflow: &Workflow,
-    _settings: &FactorySettings,
+    settings: &FactorySettings,
     open_providers: &[&str],
     attempt: u32,
     ctx: &RoutingContext,
@@ -256,9 +256,11 @@ pub fn route(
         }
     }
 
-    let tiers = default_model_tiers();
-    let provider_tiers = tiers
+    let default_tiers = default_model_tiers();
+    let provider_tiers = settings
+        .model_tiers
         .get(provider)
+        .or_else(|| default_tiers.get(provider))
         .ok_or_else(|| Unroutable::UnsupportedProvider {
             provider: provider.to_string(),
         })?;
@@ -285,8 +287,9 @@ pub fn route(
         map_tool_for_provider(provider, *tool, &mut tool_flags)?;
     }
 
+    let eff = crate::factory::settings::effective(&workflow.policy, settings);
     let temperature = if caps.temperature {
-        TemperatureSupport::Supported(workflow.policy.default_temperature as f32)
+        TemperatureSupport::Supported(eff.default_temperature as f32)
     } else {
         TemperatureSupport::Unsupported
     };

@@ -30,8 +30,8 @@ impl SchedulerLimits {
         settings: &FactorySettings,
         stages: &[Stage],
     ) -> Self {
-        let effective_max_parallel =
-            (workflow.policy.max_parallel_agents as usize).min(settings.max_parallel_agents);
+        let effective_policy = crate::factory::settings::effective(&workflow.policy, settings);
+        let effective_max_parallel = effective_policy.max_parallel_agents as usize;
         let running_count = stages
             .iter()
             .filter(|s| s.state == StageState::Running)

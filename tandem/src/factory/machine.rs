@@ -274,6 +274,13 @@ pub enum EventData {
     PrCreated { run: String, pr: PrLink },
     #[serde(rename = "pr.status_refreshed")]
     PrStatusRefreshed { run: String, pr: PrLink },
+    #[serde(rename = "settings.changed")]
+    SettingsChanged {
+        key: String,
+        old_value: serde_json::Value,
+        new_value: serde_json::Value,
+        actor: String,
+    },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {

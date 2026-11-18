@@ -66,7 +66,11 @@ impl FactoryStore {
         self.root.join(".gitignore")
     }
 
-    fn settings_path(&self) -> PathBuf {
+    pub(super) fn root_dir(&self) -> &Path {
+        &self.root
+    }
+
+    pub(super) fn settings_path(&self) -> PathBuf {
         self.root.join("settings.json")
     }
 
@@ -352,27 +356,11 @@ impl FactoryStore {
     }
 
     pub fn settings(&self) -> Result<FactorySettings, FactoryError> {
-        reject_if_symlink(&self.root)?;
-        let path = self.settings_path();
-        reject_if_symlink(&path)?;
-
-        match fs::read_to_string(&path) {
-            Ok(content) => Ok(serde_json::from_str(&content)?),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(FactorySettings::default())
-            }
-            Err(err) => Err(FactoryError::Io(err)),
-        }
+        super::settings::load(self)
     }
 
     pub(super) fn save_settings(&self, settings: &FactorySettings) -> Result<(), FactoryError> {
-        self.ensure()?;
-        let path = self.settings_path();
-        reject_if_symlink(&path)?;
-        let bytes = serde_json::to_vec_pretty(settings)?;
-        write_atomic(&path, &bytes)?;
-        set_private_file_mode(&path)?;
-        Ok(())
+        super::settings::save(self, settings)
     }
 
     pub(super) fn load_idea_for_update(&self, idea_id: &str) -> Result<Option<Idea>, FactoryError> {

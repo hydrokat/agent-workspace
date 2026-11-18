@@ -54,6 +54,9 @@ pub enum FactoryCommand {
     #[command(about = "discover, confirm, and inspect project test and lint commands")]
     Checks(FactoryChecksArgs),
 
+    #[command(about = "inspect and update factory settings")]
+    Settings(FactorySettingsArgs),
+
     #[command(about = "run the factory execution loop (factory sessions only)")]
     Runner,
 
@@ -619,6 +622,39 @@ pub struct FactoryEventsArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactorySettingsArgs {
+    #[command(subcommand)]
+    pub command: FactorySettingsCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactorySettingsCommand {
+    #[command(about = "show current factory settings")]
+    Get(FactorySettingsGetArgs),
+
+    #[command(about = "update a factory setting (user-only)")]
+    Set(FactorySettingsSetArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactorySettingsGetArgs {
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactorySettingsSetArgs {
+    #[arg(help = "setting key")]
+    pub key: String,
+
+    #[arg(help = "setting value (scalar or JSON)")]
+    pub value: String,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryRebuildArgs {
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
@@ -778,6 +814,10 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryChecksCommand::Discover(a) => a.json,
             FactoryChecksCommand::Set(a) => a.json,
             FactoryChecksCommand::Show(a) => a.json,
+        },
+        FactoryCommand::Settings(s_args) => match &s_args.command {
+            FactorySettingsCommand::Get(a) => a.json,
+            FactorySettingsCommand::Set(a) => a.json,
         },
         FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
@@ -1695,6 +1735,42 @@ fn execute(
                 return Err(CmdError::factory_disabled());
             }
             handle_checks_command(&c_args.command, &store, workspace)
+        }
+        FactoryCommand::Settings(s_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            match &s_args.command {
+                FactorySettingsCommand::Get(a) => {
+                    let settings = if store.exists() {
+                        store.settings().map_err(map_factory_error)?
+                    } else {
+                        FactorySettings::default()
+                    };
+                    if a.json {
+                        serialize_compact(&settings)
+                    } else {
+                        serde_json::to_string_pretty(&settings)
+                            .map_err(|e| CmdError::invalid_input(e.to_string()))
+                    }
+                }
+                FactorySettingsCommand::Set(a) => {
+                    let actor = resolve_owner(None)?;
+                    let res = super::settings::set(&store, &a.key, &a.value, &actor, &|k| {
+                        std::env::var(k).ok()
+                    })
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
+                    if a.json {
+                        serialize_compact(&res)
+                    } else {
+                        Ok(format!("{} = {}", res.key, res.new_value))
+                    }
+                }
+            }
         }
         FactoryCommand::Runner => {
             if !enabled {
