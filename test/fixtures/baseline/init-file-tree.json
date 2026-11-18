@@ -34,6 +34,7 @@
   ".agent-workspace/tandem/src/factory/checks.rs",
   ".agent-workspace/tandem/src/factory/commands.rs",
   ".agent-workspace/tandem/src/factory/events.rs",
+  ".agent-workspace/tandem/src/factory/evidence.rs",
   ".agent-workspace/tandem/src/factory/executor.rs",
   ".agent-workspace/tandem/src/factory/ids.rs",
   ".agent-workspace/tandem/src/factory/machine.rs",

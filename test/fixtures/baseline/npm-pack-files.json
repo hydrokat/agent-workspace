@@ -222,6 +222,7 @@
   "tandem/src/factory/checks.rs",
   "tandem/src/factory/commands.rs",
   "tandem/src/factory/events.rs",
+  "tandem/src/factory/evidence.rs",
   "tandem/src/factory/executor.rs",
   "tandem/src/factory/ids.rs",
   "tandem/src/factory/machine.rs",

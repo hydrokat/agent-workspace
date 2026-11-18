@@ -70,6 +70,7 @@ fn routes_tiers_upgrades_on_retry_prefers_orchestrator_provider_and_records_temp
     let ctx = RoutingContext {
         preferred_provider: Some("claude".into()),
         is_ui_work: true,
+        ..Default::default()
     };
     let plan_stage = wf.stages.iter().find(|s| s.name == "plan").unwrap();
     let r1 = route(plan_stage, &wf, &settings, &["agy", "claude"], 1, &ctx).unwrap();
