@@ -669,6 +669,9 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
             run: run_id.clone(),
             reason: "test and lint commands are not confirmed".to_string(),
             commands: vec!["tandem factory checks discover --target workspace".to_string()],
+            cap: None,
+            spent: None,
+            limit: None,
         },
         &sys,
     );

@@ -11,7 +11,13 @@ use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapsho
 use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
-use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
+use crate::factory::budget::{
+    BudgetBreach, BudgetCapKind, BudgetCheck, RunBudget, check as check_budget,
+    effective_stage_budget, spent as compute_spent,
+};
+use crate::factory::events::{
+    Event, append_locked, read_all, reject_if_symlink, set_private_file_mode,
+};
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
 use crate::factory::machine::{self, Command, EventData, Facts};
@@ -308,9 +314,41 @@ fn pause_run(
             run: run_id.clone(),
             reason,
             commands,
+            cap: None,
+            spent: None,
+            limit: None,
         }],
         &sys,
     )?;
+    Ok(())
+}
+
+fn pause_run_budget_breach(
+    store: &FactoryStore,
+    run: Run,
+    breach: BudgetBreach,
+    stop_running: bool,
+) -> Result<(), RunnerError> {
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "runner".to_string(),
+    };
+    let mut evs = if stop_running {
+        interrupt_running_jobs(store, &run)?.1
+    } else {
+        Vec::new()
+    };
+    let idea_id = run.idea.clone();
+    let run_id = run.id.clone();
+    evs.push(EventData::RunPaused {
+        run: run_id.clone(),
+        reason: breach.message,
+        commands: vec![breach.action_command],
+        cap: Some(breach.cap_name),
+        spent: Some(breach.spent),
+        limit: Some(breach.limit),
+    });
+    append_run_events(store, &idea_id, &run_id, Some(run), evs, &sys)?;
     Ok(())
 }
 
@@ -654,6 +692,14 @@ pub fn drive_run_step(
         }
     };
 
+    let run_budget = RunBudget::from_run_or_settings(&run, &settings);
+    let pre_log = read_all(&store.events_path())?;
+    let pre_spent = compute_spent(&run, &pre_log.events, current_time());
+    if let BudgetCheck::Breach(breach) = check_budget(&run.id, &run_budget, &pre_spent, true) {
+        return pause_run_budget_breach(store, run, breach, false);
+    }
+    let _eff_stage_budget = effective_stage_budget(&stage_def.budget, &run_budget, &pre_spent);
+
     let mut pre_evs = Vec::new();
     let idea_is_queued = store
         .get_idea(&run.idea)?
@@ -938,6 +984,19 @@ pub fn drive_run_step(
         }
     }
 
+    if let Some(after_run) = get_run(store, run_id)?
+        && matches!(after_run.state, RunState::Queued | RunState::Running)
+    {
+        let post_log = read_all(&store.events_path())?;
+        let post_spent = compute_spent(&after_run, &post_log.events, current_time());
+        if let BudgetCheck::Breach(breach) =
+            check_budget(&after_run.id, &run_budget, &post_spent, false)
+        {
+            let stop_running = breach.cap == BudgetCapKind::Duration;
+            pause_run_budget_breach(store, after_run, breach, stop_running)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -1018,6 +1077,9 @@ pub fn pause_run_by_user(
         run: run_id.to_string(),
         reason,
         commands: vec![format!("tandem factory run resume {run_id}")],
+        cap: None,
+        spent: None,
+        limit: None,
     });
 
     let updated = append_run_events(
@@ -1331,6 +1393,62 @@ pub fn retry_paused_stage(
         evs,
         actor,
     )
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChangeBudgetResult {
+    pub run: Run,
+    pub old: RunBudget,
+    pub new: RunBudget,
+}
+
+pub fn change_run_budget(
+    store: &FactoryStore,
+    run_id: &str,
+    max_cost_usd: Option<f64>,
+    max_duration_secs: Option<u64>,
+    max_retries: Option<u32>,
+    actor: &Actor,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<ChangeBudgetResult, RunnerError> {
+    ensure_user_caller(env)?;
+    if actor.kind != ActorKind::User {
+        return Err(RunnerError::Approval(ApprovalError::AgentCaller));
+    }
+    if !is_valid_run_id(run_id) {
+        return Err(RunnerError::InvalidInput(format!(
+            "invalid run id: {run_id}"
+        )));
+    }
+    if max_cost_usd.is_none() && max_duration_secs.is_none() && max_retries.is_none() {
+        return Err(RunnerError::InvalidInput(
+            "pass at least one of --max-cost, --max-duration, or --max-retries".to_string(),
+        ));
+    }
+    let run = get_run(store, run_id)?
+        .ok_or_else(|| RunnerError::Run(RunError::NotFound(format!("run {run_id}"))))?;
+    let settings = store.settings()?;
+    let old = RunBudget::from_run_or_settings(&run, &settings);
+    let new = old.with_overrides(max_cost_usd, max_duration_secs, max_retries, &settings)?;
+
+    let updated = append_run_events(
+        store,
+        &run.idea.clone(),
+        &run.id.clone(),
+        Some(run),
+        vec![EventData::BudgetChanged {
+            run: run_id.to_string(),
+            old: old.clone().into(),
+            new: new.clone().into(),
+        }],
+        actor,
+    )?;
+
+    Ok(ChangeBudgetResult {
+        run: updated,
+        old,
+        new,
+    })
 }
 
 pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), RunnerError> {

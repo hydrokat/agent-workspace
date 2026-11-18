@@ -643,6 +643,9 @@ fn test_pause_resume_cancel_and_retry_controls() {
             commands: vec![format!(
                 "tandem factory run retry {run_id} test --hypothesis \"<new hypothesis>\""
             )],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     monitor.reload();
@@ -712,6 +715,9 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
                 "tandem factory provider consent claude --auth api-key --confirm claude"
                     .to_string(),
             ],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
@@ -765,6 +771,9 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
             run: run_id.clone(),
             reason: "the agy gate is closed (terms verdict: unclear).".to_string(),
             commands: vec![],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     monitor.reload();
@@ -791,6 +800,9 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
                 format!("tandem factory run target {run_id} repo-a"),
                 format!("tandem factory run target {run_id} repo-b"),
             ],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     monitor.reload();
@@ -918,6 +930,9 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
             commands: vec![format!(
                 "tandem factory run retry {run_id} plan --hypothesis \"<new hypothesis>\""
             )],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     monitor.reload();
@@ -957,6 +972,9 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
                 "tandem factory provider consent claude --auth api-key --confirm claude"
                     .to_string(),
             ],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     monitor.reload();
@@ -988,6 +1006,9 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
                 format!("tandem factory run target {run_id} repo-a"),
                 format!("tandem factory run target {run_id} repo-b"),
             ],
+            cap: None,
+            spent: None,
+            limit: None,
         },
     );
     monitor.reload();

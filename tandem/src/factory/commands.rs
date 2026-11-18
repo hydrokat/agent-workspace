@@ -127,6 +127,14 @@ pub struct FactoryIdeaReadyArgs {
     #[arg(long)]
     pub deploy: bool,
     #[arg(long)]
+    pub max_cost: Option<String>,
+    #[arg(long)]
+    pub max_duration: Option<u64>,
+    #[arg(long)]
+    pub max_retries: Option<u32>,
+    #[arg(long)]
+    pub accept_estimate: bool,
+    #[arg(long)]
     pub json: bool,
 }
 
@@ -291,6 +299,8 @@ pub enum FactoryRunCommand {
     Pause(FactoryRunPauseArgs),
     #[command(about = "resume a paused run from the last valid stage")]
     Resume(FactoryRunResumeArgs),
+    #[command(about = "view or update budget caps for a run")]
+    Budget(FactoryRunBudgetArgs),
     #[command(about = "cancel an active run while keeping its worktree and branch")]
     Cancel(FactoryRunCancelArgs),
     #[command(about = "tail a job log for a run")]
@@ -401,6 +411,19 @@ pub struct FactoryRunPauseArgs {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryRunResumeArgs {
     pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunBudgetArgs {
+    pub run: String,
+    #[arg(long)]
+    pub max_cost: Option<String>,
+    #[arg(long)]
+    pub max_duration: Option<u64>,
+    #[arg(long)]
+    pub max_retries: Option<u32>,
     #[arg(long)]
     pub json: bool,
 }
@@ -799,6 +822,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Retry(a) => a.json,
             FactoryRunCommand::Pause(a) => a.json,
             FactoryRunCommand::Resume(a) => a.json,
+            FactoryRunCommand::Budget(a) => a.json,
             FactoryRunCommand::Cancel(a) => a.json,
             FactoryRunCommand::Log(a) => a.json,
             FactoryRunCommand::Evidence(a) => a.json,
@@ -1139,15 +1163,30 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let approved_by = resolve_owner(None)?;
-                let res = super::approval::mark_ready_with_workflow(
+                let max_cost_usd = a
+                    .max_cost
+                    .as_deref()
+                    .map(|raw| {
+                        raw.trim().parse::<f64>().map_err(|_| {
+                            CmdError::invalid_input(format!("invalid --max-cost value: {raw}"))
+                        })
+                    })
+                    .transpose()?;
+                let res = super::approval::mark_ready_with_options(
                     &store,
                     workspace,
                     &a.id,
                     &a.confirm,
                     &a.via,
                     &approved_by,
-                    a.workflow.as_deref(),
-                    a.deploy,
+                    super::approval::MarkReadyOptions {
+                        workflow_override: a.workflow.clone(),
+                        deploy_requested: a.deploy,
+                        max_cost_usd,
+                        max_duration_secs: a.max_duration,
+                        max_retries: a.max_retries,
+                        accept_estimate: a.accept_estimate,
+                    },
                     &|k| std::env::var(k).ok(),
                 )
                 .map_err(|e| CmdError {
@@ -1155,7 +1194,11 @@ fn execute(
                     code: e.code(),
                     message: e.to_string(),
                 })?;
-                serialize_compact(&res)
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_ready_text(&res))
+                }
             }
             FactoryIdeaCommand::RevokeReady(a) => {
                 if !enabled {
@@ -1403,6 +1446,7 @@ fn execute(
                     super::run::CreateRunOptions {
                         deploy_requested: a.deploy,
                         workflow: a.workflow.clone(),
+                        budget: None,
                     },
                     &actor,
                 )
@@ -1581,6 +1625,43 @@ fn execute(
                     serialize_compact(&run)
                 } else {
                     Ok(format!("Run {} resumed.", run.id))
+                }
+            }
+            FactoryRunCommand::Budget(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let max_cost_usd = a
+                    .max_cost
+                    .as_deref()
+                    .map(|raw| {
+                        raw.trim().parse::<f64>().map_err(|_| {
+                            CmdError::invalid_input(format!("invalid --max-cost value: {raw}"))
+                        })
+                    })
+                    .transpose()?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::change_run_budget(
+                    &store,
+                    &a.run,
+                    max_cost_usd,
+                    a.max_duration,
+                    a.max_retries,
+                    &actor,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_budget_change_text(&res))
                 }
             }
             FactoryRunCommand::Cancel(a) => {
@@ -2065,6 +2146,105 @@ fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<I
     crate::commands::add_agent(&spec, workspace, config)
         .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
     Ok(idea)
+}
+
+fn format_ready_text(res: &super::approval::ReadyResult) -> String {
+    let mut lines = vec![format!("{} ({})", res.message, res.idea.id)];
+    if let Some(budget) = &res.budget {
+        let cost = res.cost_cap_note.clone().unwrap_or_else(|| {
+            budget
+                .max_cost_usd
+                .map(|c| format!("${c:.2}"))
+                .unwrap_or_else(|| "unlimited".to_string())
+        });
+        let dur = budget
+            .max_duration_secs
+            .map(super::budget::format_duration_minutes_or_secs)
+            .unwrap_or_else(|| "unlimited".to_string());
+        let retries = budget
+            .max_retries
+            .map(|r| format!("{r} retries"))
+            .unwrap_or_else(|| "unlimited retries".to_string());
+        lines.push(format!("Budget: {cost} · {dur} · {retries}"));
+    }
+    if let Some(est) = &res.estimate {
+        let dur = match &est.duration_secs {
+            super::budget::EstimateRange::Known { min, max, .. } => {
+                format!("{min} to {max}s")
+            }
+            super::budget::EstimateRange::Unknown { reason } => {
+                format!("duration unknown ({reason})")
+            }
+        };
+        let cost = match &est.cost_usd {
+            super::budget::EstimateRange::Known { min, max, .. } => {
+                format!("${min:.2} to ${max:.2}")
+            }
+            super::budget::EstimateRange::Unknown { reason } => {
+                format!("cost unknown ({reason})")
+            }
+        };
+        lines.push(format!("Estimate: {dur} · {cost}"));
+    }
+    if let Some(run) = &res.run {
+        lines.push(format!("Run: {} ({})", run.id, run.workflow));
+    } else if let Some(err) = &res.run_error {
+        lines.push(format!("Run error: {err}"));
+    }
+    lines.join("\n")
+}
+
+fn format_budget_change_text(res: &super::runner::ChangeBudgetResult) -> String {
+    let mut lines = Vec::new();
+    if res.old.max_cost_usd != res.new.max_cost_usd {
+        let old_s = res
+            .old
+            .max_cost_usd
+            .map(|c| format!("${c:.2}"))
+            .unwrap_or_else(|| "unlimited".to_string());
+        let new_s = res
+            .new
+            .max_cost_usd
+            .map(|c| format!("${c:.2}"))
+            .unwrap_or_else(|| "unlimited".to_string());
+        lines.push(format!("Cost cap for {}: {old_s} -> {new_s}.", res.run.id));
+    }
+    if res.old.max_duration_secs != res.new.max_duration_secs {
+        let old_s = res
+            .old
+            .max_duration_secs
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        let new_s = res
+            .new
+            .max_duration_secs
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        lines.push(format!(
+            "Duration cap for {}: {old_s} -> {new_s} seconds.",
+            res.run.id
+        ));
+    }
+    if res.old.max_retries != res.new.max_retries {
+        let old_s = res
+            .old
+            .max_retries
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        let new_s = res
+            .new
+            .max_retries
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        lines.push(format!("Retry cap for {}: {old_s} -> {new_s}.", res.run.id));
+    }
+    if res.run.state == super::model::RunState::Paused {
+        lines.push(format!(
+            "Resume with: tandem factory run resume {}",
+            res.run.id
+        ));
+    }
+    lines.join(" ")
 }
 
 fn format_stopped_jobs_line(jobs: &[super::runner::StoppedJobInfo]) -> Option<String> {

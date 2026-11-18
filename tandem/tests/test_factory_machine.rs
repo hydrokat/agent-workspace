@@ -525,6 +525,7 @@ fn test_event_data_serde_envelope_fields() {
                 plan_sha256: String::new(),
                 deploy_requested: false,
                 stages: Vec::new(),
+                budget: None,
             },
             "run.created",
         ),

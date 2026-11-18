@@ -228,6 +228,9 @@ fn pause_run_for_pr(
         run: run.id.clone(),
         reason: reason.clone(),
         commands: commands.clone(),
+        cap: None,
+        spent: None,
+        limit: None,
     };
     let ev = Event::from_data(
         ts,

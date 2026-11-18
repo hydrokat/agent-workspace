@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::evidence::EvidenceItem;
 use super::model::{
-    Actor, ActorKind, ApprovalGate, ArtifactRef, FeasibilityVerdict, Idea, IdeaState,
+    Actor, ActorKind, ApprovalGate, ArtifactRef, Budget, FeasibilityVerdict, Idea, IdeaState,
     OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, validate_owner,
     validate_text, validate_title,
 };
@@ -146,6 +146,8 @@ pub enum EventData {
         deploy_requested: bool,
         #[serde(default)]
         stages: Vec<Stage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        budget: Option<Budget>,
     },
     #[serde(rename = "run.withdrawn")]
     RunWithdrawn { run: String },
@@ -242,6 +244,12 @@ pub enum EventData {
         reason: String,
         #[serde(default)]
         commands: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cap: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spent: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<f64>,
     },
     #[serde(rename = "run.resumed")]
     RunResumed { run: String },
@@ -280,6 +288,12 @@ pub enum EventData {
         old_value: serde_json::Value,
         new_value: serde_json::Value,
         actor: String,
+    },
+    #[serde(rename = "budget.changed")]
+    BudgetChanged {
+        run: String,
+        old: Budget,
+        new: Budget,
     },
 }
 
@@ -476,6 +490,7 @@ pub fn decide(
                 plan_sha256: String::new(),
                 deploy_requested: false,
                 stages: Vec::new(),
+                budget: None,
             }])
         }
 
@@ -825,6 +840,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                 plan_sha256,
                 deploy_requested,
                 stages,
+                budget,
             },
         ) => Some(Run {
             id: run.clone(),
@@ -846,7 +862,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             stages: stages.clone(),
             evidence: Vec::new(),
             prs: Vec::new(),
-            budget: None,
+            budget: budget.clone(),
             created: ts,
             updated: ts,
         }),
@@ -1031,6 +1047,10 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         existing.state = pr.state.clone();
                         existing.checks_summary = pr.checks_summary.clone();
                     }
+                    run.updated = ts;
+                }
+                EventData::BudgetChanged { new, .. } => {
+                    run.budget = Some(new.clone());
                     run.updated = ts;
                 }
                 _ => {}

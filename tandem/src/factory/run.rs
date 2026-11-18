@@ -7,7 +7,7 @@ use super::approval::verify_snapshot;
 use super::events::{Event, append_locked, read_all, reject_if_symlink, set_private_file_mode};
 use super::ids::{is_valid_idea_id, is_valid_run_id, new_run_id};
 use super::machine::{self, Command, EventData, TransitionError};
-use super::model::{Actor, IdeaState, Run, RunState, Stage, StageState};
+use super::model::{Actor, Budget, IdeaState, Run, RunState, Stage, StageState};
 use super::store::{FactoryStore, create_private_dir, current_time, event_run_id, write_atomic};
 use super::workflow::parse::load_workflow_file;
 use super::workflow::validate::{resolve_workflow_path, validate};
@@ -18,6 +18,7 @@ use crate::coordination::filelock::exclusive_lock;
 pub struct CreateRunOptions {
     pub deploy_requested: bool,
     pub workflow: Option<String>,
+    pub budget: Option<Budget>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -145,6 +146,10 @@ pub fn create_run(
         })
         .collect();
 
+    let resolved_budget = options
+        .budget
+        .or_else(|| Some(settings.default_budget.clone()));
+
     let ev_data = EventData::RunCreated {
         run: run_id.clone(),
         workflow: wf.name.clone(),
@@ -154,6 +159,7 @@ pub fn create_run(
         plan_sha256: snap.sha256,
         deploy_requested: options.deploy_requested,
         stages,
+        budget: resolved_budget,
     };
 
     let ts = current_time();
