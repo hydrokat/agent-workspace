@@ -620,6 +620,20 @@ impl BrokerExecutor {
                             &sys_actor,
                         );
                     }
+                    if job.stage == "demo"
+                        && let Err(e) = super::evidence::record_demo_screenshots(
+                            &store,
+                            &run.idea,
+                            &job.run,
+                            job.attempt,
+                            &artifact_dir,
+                            &sys_actor,
+                        )
+                    {
+                        return StageOutcome::Failed {
+                            reason: e.to_string(),
+                        };
+                    }
                     if matches!(job.stage.as_str(), "create-tests" | "develop") {
                         match super::stages::scope::list_changed_files(&worktree_path).and_then(
                             |files| {

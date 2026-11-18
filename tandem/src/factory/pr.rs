@@ -456,12 +456,25 @@ fn build_pr_body(
     };
     let exceptions_summary =
         summarize_exceptions_section(store, &run.evidence, workspace, worktree);
+    let screenshot_count = run
+        .evidence
+        .iter()
+        .filter(|i| i.kind == EvidenceKind::Screenshot)
+        .count();
+    let demo_section = if screenshot_count > 0 {
+        format!(
+            "## Demo\n{screenshot_count} local screenshot(s) captured (stored locally; not uploaded).\n\n"
+        )
+    } else {
+        String::new()
+    };
     let clean_title = sanitize_text(&idea.title, workspace, worktree);
 
     let body = format!(
         "## What changed\n{diff_summary}\n\n\
          ## Tests\n{tests_summary}\n\n\
          ## Review\n{review_summary}\n\n\
+         {demo_section}\
          ## Risks\n{risk_summary}\n\n\
          ## Follow-up\n{follow_up}\n\n\
          ## Recorded exceptions\n{exceptions_summary}\n\n\

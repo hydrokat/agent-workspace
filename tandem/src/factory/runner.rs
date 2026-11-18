@@ -9,13 +9,14 @@ use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
 use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapshot};
 use crate::factory::broker::gate::{check, today_iso_date};
+use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
 use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
 use crate::factory::machine::{self, Command, EventData, Facts};
 use crate::factory::model::{
-    Actor, ActorKind, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
+    Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
 };
 use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
@@ -105,6 +106,109 @@ pub fn has_ui_slices(store: &FactoryStore, run_id: &str) -> bool {
         return false;
     };
     manifest.slices.iter().any(|s| s.ui)
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    let (mut pi, mut ti) = (0, 0);
+    let (mut star_p, mut star_t) = (None, 0);
+    while ti < t.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star_p = Some(pi);
+            star_t = ti;
+            pi += 1;
+        } else if let Some(sp) = star_p {
+            pi = sp + 1;
+            star_t += 1;
+            ti = star_t;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+fn path_matches_ui_pattern(path: &str, raw_pattern: &str) -> bool {
+    let norm_path = path.trim().replace('\\', "/");
+    let norm_path = norm_path.trim_start_matches("./");
+    let pat = raw_pattern.trim().replace('\\', "/");
+    let pat = pat.trim_start_matches("./").trim_end_matches('/');
+    if pat.is_empty() {
+        return false;
+    }
+    if pat.contains('*') || pat.contains('?') {
+        if let Some(prefix) = pat.strip_suffix("/**")
+            && (norm_path == prefix || norm_path.starts_with(&format!("{prefix}/")))
+        {
+            return true;
+        }
+        return glob_match(pat, norm_path);
+    }
+    norm_path == pat || norm_path.starts_with(&format!("{pat}/"))
+}
+
+pub fn compute_ui_changed(store: &FactoryStore, run: &Run, settings: &FactorySettings) -> TriState {
+    let develop_done = run
+        .stages
+        .iter()
+        .any(|s| s.name == "develop" && s.state == StageState::Succeeded);
+    if !develop_done {
+        return TriState::Unknown;
+    }
+    if has_ui_slices(store, &run.id) {
+        return TriState::Yes;
+    }
+    let target_name = run.target.as_deref().unwrap_or("workspace");
+    let Some(checks) = settings.checks.get(target_name) else {
+        return TriState::No;
+    };
+    if checks.ui_paths.is_empty() {
+        return TriState::No;
+    }
+    let Some(wt_str) = run.worktree_path.as_deref() else {
+        return TriState::No;
+    };
+    let wt = Path::new(wt_str);
+    if !wt.exists() {
+        return TriState::No;
+    }
+    let range = run
+        .base_commit
+        .as_deref()
+        .filter(|b| !b.trim().is_empty())
+        .map(|b| format!("{b}..HEAD"));
+    let args: Vec<&str> = match range.as_deref() {
+        Some(r) => vec!["--name-only", r],
+        None => vec!["--name-only", "HEAD"],
+    };
+    let Ok(out) = run_git(
+        AllowedGitSubcommand::Diff,
+        &args,
+        wt,
+        Duration::from_secs(15),
+    ) else {
+        return TriState::No;
+    };
+    let touched_ui = out.lines().any(|file| {
+        let f = file.trim();
+        !f.is_empty()
+            && checks
+                .ui_paths
+                .iter()
+                .any(|p| path_matches_ui_pattern(f, p))
+    });
+    if touched_ui {
+        TriState::Yes
+    } else {
+        TriState::No
+    }
 }
 
 pub fn stop_request_path(store: &FactoryStore, run_id: &str) -> PathBuf {
@@ -370,9 +474,10 @@ pub fn drive_run_step(
         }
     }
 
-    let is_ui = has_ui_slices(store, run_id);
+    let ui_changed = compute_ui_changed(store, &run, &settings);
+    let is_ui = matches!(ui_changed, TriState::Yes) || has_ui_slices(store, run_id);
     let facts = RunFacts {
-        ui_changed: if is_ui { TriState::Yes } else { TriState::No },
+        ui_changed,
         deploy_requested: run.deploy_requested,
         approvals: Vec::new(),
     };
@@ -441,6 +546,32 @@ pub fn drive_run_step(
         }
         return Ok(());
     };
+
+    if stage_name == "demo" {
+        let dep_status = crate::web_deps::screenshot_tool_status(
+            &crate::web_deps::DepsEnv::from_process(),
+            &store.root,
+        );
+        if !dep_status.available_for_demo() {
+            let reason = "screenshot tool not installed".to_string();
+            let _ = super::evidence::record_demo_skipped_no_tool(
+                store, &run.idea, &run.id, &reason, &sys,
+            );
+            append_run_events(
+                store,
+                &run.idea.clone(),
+                &run.id.clone(),
+                Some(run),
+                vec![EventData::StageSkipped {
+                    run: run_id.to_string(),
+                    stage: "demo".to_string(),
+                    reason,
+                }],
+                &sys,
+            )?;
+            return Ok(());
+        }
+    }
 
     let today = today_iso_date();
     let open_providers: Vec<&str> = KNOWN_PROVIDERS

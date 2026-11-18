@@ -497,3 +497,66 @@ pub fn record_committed_diff_stat(
         actor,
     )
 }
+
+pub fn record_demo_screenshots(
+    store: &FactoryStore,
+    idea_id: &str,
+    run_id: &str,
+    attempt: u32,
+    artifact_dir: &Path,
+    actor: &Actor,
+) -> Result<Vec<EvidenceItem>, FactoryError> {
+    let manifest = super::stages::demo::load_and_validate_demo_manifest(artifact_dir)
+        .map_err(|e| FactoryError::InvalidInput(e.to_string()))?;
+    let mut items = Vec::with_capacity(manifest.screenshots.len());
+    for entry in &manifest.screenshots {
+        let png_path = artifact_dir.join(entry.path.trim());
+        let bytes = fs::read(&png_path)?;
+        let item = add(
+            store,
+            AddEvidenceInput {
+                idea_id,
+                run_id,
+                kind: EvidenceKind::Screenshot,
+                stage: "demo",
+                attempt,
+                extension: "png",
+                content: &bytes,
+                summary: entry.caption.trim().to_string(),
+            },
+            actor,
+        )?;
+        items.push(item);
+    }
+    Ok(items)
+}
+
+pub fn record_demo_skipped_no_tool(
+    store: &FactoryStore,
+    idea_id: &str,
+    run_id: &str,
+    reason: &str,
+    actor: &Actor,
+) -> Result<EvidenceItem, FactoryError> {
+    let payload = serde_json::json!({
+        "skipped": true,
+        "reason": reason,
+        "screenshots_taken": 0,
+        "note": "no screenshots were taken",
+    });
+    let bytes = serde_json::to_vec_pretty(&payload)?;
+    add(
+        store,
+        AddEvidenceInput {
+            idea_id,
+            run_id,
+            kind: EvidenceKind::Exception,
+            stage: "demo",
+            attempt: 0,
+            extension: "json",
+            content: &bytes,
+            summary: format!("demo skipped: no screenshots were taken ({reason})"),
+        },
+        actor,
+    )
+}

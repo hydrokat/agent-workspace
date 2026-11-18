@@ -457,6 +457,10 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
         ("spawn.rs", Some(&["claude", "agy", "opencode"])),
         ("git.rs", Some(&["git"])),
         ("gh.rs", Some(&["gh"])),
+        (
+            "browser.rs",
+            Some(&["chromium", "chromium-browser", "google-chrome"]),
+        ),
         ("checks.rs", None),
     ];
     let gate_env_keywords = ["GATE", "BYPASS", "SKIP_TERMS", "OVERRIDE", "ALLOW_PROVIDER"];
@@ -780,6 +784,11 @@ fn test_negative_tos_violations_are_detected() {
         "pub fn forge() -> ConfirmedChecks { ConfirmedChecks { target: String::new() } }",
     )
     .unwrap();
+    fs::write(
+        tmp_broker.join("browser.rs"),
+        "pub fn cap() { let _ = std::process::Command::new(\"curl\"); }",
+    )
+    .unwrap();
 
     let v6 = check_factory_spawn_sites(&tmp_src);
     assert!(
@@ -816,6 +825,11 @@ fn test_negative_tos_violations_are_detected() {
         v6.iter()
             .any(|v| v.contains("forged_checks.rs") && v.contains("outside checks.rs")),
         "expected Rule 4b violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("browser.rs") && v.contains("may not spawn 'curl'")),
+        "expected browser.rs allowlist violation, got {v6:?}"
     );
 
     let _ = fs::remove_dir_all(&tmp);

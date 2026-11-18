@@ -236,4 +236,16 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.ok(text.includes('result.json'), 'writes result.json');
     assert.match(text, /Read-Only/i, 'enforces read-only mandate');
   });
+
+  it('installs factory-demo-maker with valid front matter, provider sync, and local-only screenshot contract', () => {
+    has('factory-demo-maker/SKILL.md');
+    has('factory-demo-maker/agents/openai.yaml');
+    assert.ok(fileExists(dir, '.claude/skills/factory-demo-maker/SKILL.md'), 'installed for claude provider');
+
+    const text = skill('factory-demo-maker');
+    assert.match(text, /^---\nname: factory-demo-maker\n/);
+    assert.ok(text.includes('demo.json'), 'writes demo.json');
+    assert.ok(text.includes('result.json'), 'writes result.json');
+    assert.match(text, /never uploaded/i, 'enforces local-only screenshots');
+  });
 });

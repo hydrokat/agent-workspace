@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
 pub const BUN_DOCS_URL: &str = "https://bun.com/docs/installation";
+pub const SCREENSHOT_TOOL_NAME: &str = "chromium";
+pub const SCREENSHOT_TOOL_CANDIDATES: &[&str] = &["chromium", "chromium-browser", "google-chrome"];
+const SCREENSHOT_CONSENT_FILE: &str = "screenshot-consent.json";
 const BUN_INSTALL_CMD: &str = "curl -fsSL https://bun.com/install | bash";
 const BUN_INSTALL_PS: &str = "powershell -c \"irm bun.sh/install.ps1|iex\"";
 const PACKAGE_MANAGERS: [&str; 6] = ["apt", "dnf", "yum", "pacman", "apk", "zypper"];
@@ -593,4 +596,128 @@ fn run_installer(script: &Path, log: &Path) -> InstallOutcome {
             message: format!("could not run {}: {e}", script.display()),
         },
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScreenshotToolDecision {
+    pub tool: &'static str,
+    pub candidates: &'static [&'static str],
+    pub channel: &'static str,
+    pub rationale: &'static str,
+}
+
+pub fn screenshot_tool_decision() -> ScreenshotToolDecision {
+    ScreenshotToolDecision {
+        tool: SCREENSHOT_TOOL_NAME,
+        candidates: SCREENSHOT_TOOL_CANDIDATES,
+        channel: "stable",
+        rationale: "Chromium stable ships in standard Linux LTS repositories and Homebrew, \
+                    supports --headless --screenshot directly without Node or pre-release packages, \
+                    and requires no network crates in tandem.",
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenshotConsent {
+    #[default]
+    Unasked,
+    Accepted,
+    Declined,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ScreenshotConsentRecord {
+    tool: String,
+    consent: ScreenshotConsent,
+}
+
+pub fn load_screenshot_consent(state_dir: &Path) -> ScreenshotConsent {
+    let path = state_dir.join(SCREENSHOT_CONSENT_FILE);
+    let Ok(raw) = fs::read_to_string(path) else {
+        return ScreenshotConsent::Unasked;
+    };
+    serde_json::from_str::<ScreenshotConsentRecord>(&raw)
+        .map(|r| r.consent)
+        .unwrap_or(ScreenshotConsent::Unasked)
+}
+
+pub fn save_screenshot_consent(state_dir: &Path, consent: ScreenshotConsent) -> io::Result<()> {
+    fs::create_dir_all(state_dir)?;
+    let record = ScreenshotConsentRecord {
+        tool: SCREENSHOT_TOOL_NAME.to_string(),
+        consent,
+    };
+    let bytes = serde_json::to_vec_pretty(&record).map_err(io::Error::other)?;
+    fs::write(state_dir.join(SCREENSHOT_CONSENT_FILE), bytes)
+}
+
+pub fn find_screenshot_tool(env: &DepsEnv) -> Option<PathBuf> {
+    SCREENSHOT_TOOL_CANDIDATES
+        .iter()
+        .find_map(|name| find_executable(name, &env.path, &[]))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenshotToolStatus {
+    pub tool: String,
+    pub installed: bool,
+    pub executable: Option<PathBuf>,
+    pub consent: ScreenshotConsent,
+}
+
+impl ScreenshotToolStatus {
+    pub fn available_for_demo(&self) -> bool {
+        self.installed && self.consent != ScreenshotConsent::Declined
+    }
+}
+
+pub fn screenshot_tool_status(env: &DepsEnv, state_dir: &Path) -> ScreenshotToolStatus {
+    let executable = find_screenshot_tool(env);
+    ScreenshotToolStatus {
+        tool: SCREENSHOT_TOOL_NAME.to_string(),
+        installed: executable.is_some(),
+        executable,
+        consent: load_screenshot_consent(state_dir),
+    }
+}
+
+pub fn screenshot_install_plan(platform: &Platform, tools: &[String]) -> ManualStep {
+    let has = |t: &str| tools.iter().any(|x| x == t);
+    let commands = match platform.os.as_str() {
+        "macos" => {
+            if has("brew") {
+                vec!["brew install --cask chromium".to_string()]
+            } else {
+                vec![
+                    "Install Homebrew from https://brew.sh, then run: brew install --cask chromium"
+                        .to_string(),
+                ]
+            }
+        }
+        "linux" => vec![pm_install(platform, tools, SCREENSHOT_TOOL_NAME)],
+        _ => {
+            if has("scoop") {
+                vec!["scoop install chromium".to_string()]
+            } else {
+                vec![
+                    "Install Chromium from your OS package manager or https://www.chromium.org"
+                        .to_string(),
+                ]
+            }
+        }
+    };
+    ManualStep {
+        dep: SCREENSHOT_TOOL_NAME.to_string(),
+        commands,
+    }
+}
+
+pub fn screenshot_consent_prompt(tool: &str) -> Vec<String> {
+    vec![
+        "The demo stage can take screenshots of UI changes.".to_string(),
+        format!("It needs {tool}, which is not installed. Install it now?"),
+        "Screenshots stay on this machine and are not uploaded.".to_string(),
+        "y install   n skip the demo stage".to_string(),
+    ]
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Factory Demo Maker"
+  short_description: "Capture local PNG screenshots for UI acceptance criteria in Factory Mode."
+  default_prompt: "Follow the factory-demo-maker playbook to capture local PNG screenshots for each UI acceptance criterion and write demo.json and result.json."
