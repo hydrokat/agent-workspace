@@ -395,6 +395,23 @@ impl Executor for ScriptedReviewExecutor {
             return StageOutcome::Succeeded;
         }
         if job.stage == "test" {
+            let report = tandem::factory::stages::test::TestStageReport {
+                outcomes: vec![],
+                all_passed: true,
+                failures_summary: String::new(),
+            };
+            tandem::factory::evidence::record_test_stage_evidence(
+                &self.store,
+                &run.idea,
+                &job.run,
+                job.attempt,
+                &report,
+                &tandem::factory::model::Actor {
+                    kind: tandem::factory::model::ActorKind::System,
+                    id: "scripted".into(),
+                },
+            )
+            .unwrap();
             return StageOutcome::Succeeded;
         }
         if job.stage == "review" {
@@ -455,6 +472,9 @@ fn test_review_loop_reopens_develop_tracks_rounds_and_approves() {
 
     for _ in 0..12 {
         drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
+        if get_run(&store, &run_id).unwrap().unwrap().state == RunState::Review {
+            break;
+        }
     }
 
     let run = get_run(&store, &run_id).unwrap().unwrap();
@@ -521,6 +541,9 @@ fn test_review_loop_pauses_when_max_review_rounds_exhausted() {
 
     for _ in 0..12 {
         drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
+        if get_run(&store, &run_id).unwrap().unwrap().state == RunState::Review {
+            break;
+        }
     }
 
     let run = get_run(&store, &run_id).unwrap().unwrap();
