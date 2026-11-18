@@ -133,9 +133,9 @@ fn open_log_file(log_path: &Path) -> Result<File, CheckRunError> {
 
 fn build_scrubbed_env() -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
-    for &key in ALLOWED_CHECK_ENV {
-        if let Ok(val) = std::env::var(key) {
-            env.insert(key.to_string(), val);
+    for (key, val) in std::env::vars() {
+        if ALLOWED_CHECK_ENV.contains(&key.as_str()) {
+            env.insert(key, val);
         }
     }
     env.insert("CI".to_string(), "1".to_string());
