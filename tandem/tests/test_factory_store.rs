@@ -114,6 +114,7 @@ fn test_concurrent_appends_produce_gap_free_seq() {
                     idea: format!("i-thread{t:02}{i:02}"),
                     run: None,
                     data: serde_json::json!({}),
+                    prev: None,
                 };
                 let redacted = tandem::factory::events::redact_event(
                     ev,
@@ -186,6 +187,7 @@ fn test_half_written_last_line_recovers_and_continues_seq() {
         idea: idea.id.clone(),
         run: None,
         data: serde_json::json!({}),
+        prev: None,
     };
     let redacted =
         tandem::factory::events::redact_event(ev, &tandem::factory::redact::RedactContext::new());
@@ -317,6 +319,7 @@ fn test_oversized_title_and_event_rejected_without_writing() {
         idea: "i-12345678".to_string(),
         run: None,
         data: serde_json::json!({ "blob": huge_payload }),
+        prev: None,
     };
 
     let redacted = tandem::factory::events::redact_event(

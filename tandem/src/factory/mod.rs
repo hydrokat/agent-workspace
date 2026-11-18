@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 pub mod approval;
 pub mod artifacts;
+pub mod audit;
 pub mod broker;
 pub mod budget;
 pub mod checks;

@@ -96,6 +96,7 @@ Commands:
   events       read factory events from the log
   rebuild      rebuild materialized idea files from the event log
   redact       test and inspect secret redaction
+  audit        inspect the factory audit timeline or verify log integrity
   help         Print this message or the help of the given subcommand(s)
 
 Options:

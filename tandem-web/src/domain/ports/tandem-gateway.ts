@@ -1,5 +1,7 @@
 import type {
   ArtifactKind,
+  AuditFilterOptions,
+  AuditTimelinePayload,
   EvidenceItemContent,
   FactoryCli,
   Idea,
@@ -91,4 +93,14 @@ export interface ITandemGateway {
     itemId: string
   ): Promise<EvidenceItemContent>;
   factoryRefreshRunPrs(workspacePath: string, runId: string): Promise<PrLink[]>;
+  factoryAuditIdea(
+    workspacePath: string,
+    ideaId: string,
+    options?: AuditFilterOptions
+  ): Promise<AuditTimelinePayload>;
+  factoryAuditMarkdown(
+    workspacePath: string,
+    ideaId: string,
+    options?: AuditFilterOptions
+  ): Promise<string>;
 }

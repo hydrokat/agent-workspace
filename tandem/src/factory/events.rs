@@ -4,6 +4,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 pub use super::FactoryError;
 use super::machine::EventData;
@@ -25,6 +26,8 @@ pub struct Event {
     #[serde(default)]
     pub run: Option<String>,
     pub data: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev: Option<String>,
 }
 
 impl Event {
@@ -58,6 +61,7 @@ impl Event {
             idea,
             run,
             data,
+            prev: None,
         })
     }
 
@@ -228,6 +232,23 @@ pub fn read_since(log_path: &Path, seq: u64) -> Result<ReadResult, FactoryError>
     Ok(res)
 }
 
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn last_non_empty_line_hash(bytes: &[u8]) -> Option<String> {
+    let mut last_line: Option<&[u8]> = None;
+    for raw_line in bytes.split(|&b| b == b'\n') {
+        let trimmed = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if !trimmed.iter().all(|b| b.is_ascii_whitespace()) {
+            last_line = Some(trimmed);
+        }
+    }
+    last_line.map(sha256_hex)
+}
+
 pub(crate) fn append_locked(
     log_path: &Path,
     events: &[RedactedEvent],
@@ -237,7 +258,7 @@ pub(crate) fn append_locked(
         return Ok(Vec::new());
     }
 
-    let (existing_len, valid_end, last_seq) = match fs::read(log_path) {
+    let (existing_len, valid_end, last_seq, mut prev_hash) = match fs::read(log_path) {
         Ok(bytes) => {
             let valid_end = if bytes.is_empty() || bytes.ends_with(b"\n") {
                 bytes.len()
@@ -250,9 +271,10 @@ pub(crate) fn append_locked(
             };
             let (existing_events, _) = parse_complete_lines(&bytes[..valid_end]);
             let last_seq = existing_events.iter().map(|ev| ev.seq).max().unwrap_or(0);
-            (bytes.len(), valid_end, last_seq)
+            let prev_hash = last_non_empty_line_hash(&bytes[..valid_end]);
+            (bytes.len(), valid_end, last_seq, prev_hash)
         }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (0, 0, 0),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (0, 0, 0, None),
         Err(err) => return Err(FactoryError::Io(err)),
     };
 
@@ -263,6 +285,7 @@ pub(crate) fn append_locked(
         let mut ev = redacted.0.clone();
         ev.v = EVENT_VERSION;
         ev.seq = last_seq + 1 + idx as u64;
+        ev.prev = prev_hash.clone();
 
         let line = serde_json::to_string(&ev)?;
         let line_bytes = line.len() + 1;
@@ -272,6 +295,7 @@ pub(crate) fn append_locked(
                 max: MAX_EVENT_BYTES,
             });
         }
+        prev_hash = Some(sha256_hex(line.as_bytes()));
         buf.push_str(&line);
         buf.push('\n');
         assigned.push(ev);

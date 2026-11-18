@@ -375,3 +375,63 @@ export function isValidHypothesis(text: string): boolean {
   }
   return !/[\x00-\x1f\x7f]/.test(trimmed);
 }
+
+export type AuditKind = "job_start" | "job_end" | "approval" | "decision" | "lifecycle";
+
+export interface AuditDetailItem {
+  label: string;
+  value: string;
+}
+
+export interface AuditEntry {
+  seq: number;
+  ts: number;
+  actor: string;
+  actor_kind: ActorKind;
+  kind: AuditKind;
+  run?: string | null;
+  stage?: string | null;
+  attempt?: number | null;
+  correlation_id?: string | null;
+  summary: string;
+  details: AuditDetailItem[];
+}
+
+export interface AuditBreak {
+  seq: number;
+  reason: string;
+}
+
+export interface AuditVerifyReport {
+  total_events: number;
+  chain_start_seq?: number | null;
+  verified_events: number;
+  intact: boolean;
+  first_break?: AuditBreak | null;
+}
+
+export interface AuditTimelinePayload {
+  entries: AuditEntry[];
+  verify: AuditVerifyReport;
+}
+
+export interface AuditFilterOptions {
+  run?: string;
+  kind?: AuditKind;
+  actor?: string;
+}
+
+export function isValidAuditKind(kind: string): kind is AuditKind {
+  return (
+    kind === "job_start" ||
+    kind === "job_end" ||
+    kind === "approval" ||
+    kind === "decision" ||
+    kind === "lifecycle"
+  );
+}
+
+export function isValidAuditActor(actor: string): boolean {
+  const trimmed = actor.trim();
+  return trimmed.length > 0 && trimmed.length <= 64 && !/[\x00-\x1f\x7f]/.test(trimmed);
+}

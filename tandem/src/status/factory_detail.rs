@@ -77,6 +77,7 @@ pub enum DetailAction {
     OpenOrResumeOrchestrator { idea_id: String },
     OpenRunMonitor { run_id: String },
     OpenRunEvidence { run_id: String },
+    OpenAudit { idea_id: String },
     Refresh,
 }
 
@@ -376,6 +377,9 @@ impl FactoryDetail {
                         self.open_assumptions();
                         DetailKeyOutcome::Consumed
                     }
+                    KeyCode::Char('u') => DetailKeyOutcome::Action(DetailAction::OpenAudit {
+                        idea_id: self.idea_id.clone(),
+                    }),
                     KeyCode::Char('h') => {
                         self.open_handoff();
                         DetailKeyOutcome::Consumed
@@ -1266,7 +1270,7 @@ impl FactoryDetail {
                 "resume"
             };
             let run_hint = if self.run.is_some() {
-                "Enter run   h handoff   e evidence   r refresh PR status   "
+                "Enter run   h handoff   e evidence   u audit   r refresh PR status   "
             } else {
                 ""
             };

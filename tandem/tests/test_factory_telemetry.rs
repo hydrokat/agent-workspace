@@ -359,6 +359,7 @@ fn rework_signals_derived_from_events() {
         idea: "idea-1".to_string(),
         run: Some("run-1".to_string()),
         data,
+        prev: None,
     };
 
     let events = vec![
@@ -710,6 +711,7 @@ fn budget_does_not_breach_when_total_cost_is_unknown() {
         idea: idea_id,
         run: Some(run_id.clone()),
         data: serde_json::json!({"run": run_id, "stage": "test", "attempt": 1}),
+        prev: None,
     };
     let redacted_extra = tandem::factory::events::redact_event(
         extra,

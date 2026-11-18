@@ -503,6 +503,7 @@ fn runner_pauses_on_cost_breach_before_job_and_records_action_command() {
             "input_tokens": 100000,
             "output_tokens": 20000,
         }),
+        prev: None,
     };
     let redacted_usage = tandem::factory::events::redact_event(
         usage_ev,

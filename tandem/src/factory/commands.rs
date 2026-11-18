@@ -71,6 +71,50 @@ pub enum FactoryCommand {
 
     #[command(about = "test and inspect secret redaction")]
     Redact(FactoryRedactArgs),
+
+    #[command(about = "inspect the factory audit timeline or verify log integrity")]
+    Audit(FactoryAuditArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct FactoryAuditArgs {
+    #[command(subcommand)]
+    pub command: Option<FactoryAuditCommand>,
+
+    #[arg(value_name = "IDEA", help = "idea ID to inspect")]
+    pub idea: Option<String>,
+
+    #[arg(long, conflicts_with = "markdown", help = "output JSON")]
+    pub json: bool,
+
+    #[arg(long, conflicts_with = "json", help = "output redacted Markdown")]
+    pub markdown: bool,
+
+    #[arg(long, value_name = "RUN", help = "filter by run ID")]
+    pub run: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "KIND",
+        help = "filter by kind (job_start, job_end, approval, decision, lifecycle)"
+    )]
+    pub kind: Option<String>,
+
+    #[arg(long, value_name = "ACTOR", help = "filter by actor")]
+    pub actor: Option<String>,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryAuditCommand {
+    #[command(about = "verify the SHA-256 prev hash chain of the event log")]
+    Verify(FactoryAuditVerifyArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAuditVerifyArgs {
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -950,6 +994,10 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Rebuild(a) => a.json,
         FactoryCommand::Redact(r_args) => match &r_args.command {
             FactoryRedactCommand::Test(a) => a.json,
+        },
+        FactoryCommand::Audit(a) => match &a.command {
+            Some(FactoryAuditCommand::Verify(v)) => v.json,
+            None => a.json,
         },
     }
 }
@@ -2083,6 +2131,82 @@ fn execute(
         FactoryCommand::Redact(r_args) => match &r_args.command {
             FactoryRedactCommand::Test(a) => run_redact_test(a),
         },
+        FactoryCommand::Audit(a) => run_audit_command(a, &store, enabled),
+    }
+}
+
+fn run_audit_command(
+    args: &FactoryAuditArgs,
+    store: &FactoryStore,
+    enabled: bool,
+) -> Result<String, CmdError> {
+    if !enabled {
+        return Err(CmdError::factory_disabled());
+    }
+    match &args.command {
+        Some(FactoryAuditCommand::Verify(v)) => {
+            let report = super::audit::verify(&store.events_path()).map_err(map_factory_error)?;
+            if v.json {
+                serialize_compact(&report)
+            } else {
+                Ok(super::audit::format_verify_summary(&report))
+            }
+        }
+        None => {
+            let Some(ref idea_id) = args.idea else {
+                return Err(CmdError::invalid_input(
+                    "missing IDEA id (or try `tandem factory audit verify`)",
+                ));
+            };
+            let kind = match &args.kind {
+                Some(raw) => Some(super::audit::AuditKind::parse(raw).ok_or_else(|| {
+                    CmdError::invalid_input(format!("invalid audit kind: {raw}"))
+                })?),
+                None => None,
+            };
+            let filter = super::audit::AuditFilter {
+                run: args.run.clone(),
+                kind,
+                actor: args.actor.clone(),
+            };
+            let entries =
+                super::audit::entries(store, idea_id, &filter).map_err(map_factory_error)?;
+            let verify_report =
+                super::audit::verify(&store.events_path()).map_err(map_factory_error)?;
+
+            if args.json {
+                return super::audit::export_json(&entries, Some(&verify_report))
+                    .map_err(map_factory_error);
+            }
+            if args.markdown {
+                return Ok(super::audit::export_markdown(
+                    idea_id,
+                    &entries,
+                    Some(&verify_report),
+                ));
+            }
+
+            let mut out = format!(
+                "Audit · {idea_id}\n{}\n\n",
+                super::audit::format_verify_summary(&verify_report)
+            );
+            if entries.is_empty() {
+                out.push_str("No audit entries match the current filter.");
+                return Ok(out);
+            }
+            for e in &entries {
+                out.push_str(&format!(
+                    "{}  {:<12}  {}\n",
+                    super::audit::format_time_short(e.ts),
+                    e.actor,
+                    e.summary
+                ));
+                for d in &e.details {
+                    out.push_str(&format!("  {:<10} {}\n", d.label, d.value));
+                }
+            }
+            Ok(out.trim_end().to_string())
+        }
     }
 }
 
