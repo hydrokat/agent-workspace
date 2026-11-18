@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +56,12 @@ impl WorkflowAgent {
     }
 }
 
+impl fmt::Display for WorkflowAgent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolClass {
@@ -97,6 +105,22 @@ impl WorkflowTool {
         }
     }
 
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::RepoRead => "repo_read",
+            Self::IssueContext => "issue_context",
+            Self::DiffReview => "diff_review",
+            Self::RepoWrite => "repo_write",
+            Self::Shell => "shell",
+            Self::TestRunner => "test_runner",
+            Self::LintRunner => "lint_runner",
+            Self::Browser => "browser",
+            Self::Screenshot => "screenshot",
+            Self::Ci => "ci",
+            Self::Deployment => "deployment",
+        }
+    }
+
     pub fn class(&self) -> ToolClass {
         match self {
             Self::RepoRead | Self::IssueContext | Self::DiffReview => ToolClass::Read,
@@ -104,6 +128,12 @@ impl WorkflowTool {
             Self::Shell | Self::TestRunner | Self::LintRunner => ToolClass::Execute,
             Self::Browser | Self::Screenshot | Self::Ci | Self::Deployment => ToolClass::External,
         }
+    }
+}
+
+impl fmt::Display for WorkflowTool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

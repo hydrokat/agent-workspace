@@ -708,8 +708,25 @@ pub fn drive_run_step(
         avoid_model,
     };
 
+    let target_name = run.target.as_deref().unwrap_or("workspace");
+    let tool_grant = match crate::factory::permissions::grant(
+        stage_def.agent,
+        stage_def,
+        target_name,
+        &wf,
+        &settings,
+        false,
+    ) {
+        Ok(g) => g,
+        Err(denied) => {
+            let cmds = denied.action_commands(&run.id);
+            return pause_run(store, run, denied.to_string(), cmds);
+        }
+    };
+
     let routed = match route(
         stage_def,
+        &tool_grant,
         &wf,
         &settings,
         &open_providers,
@@ -751,6 +768,7 @@ pub fn drive_run_step(
         run: run.id.clone(),
         stage: stage_name.clone(),
         attempt: next_attempt,
+        grant: Some(tool_grant),
     });
     run = append_run_events(
         store,

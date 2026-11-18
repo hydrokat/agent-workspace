@@ -254,6 +254,7 @@ fn test_snapshot_run_summary_stages_jobs_cost_elapsed_and_paused_needs_you() {
             run: run_id.clone(),
             stage: "plan".to_string(),
             attempt: 1,
+            grant: None,
         },
     );
     let _ = prepare_stage_job(
@@ -294,6 +295,7 @@ fn test_snapshot_run_summary_stages_jobs_cost_elapsed_and_paused_needs_you() {
             run: run_id.clone(),
             stage: "develop".to_string(),
             attempt: 1,
+            grant: None,
         },
     );
     let _ = prepare_stage_job(
@@ -389,6 +391,7 @@ fn test_detail_opens_run_monitor_and_responsive_variants() {
             run: run_id.clone(),
             stage: "plan".to_string(),
             attempt: 1,
+            grant: None,
         },
     );
     append_run_event(
@@ -410,6 +413,7 @@ fn test_detail_opens_run_monitor_and_responsive_variants() {
             run: run_id.clone(),
             stage: "develop".to_string(),
             attempt: 1,
+            grant: None,
         },
     );
     let _ = prepare_stage_job(
@@ -510,6 +514,7 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
             run: run_id.clone(),
             stage: "develop".to_string(),
             attempt: 1,
+            grant: None,
         },
     );
     let log_path = prepare_stage_job(

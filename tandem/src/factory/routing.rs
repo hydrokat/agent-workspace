@@ -6,6 +6,7 @@ use crate::adapters::agy::AgyAdapter;
 use crate::adapters::base::{HeadlessAdapter, ToolFlag, validate_model_id};
 use crate::adapters::claude::ClaudeAdapter;
 use crate::factory::model::FactorySettings;
+use crate::factory::permissions::ToolGrant;
 use crate::factory::workflow::schema::{StageDef, Workflow, WorkflowAgent, WorkflowTool};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -227,6 +228,7 @@ fn map_tool_for_provider(
 
 pub fn route(
     stage: &StageDef,
+    grant: &ToolGrant,
     workflow: &Workflow,
     settings: &FactorySettings,
     open_providers: &[&str],
@@ -283,7 +285,7 @@ pub fn route(
     })?;
 
     let mut tool_flags = Vec::new();
-    for tool in &stage.tools {
+    for tool in &grant.tools {
         map_tool_for_provider(provider, *tool, &mut tool_flags)?;
     }
 

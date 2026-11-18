@@ -57,6 +57,9 @@ pub enum FactoryCommand {
     #[command(about = "inspect and update factory settings")]
     Settings(FactorySettingsArgs),
 
+    #[command(about = "manage agent and target tool permissions")]
+    Permissions(FactoryPermissionsArgs),
+
     #[command(about = "run the factory execution loop (factory sessions only)")]
     Runner,
 
@@ -710,6 +713,48 @@ pub struct FactorySettingsSetArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryPermissionsArgs {
+    #[command(subcommand)]
+    pub command: FactoryPermissionsCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryPermissionsCommand {
+    #[command(about = "allow a tool for an agent (or un-deny for --target) (user-only)")]
+    Allow(FactoryPermissionsMutateArgs),
+
+    #[command(about = "deny a tool for a target repository (or --agent) (user-only)")]
+    Deny(FactoryPermissionsMutateArgs),
+
+    #[command(about = "show configured and default tool permissions")]
+    Show(FactoryPermissionsShowArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryPermissionsMutateArgs {
+    #[arg(help = "agent name (for allow) or target name (for deny)")]
+    pub subject: String,
+
+    #[arg(help = "workflow tool name")]
+    pub tool: String,
+
+    #[arg(long, help = "apply to a target repository instead of an agent")]
+    pub target: bool,
+
+    #[arg(long, help = "apply to an agent instead of a target repository")]
+    pub agent: bool,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryPermissionsShowArgs {
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryRebuildArgs {
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
@@ -875,6 +920,10 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Settings(s_args) => match &s_args.command {
             FactorySettingsCommand::Get(a) => a.json,
             FactorySettingsCommand::Set(a) => a.json,
+        },
+        FactoryCommand::Permissions(p_args) => match &p_args.command {
+            FactoryPermissionsCommand::Allow(a) | FactoryPermissionsCommand::Deny(a) => a.json,
+            FactoryPermissionsCommand::Show(a) => a.json,
         },
         FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
@@ -1901,6 +1950,12 @@ fn execute(
                 }
             }
         }
+        FactoryCommand::Permissions(p_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            handle_permissions_command(&p_args.command, &store)
+        }
         FactoryCommand::Runner => {
             if !enabled {
                 return Err(CmdError::factory_disabled());
@@ -2732,6 +2787,99 @@ fn format_show_checks_text(checks: &BTreeMap<String, super::checks::ChecksConfig
         }
     }
     lines.join("\n")
+}
+
+fn handle_permissions_command(
+    cmd: &FactoryPermissionsCommand,
+    store: &FactoryStore,
+) -> Result<String, CmdError> {
+    let map_approval_err = |e: super::approval::ApprovalError| CmdError {
+        exit_code: e.exit_code(),
+        code: e.code(),
+        message: e.to_string(),
+    };
+    match cmd {
+        FactoryPermissionsCommand::Show(a) => {
+            let settings = if store.exists() {
+                store.settings().map_err(map_factory_error)?
+            } else {
+                FactorySettings::default()
+            };
+            let view = super::permissions::show(&settings);
+            if a.json {
+                serialize_compact(&view)
+            } else {
+                serde_json::to_string_pretty(&view)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))
+            }
+        }
+        FactoryPermissionsCommand::Allow(a) => {
+            if a.agent && a.target {
+                return Err(CmdError::invalid_input(
+                    "pass at most one of --agent or --target".to_string(),
+                ));
+            }
+            let tool = super::workflow::schema::WorkflowTool::parse(&a.tool)
+                .ok_or_else(|| CmdError::invalid_input(format!("unknown tool: {}", a.tool)))?;
+            let actor = resolve_owner(None)?;
+            let res = if a.target {
+                super::permissions::allow_target_tool(store, &a.subject, tool, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(map_approval_err)?
+            } else {
+                let agent =
+                    super::workflow::schema::WorkflowAgent::parse(&a.subject).ok_or_else(|| {
+                        CmdError::invalid_input(format!("unknown agent: {}", a.subject))
+                    })?;
+                super::permissions::allow_agent_tool(store, agent, tool, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(map_approval_err)?
+            };
+            if a.json {
+                serialize_compact(&res)
+            } else {
+                Ok(format!(
+                    "allowed {} for {} {}",
+                    res.tool, res.scope, res.subject
+                ))
+            }
+        }
+        FactoryPermissionsCommand::Deny(a) => {
+            if a.agent && a.target {
+                return Err(CmdError::invalid_input(
+                    "pass at most one of --agent or --target".to_string(),
+                ));
+            }
+            let tool = super::workflow::schema::WorkflowTool::parse(&a.tool)
+                .ok_or_else(|| CmdError::invalid_input(format!("unknown tool: {}", a.tool)))?;
+            let actor = resolve_owner(None)?;
+            let res = if a.agent {
+                let agent =
+                    super::workflow::schema::WorkflowAgent::parse(&a.subject).ok_or_else(|| {
+                        CmdError::invalid_input(format!("unknown agent: {}", a.subject))
+                    })?;
+                super::permissions::deny_agent_tool(store, agent, tool, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(map_approval_err)?
+            } else {
+                super::permissions::deny_target_tool(store, &a.subject, tool, &actor, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(map_approval_err)?
+            };
+            if a.json {
+                serialize_compact(&res)
+            } else {
+                Ok(format!(
+                    "denied {} for {} {}",
+                    res.tool, res.scope, res.subject
+                ))
+            }
+        }
+    }
 }
 
 fn handle_checks_command(

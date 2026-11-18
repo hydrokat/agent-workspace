@@ -313,8 +313,15 @@ stages:
         model_tiers: custom_tiers,
         ..Default::default()
     };
+    let grant0 = tandem::factory::permissions::ToolGrant::from_tools(
+        wf.stages[0].agent,
+        &wf.stages[0].name,
+        "workspace",
+        wf.stages[0].tools.clone(),
+    );
     let routed = route(
         &wf.stages[0],
+        &grant0,
         &wf,
         &route_settings,
         &["claude"],

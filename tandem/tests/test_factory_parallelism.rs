@@ -193,6 +193,7 @@ fn append_stage_started(store: &FactoryStore, idea_id: &str, run_id: &str, stage
             run: run_id.to_string(),
             stage: stage.to_string(),
             attempt: 1,
+            grant: None,
         },
     );
 }

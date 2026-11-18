@@ -158,6 +158,8 @@ pub enum EventData {
         run: String,
         stage: String,
         attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<super::permissions::ToolGrant>,
     },
     #[serde(rename = "stage.succeeded")]
     StageSucceeded { run: String, stage: String },

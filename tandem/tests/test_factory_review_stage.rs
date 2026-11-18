@@ -314,6 +314,7 @@ fn test_fresh_reviewer_context_excludes_implementer_summary() {
             "IMPLEMENTER_CLAIM_SHOULD_NOT_APPEAR".into(),
         )],
         retry_rationale: None,
+        tool_grant: None,
     };
     let extras = ReviewContextExtras {
         changed_files: vec!["src/lib.rs".into()],
@@ -351,7 +352,22 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         avoid_provider: Some("claude".into()),
         avoid_model: Some("claude-sonnet-4-6".into()),
     };
-    let routed = route(stage, &wf, &settings, &["claude", "agy"], 1, &ctx).unwrap();
+    let stage_grant = tandem::factory::permissions::ToolGrant::from_tools(
+        stage.agent,
+        &stage.name,
+        "workspace",
+        stage.tools.clone(),
+    );
+    let routed = route(
+        stage,
+        &stage_grant,
+        &wf,
+        &settings,
+        &["claude", "agy"],
+        1,
+        &ctx,
+    )
+    .unwrap();
     assert_eq!(routed.provider, "agy");
 
     // One open gate: avoid economy model -> upgrades to standard
@@ -361,7 +377,16 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         avoid_provider: Some("claude".into()),
         avoid_model: Some("claude-haiku-4-5".into()),
     };
-    let routed_single = route(stage, &wf, &settings, &["claude"], 1, &ctx_single).unwrap();
+    let routed_single = route(
+        stage,
+        &stage_grant,
+        &wf,
+        &settings,
+        &["claude"],
+        1,
+        &ctx_single,
+    )
+    .unwrap();
     assert_eq!(routed_single.provider, "claude");
     assert_eq!(routed_single.tier, ModelTier::Standard);
     assert_ne!(routed_single.model, "claude-haiku-4-5");

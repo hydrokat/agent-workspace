@@ -1,5 +1,6 @@
 use tandem::adapters::base::ToolFlag;
 use tandem::factory::model::FactorySettings;
+use tandem::factory::permissions::ToolGrant;
 use tandem::factory::routing::{
     ModelTier, RoutingContext, TemperatureSupport, Unroutable, map_agent_definition, route,
 };
@@ -55,8 +56,15 @@ fn routes_tiers_upgrades_on_retry_prefers_orchestrator_provider_and_records_temp
     let settings = FactorySettings::default();
 
     // No open providers -> Unroutable
+    let grant0 = ToolGrant::from_tools(
+        wf.stages[0].agent,
+        &wf.stages[0].name,
+        "workspace",
+        wf.stages[0].tools.clone(),
+    );
     let err = route(
         &wf.stages[0],
+        &grant0,
         &wf,
         &settings,
         &[],
@@ -73,20 +81,59 @@ fn routes_tiers_upgrades_on_retry_prefers_orchestrator_provider_and_records_temp
         ..Default::default()
     };
     let plan_stage = wf.stages.iter().find(|s| s.name == "plan").unwrap();
-    let r1 = route(plan_stage, &wf, &settings, &["agy", "claude"], 1, &ctx).unwrap();
+    let plan_grant = ToolGrant::from_tools(
+        plan_stage.agent,
+        &plan_stage.name,
+        "workspace",
+        plan_stage.tools.clone(),
+    );
+    let r1 = route(
+        plan_stage,
+        &plan_grant,
+        &wf,
+        &settings,
+        &["agy", "claude"],
+        1,
+        &ctx,
+    )
+    .unwrap();
     assert_eq!(r1.provider, "claude");
     assert_eq!(r1.tier, ModelTier::Standard);
     assert_eq!(r1.model, "claude-sonnet-4-6");
     assert_eq!(r1.temperature, TemperatureSupport::Unsupported);
 
-    let r2 = route(plan_stage, &wf, &settings, &["agy", "claude"], 2, &ctx).unwrap();
+    let r2 = route(
+        plan_stage,
+        &plan_grant,
+        &wf,
+        &settings,
+        &["agy", "claude"],
+        2,
+        &ctx,
+    )
+    .unwrap();
     assert_eq!(r2.tier, ModelTier::Premium);
     assert_eq!(r2.model, "claude-opus-4-7");
     assert!(r2.upgraded_from.is_some());
 
     // Review starts at economy; read-only tools never map to Edit/Write/Bash
     let review_stage = wf.stages.iter().find(|s| s.name == "review").unwrap();
-    let rev = route(review_stage, &wf, &settings, &["claude"], 1, &ctx).unwrap();
+    let review_grant = ToolGrant::from_tools(
+        review_stage.agent,
+        &review_stage.name,
+        "workspace",
+        review_stage.tools.clone(),
+    );
+    let rev = route(
+        review_stage,
+        &review_grant,
+        &wf,
+        &settings,
+        &["claude"],
+        1,
+        &ctx,
+    )
+    .unwrap();
     assert_eq!(rev.tier, ModelTier::Economy);
     assert_eq!(rev.model, "claude-haiku-4-5");
     assert!(!rev.tool_flags.iter().any(|f| {
@@ -101,8 +148,15 @@ fn unmappable_tool_makes_stage_unroutable_instead_of_widening_permissions() {
     let develop_stage = wf.stages.iter().find(|s| s.name == "develop").unwrap();
 
     // agy has no tool-scoping flags; requesting RepoWrite/Shell must fail closed as Unroutable
+    let dev_grant = ToolGrant::from_tools(
+        develop_stage.agent,
+        &develop_stage.name,
+        "workspace",
+        develop_stage.tools.clone(),
+    );
     let err = route(
         develop_stage,
+        &dev_grant,
         &wf,
         &settings,
         &["agy"],

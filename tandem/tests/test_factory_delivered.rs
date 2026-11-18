@@ -219,6 +219,7 @@ fn setup_review_run(ws: &Path) -> (FactoryStore, String, String) {
             run: run.id.clone(),
             stage: stage.name.clone(),
             attempt: 1,
+            grant: None,
         });
         events.push(EventData::StageSucceeded {
             run: run.id.clone(),

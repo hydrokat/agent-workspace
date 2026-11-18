@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::factory::FactoryError;
 use crate::factory::events::reject_if_symlink;
+use crate::factory::permissions::ToolGrant;
 
 pub const MAX_CONTEXT_BYTES: usize = 512 * 1024;
 
@@ -22,6 +23,8 @@ pub struct ContextItem {
 pub struct ContextManifest {
     pub items: Vec<ContextItem>,
     pub total_bytes: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_grant: Option<ToolGrant>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +35,7 @@ pub struct ContextInputs {
     pub agent_def_path: PathBuf,
     pub dependency_summaries: Vec<(String, String)>,
     pub retry_rationale: Option<String>,
+    pub tool_grant: Option<ToolGrant>,
 }
 
 #[derive(Debug, Clone)]
@@ -123,7 +127,11 @@ pub fn assemble_context(inputs: &ContextInputs) -> Result<AssembledContext, Cont
     }
 
     Ok(AssembledContext {
-        manifest: ContextManifest { items, total_bytes },
+        manifest: ContextManifest {
+            items,
+            total_bytes,
+            tool_grant: inputs.tool_grant.clone(),
+        },
         prompt,
     })
 }
@@ -139,6 +147,7 @@ pub fn assemble_review_context(
         agent_def_path: inputs.agent_def_path.clone(),
         dependency_summaries: Vec::new(),
         retry_rationale: None,
+        tool_grant: inputs.tool_grant.clone(),
     };
     let mut assembled = assemble_context(&base_inputs)?;
 

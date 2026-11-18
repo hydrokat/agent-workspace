@@ -399,6 +399,7 @@ fn idea_ready_requires_accept_estimate_when_upper_end_exceeds_cap() {
             run: "r-past0001".to_string(),
             stage: "plan".to_string(),
             attempt: 1,
+            grant: None,
         },
     )
     .unwrap();
@@ -583,6 +584,7 @@ fn runner_pauses_on_duration_breach_after_job_and_stops_running_jobs() {
                         run: run_id.clone(),
                         stage: "pre".to_string(),
                         attempt: 1,
+                        grant: None,
                     },
                 )
                 .unwrap();

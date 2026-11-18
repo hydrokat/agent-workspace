@@ -355,6 +355,10 @@ pub struct FactorySettings {
     pub price_table: BTreeMap<String, ModelPrice>,
     #[serde(default = "default_approval_grace_secs")]
     pub approval_grace_secs: u64,
+    #[serde(default)]
+    pub allowed_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
+    #[serde(default)]
+    pub denied_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
@@ -373,6 +377,8 @@ impl Default for FactorySettings {
             model_tiers: super::routing::default_model_tiers(),
             price_table: BTreeMap::new(),
             approval_grace_secs: default_approval_grace_secs(),
+            allowed_tools: BTreeMap::new(),
+            denied_tools: BTreeMap::new(),
             extra: BTreeMap::new(),
         }
     }

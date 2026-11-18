@@ -13,6 +13,7 @@ pub mod handoff;
 pub mod ids;
 pub mod machine;
 pub mod model;
+pub mod permissions;
 pub mod pr;
 pub mod questions;
 pub mod redact;

@@ -340,8 +340,27 @@ impl BrokerExecutor {
             avoid_provider,
             avoid_model,
         };
+        let target_name = run.target.as_deref().unwrap_or("workspace");
+        let tool_grant = match super::permissions::grant(
+            stage_def.agent,
+            stage_def,
+            target_name,
+            &wf,
+            &settings,
+            false,
+        ) {
+            Ok(g) => g,
+            Err(denied) => {
+                return StageOutcome::Blocked {
+                    reason: denied.to_string(),
+                    action_commands: denied.action_commands(&run.id),
+                };
+            }
+        };
+
         let routed = match route(
             stage_def,
+            &tool_grant,
             &wf,
             &settings,
             &open_providers,
@@ -452,6 +471,7 @@ impl BrokerExecutor {
                 dependency_summaries
             },
             retry_rationale,
+            tool_grant: Some(tool_grant.clone()),
         };
         let assembled_res = if job.stage == "review" {
             let extras = collect_review_extras(&store, &run, &worktree_path, &artifact_dir);
@@ -503,7 +523,11 @@ impl BrokerExecutor {
             agent: routed.agent_definition.to_string(),
             provider: routed.provider.clone(),
             model: routed.model.clone(),
-            tool_grants: stage_def.tools.iter().map(|t| format!("{t:?}")).collect(),
+            tool_grants: tool_grant
+                .tools
+                .iter()
+                .map(|t| t.as_str().to_string())
+                .collect(),
             cwd: worktree_path.to_string_lossy().to_string(),
             time_limit_secs: stage_def.budget.max_duration_secs.unwrap_or(1800),
         };
@@ -580,10 +604,7 @@ impl BrokerExecutor {
             return StageOutcome::Failed { reason: diagnosis };
         }
 
-        let has_repo_write = stage_def
-            .tools
-            .iter()
-            .any(|t| matches!(t, super::workflow::schema::WorkflowTool::RepoWrite));
+        let has_repo_write = tool_grant.has_repo_write;
 
         match parsed.status {
             JobResultStatus::Succeeded => {
@@ -668,12 +689,11 @@ impl BrokerExecutor {
                         }
                     }
                 } else if !has_repo_write
-                    && let Err(failure) =
-                        super::stages::scope::verify_scope(&super::stages::scope::ScopeCheckInput {
-                            worktree_path: &worktree_path,
-                            artifact_dir: &artifact_dir,
-                            has_repo_write: false,
-                        })
+                    && let Err(failure) = super::stages::scope::verify_scope_with_grant(
+                        &worktree_path,
+                        &artifact_dir,
+                        &tool_grant,
+                    )
                 {
                     return StageOutcome::Failed {
                         reason: failure.to_string(),

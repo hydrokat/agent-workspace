@@ -575,7 +575,17 @@ pub fn routes_for_workflow(
         avoid_model: None,
     };
     for stage in &workflow.stages {
-        if let Ok(r) = route(stage, workflow, settings, open_providers, 1, &ctx) {
+        let grant =
+            super::permissions::grant(stage.agent, stage, "workspace", workflow, settings, true)
+                .unwrap_or_else(|_| {
+                    super::permissions::ToolGrant::from_tools(
+                        stage.agent,
+                        &stage.name,
+                        "workspace",
+                        stage.tools.clone(),
+                    )
+                });
+        if let Ok(r) = route(stage, &grant, workflow, settings, open_providers, 1, &ctx) {
             if primary_provider.is_none() {
                 primary_provider = Some(r.provider.clone());
             }

@@ -52,7 +52,10 @@ pub fn save(store: &FactoryStore, settings: &FactorySettings) -> Result<(), Fact
     save_unlocked(store, settings)
 }
 
-fn save_unlocked(store: &FactoryStore, settings: &FactorySettings) -> Result<(), FactoryError> {
+pub(crate) fn save_unlocked(
+    store: &FactoryStore,
+    settings: &FactorySettings,
+) -> Result<(), FactoryError> {
     let path = store.settings_path();
     reject_if_symlink(&path)?;
     let mut normalized = settings.clone();
@@ -119,6 +122,20 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
             settings.approval_grace_secs
         )));
     }
+    for agent in settings.allowed_tools.keys() {
+        if super::workflow::schema::WorkflowAgent::parse(agent).is_none() {
+            return Err(FactoryError::InvalidInput(format!(
+                "allowed_tools unknown agent \"{agent}\""
+            )));
+        }
+    }
+    for target in settings.denied_tools.keys() {
+        if target.trim().is_empty() {
+            return Err(FactoryError::InvalidInput(
+                "denied_tools target name must not be empty".to_string(),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -180,7 +197,14 @@ fn is_protected_key(key: &str) -> bool {
     let root = key.split('.').next().unwrap_or(key);
     matches!(
         root,
-        "provider_gates" | "providers" | "checks" | "deploy" | "deploy_command" | "version"
+        "provider_gates"
+            | "providers"
+            | "checks"
+            | "deploy"
+            | "deploy_command"
+            | "version"
+            | "allowed_tools"
+            | "denied_tools"
     )
 }
 

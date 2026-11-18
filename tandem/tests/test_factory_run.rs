@@ -281,6 +281,7 @@ fn stage_events_fold_and_rebuild_reconstructs_run_json() {
                 run: run.id.clone(),
                 stage: "plan".to_string(),
                 attempt: 1,
+                grant: None,
             },
         )
         .unwrap(),
@@ -410,6 +411,7 @@ fn withdraw_run_is_user_only_requires_no_started_stage_and_allows_revoke() {
                 run: run2.id.clone(),
                 stage: "plan".to_string(),
                 attempt: 1,
+                grant: None,
             },
         )
         .unwrap()],
