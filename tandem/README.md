@@ -216,11 +216,17 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory run cancel <RUN> --confirm <RUN> [--json]` | Cancel an active run while keeping its worktree and branch |
 | `tandem factory run cleanup <RUN> --confirm <RUN> [--json]` | Remove a completed, cancelled, or withdrawn run's clean worktree |
 | `tandem factory run log <RUN> <JOB> [--tail N] [--json]` | Tail a job's `log.txt` (default last `65536` bytes) |
+| `tandem factory run evidence <RUN> [--show ID] [--json]` | List or inspect recorded evidence items for a run |
+| `tandem factory run prs <RUN> [--refresh] [--json]` | List or refresh pull request status for a run |
+| `tandem factory run export-specs <RUN> [--json]` | Copy `plan` stage specs into workspace `specs/` under the next free phase |
+| `tandem factory checks discover [--target NAME] [--json]` | Propose `test` and `lint` commands by reading target project files |
+| `tandem factory checks set --target NAME [--test CMD] [--lint CMD] [--timeout-secs N] [--ui-paths GLOBS] --confirm NAME [--json]` | Confirm `test` and `lint` commands for a target (user-only) |
+| `tandem factory checks show [--target NAME] [--json]` | Show confirmed check commands |
 | `tandem factory provider status [--json]` | Show provider terms verdicts, expiry, consent, and gate state |
 | `tandem factory provider consent <PROVIDER> --auth <TYPE> --confirm <PROVIDER> [--json]` | Record user consent to open a headless provider gate |
 | `tandem factory provider revoke <PROVIDER> [--json]` | Close a provider gate in factory settings |
 
-Exit codes: `0` success, `1` not found, invalid input, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`), gate not met, or question ceiling reached.
+Exit codes: `0` success, `1` not found, invalid input, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`/`checks set`), gate not met, checks not confirmed, or question ceiling reached.
 
 - **Required plan sections (`##`)**: `Scope`, `Acceptance criteria`, `Risks`, `Estimates`, `Workflow recommendation`.
 - **Question tagging**: Questions asked with `task = "idea:<id>"` feed `blockers`, `needs_you`, and Gate 2.
@@ -313,6 +319,37 @@ tandem factory provider revoke claude --json
 
 - Jobs are stopped with a kill after a grace period and their own child processes may survive.
 - Cost is unknown unless the provider reports usage.
+
+### Check commands (`checks discover|set|show`)
+
+- **Discovery**: `tandem factory checks discover [--target NAME]` inspects project manifests (such as `package.json`, `Cargo.toml`, `go.mod`, or `Makefile`) and proposes `test` and `lint` commands.
+- **User-only confirmation**: `tandem factory checks set --target NAME --test "..." --lint "..." --confirm NAME` saves the confirmed commands in `settings.json`. Only the user can set check commands (agent environments exit with code `3`) because the `test` stage runs those commands directly without an LLM agent.
+- **Inspect**: `tandem factory checks show [--target NAME]` displays confirmed check configurations.
+
+### Stage contracts, scope check & review loop
+
+| Stage | Contract |
+|---|---|
+| `create-tests` | Scope check passes; records `create-tests-evidence.json` with test files (or an explicit `no_behaviour_change` rationale). |
+| `develop` | Scope check passes; non-empty diff; preserves tests created in `create-tests` and existing test files unless justified. |
+| `test` | Runs user-confirmed `test` and `lint` commands directly via the check broker and records check logs under `checks/`. |
+| `review` | Produces `findings.json`; any `blocker` or `major` finding forces `changes_requested` regardless of stated verdict. |
+| `demo` | Conditional (`when: ui_changed`); validates `demo-manifest.json` and local PNG screenshots (<= 20 files, <= 5 MiB each). |
+
+- **Scope check & protected paths**: Every write-capable stage verifies changed files against `slices.json` paths (plus allowed lockfiles). Changes to protected paths are always rejected: `.agent-workspace/`, `workflows/`, `.github/workflows/`, `.git/hooks/`, `.githooks/`, and `checks.json`.
+- **Review loop & `max_review_rounds`**: When `review` returns `changes_requested`, the runner loops back through `develop` → `test` → `review` up to `max_review_rounds` (default `2` in `settings.json`), pausing the run with remaining findings if the limit is exhausted.
+
+### Evidence & pull requests
+
+- **Evidence completeness**: Stages record typed evidence (`plan`, `tests`, `patch`, `test_report`, `review_report`, `demo_artifact`, `deploy_record`). Before opening a PR, tandem verifies every `produces` kind in the workflow is present (`tandem factory run evidence <run>`).
+- **Local-only logs and screenshots**: Raw `log.txt` files and `demo` screenshots stay on the machine and are never uploaded or embedded in pull requests until secret/log redaction exists (`p-018`).
+- **Pull request preconditions**: `review` verdict must be `approve`, required evidence must be complete, the run branch must be non-protected with commits beyond base, the worktree must be clean, and `origin` must be a GitHub remote.
+- **`gh` prerequisite & scope**: `gh` must be installed and authenticated by the user (`gh auth login`). Pull request creation supports **GitHub only** for now and opens at most **one pull request per run** (`tandem factory run prs <run> [--refresh]`).
+- **What tandem never does**:
+  - Never **merges** a pull request.
+  - Never **approves** a pull request.
+  - Never **force pushes**.
+  - Never **pushes to a protected branch** (`main`, `master`, `trunk`).
 
 ## Development
 

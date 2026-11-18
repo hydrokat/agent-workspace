@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-11-18
+
+### Added: Factory Mode quality path (`p-017`)
+- **User-confirmed check commands**: Added `tandem factory checks discover|set|show` (user-only `set`, refusing agent environments with exit code `3`) and direct `test`/`lint` execution in the `test` stage without an LLM agent.
+- **Stage contracts, scope check & review loop**: Enforced stage contracts for `create-tests`, `develop`, `test`, `review`, and conditional `demo` (`ui_changed`), slice-scoped diff verification blocking protected paths (`.agent-workspace/`, `workflows/`, `.github/workflows/`, `.git/hooks/`, `.githooks/`, `checks.json`), and bounded `develop` → `test` → `review` fix rounds up to `max_review_rounds`.
+- **Evidence bundle, GitHub pull requests & handoff**: Added `tandem factory run evidence|prs|export-specs`, workflow `produces` completeness checks (keeping raw logs and screenshots local until `p-018`), and single-PR-per-run GitHub creation via `gh` with strict non-merge, non-approve, non-force-push, and protected-branch guards.
+
 ## [1.17.0] — 2026-11-18
 
 ### Added: Factory Mode execution (`p-016`)

@@ -395,3 +395,75 @@ describe('factory mode execution documentation', () => {
     assert.ok(changelog.includes('p-016'), 'p-016 in CHANGELOG.md');
   });
 });
+
+describe('factory mode quality path documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+  const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
+
+  it('documents end-to-end quality path walkthrough through PR and handoff in root README', () => {
+    for (const term of [
+      'checks discover',
+      'checks set',
+      'create-tests',
+      'develop',
+      'test',
+      'review',
+      'demo',
+      'pull request',
+      'handoff',
+      'p-018',
+    ]) {
+      assert.ok(readme.includes(term), `"${term}" in README.md`);
+    }
+  });
+
+  it('documents check commands, stage contracts table, scope check, and protected paths in tandem README', () => {
+    for (const term of [
+      'checks discover',
+      'checks set',
+      'checks show',
+      'create-tests',
+      'develop',
+      'test',
+      'review',
+      'demo',
+      '.agent-workspace/',
+      'workflows/',
+      '.github/workflows/',
+      '.git/hooks/',
+      '.githooks/',
+      'checks.json',
+    ]) {
+      assert.ok(tandemReadme.includes(term), `"${term}" in tandem/README.md`);
+    }
+  });
+
+  it('documents review loop, evidence rules, PR preconditions/never-list, and CLI commands with exit codes in tandem README', () => {
+    for (const term of [
+      'max_review_rounds',
+      'run evidence',
+      'run prs',
+      'run export-specs',
+      'gh auth login',
+      'GitHub',
+      'one pull request per run',
+      'merge',
+      'approve',
+      'force push',
+      'protected branch',
+      'stay on the machine',
+    ]) {
+      assert.ok(
+        tandemReadme.toLowerCase().includes(term.toLowerCase()),
+        `"${term}" in tandem/README.md`
+      );
+    }
+    assert.match(tandemReadme, /exit code|exit codes/i, 'exit codes documented in tandem/README.md');
+  });
+
+  it('records Factory Mode quality path under 1.18.0 in CHANGELOG.md', () => {
+    assert.match(changelog, /^## \[1\.18\.0\]/m, '1.18.0 heading in CHANGELOG.md');
+    assert.ok(changelog.includes('p-017'), 'p-017 in CHANGELOG.md');
+  });
+});
