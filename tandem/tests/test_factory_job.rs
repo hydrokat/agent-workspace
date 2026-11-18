@@ -197,6 +197,7 @@ fn prepare_job_is_idempotent_and_handles_crashed_interruptions() {
             rationale: None,
             hypothesis: None,
             usage: None,
+            no_behaviour_change: false,
         })
     })
     .unwrap();

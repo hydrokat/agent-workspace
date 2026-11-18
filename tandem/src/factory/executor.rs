@@ -139,6 +139,22 @@ impl BrokerExecutor {
             let _ = fs::create_dir_all(&artifact_dir);
         }
 
+        let mut confirmed_for_stage: Option<super::checks::ConfirmedChecks> = None;
+        if job.stage == "create-tests" {
+            let target_name = run.target.as_deref().unwrap_or("workspace");
+            match super::checks::require_confirmed_checks(&settings, target_name) {
+                Ok(c) => confirmed_for_stage = Some(c),
+                Err(e) => {
+                    return StageOutcome::Blocked {
+                        reason: e.to_string(),
+                        action_commands: vec![format!(
+                            "tandem factory checks discover --target {target_name}"
+                        )],
+                    };
+                }
+            }
+        }
+
         let mut check_failures_summary: Option<String> = None;
         if job.stage == "test" {
             let target_name = run.target.as_deref().unwrap_or("workspace");
@@ -428,16 +444,25 @@ impl BrokerExecutor {
             return StageOutcome::Failed { reason: diagnosis };
         }
 
+        let has_repo_write = stage_def
+            .tools
+            .iter()
+            .any(|t| matches!(t, super::workflow::schema::WorkflowTool::RepoWrite));
+
         match parsed.status {
             JobResultStatus::Succeeded => {
                 if let Some(contract) = super::stages::contract_for_stage(&job.stage) {
                     let ctx = super::stages::StageContext {
                         run_id: &job.run,
+                        idea_id: &run.idea,
                         stage: &job.stage,
+                        attempt: job.attempt,
+                        has_repo_write,
                         artifact_dir: &artifact_dir,
                         target_repo: &worktree_path,
                         worktree_path: &worktree_path,
                         plan_snapshot_path: &plan_snapshot_path,
+                        confirmed_checks: confirmed_for_stage.as_ref(),
                         result: &parsed,
                     };
                     if let Err(failure) = contract.verify(&ctx) {
@@ -445,6 +470,36 @@ impl BrokerExecutor {
                             reason: failure.to_string(),
                         };
                     }
+                    if matches!(job.stage.as_str(), "create-tests" | "develop") {
+                        match super::stages::scope::list_changed_files(&worktree_path).and_then(
+                            |files| {
+                                super::stages::commit_stage_changes(
+                                    &worktree_path,
+                                    &run.idea,
+                                    &job.stage,
+                                    &files,
+                                )
+                            },
+                        ) {
+                            Ok(()) => {}
+                            Err(failure) => {
+                                return StageOutcome::Failed {
+                                    reason: failure.to_string(),
+                                };
+                            }
+                        }
+                    }
+                } else if !has_repo_write
+                    && let Err(failure) =
+                        super::stages::scope::verify_scope(&super::stages::scope::ScopeCheckInput {
+                            worktree_path: &worktree_path,
+                            artifact_dir: &artifact_dir,
+                            has_repo_write: false,
+                        })
+                {
+                    return StageOutcome::Failed {
+                        reason: failure.to_string(),
+                    };
                 }
                 StageOutcome::Succeeded
             }

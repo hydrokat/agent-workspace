@@ -205,4 +205,20 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.ok(text.includes('slices.json'), 'documents slices.json');
     assert.ok(text.includes('result.json'), 'documents result.json');
   });
+
+  for (const name of ['factory-test-engineer', 'factory-implementer']) {
+    it(`installs ${name} with valid front matter, provider sync, and spec-implement reuse`, () => {
+      has(`${name}/SKILL.md`);
+      has(`${name}/agents/openai.yaml`);
+      assert.ok(fileExists(dir, `.claude/skills/${name}/SKILL.md`), `${name} installed for claude provider`);
+
+      const text = skill(name);
+      assert.match(text, new RegExp(`^---\\nname: ${name}\\n`));
+      assert.ok(text.includes('slices.json'), `${name} reads slices.json`);
+      assert.ok(text.includes('result.json'), `${name} writes result.json`);
+      assert.ok(text.includes('hypothesis'), `${name} requires hypothesis on retry`);
+      assert.match(text, /do not commit|never commit/i, `${name} forbids committing`);
+      assert.ok(text.includes('spec-implement'), `${name} reuses spec-implement rules by reference`);
+    });
+  }
 });

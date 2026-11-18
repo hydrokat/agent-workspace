@@ -12,6 +12,8 @@ pub enum AllowedGitSubcommand {
     Worktree,
     Diff,
     Fetch,
+    Add,
+    Commit,
 }
 
 impl AllowedGitSubcommand {
@@ -24,6 +26,8 @@ impl AllowedGitSubcommand {
             Self::Worktree => "worktree",
             Self::Diff => "diff",
             Self::Fetch => "fetch",
+            Self::Add => "add",
+            Self::Commit => "commit",
         }
     }
 
@@ -36,6 +40,8 @@ impl AllowedGitSubcommand {
             "worktree" => Some(Self::Worktree),
             "diff" => Some(Self::Diff),
             "fetch" => Some(Self::Fetch),
+            "add" => Some(Self::Add),
+            "commit" => Some(Self::Commit),
             _ => None,
         }
     }

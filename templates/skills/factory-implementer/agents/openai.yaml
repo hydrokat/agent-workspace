@@ -1,0 +1,4 @@
+interface:
+  display_name: "Factory Implementer"
+  short_description: "Implement Factory Mode slices inside declared paths without committing."
+  default_prompt: "Follow the factory-implementer playbook to read slices.json, implement changes inside slice paths without weakening tests, never commit, and write result.json."
