@@ -1,8 +1,9 @@
 use std::io::ErrorKind;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use super::{ChildWaitOutcome, MAX_BROKER_OUTPUT_BYTES, wait_child_with_timeout_and_drain};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllowedGhSubcommand {
@@ -88,23 +89,21 @@ pub fn run_gh_bin(
         Err(err) => return Err(GhError::Io(err)),
     };
 
-    let start = Instant::now();
-    loop {
-        if let Some(_status) = child.try_wait()? {
-            let output = child.wait_with_output()?;
-            if output.status.success() {
-                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    match wait_child_with_timeout_and_drain(&mut child, timeout, MAX_BROKER_OUTPUT_BYTES)? {
+        ChildWaitOutcome::Exited {
+            status,
+            stdout,
+            stderr,
+        } => {
+            if status.success() {
+                Ok(String::from_utf8_lossy(&stdout).to_string())
+            } else {
+                Err(GhError::Failed {
+                    subcommand: subcommand.as_str().to_string(),
+                    stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
+                })
             }
-            return Err(GhError::Failed {
-                subcommand: subcommand.as_str().to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-            });
         }
-        if start.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(GhError::Timeout);
-        }
-        thread::sleep(Duration::from_millis(20));
+        ChildWaitOutcome::TimedOut => Err(GhError::Timeout),
     }
 }

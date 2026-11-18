@@ -811,3 +811,106 @@ esac
     let _ = fs::remove_dir_all(&ws);
     let _ = fs::remove_dir_all(&bare);
 }
+
+#[test]
+fn pr_reads_review_artifacts_from_artifacts_subdir_and_includes_counts() {
+    let ws = temp_ws("artifacts-review");
+    let bare = temp_ws("bare-artifacts");
+    init_bare_remote(&bare, "main");
+
+    let (store, idea_id, run_id, worktree) = setup_factory_run(&ws, "Artifacts review path");
+    commit_change_in_worktree(&worktree, "feature.rs", "pub fn ok() -> bool { true }\n");
+    record_complete_evidence_and_approve(&store, &idea_id, &run_id, &worktree);
+
+    let r_dir = run_dir(&store, &run_id);
+    let nested_artifacts = r_dir.join("artifacts");
+    fs::create_dir_all(&nested_artifacts).unwrap();
+    for name in ["findings.json", "review-rounds.json"] {
+        fs::rename(r_dir.join(name), nested_artifacts.join(name)).unwrap();
+    }
+
+    assert!(
+        StdCommand::new("git")
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/widget.git"
+            ])
+            .current_dir(&worktree)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        StdCommand::new("git")
+            .args([
+                "remote",
+                "set-url",
+                "--push",
+                "origin",
+                &bare.display().to_string()
+            ])
+            .current_dir(&worktree)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let state_dir = ws.join("gh-state");
+    fs::create_dir_all(&state_dir).unwrap();
+    let captured_body = state_dir.join("body.md");
+    let bin_dir = ws.join("stub-bin");
+    let script = format!(
+        r#"
+case "$1 $2" in
+  "auth status"|"repo view")
+    if [ "$1 $2" = "repo view" ]; then
+      echo '{{"nameWithOwner":"acme/widget","defaultBranchRef":{{"name":"main"}}}}'
+    fi
+    exit 0
+    ;;
+  "pr list")
+    echo '[]'
+    exit 0
+    ;;
+  "pr create")
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --body-file)
+          cp "$2" "{body}"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    echo "https://github.com/acme/widget/pull/99"
+    exit 0
+    ;;
+  "pr view")
+    echo '{{"number":99,"url":"https://github.com/acme/widget/pull/99"}}'
+    exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"#,
+        body = captured_body.display(),
+    );
+    let gh_path = write_stub_gh(&bin_dir, &script);
+
+    let outcome = open_pull_request_with_gh(&store, &ws, &run_id, &sys_actor(), &gh_path).unwrap();
+    assert!(matches!(outcome, PrOutcome::Created(ref pr) if pr.number == 99));
+
+    let body_text = fs::read_to_string(&captured_body).unwrap();
+    assert!(
+        body_text.contains("Verdict: approve · Rounds: 2 · Findings fixed: 1 · Still open: 0"),
+        "expected review counts from artifacts/ subdir in:\n{body_text}"
+    );
+
+    let _ = fs::remove_dir_all(&ws);
+    let _ = fs::remove_dir_all(&bare);
+}

@@ -575,3 +575,74 @@ fn test_event_data_serde_envelope_fields() {
         assert_eq!(round_trip, ev);
     }
 }
+
+#[test]
+fn stage_reopened_for_develop_resets_test_review_and_demo() {
+    use tandem::factory::machine::apply_run;
+    use tandem::factory::model::{Run, RunState, Stage, StageState};
+
+    let make_stage = |name: &str, state: StageState| Stage {
+        name: name.to_string(),
+        agent: "agent".to_string(),
+        state,
+        attempts: 1,
+        interrupted_attempts: 0,
+        started: Some(1.0),
+        finished: Some(2.0),
+        artifacts: vec![],
+        rationale: None,
+        retry_hypothesis: None,
+    };
+
+    let run = Run {
+        id: "r-12345678".to_string(),
+        idea: "i-12345678".to_string(),
+        workflow: "default".to_string(),
+        workflow_version: "1".to_string(),
+        workflow_sha256: "abc".to_string(),
+        workflow_source: "test".to_string(),
+        plan_sha256: "def".to_string(),
+        state: RunState::Running,
+        stages: vec![
+            make_stage("develop", StageState::Succeeded),
+            make_stage("test", StageState::Succeeded),
+            make_stage("review", StageState::Failed),
+            make_stage("demo", StageState::Succeeded),
+        ],
+        created: 1.0,
+        updated: 8.0,
+        pause_reason: None,
+        action_commands: vec![],
+        worktree_path: None,
+        branch: None,
+        target: None,
+        base_commit: None,
+        baseline_passed: None,
+        deploy_requested: false,
+        evidence: vec![],
+        prs: vec![],
+        budget: None,
+    };
+
+    let updated = apply_run(
+        Some(run),
+        &EventData::StageReopened {
+            run: "r-12345678".to_string(),
+            stage: "develop".to_string(),
+            reason: "review requested changes".to_string(),
+        },
+        "i-12345678",
+        9.0,
+    )
+    .expect("apply_run must return updated Run");
+
+    for name in ["develop", "test", "review", "demo"] {
+        let st = updated.stages.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(
+            st.state,
+            StageState::Pending,
+            "stage {name} should be reset to Pending"
+        );
+        assert_eq!(st.finished, None, "stage {name} finished should be cleared");
+    }
+}

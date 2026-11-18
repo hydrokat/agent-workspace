@@ -978,9 +978,9 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.rationale = Some(reason.clone());
                         st.retry_hypothesis = Some(reason.clone());
                     }
-                    // Reset downstream test and review stages to Pending so the scheduler re-runs them after develop.
+                    // Reset downstream test, review, and demo stages to Pending so the scheduler re-runs them after develop.
                     if stage == "develop" {
-                        for downstream in ["test", "review"] {
+                        for downstream in ["test", "review", "demo"] {
                             if let Some(st) = run.stages.iter_mut().find(|s| {
                                 s.name == downstream
                                     && matches!(

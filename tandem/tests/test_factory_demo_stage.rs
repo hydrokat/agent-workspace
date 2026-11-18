@@ -557,3 +557,45 @@ fn demo_stage_contract_validates_png_size_count_captions_and_local_evidence() {
 
     let _ = fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn validate_local_url_rejects_userinfo_ssrf_bypasses() {
+    for bad in [
+        "http://localhost:80@evil.com/",
+        "http://127.0.0.1:x@169.254.169.254/",
+        "https://user@127.0.0.1:3000/",
+        "http://127.0.0.1.evil.com/",
+        "http://localhost:abc/",
+        "http://localhost:/",
+    ] {
+        let req = ScreenshotRequest {
+            url: bad.to_string(),
+            output_path: PathBuf::from("shot.png"),
+            width: 1280,
+            height: 720,
+        };
+        let err = build_screenshot_argv(&req).unwrap_err();
+        assert!(
+            matches!(err, BrowserError::InvalidInput(_)),
+            "expected InvalidInput for {bad}, got {err:?}"
+        );
+    }
+
+    for good in [
+        "http://127.0.0.1:3000/app?x=1#y",
+        "http://localhost:8080",
+        "https://[::1]:8443/home",
+        "http://[::1]/",
+    ] {
+        let req = ScreenshotRequest {
+            url: good.to_string(),
+            output_path: PathBuf::from("shot.png"),
+            width: 1280,
+            height: 720,
+        };
+        assert!(
+            build_screenshot_argv(&req).is_ok(),
+            "expected {good} to be accepted"
+        );
+    }
+}

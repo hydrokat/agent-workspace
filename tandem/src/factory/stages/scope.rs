@@ -170,7 +170,9 @@ pub fn list_deleted_files(worktree_path: &Path) -> Result<BTreeSet<String>, Cont
         }
         let xy = &line[..2];
         if xy.contains('D') {
-            let norm = normalize_rel_path(&line[3..]);
+            let body = &line[3..];
+            let path = body.split_once(" -> ").map_or(body, |(old, _)| old);
+            let norm = normalize_rel_path(path);
             if !norm.is_empty() {
                 deleted.insert(norm);
             }

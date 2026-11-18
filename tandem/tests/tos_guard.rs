@@ -454,6 +454,7 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
     let broker_dir = factory_dir.join("broker");
     let spawn_markers = ["std::process", "Command::new"];
     let allowed_broker_spawners: &[(&str, Option<&[&str]>)] = &[
+        ("mod.rs", Some(&[])),
         ("spawn.rs", Some(&["claude", "agy", "opencode"])),
         ("git.rs", Some(&["git"])),
         ("gh.rs", Some(&["gh"])),

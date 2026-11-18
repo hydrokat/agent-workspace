@@ -358,6 +358,17 @@ fn summarize_tests_section(
     }
 }
 
+fn resolve_review_dir(store: &FactoryStore, run_id: &str) -> PathBuf {
+    let artifacts_dir = store.run_dir(run_id).join("artifacts");
+    if artifacts_dir.join("review-rounds.json").is_file()
+        || artifacts_dir.join("findings.json").is_file()
+    {
+        artifacts_dir
+    } else {
+        store.run_dir(run_id)
+    }
+}
+
 fn summarize_review_section(artifact_dir: &Path) -> String {
     let rounds_path = artifact_dir.join("review-rounds.json");
     if reject_if_symlink(&rounds_path).is_ok()
@@ -441,7 +452,7 @@ fn build_pr_body(
         .unwrap_or_else(|| "No diff summary recorded.".to_string());
 
     let tests_summary = summarize_tests_section(store, &run.evidence, workspace, worktree);
-    let review_summary = summarize_review_section(&store.run_dir(&run.id));
+    let review_summary = summarize_review_section(&resolve_review_dir(store, &run.id));
     let risk_summary = match idea.risk {
         Some(r) => format!("{r:?}").to_lowercase(),
         None => "none recorded".to_string(),
@@ -514,7 +525,8 @@ pub fn open_pull_request_with_gh(
         .ok_or_else(|| FactoryError::InvalidInput(format!("idea {} not found", run.idea)))?;
 
     let artifact_dir = store.run_dir(run_id);
-    let findings = match load_findings_report(&artifact_dir) {
+    let review_dir = resolve_review_dir(store, run_id);
+    let findings = match load_findings_report(&review_dir) {
         Ok(report) if report.verdict == ReviewVerdict::Approve => report,
         _ => {
             return pause_run_for_pr(
@@ -604,18 +616,33 @@ pub fn open_pull_request_with_gh(
         );
     }
 
-    let base_ref = run
-        .base_commit
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or("HEAD~1");
-    let commit_range = format!("{base_ref}..HEAD");
-    let count_out = run_git(
-        AllowedGitSubcommand::RevList,
-        &["--count", &commit_range],
-        &worktree,
-        GIT_TIMEOUT,
-    )?;
+    let base_ref = run.base_commit.as_deref().filter(|s| !s.trim().is_empty());
+    let count_out = match base_ref {
+        Some(base) => {
+            let commit_range = format!("{base}..HEAD");
+            run_git(
+                AllowedGitSubcommand::RevList,
+                &["--count", &commit_range],
+                &worktree,
+                GIT_TIMEOUT,
+            )?
+        }
+        None => match run_git(
+            AllowedGitSubcommand::RevList,
+            &["--count", "HEAD~1..HEAD"],
+            &worktree,
+            GIT_TIMEOUT,
+        ) {
+            Ok(out) => out,
+            Err(GitError::Failed { .. }) => run_git(
+                AllowedGitSubcommand::RevList,
+                &["--count", "HEAD"],
+                &worktree,
+                GIT_TIMEOUT,
+            )?,
+            Err(err) => return Err(err.into()),
+        },
+    };
     let commit_count: u64 = count_out.trim().parse().unwrap_or(0);
     if commit_count == 0 {
         return pause_run_for_pr(

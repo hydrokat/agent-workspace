@@ -2,10 +2,11 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::factory::events::reject_if_symlink;
+
+use super::{ChildWaitOutcome, MAX_BROKER_OUTPUT_BYTES, wait_child_with_timeout_and_drain};
 
 pub const ALLOWED_BROWSER_BINARIES: &[&str] = &["chromium", "chromium-browser", "google-chrome"];
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
@@ -43,26 +44,32 @@ fn validate_local_url(url: &str) -> Result<(), BrowserError> {
             "url must be a single local URL without whitespace or control characters".to_string(),
         ));
     }
-    let allowed_prefixes = [
-        "http://127.0.0.1:",
-        "http://127.0.0.1/",
-        "http://localhost:",
-        "http://localhost/",
-        "http://[::1]:",
-        "http://[::1]/",
-        "https://127.0.0.1:",
-        "https://127.0.0.1/",
-        "https://localhost:",
-        "https://localhost/",
-    ];
-    let exact_roots = [
-        "http://127.0.0.1",
-        "http://localhost",
-        "http://[::1]",
-        "https://127.0.0.1",
-        "https://localhost",
-    ];
-    if !allowed_prefixes.iter().any(|p| trimmed.starts_with(p)) && !exact_roots.contains(&trimmed) {
+    let rest = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+        .ok_or_else(|| {
+            BrowserError::InvalidInput(format!(
+                "only local loopback URLs are allowed for demo screenshots: {trimmed}"
+            ))
+        })?;
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    if authority.contains('@') {
+        return Err(BrowserError::InvalidInput(format!(
+            "userinfo is not allowed in demo screenshot URLs: {trimmed}"
+        )));
+    }
+    let is_valid_port = |port: &str| {
+        !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) && port.parse::<u16>().is_ok()
+    };
+    let valid_authority = if authority.starts_with('[') {
+        authority == "[::1]" || authority.strip_prefix("[::1]:").is_some_and(is_valid_port)
+    } else if let Some((host, port)) = authority.split_once(':') {
+        matches!(host, "127.0.0.1" | "localhost") && is_valid_port(port)
+    } else {
+        matches!(authority, "127.0.0.1" | "localhost")
+    };
+    if !valid_authority {
         return Err(BrowserError::InvalidInput(format!(
             "only local loopback URLs are allowed for demo screenshots: {trimmed}"
         )));
@@ -155,31 +162,20 @@ pub fn capture_screenshot(
         Err(e) => return Err(BrowserError::Io(e)),
     };
 
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait()? {
-            Some(status) => {
-                let output = child.wait_with_output()?;
-                if !status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    return Err(BrowserError::Failed(stderr));
-                }
-                let bytes = fs::read(&req.output_path)?;
-                if bytes.len() < PNG_SIGNATURE.len() || bytes[..8] != PNG_SIGNATURE {
-                    return Err(BrowserError::Failed(
-                        "captured file is not a valid PNG".to_string(),
-                    ));
-                }
-                return Ok(req.output_path.clone());
+    match wait_child_with_timeout_and_drain(&mut child, timeout, MAX_BROKER_OUTPUT_BYTES)? {
+        ChildWaitOutcome::Exited { status, stderr, .. } => {
+            if !status.success() {
+                let stderr_text = String::from_utf8_lossy(&stderr).trim().to_string();
+                return Err(BrowserError::Failed(stderr_text));
             }
-            None => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(BrowserError::Timeout);
-                }
-                thread::sleep(Duration::from_millis(20));
+            let bytes = fs::read(&req.output_path)?;
+            if bytes.len() < PNG_SIGNATURE.len() || bytes[..8] != PNG_SIGNATURE {
+                return Err(BrowserError::Failed(
+                    "captured file is not a valid PNG".to_string(),
+                ));
             }
+            Ok(req.output_path.clone())
         }
+        ChildWaitOutcome::TimedOut => Err(BrowserError::Timeout),
     }
 }
