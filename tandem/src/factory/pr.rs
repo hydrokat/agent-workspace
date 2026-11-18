@@ -676,6 +676,8 @@ pub fn open_pull_request_with_gh(
             repo: remote_repo,
             number: first.number,
             url: first.url,
+            state: None,
+            checks_summary: None,
         };
         record_pr_link(store, &idea.id, &run.id, &pr_link, actor)?;
         return Ok(PrOutcome::AlreadyExists(pr_link));
@@ -750,6 +752,8 @@ pub fn open_pull_request_with_gh(
         repo: repo_name,
         number: pr_summary.number,
         url: pr_summary.url,
+        state: None,
+        checks_summary: None,
     };
     record_pr_link(store, &idea.id, &run.id, &pr_link, actor)?;
     Ok(PrOutcome::Created(pr_link))

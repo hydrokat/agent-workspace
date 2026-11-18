@@ -13,8 +13,10 @@ use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_st
 use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
-use crate::factory::machine::{self, Command, EventData};
-use crate::factory::model::{Actor, ActorKind, Idea, KNOWN_PROVIDERS, Run, RunState, StageState};
+use crate::factory::machine::{self, Command, EventData, Facts};
+use crate::factory::model::{
+    Actor, ActorKind, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
+};
 use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
@@ -208,6 +210,53 @@ fn pause_run(
     Ok(())
 }
 
+pub fn deliver_if_pr_created(
+    store: &FactoryStore,
+    workspace: &Path,
+    run_id: &str,
+) -> Result<bool, RunnerError> {
+    let Some(run) = get_run(store, run_id)? else {
+        return Ok(false);
+    };
+    if run.state != RunState::Review {
+        return Ok(false);
+    }
+    let Some(idea) = store.get_idea(&run.idea)? else {
+        return Ok(false);
+    };
+    if idea.state != IdeaState::Review {
+        return Ok(false);
+    }
+    let prs = if run.prs.is_empty() {
+        idea.prs.clone()
+    } else {
+        run.prs.clone()
+    };
+    if prs.is_empty() {
+        return Ok(false);
+    }
+
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "runner".to_string(),
+    };
+    let events = machine::decide(
+        Some(&idea),
+        &Command::Deliver {
+            run: run_id.to_string(),
+            prs,
+        },
+        &sys,
+        &Facts::default(),
+    )
+    .map_err(FactoryError::from)?;
+
+    append_run_events(store, &idea.id, run_id, Some(run), events, &sys)?;
+    super::handoff::write_and_record_handoff(store, workspace, run_id, &sys)
+        .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+    Ok(true)
+}
+
 pub fn drive_run_step(
     store: &FactoryStore,
     workspace: &Path,
@@ -217,6 +266,21 @@ pub fn drive_run_step(
     let Some(mut run) = get_run(store, run_id)? else {
         return Ok(());
     };
+    if run.state == RunState::Review {
+        let sys = Actor {
+            kind: ActorKind::System,
+            id: "runner".to_string(),
+        };
+        if run.prs.is_empty() {
+            let outcome = super::pr::open_pull_request(store, workspace, run_id, &sys)
+                .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+            if matches!(outcome, super::pr::PrOutcome::Paused { .. }) {
+                return Ok(());
+            }
+        }
+        let _ = deliver_if_pr_created(store, workspace, run_id)?;
+        return Ok(());
+    }
     if !matches!(run.state, RunState::Queued | RunState::Running) {
         return Ok(());
     }
@@ -1144,7 +1208,10 @@ pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), Run
     loop {
         if let Ok(runs) = list_runs(&store, None) {
             for r in runs {
-                if matches!(r.state, RunState::Queued | RunState::Running) {
+                if matches!(
+                    r.state,
+                    RunState::Queued | RunState::Running | RunState::Review
+                ) {
                     let _ = drive_run_step(&store, workspace, &r.id, executor);
                 }
             }

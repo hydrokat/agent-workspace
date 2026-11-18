@@ -712,6 +712,8 @@ esac
         repo: "acme/widget".to_string(),
         number: 42,
         url: "https://github.com/acme/widget/pull/42".to_string(),
+        state: None,
+        checks_summary: None,
     };
     assert_eq!(outcome, PrOutcome::Created(expected_pr.clone()));
 

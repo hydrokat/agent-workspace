@@ -141,6 +141,8 @@ fn test_all_model_types_round_trip_json() {
         repo: "agent-workspace-package".to_string(),
         number: 42,
         url: "https://example.invalid/pr/42".to_string(),
+        state: None,
+        checks_summary: None,
     };
     let idea = Idea {
         id: "i-12345678".to_string(),

@@ -294,6 +294,10 @@ pub enum FactoryRunCommand {
     Log(FactoryRunLogArgs),
     #[command(about = "list or inspect evidence items for a run")]
     Evidence(FactoryRunEvidenceArgs),
+    #[command(about = "list or refresh pull request status for a run")]
+    Prs(FactoryRunPrsArgs),
+    #[command(about = "copy plan stage specs into workspace specs/ under next free phase")]
+    ExportSpecs(FactoryRunExportSpecsArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -422,6 +426,22 @@ pub struct FactoryRunEvidenceArgs {
     pub run: String,
     #[arg(long)]
     pub show: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunPrsArgs {
+    pub run: String,
+    #[arg(long)]
+    pub refresh: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunExportSpecsArgs {
+    pub run: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -746,6 +766,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Cancel(a) => a.json,
             FactoryRunCommand::Log(a) => a.json,
             FactoryRunCommand::Evidence(a) => a.json,
+            FactoryRunCommand::Prs(a) => a.json,
+            FactoryRunCommand::ExportSpecs(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -1545,6 +1567,73 @@ fn execute(
             }
             FactoryRunCommand::Log(a) => read_run_job_log(&store, a),
             FactoryRunCommand::Evidence(a) => run_evidence_cmd(&store, workspace, a),
+            FactoryRunCommand::Prs(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let prs = if a.refresh {
+                    let actor = Actor {
+                        kind: ActorKind::User,
+                        id: resolve_owner(None)?,
+                    };
+                    super::handoff::refresh_run_prs(&store, workspace, &a.run, &actor).map_err(
+                        |e| CmdError {
+                            exit_code: e.exit_code(),
+                            code: e.code(),
+                            message: e.to_string(),
+                        },
+                    )?
+                } else {
+                    let run = super::run::get_run(&store, &a.run)
+                        .map_err(|e| CmdError {
+                            exit_code: 1,
+                            code: e.code(),
+                            message: e.to_string(),
+                        })?
+                        .ok_or_else(|| CmdError::not_found(format!("run {} not found", a.run)))?;
+                    run.prs
+                };
+                if a.json {
+                    serialize_compact(&prs)
+                } else if prs.is_empty() {
+                    Ok("No pull requests recorded.".to_string())
+                } else {
+                    let lines: Vec<String> = prs
+                        .iter()
+                        .map(|pr| {
+                            let state = pr.state.as_deref().unwrap_or("unknown");
+                            let checks = pr.checks_summary.as_deref().unwrap_or("not checked");
+                            format!(
+                                "{} #{}: {} [state: {state}, checks: {checks}]",
+                                pr.repo, pr.number, pr.url
+                            )
+                        })
+                        .collect();
+                    Ok(lines.join("\n"))
+                }
+            }
+            FactoryRunCommand::ExportSpecs(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let res = super::handoff::export_specs(&store, workspace, &a.run, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format!(
+                        "Exported {} spec file(s) to {}",
+                        res.files.len(),
+                        res.destination.display()
+                    ))
+                }
+            }
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {

@@ -27,6 +27,8 @@ fn sample_pr() -> PrLink {
         repo: "agent-workspace-package".to_string(),
         number: 42,
         url: "https://github.com/example/repo/pull/42".to_string(),
+        state: None,
+        checks_summary: None,
     }
 }
 

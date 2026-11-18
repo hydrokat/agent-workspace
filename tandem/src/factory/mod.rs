@@ -8,6 +8,7 @@ pub mod commands;
 pub mod events;
 pub mod evidence;
 pub mod executor;
+pub mod handoff;
 pub mod ids;
 pub mod machine;
 pub mod model;

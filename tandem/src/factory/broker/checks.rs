@@ -330,3 +330,31 @@ fn read_summary_tail(log_path: &Path) -> Option<String> {
     let text = String::from_utf8_lossy(slice).trim().to_string();
     if text.is_empty() { None } else { Some(text) }
 }
+
+pub(crate) fn next_phase_via_specs_py(workspace: &Path) -> Option<String> {
+    let script = workspace.join(".agents/skills/spec-planner/scripts/specs.py");
+    if !script.is_file() || crate::factory::events::reject_if_symlink(&script).is_err() {
+        return None;
+    }
+    let output = Command::new("python3")
+        .arg(&script)
+        .arg("--root")
+        .arg(workspace)
+        .arg("next-phase")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    #[derive(Deserialize)]
+    struct NextPhaseOut {
+        next: String,
+    }
+    let parsed: NextPhaseOut = serde_json::from_slice(&output.stdout).ok()?;
+    let trimmed = parsed.next.trim();
+    if trimmed.len() == 3 && trimmed.bytes().all(|b| b.is_ascii_digit()) {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
