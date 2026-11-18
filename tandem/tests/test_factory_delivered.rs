@@ -244,7 +244,11 @@ fn setup_review_run(ws: &Path) -> (FactoryStore, String, String) {
             .unwrap(),
         );
     }
-    append(&events_path(&store), &lock_path(&store), &log_events).unwrap();
+    let redacted_logs = tandem::factory::events::redact_events(
+        &log_events,
+        &tandem::factory::redact::RedactContext::new(),
+    );
+    append(&events_path(&store), &lock_path(&store), &redacted_logs).unwrap();
     fs::write(
         idea_path(&store, &idea.id),
         serde_json::to_vec_pretty(&current_idea).unwrap(),
@@ -272,7 +276,9 @@ fn record_pr(store: &FactoryStore, idea_id: &str, run_id: &str, pr: PrLink) {
         &ev_data,
     )
     .unwrap();
-    append(&events_path(store), &lock_path(store), &[ev]).unwrap();
+    let redacted_ev =
+        tandem::factory::events::redact_event(ev, &tandem::factory::redact::RedactContext::new());
+    append(&events_path(store), &lock_path(store), &[redacted_ev]).unwrap();
     let idea = store.get_idea(idea_id).unwrap().unwrap();
     let run = get_run(store, run_id).unwrap().unwrap();
     let updated_idea = machine::apply(Some(idea), &ev_data, 200.0).unwrap();
@@ -438,7 +444,10 @@ fn handoff_writes_documented_sections_and_records_evidence() {
 
     let idea = store.get_idea(&idea_id).unwrap().unwrap();
     let run = get_run(&store, &run_id).unwrap().unwrap();
-    assert_eq!(build_handoff_markdown(&store, &ws, &idea, &run), md);
+    assert_eq!(
+        build_handoff_markdown(&store, &ws, &idea, &run).as_str(),
+        md
+    );
     assert!(run.evidence.iter().any(|e| e.kind == EvidenceKind::Handoff));
 
     let _ = fs::remove_dir_all(&ws);

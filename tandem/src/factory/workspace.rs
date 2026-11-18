@@ -6,10 +6,13 @@ use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
 use crate::factory::approval::{ApprovalError, ensure_user_caller};
 use crate::factory::broker::git::{AllowedGitSubcommand, GitError, run_git};
-use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
+use crate::factory::events::{
+    Event, append_locked, redact_event, reject_if_symlink, set_private_file_mode,
+};
 use crate::factory::ids::is_valid_run_id;
 use crate::factory::machine::{self, EventData};
 use crate::factory::model::{Actor, ActorKind, Run, RunState};
+use crate::factory::redact::RedactContext;
 use crate::factory::run::{RunError, get_run};
 use crate::factory::store::{FactoryStore, create_private_dir, current_time, write_atomic};
 use crate::sources::codebases::list_codebases;
@@ -193,7 +196,10 @@ pub fn set_run_target(
         Some(run_id.to_string()),
         &ev_data,
     )?;
-    let appended = append_locked(&store.events_path(), &[ev])?;
+    let appended = append_locked(
+        &store.events_path(),
+        &[redact_event(ev, &RedactContext::from_env())],
+    )?;
     let updated = machine::apply_run(Some(run), &ev_data, &appended[0].idea, appended[0].ts)
         .ok_or_else(|| FactoryError::InvalidInput("failed to apply target".to_string()))?;
     let bytes = serde_json::to_vec_pretty(&updated).map_err(FactoryError::from)?;
@@ -302,7 +308,10 @@ pub fn prepare_worktree(
         Some(run_id.to_string()),
         &ev_data,
     )?;
-    let appended = append_locked(&store.events_path(), &[ev])?;
+    let appended = append_locked(
+        &store.events_path(),
+        &[redact_event(ev, &RedactContext::from_env())],
+    )?;
     let updated = machine::apply_run(Some(run), &ev_data, &appended[0].idea, appended[0].ts)
         .ok_or_else(|| FactoryError::InvalidInput("failed to apply workspace".to_string()))?;
     let bytes = serde_json::to_vec_pretty(&updated).map_err(FactoryError::from)?;

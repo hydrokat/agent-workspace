@@ -188,6 +188,7 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
     .unwrap();
     let run_id = ready.run.expect("run created").id;
 
+    let redact_ctx = tandem::factory::redact::RedactContext::new();
     evidence::add(
         &store,
         AddEvidenceInput {
@@ -197,8 +198,11 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             stage: "test",
             attempt: 2,
             extension: "json",
-            content: br#"{"attempt":2,"passed":true,"checks":[]}"#,
-            summary: "tests 48 passed, 0 failed".to_string(),
+            content: evidence::EvidenceContent::Text(tandem::factory::redact::redact(
+                r#"{"attempt":2,"passed":true,"checks":[]}"#,
+                &redact_ctx,
+            )),
+            summary: tandem::factory::redact::redact("tests 48 passed, 0 failed", &redact_ctx),
         },
         &sys,
     )
@@ -212,8 +216,11 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             stage: "test",
             attempt: 2,
             extension: "json",
-            content: br#"{"attempt":2,"passed":true,"checks":[]}"#,
-            summary: "lint clean".to_string(),
+            content: evidence::EvidenceContent::Text(tandem::factory::redact::redact(
+                r#"{"attempt":2,"passed":true,"checks":[]}"#,
+                &redact_ctx,
+            )),
+            summary: tandem::factory::redact::redact("lint clean", &redact_ctx),
         },
         &sys,
     )
@@ -227,8 +234,11 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             stage: "handoff",
             attempt: 1,
             extension: "md",
-            content: b"# Handoff\n\nAll 48 tests pass and PR #142 is ready.\n",
-            summary: "handoff ready".to_string(),
+            content: evidence::EvidenceContent::Text(tandem::factory::redact::redact(
+                "# Handoff\n\nAll 48 tests pass and PR #142 is ready.\n",
+                &redact_ctx,
+            )),
+            summary: tandem::factory::redact::redact("handoff ready", &redact_ctx),
         },
         &sys,
     )

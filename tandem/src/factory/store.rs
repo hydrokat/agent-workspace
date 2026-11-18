@@ -7,12 +7,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use super::FactoryError;
 use super::events::{
-    self, Event, append_locked, read_all, reject_if_symlink, set_private_dir_mode,
+    self, Event, append_locked, read_all, redact_events, reject_if_symlink, set_private_dir_mode,
     set_private_file_mode,
 };
 use super::ids::{self, is_valid_idea_id, is_valid_run_id};
 use super::machine::{self, Command, EventData, Facts};
 use super::model::{Actor, FactorySettings, Idea, Run};
+use super::redact::RedactContext;
 use crate::coordination::filelock::exclusive_lock;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +179,8 @@ impl FactoryStore {
             )?);
         }
 
-        let appended = append_locked(&self.events_path(), &pending)?;
+        let redacted = redact_events(&pending, &RedactContext::from_env());
+        let appended = append_locked(&self.events_path(), &redacted)?;
 
         let mut next = current;
         for (ev, ev_data) in appended.iter().zip(decided.iter()) {

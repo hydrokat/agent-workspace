@@ -65,6 +65,29 @@ pub enum FactoryCommand {
 
     #[command(about = "rebuild materialized idea files from the event log")]
     Rebuild(FactoryRebuildArgs),
+
+    #[command(about = "test and inspect secret redaction")]
+    Redact(FactoryRedactArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRedactArgs {
+    #[command(subcommand)]
+    pub command: FactoryRedactCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryRedactCommand {
+    #[command(about = "scan a file and report what would be redacted")]
+    Test(FactoryRedactTestArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRedactTestArgs {
+    pub file: std::path::PathBuf,
+
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -856,6 +879,9 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
+        FactoryCommand::Redact(r_args) => match &r_args.command {
+            FactoryRedactCommand::Test(a) => a.json,
+        },
     }
 }
 
@@ -1930,7 +1956,36 @@ fn execute(
                 truncated: report.truncated,
             })
         }
+        FactoryCommand::Redact(r_args) => match &r_args.command {
+            FactoryRedactCommand::Test(a) => run_redact_test(a),
+        },
     }
+}
+
+fn run_redact_test(args: &FactoryRedactTestArgs) -> Result<String, CmdError> {
+    let content = fs::read_to_string(&args.file).map_err(|e| {
+        CmdError::invalid_input(format!("cannot read {}: {e}", args.file.display()))
+    })?;
+    let ctx = super::redact::RedactContext::from_env();
+    let (redacted, matches) = super::redact::inspect(&content, &ctx);
+
+    if args.json {
+        return serialize_compact(&serde_json::json!({
+            "file": args.file.display().to_string(),
+            "replacements": redacted.replacements(),
+            "matches": matches,
+        }));
+    }
+
+    if matches.is_empty() {
+        return Ok("No secrets detected (0 replacements).".to_string());
+    }
+    let mut lines: Vec<String> = matches
+        .iter()
+        .map(|m| format!("line {}: {}", m.line, m.kind.as_str()))
+        .collect();
+    lines.push(format!("Total replacements: {}", redacted.replacements()));
+    Ok(lines.join("\n"))
 }
 
 fn serialize_compact<T: Serialize>(value: &T) -> Result<String, CmdError> {
@@ -2469,7 +2524,8 @@ fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<St
         } else {
             raw.as_ref()
         };
-        sanitize::clean(aligned)
+        let sanitized = sanitize::clean(aligned);
+        super::redact::redact(&sanitized, &super::redact::RedactContext::from_env()).into_string()
     };
 
     if args.json {

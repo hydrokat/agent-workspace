@@ -12,11 +12,13 @@ use super::broker::checks::CheckOutcome;
 use super::broker::git::{AllowedGitSubcommand, run_git};
 use super::checks::CheckKind;
 use super::events::{
-    Event, append_locked, read_all, reject_if_symlink, set_private_dir_mode, set_private_file_mode,
+    Event, append_locked, read_all, redact_event, reject_if_symlink, set_private_dir_mode,
+    set_private_file_mode,
 };
 use super::ids::{is_valid_idea_id, is_valid_run_id};
 use super::machine::{self, EventData};
 use super::model::{Actor, Run, StageState};
+use super::redact::{RedactContext, Redacted, redact};
 use super::stages::test::{TestStageReport, format_failures_summary};
 use super::store::{FactoryStore, current_time, event_run_id, write_atomic};
 use super::workflow::schema::{EvidenceKind, Workflow};
@@ -34,6 +36,11 @@ pub struct EvidenceItem {
     pub created: f64,
 }
 
+pub enum EvidenceContent<'a> {
+    Text(Redacted),
+    Screenshot(&'a [u8]),
+}
+
 pub struct AddEvidenceInput<'a> {
     pub idea_id: &'a str,
     pub run_id: &'a str,
@@ -41,8 +48,8 @@ pub struct AddEvidenceInput<'a> {
     pub stage: &'a str,
     pub attempt: u32,
     pub extension: &'a str,
-    pub content: &'a [u8],
-    pub summary: String,
+    pub content: EvidenceContent<'a>,
+    pub summary: Redacted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,16 +170,21 @@ pub fn add(
     let dest = evidence_dir.join(&filename);
     reject_if_symlink(&dest)?;
 
+    let content_bytes: &[u8] = match &input.content {
+        EvidenceContent::Text(redacted) => redacted.as_str().as_bytes(),
+        EvidenceContent::Screenshot(bytes) => bytes,
+    };
+
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&dest)?;
-    file.write_all(input.content)?;
+    file.write_all(content_bytes)?;
     file.flush()?;
     set_private_file_mode(&dest)?;
 
     let mut hasher = Sha256::new();
-    hasher.update(input.content);
+    hasher.update(content_bytes);
     let digest = hasher.finalize();
     let sha256: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     let created = current_time();
@@ -184,8 +196,8 @@ pub fn add(
         attempt: input.attempt,
         path: format!("runs/{}/evidence/{filename}", input.run_id),
         sha256,
-        bytes: input.content.len() as u64,
-        summary: input.summary,
+        bytes: content_bytes.len() as u64,
+        summary: input.summary.into_string(),
         created,
     };
 
@@ -200,7 +212,8 @@ pub fn add(
         event_run_id(&ev_data),
         &ev_data,
     )?;
-    let appended = append_locked(&store.events_path(), &[ev])?;
+    let redacted_ev = redact_event(ev, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &[redacted_ev])?;
 
     let run_json_path = store.run_json_path(input.run_id);
     if run_json_path.exists() {
@@ -321,7 +334,7 @@ pub fn bundle_summary(items: &[EvidenceItem]) -> String {
         .join(" · ")
 }
 
-fn build_check_report(attempt: u32, outcomes: &[&CheckOutcome], label: &str) -> (Vec<u8>, String) {
+fn build_check_report(attempt: u32, outcomes: &[&CheckOutcome], label: &str) -> (String, String) {
     let owned: Vec<CheckOutcome> = outcomes.iter().map(|o| (*o).clone()).collect();
     let passed_count = owned.iter().filter(|o| o.passed()).count();
     let total = owned.len();
@@ -347,7 +360,7 @@ fn build_check_report(attempt: u32, outcomes: &[&CheckOutcome], label: &str) -> 
         checks,
         failures_summary,
     };
-    let bytes = serde_json::to_vec_pretty(&payload).unwrap_or_default();
+    let text = serde_json::to_string_pretty(&payload).unwrap_or_default();
 
     let summary = if total == 0 {
         format!("{label}: none configured")
@@ -362,7 +375,7 @@ fn build_check_report(attempt: u32, outcomes: &[&CheckOutcome], label: &str) -> 
         format!("{label}: {failed}/{total} failed")
     };
 
-    (bytes, summary)
+    (text, summary)
 }
 
 pub fn record_test_stage_evidence(
@@ -384,8 +397,9 @@ pub fn record_test_stage_evidence(
         .filter(|o| o.kind == CheckKind::Lint)
         .collect();
 
-    let (test_bytes, test_summary) = build_check_report(attempt, &test_outcomes, "tests");
-    let (lint_bytes, lint_summary) = build_check_report(attempt, &lint_outcomes, "lint");
+    let ctx = RedactContext::from_env();
+    let (test_text, test_summary) = build_check_report(attempt, &test_outcomes, "tests");
+    let (lint_text, lint_summary) = build_check_report(attempt, &lint_outcomes, "lint");
 
     let test_item = add(
         store,
@@ -396,8 +410,8 @@ pub fn record_test_stage_evidence(
             stage: "test",
             attempt,
             extension: "json",
-            content: &test_bytes,
-            summary: test_summary,
+            content: EvidenceContent::Text(redact(&test_text, &ctx)),
+            summary: redact(&test_summary, &ctx),
         },
         actor,
     )?;
@@ -411,8 +425,8 @@ pub fn record_test_stage_evidence(
             stage: "test",
             attempt,
             extension: "json",
-            content: &lint_bytes,
-            summary: lint_summary,
+            content: EvidenceContent::Text(redact(&lint_text, &ctx)),
+            summary: redact(&lint_summary, &ctx),
         },
         actor,
     )?;
@@ -429,6 +443,8 @@ pub fn record_review_findings(
     summary: String,
     actor: &Actor,
 ) -> Result<EvidenceItem, FactoryError> {
+    let ctx = RedactContext::from_env();
+    let raw_text = String::from_utf8_lossy(content);
     add(
         store,
         AddEvidenceInput {
@@ -438,8 +454,8 @@ pub fn record_review_findings(
             stage: "review",
             attempt,
             extension: "json",
-            content,
-            summary,
+            content: EvidenceContent::Text(redact(&raw_text, &ctx)),
+            summary: redact(&summary, &ctx),
         },
         actor,
     )
@@ -453,11 +469,12 @@ pub fn record_create_tests_exception(
     rationale: &str,
     actor: &Actor,
 ) -> Result<EvidenceItem, FactoryError> {
+    let ctx = RedactContext::from_env();
     let payload = serde_json::json!({
         "exception": "no_behaviour_change",
         "rationale": rationale,
     });
-    let bytes = serde_json::to_vec_pretty(&payload)?;
+    let text = serde_json::to_string_pretty(&payload)?;
     add(
         store,
         AddEvidenceInput {
@@ -467,8 +484,8 @@ pub fn record_create_tests_exception(
             stage: "create-tests",
             attempt,
             extension: "json",
-            content: &bytes,
-            summary: format!("no_behaviour_change: {rationale}"),
+            content: EvidenceContent::Text(redact(&text, &ctx)),
+            summary: redact(&format!("no_behaviour_change: {rationale}"), &ctx),
         },
         actor,
     )
@@ -483,6 +500,7 @@ pub fn record_committed_diff_stat(
     worktree_path: &Path,
     actor: &Actor,
 ) -> Result<EvidenceItem, FactoryError> {
+    let ctx = RedactContext::from_env();
     let timeout = Duration::from_secs(10);
     let stat = match run_git(
         AllowedGitSubcommand::Diff,
@@ -516,8 +534,8 @@ pub fn record_committed_diff_stat(
             stage,
             attempt,
             extension: "txt",
-            content: stat.as_bytes(),
-            summary: format!("{stage}: {summary_line}"),
+            content: EvidenceContent::Text(redact(&stat, &ctx)),
+            summary: redact(&format!("{stage}: {summary_line}"), &ctx),
         },
         actor,
     )
@@ -531,6 +549,7 @@ pub fn record_demo_screenshots(
     artifact_dir: &Path,
     actor: &Actor,
 ) -> Result<Vec<EvidenceItem>, FactoryError> {
+    let ctx = RedactContext::from_env();
     let manifest = super::stages::demo::load_and_validate_demo_manifest(artifact_dir)
         .map_err(|e| FactoryError::InvalidInput(e.to_string()))?;
     let mut items = Vec::with_capacity(manifest.screenshots.len());
@@ -546,8 +565,8 @@ pub fn record_demo_screenshots(
                 stage: "demo",
                 attempt,
                 extension: "png",
-                content: &bytes,
-                summary: entry.caption.trim().to_string(),
+                content: EvidenceContent::Screenshot(&bytes),
+                summary: redact(entry.caption.trim(), &ctx),
             },
             actor,
         )?;
@@ -563,13 +582,14 @@ pub fn record_demo_skipped_no_tool(
     reason: &str,
     actor: &Actor,
 ) -> Result<EvidenceItem, FactoryError> {
+    let ctx = RedactContext::from_env();
     let payload = serde_json::json!({
         "skipped": true,
         "reason": reason,
         "screenshots_taken": 0,
         "note": "no screenshots were taken",
     });
-    let bytes = serde_json::to_vec_pretty(&payload)?;
+    let text = serde_json::to_string_pretty(&payload)?;
     add(
         store,
         AddEvidenceInput {
@@ -579,8 +599,11 @@ pub fn record_demo_skipped_no_tool(
             stage: "demo",
             attempt: 0,
             extension: "json",
-            content: &bytes,
-            summary: format!("demo skipped: no screenshots were taken ({reason})"),
+            content: EvidenceContent::Text(redact(&text, &ctx)),
+            summary: redact(
+                &format!("demo skipped: no screenshots were taken ({reason})"),
+                &ctx,
+            ),
         },
         actor,
     )

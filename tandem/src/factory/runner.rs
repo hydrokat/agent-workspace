@@ -18,7 +18,7 @@ use crate::factory::budget::{
     effective_stage_budget, spent as compute_spent,
 };
 use crate::factory::events::{
-    Event, append_locked, read_all, reject_if_symlink, set_private_file_mode,
+    Event, append_locked, read_all, redact_events, reject_if_symlink, set_private_file_mode,
 };
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
@@ -26,6 +26,7 @@ use crate::factory::machine::{self, Command, EventData, Facts};
 use crate::factory::model::{
     Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
 };
+use crate::factory::redact::RedactContext;
 use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
@@ -282,7 +283,8 @@ fn append_run_events(
     }
     let mut next_run = get_run(store, run_id)?.or(run_opt);
     let mut next_idea = store.get_idea(idea_id)?;
-    let appended = append_locked(&store.events_path(), &pending)?;
+    let redacted = redact_events(&pending, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &redacted)?;
     for (ev, ev_data) in appended.iter().zip(events.iter()) {
         next_run = machine::apply_run(next_run, ev_data, idea_id, ev.ts);
         next_idea = machine::apply(next_idea, ev_data, ev.ts);

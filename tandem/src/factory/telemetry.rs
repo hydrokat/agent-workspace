@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
 use super::broker::result::JobUsage;
-use super::events::{Event, append, read_all};
+use super::events::{Event, append, read_all, redact_event};
 use super::machine::EventData;
 use super::model::{Actor, ModelPrice, Run};
+use super::redact::RedactContext;
 use super::routing::ModelTier;
 use super::run::get_run;
 use super::store::{FactoryStore, current_time};
@@ -172,7 +173,12 @@ pub fn record_job_usage(input: RecordJobUsageInput<'_>) -> Result<Event, Factory
         Some(input.run_id.to_string()),
         &ev_data,
     )?;
-    let appended = append(&input.store.events_path(), &input.store.lock_path(), &[ev])?;
+    let redacted = redact_event(ev, &RedactContext::from_env());
+    let appended = append(
+        &input.store.events_path(),
+        &input.store.lock_path(),
+        &[redacted],
+    )?;
     Ok(appended.into_iter().next().unwrap())
 }
 

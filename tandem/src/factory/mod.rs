@@ -15,6 +15,7 @@ pub mod machine;
 pub mod model;
 pub mod pr;
 pub mod questions;
+pub mod redact;
 pub mod routing;
 pub mod run;
 pub mod runner;

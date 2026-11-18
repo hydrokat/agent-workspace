@@ -8,6 +8,7 @@ use serde_json::Value;
 pub use super::FactoryError;
 use super::machine::EventData;
 use super::model::Actor;
+use super::redact::{RedactContext, redact};
 use crate::coordination::filelock::exclusive_lock;
 
 pub const EVENT_VERSION: u32 = 1;
@@ -66,6 +67,61 @@ impl Event {
             "data": self.data,
         }))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RedactedEvent(Event);
+
+impl RedactedEvent {
+    pub fn as_event(&self) -> &Event {
+        &self.0
+    }
+
+    pub fn into_event(self) -> Event {
+        self.0
+    }
+}
+
+fn is_hash_json_key(key: &str) -> bool {
+    matches!(
+        key,
+        "sha256" | "plan_sha256" | "workflow_sha256" | "base_commit" | "commit" | "commit_id"
+    )
+}
+
+fn redact_json_value(val: &mut Value, context: &RedactContext) {
+    match val {
+        Value::String(s) => {
+            *s = redact(s, context).into_string();
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_json_value(item, context);
+            }
+        }
+        Value::Object(map) => {
+            for (k, v) in map.iter_mut() {
+                if is_hash_json_key(k) {
+                    continue;
+                }
+                redact_json_value(v, context);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+pub fn redact_event(mut event: Event, context: &RedactContext) -> RedactedEvent {
+    redact_json_value(&mut event.data, context);
+    RedactedEvent(event)
+}
+
+pub fn redact_events(events: &[Event], context: &RedactContext) -> Vec<RedactedEvent> {
+    events
+        .iter()
+        .cloned()
+        .map(|ev| redact_event(ev, context))
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,7 +228,10 @@ pub fn read_since(log_path: &Path, seq: u64) -> Result<ReadResult, FactoryError>
     Ok(res)
 }
 
-pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Event>, FactoryError> {
+pub(crate) fn append_locked(
+    log_path: &Path,
+    events: &[RedactedEvent],
+) -> Result<Vec<Event>, FactoryError> {
     reject_if_symlink(log_path)?;
     if events.is_empty() {
         return Ok(Vec::new());
@@ -200,8 +259,8 @@ pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Eve
     let mut assigned = Vec::with_capacity(events.len());
     let mut buf = String::new();
 
-    for (idx, event) in events.iter().enumerate() {
-        let mut ev = event.clone();
+    for (idx, redacted) in events.iter().enumerate() {
+        let mut ev = redacted.0.clone();
         ev.v = EVENT_VERSION;
         ev.seq = last_seq + 1 + idx as u64;
 
@@ -239,7 +298,7 @@ pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Eve
 pub fn append(
     log_path: &Path,
     lock_path: &Path,
-    events: &[Event],
+    events: &[RedactedEvent],
 ) -> Result<Vec<Event>, FactoryError> {
     reject_if_symlink(lock_path)?;
     let lock_file = OpenOptions::new()

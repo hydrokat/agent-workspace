@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use super::FactoryError;
 use super::ids::is_valid_idea_id;
 use super::model::ArtifactRef;
+use super::redact::{RedactContext, Redacted, redact};
 use super::store::FactoryStore;
 
 pub const MAX_ARTIFACT_BYTES: usize = 256 * 1024;
@@ -80,7 +81,25 @@ pub fn put(
     }
 
     let bytes = fs::read(source_path)?;
-    let _ = validate_markdown_bytes(&bytes)?;
+    let text = validate_markdown_bytes(&bytes)?;
+    let redacted = redact(text, &RedactContext::from_env());
+    put_redacted(store, idea_id, kind, &redacted)
+}
+
+pub fn put_redacted(
+    store: &FactoryStore,
+    idea_id: &str,
+    kind: &str,
+    content: &Redacted,
+) -> Result<ArtifactRef, FactoryError> {
+    if !is_valid_idea_id(idea_id) {
+        return Err(FactoryError::InvalidInput(format!(
+            "invalid idea id: {idea_id}"
+        )));
+    }
+    validate_kind(kind)?;
+    let bytes = content.as_str().as_bytes();
+    let _ = validate_markdown_bytes(bytes)?;
 
     let artifacts_dir = store.root.join("ideas").join(idea_id).join("artifacts");
     fs::create_dir_all(&artifacts_dir)?;
@@ -102,11 +121,11 @@ pub fn put(
     let filename = format!("{kind}-v{next_ver}.md");
     let dest = artifacts_dir.join(&filename);
     let tmp = artifacts_dir.join(format!(".{filename}.tmp"));
-    fs::write(&tmp, &bytes)?;
+    fs::write(&tmp, bytes)?;
     fs::rename(&tmp, &dest)?;
 
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    hasher.update(bytes);
     let digest = hasher.finalize();
     let sha256: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     let created = SystemTime::now()
@@ -122,6 +141,10 @@ pub fn put(
         bytes: bytes.len() as u64,
         created,
     })
+}
+
+pub fn format_for_display(content: &Redacted) -> &str {
+    content.as_str()
 }
 
 pub fn read(

@@ -413,10 +413,14 @@ fn idea_ready_requires_accept_estimate_when_upper_end_exceeds_cap() {
         },
     )
     .unwrap();
+    let redacted_evs = tandem::factory::events::redact_events(
+        &[past_run_ev, stage_start_ev, stage_end_ev],
+        &tandem::factory::redact::RedactContext::new(),
+    );
     append(
         &store.root.join("events.jsonl"),
         &store.root.join(".lock"),
-        &[past_run_ev, stage_start_ev, stage_end_ev],
+        &redacted_evs,
     )
     .unwrap();
 
@@ -499,10 +503,14 @@ fn runner_pauses_on_cost_breach_before_job_and_records_action_command() {
             "output_tokens": 20000,
         }),
     };
+    let redacted_usage = tandem::factory::events::redact_event(
+        usage_ev,
+        &tandem::factory::redact::RedactContext::new(),
+    );
     append(
         &store.root.join("events.jsonl"),
         &store.root.join(".lock"),
-        &[usage_ev],
+        &[redacted_usage],
     )
     .unwrap();
 
@@ -589,10 +597,14 @@ fn runner_pauses_on_duration_breach_after_job_and_stops_running_jobs() {
                     },
                 )
                 .unwrap();
+                let redacted_s = tandem::factory::events::redact_events(
+                    &[s0, s1],
+                    &tandem::factory::redact::RedactContext::new(),
+                );
                 append(
                     &st.root.join("events.jsonl"),
                     &st.root.join(".lock"),
-                    &[s0, s1],
+                    &redacted_s,
                 )
                 .unwrap();
             }

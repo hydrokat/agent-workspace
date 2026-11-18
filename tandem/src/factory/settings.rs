@@ -6,9 +6,10 @@ use serde_json::Value;
 
 use super::FactoryError;
 use super::approval::{ApprovalError, ensure_user_caller};
-use super::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
+use super::events::{Event, append_locked, redact_event, reject_if_symlink, set_private_file_mode};
 use super::machine::EventData;
 use super::model::{Actor, ActorKind, Budget, FactorySettings, ModelPrice};
+use super::redact::RedactContext;
 use super::routing::ProviderModelTiers;
 use super::store::{FactoryStore, current_time, write_atomic};
 use super::workflow::schema::Policy;
@@ -415,7 +416,10 @@ pub fn set(
             actor: actor_id.to_string(),
         },
     )?;
-    append_locked(&store.events_path(), &[ev])?;
+    append_locked(
+        &store.events_path(),
+        &[redact_event(ev, &RedactContext::from_env())],
+    )?;
     save_unlocked(store, &settings)?;
 
     Ok(SettingsChangeResult {

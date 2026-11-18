@@ -711,10 +711,14 @@ fn budget_does_not_breach_when_total_cost_is_unknown() {
         run: Some(run_id.clone()),
         data: serde_json::json!({"run": run_id, "stage": "test", "attempt": 1}),
     };
+    let redacted_extra = tandem::factory::events::redact_event(
+        extra,
+        &tandem::factory::redact::RedactContext::new(),
+    );
     append(
         &store.root.join("events.jsonl"),
         &store.root.join(".lock"),
-        &[extra],
+        &[redacted_extra],
     )
     .unwrap();
 

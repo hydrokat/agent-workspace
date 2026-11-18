@@ -13,11 +13,13 @@ use tandem::factory::commands::{
 };
 use tandem::factory::events::read_all;
 use tandem::factory::evidence::{
-    AddEvidenceInput, add, bundle_summary, list, missing, read_item, record_committed_diff_stat,
-    record_create_tests_exception, record_review_findings, record_test_stage_evidence,
+    AddEvidenceInput, EvidenceContent, add, bundle_summary, list, missing, read_item,
+    record_committed_diff_stat, record_create_tests_exception, record_review_findings,
+    record_test_stage_evidence,
 };
 use tandem::factory::machine::{Command, EventData};
 use tandem::factory::model::{Actor, ActorKind, Risk, StageState};
+use tandem::factory::redact::{RedactContext, redact};
 use tandem::factory::run::{CreateRunOptions, create_run, get_run};
 use tandem::factory::stages::test::{TestStageReport, format_failures_summary};
 use tandem::factory::store::FactoryStore;
@@ -136,6 +138,7 @@ fn add_creates_hashed_append_only_items_and_emits_event() {
     let ws = temp_ws("append");
     let (store, idea_id, run_id) = setup_run(&ws);
 
+    let rctx = RedactContext::new();
     let item1 = add(
         &store,
         AddEvidenceInput {
@@ -145,8 +148,8 @@ fn add_creates_hashed_append_only_items_and_emits_event() {
             stage: "test",
             attempt: 1,
             extension: "json",
-            content: br#"{"passed":false,"checks":[]}"#,
-            summary: "tests: 1 failed".to_string(),
+            content: EvidenceContent::Text(redact(r#"{"passed":false,"checks":[]}"#, &rctx)),
+            summary: redact("tests: 1 failed", &rctx),
         },
         &orch_actor(),
     )
@@ -161,8 +164,8 @@ fn add_creates_hashed_append_only_items_and_emits_event() {
             stage: "test",
             attempt: 2,
             extension: "json",
-            content: br#"{"passed":true,"checks":[]}"#,
-            summary: "tests: 12 passed".to_string(),
+            content: EvidenceContent::Text(redact(r#"{"passed":true,"checks":[]}"#, &rctx)),
+            summary: redact("tests: 12 passed", &rctx),
         },
         &orch_actor(),
     )
@@ -374,6 +377,7 @@ fn default_workflow_evidence_requirements_and_completeness() {
         ]
     );
 
+    let rctx = RedactContext::new();
     add(
         &store,
         AddEvidenceInput {
@@ -383,8 +387,8 @@ fn default_workflow_evidence_requirements_and_completeness() {
             stage: "test",
             attempt: 1,
             extension: "json",
-            content: b"{}",
-            summary: "tests: 48 passed".to_string(),
+            content: EvidenceContent::Text(redact("{}", &rctx)),
+            summary: redact("tests: 48 passed", &rctx),
         },
         &orch_actor(),
     )
@@ -398,8 +402,8 @@ fn default_workflow_evidence_requirements_and_completeness() {
             stage: "test",
             attempt: 1,
             extension: "json",
-            content: b"{}",
-            summary: "lint: clean".to_string(),
+            content: EvidenceContent::Text(redact("{}", &rctx)),
+            summary: redact("lint: clean", &rctx),
         },
         &orch_actor(),
     )
@@ -416,8 +420,8 @@ fn default_workflow_evidence_requirements_and_completeness() {
             stage: "review",
             attempt: 1,
             extension: "json",
-            content: b"{}",
-            summary: "review: 2 findings fixed".to_string(),
+            content: EvidenceContent::Text(redact("{}", &rctx)),
+            summary: redact("review: 2 findings fixed", &rctx),
         },
         &orch_actor(),
     )
@@ -438,6 +442,7 @@ fn cli_run_evidence_lists_summarizes_and_shows_sanitized_item() {
     let ws = temp_ws("cli");
     let (store, idea_id, run_id) = setup_run(&ws);
 
+    let rctx = RedactContext::new();
     let item = add(
         &store,
         AddEvidenceInput {
@@ -447,8 +452,11 @@ fn cli_run_evidence_lists_summarizes_and_shows_sanitized_item() {
             stage: "test",
             attempt: 1,
             extension: "json",
-            content: b"{\"note\":\"hello \\u001b[31mred\\u001b[0m\"}",
-            summary: "tests 48 passed".to_string(),
+            content: EvidenceContent::Text(redact(
+                r#"{"note":"hello \u001b[31mred\u001b[0m"}"#,
+                &rctx,
+            )),
+            summary: redact("tests 48 passed", &rctx),
         },
         &orch_actor(),
     )

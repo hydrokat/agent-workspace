@@ -115,7 +115,11 @@ fn test_concurrent_appends_produce_gap_free_seq() {
                     run: None,
                     data: serde_json::json!({}),
                 };
-                append(&log_path, &lock_path, &[ev]).expect("append");
+                let redacted = tandem::factory::events::redact_event(
+                    ev,
+                    &tandem::factory::redact::RedactContext::new(),
+                );
+                append(&log_path, &lock_path, &[redacted]).expect("append");
             }
         }));
     }
@@ -183,7 +187,9 @@ fn test_half_written_last_line_recovers_and_continues_seq() {
         run: None,
         data: serde_json::json!({}),
     };
-    let appended = append(&log_path, &lock_path, &[ev]).expect("append");
+    let redacted =
+        tandem::factory::events::redact_event(ev, &tandem::factory::redact::RedactContext::new());
+    let appended = append(&log_path, &lock_path, &[redacted]).expect("append");
     assert_eq!(appended[0].seq, 3);
 }
 
@@ -313,7 +319,11 @@ fn test_oversized_title_and_event_rejected_without_writing() {
         data: serde_json::json!({ "blob": huge_payload }),
     };
 
-    let err = append(&log_path, &lock_path, &[oversized_event]).unwrap_err();
+    let redacted = tandem::factory::events::redact_event(
+        oversized_event,
+        &tandem::factory::redact::RedactContext::new(),
+    );
+    let err = append(&log_path, &lock_path, &[redacted]).unwrap_err();
     assert!(matches!(err, FactoryError::EventTooLarge { .. }));
     assert!(!log_path.exists());
 }

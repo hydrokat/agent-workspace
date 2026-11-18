@@ -4,10 +4,13 @@ use std::path::Path;
 
 use super::FactoryError;
 use super::approval::verify_snapshot;
-use super::events::{Event, append_locked, read_all, reject_if_symlink, set_private_file_mode};
+use super::events::{
+    Event, append_locked, read_all, redact_events, reject_if_symlink, set_private_file_mode,
+};
 use super::ids::{is_valid_idea_id, is_valid_run_id, new_run_id};
 use super::machine::{self, Command, EventData, TransitionError};
 use super::model::{Actor, Budget, IdeaState, Run, RunState, Stage, StageState};
+use super::redact::RedactContext;
 use super::store::{FactoryStore, create_private_dir, current_time, event_run_id, write_atomic};
 use super::workflow::parse::load_workflow_file;
 use super::workflow::validate::{resolve_workflow_path, validate};
@@ -170,7 +173,8 @@ pub fn create_run(
         Some(run_id.clone()),
         &ev_data,
     )?];
-    let appended = append_locked(&store.events_path(), &pending)?;
+    let redacted = redact_events(&pending, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &redacted)?;
     let ev_ts = appended[0].ts;
 
     let run_dir = store.run_dir(&run_id);
@@ -252,7 +256,8 @@ pub fn withdraw_run(store: &FactoryStore, run_id: &str, actor: &Actor) -> Result
             ev_data,
         )?);
     }
-    let appended = append_locked(&store.events_path(), &pending)?;
+    let redacted = redact_events(&pending, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &redacted)?;
 
     let mut next_run = Some(run);
     let mut next_idea = Some(idea);
