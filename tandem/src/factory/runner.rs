@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -29,7 +30,9 @@ use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
 use crate::factory::workflow::parse::load_workflow_file;
-use crate::factory::workflow::scheduler::{RunFacts, SchedulerLimits, TriState, next};
+use crate::factory::workflow::scheduler::{
+    RunFacts, SchedulerLimits, TriState, next, stage_has_writer_tool,
+};
 use crate::factory::workflow::validate::validate;
 use crate::factory::workspace::{WorkspaceError, prepare_worktree};
 
@@ -430,7 +433,11 @@ pub fn drive_run_step(
     let settings = store.settings()?;
     let wf_path = store.run_dir(run_id).join("workflow.yaml");
     let raw = load_workflow_file(&wf_path).map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
-    let mut wf = validate(&raw, &settings).map_err(|diags| {
+    let mut validation_settings = settings.clone();
+    validation_settings.max_parallel_agents = validation_settings
+        .max_parallel_agents
+        .max(crate::factory::settings::MAX_PARALLEL_AGENTS);
+    let mut wf = validate(&raw, &validation_settings).map_err(|diags| {
         let msg = diags
             .iter()
             .map(ToString::to_string)
@@ -519,7 +526,9 @@ pub fn drive_run_step(
         deploy_requested: run.deploy_requested,
         approvals: Vec::new(),
     };
-    let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages);
+    let workspace_running = count_workspace_running_jobs(store);
+    let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages)
+        .with_workspace_running(workspace_running);
     let decision = next(&wf, &run.stages, &facts, &limits);
 
     if !decision.skip.is_empty() {
@@ -570,11 +579,28 @@ pub fn drive_run_step(
         return Ok(());
     }
 
+    let writer_busy = wf.stages.iter().any(|stage_def| {
+        run.stages
+            .iter()
+            .any(|s| s.name == stage_def.name && s.state == StageState::Running)
+            && stage_has_writer_tool(stage_def)
+    });
     let stage_to_run = decision.start.first().cloned().or_else(|| {
+        if limits.available_slots() == 0 {
+            return None;
+        }
         decision
             .failed
-            .first()
+            .iter()
             .filter(|f| !f.retries_exhausted)
+            .find(|f| {
+                let is_writer = wf
+                    .stages
+                    .iter()
+                    .find(|s| s.name == f.name)
+                    .is_some_and(stage_has_writer_tool);
+                !(is_writer && writer_busy)
+            })
             .map(|f| f.name.clone())
     });
 
@@ -1451,20 +1477,79 @@ pub fn change_run_budget(
     })
 }
 
+pub fn count_run_running_jobs(store: &FactoryStore, run: &Run) -> usize {
+    let jdir = jobs_dir(store, &run.id);
+    let mut job_running = 0usize;
+    let mut saw_job_dir = false;
+    if jdir.is_dir()
+        && let Ok(entries) = fs::read_dir(&jdir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            saw_job_dir = true;
+            if matches!(read_job_state(&path), Ok(JobState::Running)) {
+                job_running += 1;
+            }
+        }
+    }
+    let stage_running = run
+        .stages
+        .iter()
+        .filter(|s| s.state == StageState::Running)
+        .count();
+    if saw_job_dir {
+        job_running.max(stage_running)
+    } else {
+        stage_running
+    }
+}
+
+pub fn count_workspace_running_jobs(store: &FactoryStore) -> usize {
+    let Ok(runs) = list_runs(store, None) else {
+        return 0;
+    };
+    runs.iter()
+        .filter(|r| {
+            !matches!(
+                r.state,
+                RunState::Cancelled | RunState::Succeeded | RunState::Failed | RunState::Delivered
+            )
+        })
+        .map(|r| count_run_running_jobs(store, r))
+        .sum()
+}
+
+pub fn drive_workspace_step(
+    store: &FactoryStore,
+    workspace: &Path,
+    executor: &mut dyn Executor,
+) -> Result<(), RunnerError> {
+    let mut runs = list_runs(store, None)?;
+    runs.sort_by(|a, b| {
+        a.created
+            .partial_cmp(&b.created)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    for r in runs {
+        if matches!(
+            r.state,
+            RunState::Queued | RunState::Running | RunState::Review
+        ) {
+            let _ = drive_run_step(store, workspace, &r.id, executor);
+        }
+    }
+    Ok(())
+}
+
 pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), RunnerError> {
     let store = FactoryStore::new(workspace);
     let _lock = acquire_runner_lock(&store)?;
     loop {
-        if let Ok(runs) = list_runs(&store, None) {
-            for r in runs {
-                if matches!(
-                    r.state,
-                    RunState::Queued | RunState::Running | RunState::Review
-                ) {
-                    let _ = drive_run_step(&store, workspace, &r.id, executor);
-                }
-            }
-        }
+        let _ = drive_workspace_step(&store, workspace, executor);
         thread::sleep(Duration::from_secs(2));
     }
 }

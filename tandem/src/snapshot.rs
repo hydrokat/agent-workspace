@@ -236,10 +236,11 @@ fn state_key(state: IdeaState) -> &'static str {
 fn summarize_run(
     fstore: &FactoryStore,
     r: crate::factory::model::Run,
+    workspace_running_jobs: usize,
     job_limit: usize,
     now: f64,
 ) -> RunSummary {
-    use crate::factory::broker::job::{JobInput, JobState, job_dir, jobs_dir, read_job_state};
+    use crate::factory::broker::job::{JobInput, job_dir, jobs_dir};
     use crate::factory::broker::result::JobResult;
     use crate::factory::model::{RunState, StageState};
 
@@ -275,8 +276,6 @@ fn summarize_run(
     }
 
     let jdir = jobs_dir(fstore, &r.id);
-    let mut running_jobs = 0usize;
-    let mut saw_job_dir = false;
     let mut total_cost: Option<f64> = None;
     if jdir.is_dir()
         && let Ok(entries) = std::fs::read_dir(&jdir)
@@ -285,10 +284,6 @@ fn summarize_run(
             let path = entry.path();
             if !path.is_dir() {
                 continue;
-            }
-            saw_job_dir = true;
-            if matches!(read_job_state(&path), Ok(JobState::Running)) {
-                running_jobs += 1;
             }
             let res_path = path.join("result.json");
             if let Ok(raw) = std::fs::read_to_string(&res_path)
@@ -299,13 +294,7 @@ fn summarize_run(
             }
         }
     }
-    if !saw_job_dir {
-        running_jobs = r
-            .stages
-            .iter()
-            .filter(|s| s.state == StageState::Running)
-            .count();
-    }
+    let running_jobs = workspace_running_jobs;
 
     let start_ts = r
         .stages
@@ -398,6 +387,7 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> Fac
             let mut cards = Vec::with_capacity(ideas.len());
             let mut needs_you = 0usize;
             let mut job_limit_cache: Option<usize> = None;
+            let mut workspace_running_cache: Option<usize> = None;
             for idea in ideas {
                 *by_state
                     .entry(state_key(idea.state).to_string())
@@ -410,10 +400,13 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> Fac
                             .map(|s| s.max_parallel_agents.max(1))
                             .unwrap_or_else(|_| default_job_limit())
                     });
+                    let workspace_running = *workspace_running_cache.get_or_insert_with(|| {
+                        crate::factory::runner::count_workspace_running_jobs(&fstore)
+                    });
                     crate::factory::run::get_run(&fstore, run_id)
                         .ok()
                         .flatten()
-                        .map(|r| summarize_run(&fstore, r, limit, now))
+                        .map(|r| summarize_run(&fstore, r, workspace_running, limit, now))
                 });
                 let run_paused = run
                     .as_ref()

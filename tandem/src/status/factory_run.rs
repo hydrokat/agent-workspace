@@ -220,8 +220,6 @@ impl FactoryRun {
                 self.stage_jobs = stage_jobs;
 
                 let jdir = jobs_dir(&store, &run.id);
-                let mut running_jobs = 0usize;
-                let mut saw_job_dir = false;
                 let mut total_cost: Option<f64> = None;
                 if jdir.is_dir()
                     && let Ok(entries) = fs::read_dir(&jdir)
@@ -231,10 +229,6 @@ impl FactoryRun {
                         if !path.is_dir() {
                             continue;
                         }
-                        saw_job_dir = true;
-                        if matches!(read_job_state(&path), Ok(JobState::Running)) {
-                            running_jobs += 1;
-                        }
                         if let Ok(raw) = fs::read_to_string(path.join("result.json"))
                             && let Ok(res) = serde_json::from_str::<JobResult>(&raw)
                             && let Some(c) = res.usage.and_then(|u| u.cost_usd)
@@ -243,14 +237,7 @@ impl FactoryRun {
                         }
                     }
                 }
-                if !saw_job_dir {
-                    running_jobs = run
-                        .stages
-                        .iter()
-                        .filter(|s| s.state == StageState::Running)
-                        .count();
-                }
-                self.running_jobs = running_jobs;
+                self.running_jobs = crate::factory::runner::count_workspace_running_jobs(&store);
                 self.cost_usd = total_cost;
                 if !run.stages.is_empty() && self.selected_stage >= run.stages.len() {
                     self.selected_stage = run.stages.len() - 1;
