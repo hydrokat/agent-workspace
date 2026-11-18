@@ -139,6 +139,7 @@ pub struct FactoryRun {
     pub running_jobs: usize,
     pub job_limit: usize,
     pub cost_usd: Option<f64>,
+    pub cost: crate::factory::telemetry::Cost,
     pub selected_stage: usize,
     pub sub_view: RunSubView,
     pub notice: String,
@@ -164,6 +165,7 @@ impl FactoryRun {
             running_jobs: 0,
             job_limit: 3,
             cost_usd: None,
+            cost: crate::factory::telemetry::Cost::unknown(),
             selected_stage: 0,
             sub_view: RunSubView::Main,
             notice: String::new(),
@@ -254,6 +256,29 @@ impl FactoryRun {
                 .into_iter()
                 .filter(|ev| ev.run.as_deref() == Some(self.run_id.as_str()))
                 .collect();
+            let has_usage_events = filtered.iter().any(|ev| {
+                matches!(
+                    ev.r#type.as_str(),
+                    "job.usage" | "telemetry.usage" | "stage.usage"
+                )
+            });
+            if has_usage_events {
+                let c = crate::factory::telemetry::total_cost_from_events(&self.run_id, &filtered);
+                self.cost_usd = if c.basis == crate::factory::telemetry::CostBasis::Unknown {
+                    None
+                } else {
+                    c.value
+                };
+                self.cost = c;
+            } else {
+                self.cost = match self.cost_usd {
+                    Some(v) => crate::factory::telemetry::Cost {
+                        value: Some(v),
+                        basis: crate::factory::telemetry::CostBasis::Actual,
+                    },
+                    None => crate::factory::telemetry::Cost::unknown(),
+                };
+            }
             filtered.reverse();
             self.events = filtered;
         }
@@ -1123,10 +1148,7 @@ impl FactoryRun {
             run.updated
         };
         let elapsed = age((end_ts - start_ts).max(0.0));
-        let cost = match self.cost_usd {
-            Some(c) => format!("${c:.2}"),
-            None => "unknown".to_string(),
-        };
+        let cost = self.cost.format();
 
         let mut y = area.y;
         let bottom = area.y + area.height;

@@ -22,6 +22,7 @@ pub mod settings;
 pub mod simulate;
 pub mod stages;
 pub mod store;
+pub mod telemetry;
 pub mod workflow;
 pub mod workspace;
 

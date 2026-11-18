@@ -311,6 +311,8 @@ pub enum FactoryRunCommand {
     Prs(FactoryRunPrsArgs),
     #[command(about = "copy plan stage specs into workspace specs/ under next free phase")]
     ExportSpecs(FactoryRunExportSpecsArgs),
+    #[command(about = "show usage, cost basis, and rework signals for a run")]
+    Usage(FactoryRunUsageArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -467,6 +469,13 @@ pub struct FactoryRunPrsArgs {
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryRunExportSpecsArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunUsageArgs {
     pub run: String,
     #[arg(long)]
     pub json: bool,
@@ -828,6 +837,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Evidence(a) => a.json,
             FactoryRunCommand::Prs(a) => a.json,
             FactoryRunCommand::ExportSpecs(a) => a.json,
+            FactoryRunCommand::Usage(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -1755,6 +1765,18 @@ fn execute(
                     ))
                 }
             }
+            FactoryRunCommand::Usage(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let report = super::telemetry::run_usage(&store, &a.run)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                if a.json {
+                    serialize_compact(&report)
+                } else {
+                    Ok(format_run_usage_text(&report))
+                }
+            }
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {
@@ -2245,6 +2267,39 @@ fn format_budget_change_text(res: &super::runner::ChangeBudgetResult) -> String 
         ));
     }
     lines.join(" ")
+}
+
+fn format_run_usage_text(report: &super::telemetry::RunUsageReport) -> String {
+    let mut lines = vec![
+        format!("Run: {}", report.run),
+        format!("Total duration: {:.1}s", report.total_duration_secs),
+        format!("Total cost: {}", report.total_cost_display),
+    ];
+    if let (Some(i), Some(o)) = (report.total_input_tokens, report.total_output_tokens) {
+        lines.push(format!("Tokens: {i} in / {o} out"));
+    }
+    if !report.stages.is_empty() {
+        lines.push("Stages:".to_string());
+        for st in &report.stages {
+            let model = st.model.as_deref().unwrap_or("-");
+            let tier = st.tier.as_deref().unwrap_or("-");
+            lines.push(format!(
+                "  {}  {} job(s)  {}/{}  {:.1}s  {}",
+                st.stage, st.jobs, model, tier, st.duration_secs, st.cost_display
+            ));
+        }
+    }
+    lines.push(format!(
+        "Rework: {} retries ({} repeated rationales), develop reopened {} by test / {} by review, {} review rounds, {} model upgrades, {} interrupted",
+        report.rework.total_retries,
+        report.rework.repeated_rationales,
+        report.rework.develop_reopened_by_test,
+        report.rework.develop_reopened_by_review,
+        report.rework.review_rounds,
+        report.rework.model_upgrades,
+        report.rework.interrupted_jobs,
+    ));
+    lines.join("\n")
 }
 
 fn format_stopped_jobs_line(jobs: &[super::runner::StoppedJobInfo]) -> Option<String> {

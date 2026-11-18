@@ -127,6 +127,12 @@ pub struct RunSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<crate::factory::telemetry::Cost>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_display: Option<String>,
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pause_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence_summary: Option<String>,
@@ -238,6 +244,7 @@ fn summarize_run(
     r: crate::factory::model::Run,
     workspace_running_jobs: usize,
     job_limit: usize,
+    events: &[crate::factory::events::Event],
     now: f64,
 ) -> RunSummary {
     use crate::factory::broker::job::{JobInput, job_dir, jobs_dir};
@@ -275,25 +282,54 @@ fn summarize_run(
         });
     }
 
-    let jdir = jobs_dir(fstore, &r.id);
-    let mut total_cost: Option<f64> = None;
-    if jdir.is_dir()
-        && let Ok(entries) = std::fs::read_dir(&jdir)
-    {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let res_path = path.join("result.json");
-            if let Ok(raw) = std::fs::read_to_string(&res_path)
-                && let Ok(res) = serde_json::from_str::<JobResult>(&raw)
-                && let Some(cost) = res.usage.and_then(|u| u.cost_usd)
-            {
-                total_cost = Some(total_cost.unwrap_or(0.0) + cost);
+    let has_usage_events = events.iter().any(|ev| {
+        ev.run.as_deref() == Some(r.id.as_str())
+            && matches!(
+                ev.r#type.as_str(),
+                "job.usage" | "telemetry.usage" | "stage.usage"
+            )
+    });
+    let cost = if has_usage_events {
+        crate::factory::telemetry::total_cost_from_events(&r.id, events)
+    } else {
+        let jdir = jobs_dir(fstore, &r.id);
+        let mut total_cost: Option<f64> = None;
+        if jdir.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&jdir)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let res_path = path.join("result.json");
+                if let Ok(raw) = std::fs::read_to_string(&res_path)
+                    && let Ok(res) = serde_json::from_str::<JobResult>(&raw)
+                    && let Some(c) = res.usage.and_then(|u| u.cost_usd)
+                {
+                    total_cost = Some(total_cost.unwrap_or(0.0) + c);
+                }
             }
         }
-    }
+        match total_cost {
+            Some(c) => crate::factory::telemetry::Cost {
+                value: Some(c),
+                basis: crate::factory::telemetry::CostBasis::Actual,
+            },
+            None => crate::factory::telemetry::Cost::unknown(),
+        }
+    };
+    let total_cost = if cost.basis == crate::factory::telemetry::CostBasis::Unknown {
+        None
+    } else {
+        cost.value
+    };
+    let cost_display = Some(cost.format());
+    let retry_count: u32 = r
+        .stages
+        .iter()
+        .map(|s| s.attempts.saturating_sub(1 + s.interrupted_attempts))
+        .sum();
     let running_jobs = workspace_running_jobs;
 
     let start_ts = r
@@ -370,6 +406,9 @@ fn summarize_run(
         job_limit,
         elapsed_secs,
         cost_usd: total_cost,
+        cost: Some(cost),
+        cost_display,
+        retry_count,
         pause_reason,
         evidence_summary,
         evidence_complete,
@@ -388,6 +427,9 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> Fac
             let mut needs_you = 0usize;
             let mut job_limit_cache: Option<usize> = None;
             let mut workspace_running_cache: Option<usize> = None;
+            let events_cache = crate::factory::events::read_all(&fstore.root.join("events.jsonl"))
+                .map(|r| r.events)
+                .unwrap_or_default();
             for idea in ideas {
                 *by_state
                     .entry(state_key(idea.state).to_string())
@@ -406,7 +448,9 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> Fac
                     crate::factory::run::get_run(&fstore, run_id)
                         .ok()
                         .flatten()
-                        .map(|r| summarize_run(&fstore, r, workspace_running, limit, now))
+                        .map(|r| {
+                            summarize_run(&fstore, r, workspace_running, limit, &events_cache, now)
+                        })
                 });
                 let run_paused = run
                     .as_ref()

@@ -11,7 +11,8 @@ use crate::factory::FactoryError;
 use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapshot};
 use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
-use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
+use crate::factory::broker::job::{JobState, job_dir, jobs_dir, read_job_state, set_job_state};
+use crate::factory::broker::result::JobResult;
 use crate::factory::budget::{
     BudgetBreach, BudgetCapKind, BudgetCheck, RunBudget, check as check_budget,
     effective_stage_budget, spent as compute_spent,
@@ -29,6 +30,7 @@ use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
+use crate::factory::telemetry::{RecordJobUsageInput, record_job_usage};
 use crate::factory::workflow::parse::load_workflow_file;
 use crate::factory::workflow::scheduler::{
     RunFacts, SchedulerLimits, TriState, next, stage_has_writer_tool,
@@ -757,11 +759,35 @@ pub fn drive_run_step(
         &sys,
     )?;
 
+    let job_t0 = std::time::Instant::now();
     let outcome = executor.run(&StageJob {
         run: run.id.clone(),
         stage: stage_name.clone(),
         attempt: next_attempt,
     });
+    let job_duration_secs = job_t0.elapsed().as_secs_f64();
+
+    if !matches!(outcome, StageOutcome::Blocked { .. }) {
+        let result_path = job_dir(store, run_id, &stage_name, next_attempt).join("result.json");
+        let parsed_usage = fs::read_to_string(&result_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<JobResult>(&raw).ok())
+            .and_then(|r| r.usage);
+        record_job_usage(RecordJobUsageInput {
+            store,
+            idea_id: &run.idea,
+            run_id,
+            stage: &stage_name,
+            attempt: next_attempt,
+            provider: &routed.provider,
+            model: &routed.model,
+            tier: routed.tier,
+            duration_secs: job_duration_secs,
+            usage: parsed_usage.as_ref(),
+            price_table: &settings.price_table,
+            actor: &sys,
+        })?;
+    }
 
     let mut current_run = match get_run(store, run_id)? {
         Some(r) => r,

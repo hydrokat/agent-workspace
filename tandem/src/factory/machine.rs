@@ -295,6 +295,23 @@ pub enum EventData {
         old: Budget,
         new: Budget,
     },
+    #[serde(rename = "job.usage")]
+    JobUsage {
+        run: String,
+        stage: String,
+        attempt: u32,
+        provider: String,
+        model: String,
+        tier: String,
+        duration_secs: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_tokens: Option<u64>,
+        cost: super::telemetry::Cost,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_usd: Option<f64>,
+    },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {

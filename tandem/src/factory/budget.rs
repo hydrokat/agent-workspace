@@ -170,8 +170,6 @@ pub fn spent(run: &Run, events: &[Event], now: f64) -> Spent {
     let mut active_starts: HashMap<String, f64> = HashMap::new();
     let mut total_duration = 0.0f64;
     let mut saw_stage_event = false;
-    let mut total_cost = 0.0f64;
-    let mut saw_cost = false;
 
     for ev in events {
         if ev.run.as_deref() != Some(run.id.as_str()) {
@@ -189,15 +187,6 @@ pub fn spent(run: &Run, events: &[Event], now: f64) -> Spent {
                     && let Some(t0) = active_starts.remove(stage)
                 {
                     total_duration += (ev.ts - t0).max(0.0);
-                }
-            }
-            "telemetry.usage" | "job.usage" | "stage.usage" => {
-                if let Some(cost) = ev.data.get("cost_usd").and_then(|v| v.as_f64())
-                    && cost.is_finite()
-                    && cost >= 0.0
-                {
-                    total_cost += cost;
-                    saw_cost = true;
                 }
             }
             _ => {}
@@ -223,8 +212,15 @@ pub fn spent(run: &Run, events: &[Event], now: f64) -> Spent {
         .map(|s| s.attempts.saturating_sub(1 + s.interrupted_attempts))
         .sum();
 
+    let total_cost = super::telemetry::total_cost_from_events(&run.id, events);
+    let cost_usd = if total_cost.basis == super::telemetry::CostBasis::Unknown {
+        None
+    } else {
+        total_cost.value
+    };
+
     Spent {
-        cost_usd: saw_cost.then_some(total_cost),
+        cost_usd,
         duration_secs: total_duration.round() as u64,
         retries,
     }

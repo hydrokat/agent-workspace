@@ -426,7 +426,8 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::EvidenceAdded { run, .. }
         | EventData::PrCreated { run, .. }
         | EventData::PrStatusRefreshed { run, .. }
-        | EventData::BudgetChanged { run, .. } => Some(run.clone()),
+        | EventData::BudgetChanged { run, .. }
+        | EventData::JobUsage { run, .. } => Some(run.clone()),
         _ => None,
     }
 }
