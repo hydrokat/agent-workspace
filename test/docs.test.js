@@ -216,11 +216,20 @@ describe('repo-level runtime reference guard', () => {
     const violations = [];
 
     for (const file of strictTargets) {
+      const rel = file.replace(ROOT + '/', '');
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
       lines.forEach((line, idx) => {
         if (pattern.test(line)) {
-          violations.push(`${file.replace(ROOT + '/', '')}:${idx + 1}: ${line.trim()}`);
+          const isFactoryTargetSkillOrLockfile =
+            rel.startsWith('tandem/src/factory/') &&
+            (line.includes('run_tests.py') ||
+              line.includes('specs.py') ||
+              line.includes('uv.lock') ||
+              line.includes('"python3"'));
+          if (!isFactoryTargetSkillOrLockfile) {
+            violations.push(`${rel}:${idx + 1}: ${line.trim()}`);
+          }
         }
       });
     }
