@@ -1,6 +1,7 @@
 pub mod checks;
 pub mod context;
 pub mod gate;
+pub mod gh;
 pub mod git;
 pub mod job;
 pub mod result;

@@ -456,6 +456,7 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
     let allowed_broker_spawners: &[(&str, Option<&[&str]>)] = &[
         ("spawn.rs", Some(&["claude", "agy", "opencode"])),
         ("git.rs", Some(&["git"])),
+        ("gh.rs", Some(&["gh"])),
         ("checks.rs", None),
     ];
     let gate_env_keywords = ["GATE", "BYPASS", "SKIP_TERMS", "OVERRIDE", "ALLOW_PROVIDER"];
@@ -659,6 +660,24 @@ fn test_factory_spawn_sites() {
     let src = manifest_dir().join("src");
     let violations = check_factory_spawn_sites(&src);
     assert_eq!(violations, Vec::<String>::new());
+}
+
+#[test]
+fn test_gh_broker_forbids_merge_and_auto_merge() {
+    let factory_dir = manifest_dir().join("src").join("factory");
+    for file in collect_rs_files(&factory_dir) {
+        let content = fs::read_to_string(&file).unwrap_or_default();
+        for (line_no, line) in content.lines().enumerate() {
+            assert!(
+                !line.contains("\"pr merge\"")
+                    && !line.contains("\"merge\"")
+                    && !line.contains("--auto"),
+                "{}:{}: forbidden gh merge or auto-merge reference",
+                file.display(),
+                line_no + 1
+            );
+        }
+    }
 }
 
 #[test]

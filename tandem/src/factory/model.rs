@@ -210,6 +210,8 @@ pub struct Run {
     #[serde(default)]
     pub evidence: Vec<super::evidence::EvidenceItem>,
     #[serde(default)]
+    pub prs: Vec<PrLink>,
+    #[serde(default)]
     pub budget: Option<Budget>,
     pub created: f64,
     pub updated: f64,

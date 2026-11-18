@@ -11,6 +11,7 @@ pub mod executor;
 pub mod ids;
 pub mod machine;
 pub mod model;
+pub mod pr;
 pub mod questions;
 pub mod routing;
 pub mod run;

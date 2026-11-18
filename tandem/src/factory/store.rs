@@ -435,7 +435,8 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::StageInterrupted { run, .. }
         | EventData::StageReopened { run, .. }
         | EventData::RunBaseline { run, .. }
-        | EventData::EvidenceAdded { run, .. } => Some(run.clone()),
+        | EventData::EvidenceAdded { run, .. }
+        | EventData::PrCreated { run, .. } => Some(run.clone()),
         _ => None,
     }
 }

@@ -154,7 +154,11 @@ fn git_subcommands_allow_add_and_commit_but_never_push() {
         AllowedGitSubcommand::parse("diff"),
         Some(AllowedGitSubcommand::Diff)
     );
-    assert_eq!(AllowedGitSubcommand::parse("push"), None);
+    assert_eq!(
+        AllowedGitSubcommand::parse("push"),
+        Some(AllowedGitSubcommand::Push)
+    );
+    assert_eq!(AllowedGitSubcommand::parse("merge"), None);
     assert_eq!(AllowedGitSubcommand::Add.as_str(), "add");
     assert_eq!(AllowedGitSubcommand::Commit.as_str(), "commit");
 }

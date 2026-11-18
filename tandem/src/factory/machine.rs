@@ -270,6 +270,8 @@ pub enum EventData {
     },
     #[serde(rename = "evidence.added")]
     EvidenceAdded { run: String, item: EvidenceItem },
+    #[serde(rename = "pr.created")]
+    PrCreated { run: String, pr: PrLink },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -768,6 +770,16 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.prs = prs.clone();
                     idea.updated = ts;
                 }
+                EventData::PrCreated { pr, .. } => {
+                    if !idea
+                        .prs
+                        .iter()
+                        .any(|e| e.url == pr.url || (e.repo == pr.repo && e.number == pr.number))
+                    {
+                        idea.prs.push(pr.clone());
+                    }
+                    idea.updated = ts;
+                }
                 EventData::IdeaCancelled { .. } if !idea.state.is_terminal() => {
                     idea.cancelled_from = Some(idea.state);
                     idea.state = IdeaState::Cancelled;
@@ -813,6 +825,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             state: RunState::Queued,
             stages: stages.clone(),
             evidence: Vec::new(),
+            prs: Vec::new(),
             budget: None,
             created: ts,
             updated: ts,
@@ -977,6 +990,16 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                 }
                 EventData::EvidenceAdded { item, .. } => {
                     run.evidence.push(item.clone());
+                    run.updated = ts;
+                }
+                EventData::PrCreated { pr, .. } => {
+                    if !run
+                        .prs
+                        .iter()
+                        .any(|e| e.url == pr.url || (e.repo == pr.repo && e.number == pr.number))
+                    {
+                        run.prs.push(pr.clone());
+                    }
                     run.updated = ts;
                 }
                 _ => {}
