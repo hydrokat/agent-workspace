@@ -14,7 +14,6 @@ use crate::factory::checks::{CheckKind, ConfirmedChecks};
 
 pub const MAX_CHECK_LOG_BYTES: usize = 16 * 1024 * 1024;
 const SUMMARY_TAIL_BYTES: usize = 8 * 1024;
-const ALLOWED_CHECK_ENV: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckOutcome {
@@ -132,14 +131,7 @@ fn open_log_file(log_path: &Path) -> Result<File, CheckRunError> {
 }
 
 fn build_scrubbed_env() -> BTreeMap<String, String> {
-    let mut env = BTreeMap::new();
-    for (key, val) in std::env::vars() {
-        if ALLOWED_CHECK_ENV.contains(&key.as_str()) {
-            env.insert(key, val);
-        }
-    }
-    env.insert("CI".to_string(), "1".to_string());
-    env
+    crate::factory::checks::host_check_env()
 }
 
 fn find_run_tests_wrapper(worktree: &Path) -> Option<PathBuf> {

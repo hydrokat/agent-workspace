@@ -17,6 +17,18 @@ pub const MAX_CHECK_ARGV_LEN: usize = 32;
 
 const SHELL_BINARIES: &[&str] = &["sh", "bash", "zsh", "cmd", "cmd.exe"];
 
+pub fn host_check_env() -> BTreeMap<String, String> {
+    const ALLOWED: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL"];
+    let mut env = BTreeMap::new();
+    for (key, val) in std::env::vars() {
+        if ALLOWED.contains(&key.as_str()) {
+            env.insert(key, val);
+        }
+    }
+    env.insert("CI".to_string(), "1".to_string());
+    env
+}
+
 fn default_timeout_secs() -> u64 {
     DEFAULT_CHECK_TIMEOUT_SECS
 }
