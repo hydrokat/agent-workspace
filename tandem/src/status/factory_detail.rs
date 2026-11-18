@@ -12,21 +12,25 @@ use crate::factory::approval::{
 };
 use crate::factory::artifacts::{self, REQUIRED_PLAN_SECTIONS};
 use crate::factory::events::{self, Event};
+use crate::factory::evidence;
+use crate::factory::handoff;
 use crate::factory::machine::EventData;
 use crate::factory::model::{
-    Actor, ActorKind, FeasibilityVerdict, Idea, IdeaState, Risk, Run, RunState, StageState,
+    Actor, ActorKind, FeasibilityVerdict, Idea, IdeaState, PrLink, Risk, Run, RunState, StageState,
 };
 use crate::factory::questions::{self, IdeaQuestions};
 use crate::factory::run::{get_run, withdraw_run};
 use crate::factory::store::FactoryStore;
 use crate::factory::workflow::load_default_workflow;
 use crate::factory::workflow::parse::load_workflow_file;
+use crate::factory::workflow::schema::EvidenceKind;
 use crate::factory::workflow::validate::validate;
 use crate::sanitize::clean;
 use crate::snapshot::IdeaCard;
 use crate::status::render::age;
 use crate::tmux::keys::{FACTORY_MARK_READY_KEY, display_shortcut, matches_crossterm_event};
 use crate::ui::input::TextInput;
+use crate::ui::link::{is_github_url, osc8};
 use crate::ui::scroll::ScrollView;
 use crate::ui::text::truncate_to_width;
 
@@ -72,6 +76,7 @@ pub enum DetailKeyOutcome {
 pub enum DetailAction {
     OpenOrResumeOrchestrator { idea_id: String },
     OpenRunMonitor { run_id: String },
+    OpenRunEvidence { run_id: String },
     Refresh,
 }
 
@@ -371,6 +376,45 @@ impl FactoryDetail {
                         self.open_assumptions();
                         DetailKeyOutcome::Consumed
                     }
+                    KeyCode::Char('h') => {
+                        self.open_handoff();
+                        DetailKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('e') => {
+                        if let Some(ref run) = self.run {
+                            return DetailKeyOutcome::Action(DetailAction::OpenRunEvidence {
+                                run_id: run.id.clone(),
+                            });
+                        }
+                        self.notice = "No run recorded yet.".to_string();
+                        DetailKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('r') => {
+                        let Some(run_id) = self.run.as_ref().map(|r| r.id.clone()) else {
+                            self.notice = "No run recorded yet.".to_string();
+                            return DetailKeyOutcome::Consumed;
+                        };
+                        let store = FactoryStore::new(&self.workspace);
+                        let actor = Actor {
+                            kind: ActorKind::User,
+                            id: self.owner.clone(),
+                        };
+                        match handoff::refresh_run_prs(&store, &self.workspace, &run_id, &actor) {
+                            Ok(prs) => {
+                                self.reload(&[], self.pane_open);
+                                self.notice = if prs.is_empty() {
+                                    "No pull requests recorded.".to_string()
+                                } else {
+                                    format!("Refreshed {} pull request(s).", prs.len())
+                                };
+                                DetailKeyOutcome::Action(DetailAction::Refresh)
+                            }
+                            Err(err) => {
+                                self.notice = clean(&err.to_string());
+                                DetailKeyOutcome::Consumed
+                            }
+                        }
+                    }
                     KeyCode::Char('x') => {
                         if let Some(ref run) = self.run
                             && run.state == RunState::Queued
@@ -439,6 +483,69 @@ impl FactoryDetail {
             raw_text: out,
             scroll: ScrollView::new(),
         };
+    }
+
+    fn open_handoff(&mut self) {
+        let Some(ref run) = self.run else {
+            self.notice = "No handoff recorded yet.".to_string();
+            return;
+        };
+        let store = FactoryStore::new(&self.workspace);
+        if let Some(item) = run
+            .evidence
+            .iter()
+            .rfind(|i| i.kind == EvidenceKind::Handoff)
+            && let Ok(text) = evidence::read_item(&store, &run.id, &item.id)
+        {
+            self.notice.clear();
+            self.sub_view = DetailSubView::Reader {
+                title: "Handoff".to_string(),
+                raw_text: clean(&text),
+                scroll: ScrollView::new(),
+            };
+            return;
+        }
+        for path in [
+            store.run_dir(&run.id).join("artifacts").join("handoff.md"),
+            store.run_dir(&run.id).join("handoff.md"),
+        ] {
+            if path.is_file()
+                && let Ok(text) = std::fs::read_to_string(&path)
+            {
+                self.notice.clear();
+                self.sub_view = DetailSubView::Reader {
+                    title: "Handoff".to_string(),
+                    raw_text: clean(&text),
+                    scroll: ScrollView::new(),
+                };
+                return;
+            }
+        }
+        self.notice = "No handoff recorded yet.".to_string();
+    }
+
+    fn recorded_prs(&self) -> &[PrLink] {
+        if let Some(ref run) = self.run
+            && !run.prs.is_empty()
+        {
+            return &run.prs;
+        }
+        if let Some(ref idea) = self.idea {
+            return &idea.prs;
+        }
+        &[]
+    }
+
+    pub fn pr_terminal_links(&self) -> Vec<(String, String)> {
+        self.recorded_prs()
+            .iter()
+            .filter(|pr| is_github_url(&pr.url))
+            .map(|pr| {
+                let label = format!("#{}", pr.number);
+                let link = osc8(&label, &pr.url);
+                (label, link)
+            })
+            .collect()
     }
 
     fn trigger_mark_ready_or_revoke(&mut self) {
@@ -686,17 +793,16 @@ impl FactoryDetail {
                 );
                 y += 1;
                 if y < bottom {
-                    write_clipped(
-                        buf,
-                        area.x,
-                        y,
-                        max_w,
-                        &format!(
-                            "This freezes plan v{plan_ver} and authorizes Factory Mode to spend budget and change the repository."
-                        ),
-                        text_style,
+                    let auth_msg = format!(
+                        "This freezes plan v{plan_ver} and authorizes Factory Mode to spend budget, change the repository on a new branch, and open a pull request."
                     );
-                    y += 1;
+                    for wrapped in wrap_text(&auth_msg, max_w.max(1)) {
+                        if y >= bottom {
+                            break;
+                        }
+                        write_clipped(buf, area.x, y, max_w, &wrapped, text_style);
+                        y += 1;
+                    }
                 }
                 if y < bottom {
                     let wf_line = if let Some(wf) = workflows.get(*selected_wf) {
@@ -1058,6 +1164,55 @@ impl FactoryDetail {
                 );
                 y += 1;
             }
+
+            let prs = self.recorded_prs();
+            if (idea.state == IdeaState::Delivered || !prs.is_empty()) && y < bottom {
+                if prs.is_empty() {
+                    write_clipped(
+                        buf,
+                        area.x,
+                        y,
+                        max_w,
+                        "Pull request   none created yet",
+                        dim_style,
+                    );
+                    y += 1;
+                } else {
+                    for pr in prs {
+                        if y >= bottom {
+                            break;
+                        }
+                        let state = pr.state.as_deref().unwrap_or("unknown");
+                        let checks = pr.checks_summary.as_deref().unwrap_or("checks unknown");
+                        let line = if is_github_url(&pr.url) {
+                            format!(
+                                "Pull request   #{} · {} · {} · {}",
+                                pr.number,
+                                clean(state),
+                                clean(checks),
+                                clean(&pr.url)
+                            )
+                        } else {
+                            format!(
+                                "Pull request   #{} · {} · {}",
+                                pr.number,
+                                clean(state),
+                                clean(checks)
+                            )
+                        };
+                        write_clipped(buf, area.x, y, max_w, &line, ok_style);
+                        y += 1;
+                    }
+                }
+            }
+
+            if (!run.evidence.is_empty() || idea.state == IdeaState::Delivered) && y < bottom {
+                let summary = evidence::bundle_summary(&run.evidence);
+                let completeness = self.evidence_completeness_label(run);
+                let ev_line = format!("Evidence       {}   {}", clean(&summary), completeness);
+                write_clipped(buf, area.x, y, max_w, &ev_line, text_style);
+                y += 1;
+            }
         } else if idea.state == IdeaState::ReadyForDevelopment && y < bottom {
             let banner = self.ready_banner_line(now);
             write_clipped(buf, area.x, y, max_w, &banner, ok_style);
@@ -1111,12 +1266,13 @@ impl FactoryDetail {
                 "resume"
             };
             let run_hint = if self.run.is_some() {
-                "Enter run   "
+                "Enter run   h handoff   e evidence   r refresh PR status   "
             } else {
                 ""
             };
             let hints = if narrow {
-                format!("{ready_key} {action_label}   {run_hint}f/p/a read   Esc back")
+                let short_run = if self.run.is_some() { "h/e/r   " } else { "" };
+                format!("{ready_key} {action_label}   {short_run}f/p/a read   Esc back")
             } else {
                 format!(
                     "{ready_key} {action_label}   {run_hint}f feasibility   p plan   a assumptions   o {orch_label}   Esc back"
@@ -1124,6 +1280,30 @@ impl FactoryDetail {
             };
             write_clipped(buf, area.x, bottom - 1, max_w, &hints, dim_style);
         }
+    }
+
+    fn evidence_completeness_label(&self, run: &Run) -> String {
+        let store = FactoryStore::new(&self.workspace);
+        let run_wf_path = store.run_dir(&run.id).join("workflow.yaml");
+        let raw = if run_wf_path.exists() {
+            load_workflow_file(&run_wf_path).ok()
+        } else {
+            load_default_workflow(&self.workspace)
+                .ok()
+                .map(|(wf, _)| wf)
+        };
+        if let Some(raw_wf) = raw {
+            let settings = store.settings().unwrap_or_default();
+            if let Ok(wf) = validate(&raw_wf, &settings) {
+                let missing = evidence::missing(run, &wf);
+                if missing.is_empty() {
+                    return "complete".to_string();
+                }
+                let names: Vec<&str> = missing.iter().map(EvidenceKind::as_str).collect();
+                return format!("incomplete (missing: {})", names.join(", "));
+            }
+        }
+        "incomplete".to_string()
     }
 
     fn ready_banner_line(&self, now: f64) -> String {

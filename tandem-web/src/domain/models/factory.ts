@@ -50,6 +50,66 @@ export interface PrLink {
   repo: string;
   number: number;
   url: string;
+  state?: string | null;
+  checks_summary?: string | null;
+}
+
+export type EvidenceKind =
+  | "test_report"
+  | "lint_report"
+  | "diff_stat"
+  | "review_findings"
+  | "screenshot"
+  | "handoff"
+  | "exception";
+
+export interface EvidenceItem {
+  id: string;
+  kind: EvidenceKind;
+  stage: string;
+  attempt: number;
+  path: string;
+  sha256: string;
+  bytes: number;
+  summary: string;
+  created: number;
+}
+
+export interface ReviewFinding {
+  id: string;
+  severity: "blocker" | "major" | "minor" | "nit";
+  file: string;
+  line: number;
+  title: string;
+  detail: string;
+  suggestion: string;
+}
+
+export interface ReviewRoundRecord {
+  round: number;
+  stated_verdict: "approve" | "changes_requested";
+  derived_verdict: "approve" | "changes_requested";
+  verdict_overridden: boolean;
+  findings: ReviewFinding[];
+  fixed_from_previous: string[];
+  remaining_from_previous: string[];
+}
+
+export interface RunEvidenceBundle {
+  run: string;
+  items: EvidenceItem[];
+  missing: EvidenceKind[];
+  complete: boolean;
+  summary: string;
+  review_rounds?: ReviewRoundRecord[];
+  prs?: PrLink[];
+}
+
+export interface EvidenceItemContent {
+  run: string;
+  item: EvidenceItem;
+  content?: string;
+  pngBytes?: Uint8Array;
 }
 
 export interface Idea {
@@ -237,6 +297,24 @@ export const IDEA_TITLE_MAX_LEN = 120;
 
 export function isValidIdeaId(id: string): boolean {
   return /^i-[a-z0-9]{8}$/.test(id);
+}
+
+export function isValidEvidenceItemId(id: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
+}
+
+export function isGitHubPrUrl(url: string): boolean {
+  return url.startsWith("https://github.com/");
+}
+
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+export function isPngSignature(bytes: Uint8Array): boolean {
+  if (bytes.length < PNG_MAGIC.length) return false;
+  for (let i = 0; i < PNG_MAGIC.length; i += 1) {
+    if (bytes[i] !== PNG_MAGIC[i]) return false;
+  }
+  return true;
 }
 
 export function isValidCli(cli: string): cli is FactoryCli {

@@ -101,6 +101,15 @@ pub struct StageSummary {
     pub finished: Option<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoundSummary {
+    pub round: u32,
+    pub verdict: crate::factory::stages::review::ReviewVerdict,
+    pub total_findings: usize,
+    pub open_findings: usize,
+    pub fixed_findings: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
     pub id: String,
@@ -119,6 +128,16 @@ pub struct RunSummary {
     pub cost_usd: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pause_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_complete: Option<bool>,
+    #[serde(default)]
+    pub evidence_missing: Vec<String>,
+    #[serde(default)]
+    pub review_rounds: Vec<ReviewRoundSummary>,
+    #[serde(default)]
+    pub prs: Vec<crate::factory::model::PrLink>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -307,10 +326,50 @@ fn summarize_run(
     };
     let elapsed_secs = Some((end_ts - start_ts).max(0.0));
     let pause_reason = if r.state == RunState::Paused {
-        r.pause_reason
+        r.pause_reason.clone()
     } else {
         None
     };
+
+    let evidence_summary = Some(crate::factory::evidence::bundle_summary(&r.evidence));
+    let mut evidence_complete = None;
+    let mut evidence_missing = Vec::new();
+    let run_wf_path = fstore.run_dir(&r.id).join("workflow.yaml");
+    let raw_wf = if run_wf_path.exists() {
+        crate::factory::workflow::parse::load_workflow_file(&run_wf_path).ok()
+    } else {
+        fstore
+            .root
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|ws| crate::factory::workflow::load_default_workflow(ws).ok())
+            .map(|(wf, _)| wf)
+    };
+    if let Some(raw) = raw_wf {
+        let settings = fstore.settings().unwrap_or_default();
+        if let Ok(wf) = crate::factory::workflow::validate::validate(&raw, &settings) {
+            let missing = crate::factory::evidence::missing(&r, &wf);
+            evidence_complete = Some(missing.is_empty());
+            evidence_missing = missing.iter().map(|k| k.as_str().to_string()).collect();
+        }
+    }
+
+    let rounds_report = crate::factory::evidence::load_review_rounds(fstore, &r.id);
+    let review_rounds = rounds_report
+        .rounds
+        .into_iter()
+        .map(|rd| {
+            let open_findings = rd.findings.len();
+            let fixed_findings = rd.fixed_from_previous.len();
+            ReviewRoundSummary {
+                round: rd.round,
+                verdict: rd.stated_verdict,
+                total_findings: open_findings + fixed_findings,
+                open_findings,
+                fixed_findings,
+            }
+        })
+        .collect();
 
     RunSummary {
         id: r.id,
@@ -323,6 +382,11 @@ fn summarize_run(
         elapsed_secs,
         cost_usd: total_cost,
         pause_reason,
+        evidence_summary,
+        evidence_complete,
+        evidence_missing,
+        review_rounds,
+        prs: r.prs,
     }
 }
 

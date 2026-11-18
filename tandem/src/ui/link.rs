@@ -55,6 +55,10 @@ pub fn open_url(url: &str, platform: &str, spawner: &dyn UrlSpawner) -> Result<(
         .map_err(|e| LinkError::SpawnFailed(e.to_string()))
 }
 
+pub fn is_github_url(url: &str) -> bool {
+    url.starts_with("https://github.com/")
+}
+
 pub fn osc8(text: &str, url: &str) -> String {
     format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
 }

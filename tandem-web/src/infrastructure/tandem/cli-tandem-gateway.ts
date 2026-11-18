@@ -1,20 +1,24 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { resolveStateDir } from "./state-dir";
 import {
   FactoryGatewayError,
+  isPngSignature,
   type ArtifactKind,
+  type EvidenceItemContent,
   type FactoryCli,
   type FactoryErrorCode,
   type Idea,
   type IdeaDetail,
+  type PrLink,
   type ProviderStatusItem,
   type ReadyResult,
   type RunControlAction,
   type RunControlOptions,
+  type RunEvidenceBundle,
   type RunSummary,
   type WorkflowListItem,
 } from "../../domain/models/factory";
@@ -386,5 +390,87 @@ export class CliTandemGateway implements ITandemGateway {
       "--json",
     ]);
     return JSON.parse(stdout) as ProviderStatusItem[];
+  }
+
+  async factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "evidence",
+      runId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as RunEvidenceBundle;
+  }
+
+  async factoryEvidenceItem(
+    workspacePath: string,
+    runId: string,
+    itemId: string
+  ): Promise<EvidenceItemContent> {
+    const bundle = await this.factoryRunEvidence(workspacePath, runId);
+    const item = bundle.items.find((entry) => entry.id === itemId);
+    if (!item) {
+      throw new FactoryGatewayError("not_found", `Evidence item ${itemId} not found`);
+    }
+
+    if (item.kind === "screenshot") {
+      const expectedPrefix = `runs/${runId}/evidence/`;
+      if (
+        !item.path.startsWith(expectedPrefix) ||
+        item.path.includes("..") ||
+        item.path.includes("\\")
+      ) {
+        throw new FactoryGatewayError("invalid_input", "Invalid evidence item path");
+      }
+      const factoryRoot = join(workspacePath, ".agent-workspace", "factory");
+      const segments = item.path.split("/").filter(Boolean);
+      let cursor = factoryRoot;
+      if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) {
+        throw new FactoryGatewayError("invalid_input", "Symlinked factory directory is forbidden");
+      }
+      for (const seg of segments) {
+        cursor = join(cursor, seg);
+        if (!existsSync(cursor)) {
+          throw new FactoryGatewayError("not_found", "Evidence file not found");
+        }
+        if (lstatSync(cursor).isSymbolicLink()) {
+          throw new FactoryGatewayError("invalid_input", "Symlinked evidence item is forbidden");
+        }
+      }
+      const resolvedRoot = resolve(factoryRoot);
+      const resolvedTarget = resolve(cursor);
+      if (!resolvedTarget.startsWith(`${resolvedRoot}/`)) {
+        throw new FactoryGatewayError("invalid_input", "Evidence path escapes factory root");
+      }
+      const bytes = new Uint8Array(readFileSync(resolvedTarget));
+      if (!isPngSignature(bytes)) {
+        throw new FactoryGatewayError("invalid_input", "Screenshot file is not a valid PNG");
+      }
+      return { run: runId, item, pngBytes: bytes };
+    }
+
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "evidence",
+      runId,
+      "--show",
+      itemId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as EvidenceItemContent;
+  }
+
+  async factoryRefreshRunPrs(workspacePath: string, runId: string): Promise<PrLink[]> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "prs",
+      runId,
+      "--refresh",
+      "--json",
+    ]);
+    return JSON.parse(stdout) as PrLink[];
   }
 }

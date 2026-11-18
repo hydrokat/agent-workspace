@@ -46,7 +46,7 @@ impl FactoryStore {
         self.root.join("runs")
     }
 
-    pub(super) fn run_dir(&self, id: &str) -> PathBuf {
+    pub fn run_dir(&self, id: &str) -> PathBuf {
         self.runs_dir().join(id)
     }
 
