@@ -221,4 +221,19 @@ describe('script-first skills ship their scripts and templates', () => {
       assert.ok(text.includes('spec-implement'), `${name} reuses spec-implement rules by reference`);
     });
   }
+
+  it('installs factory-reviewer with valid front matter, provider sync, read-only mandate, and code-review reuse', () => {
+    has('factory-reviewer/SKILL.md');
+    has('factory-reviewer/agents/openai.yaml');
+    assert.ok(fileExists(dir, '.claude/skills/factory-reviewer/SKILL.md'), 'installed for claude provider');
+
+    const text = skill('factory-reviewer');
+    assert.match(text, /^---\nname: factory-reviewer\n/);
+    assert.ok(text.includes('repo_read'), 'mentions repo_read');
+    assert.ok(text.includes('diff_review'), 'mentions diff_review');
+    assert.ok(text.includes('code-review'), 'reuses code-review checklist');
+    assert.ok(text.includes('findings.json'), 'writes findings.json');
+    assert.ok(text.includes('result.json'), 'writes result.json');
+    assert.match(text, /Read-Only/i, 'enforces read-only mandate');
+  });
 });

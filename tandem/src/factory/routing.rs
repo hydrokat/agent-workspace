@@ -68,6 +68,8 @@ pub fn default_model_tiers() -> BTreeMap<String, ProviderModelTiers> {
 pub struct RoutingContext {
     pub preferred_provider: Option<String>,
     pub is_ui_work: bool,
+    pub avoid_provider: Option<String>,
+    pub avoid_model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -137,16 +139,31 @@ pub fn base_tier_for_stage(stage: &StageDef) -> ModelTier {
 fn choose_provider<'a>(
     open_providers: &[&'a str],
     preferred: Option<&str>,
+    avoid: Option<&str>,
 ) -> Result<&'a str, Unroutable> {
     if open_providers.is_empty() {
         return Err(Unroutable::NoOpenProvider);
     }
+    let candidates: Vec<&'a str> = if let Some(av) = avoid {
+        let filtered: Vec<&'a str> = open_providers
+            .iter()
+            .copied()
+            .filter(|&p| p != av)
+            .collect();
+        if filtered.is_empty() {
+            open_providers.to_vec()
+        } else {
+            filtered
+        }
+    } else {
+        open_providers.to_vec()
+    };
     if let Some(pref) = preferred
-        && let Some(&found) = open_providers.iter().find(|&&p| p == pref)
+        && let Some(&found) = candidates.iter().find(|&&p| p == pref)
     {
         return Ok(found);
     }
-    Ok(open_providers[0])
+    Ok(candidates[0])
 }
 
 fn map_tool_for_provider(
@@ -216,7 +233,11 @@ pub fn route(
     attempt: u32,
     ctx: &RoutingContext,
 ) -> Result<Route, Unroutable> {
-    let provider = choose_provider(open_providers, ctx.preferred_provider.as_deref())?;
+    let provider = choose_provider(
+        open_providers,
+        ctx.preferred_provider.as_deref(),
+        ctx.avoid_provider.as_deref(),
+    )?;
     let caps = match provider {
         "claude" => ClaudeAdapter::default().capabilities(),
         "agy" => AgyAdapter::default().capabilities(),
@@ -234,11 +255,6 @@ pub fn route(
             tier = next_tier;
         }
     }
-    let upgraded_from = if tier != base_tier {
-        Some(base_tier)
-    } else {
-        None
-    };
 
     let tiers = default_model_tiers();
     let provider_tiers = tiers
@@ -246,6 +262,17 @@ pub fn route(
         .ok_or_else(|| Unroutable::UnsupportedProvider {
             provider: provider.to_string(),
         })?;
+    if let Some(ref avoid_model) = ctx.avoid_model
+        && provider_tiers.for_tier(tier) == avoid_model.as_str()
+        && let Some(next_tier) = tier.upgrade()
+    {
+        tier = next_tier;
+    }
+    let upgraded_from = if tier != base_tier {
+        Some(base_tier)
+    } else {
+        None
+    };
     let model = provider_tiers.for_tier(tier).to_string();
     validate_model_id(&model).map_err(|reason| Unroutable::InvalidModel {
         provider: provider.to_string(),

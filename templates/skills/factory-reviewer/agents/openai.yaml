@@ -1,0 +1,4 @@
+interface:
+  display_name: "Factory Reviewer"
+  short_description: "Review a Factory Mode run branch read-only and emit structured findings.json."
+  default_prompt: "Follow the factory-reviewer playbook to review the run branch diff read-only against the code-review checklist and write findings.json and result.json."

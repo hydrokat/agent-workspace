@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::evidence::EvidenceItem;
 use super::model::{
     Actor, ActorKind, ApprovalGate, ArtifactRef, FeasibilityVerdict, Idea, IdeaState,
     OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, validate_owner,
@@ -267,6 +268,8 @@ pub enum EventData {
         #[serde(default)]
         failed_checks: Vec<String>,
     },
+    #[serde(rename = "evidence.added")]
+    EvidenceAdded { run: String, item: EvidenceItem },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -809,6 +812,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             baseline_passed: None,
             state: RunState::Queued,
             stages: stages.clone(),
+            evidence: Vec::new(),
             budget: None,
             created: ts,
             updated: ts,
@@ -948,19 +952,31 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.rationale = Some(reason.clone());
                         st.retry_hypothesis = Some(reason.clone());
                     }
-                    // Reset test stage from Failed to Pending so the scheduler waits on the reopened stage.
-                    if stage == "develop"
-                        && let Some(test_st) = run
-                            .stages
-                            .iter_mut()
-                            .find(|s| s.name == "test" && s.state == StageState::Failed)
-                    {
-                        test_st.state = StageState::Pending;
+                    // Reset downstream test and review stages to Pending so the scheduler re-runs them after develop.
+                    if stage == "develop" {
+                        for downstream in ["test", "review"] {
+                            if let Some(st) = run.stages.iter_mut().find(|s| {
+                                s.name == downstream
+                                    && matches!(
+                                        s.state,
+                                        StageState::Failed
+                                            | StageState::Succeeded
+                                            | StageState::Running
+                                    )
+                            }) {
+                                st.state = StageState::Pending;
+                                st.finished = None;
+                            }
+                        }
                     }
                     run.updated = ts;
                 }
                 EventData::RunBaseline { passed, .. } => {
                     run.baseline_passed = Some(*passed);
+                    run.updated = ts;
+                }
+                EventData::EvidenceAdded { item, .. } => {
+                    run.evidence.push(item.clone());
                     run.updated = ts;
                 }
                 _ => {}

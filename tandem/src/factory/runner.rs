@@ -11,7 +11,7 @@ use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapsho
 use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
 use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
-use crate::factory::executor::{Executor, StageJob, StageOutcome};
+use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
 use crate::factory::machine::{self, Command, EventData};
 use crate::factory::model::{Actor, ActorKind, Idea, KNOWN_PROVIDERS, Run, RunState, StageState};
@@ -433,9 +433,16 @@ pub fn drive_run_step(
         .get_idea(&run.idea)?
         .and_then(|i| i.orchestrator)
         .map(|o| o.cli);
+    let (avoid_provider, avoid_model) = if stage_name == "review" {
+        last_stage_provider_model(store, &run, "develop")
+    } else {
+        (None, None)
+    };
     let r_ctx = RoutingContext {
         preferred_provider,
         is_ui_work: is_ui,
+        avoid_provider,
+        avoid_model,
     };
 
     let routed = match route(
@@ -499,6 +506,102 @@ pub fn drive_run_step(
 
     match outcome {
         StageOutcome::Succeeded => {
+            if stage_name == "review" {
+                let artifact_dir = store.run_dir(run_id).join("artifacts");
+                if artifact_dir.join("findings.json").exists() {
+                    let report = match super::stages::review::load_findings_report(&artifact_dir) {
+                        Ok(r) => r,
+                        Err(failure) => {
+                            let reason = failure.to_string();
+                            let run_after_fail = append_run_events(
+                                store,
+                                &current_run.idea.clone(),
+                                &current_run.id.clone(),
+                                Some(current_run),
+                                vec![EventData::StageFailed {
+                                    run: run_id.to_string(),
+                                    stage: stage_name,
+                                    reason: reason.clone(),
+                                }],
+                                &sys,
+                            )?;
+                            return pause_run(
+                                store,
+                                run_after_fail,
+                                reason,
+                                vec![format!("tandem factory run resume {run_id}")],
+                            );
+                        }
+                    };
+                    let round = current_run
+                        .stages
+                        .iter()
+                        .find(|s| s.name == "review")
+                        .map_or(1, |s| s.attempts.max(1));
+                    let record =
+                        super::stages::review::record_review_round(&artifact_dir, round, &report)
+                            .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+
+                    if record.derived_verdict
+                        == super::stages::review::ReviewVerdict::ChangesRequested
+                    {
+                        let findings_summary =
+                            super::stages::review::format_blocking_findings_summary(
+                                &report.findings,
+                            );
+                        if round < settings.max_review_rounds {
+                            append_run_events(
+                                store,
+                                &current_run.idea.clone(),
+                                &current_run.id.clone(),
+                                Some(current_run),
+                                vec![
+                                    EventData::StageSucceeded {
+                                        run: run_id.to_string(),
+                                        stage: stage_name,
+                                    },
+                                    EventData::RunStagesComplete {
+                                        run: run_id.to_string(),
+                                    },
+                                    EventData::RunChangesRequested {
+                                        run: run_id.to_string(),
+                                    },
+                                    EventData::StageReopened {
+                                        run: run_id.to_string(),
+                                        stage: "develop".to_string(),
+                                        reason: findings_summary,
+                                    },
+                                ],
+                                &sys,
+                            )?;
+                        } else {
+                            let reason = format!(
+                                "review requested changes after {round} round(s); max_review_rounds ({}) exhausted:\n{findings_summary}",
+                                settings.max_review_rounds
+                            );
+                            let run_after_fail = append_run_events(
+                                store,
+                                &current_run.idea.clone(),
+                                &current_run.id.clone(),
+                                Some(current_run),
+                                vec![EventData::StageFailed {
+                                    run: run_id.to_string(),
+                                    stage: stage_name,
+                                    reason: reason.clone(),
+                                }],
+                                &sys,
+                            )?;
+                            return pause_run(
+                                store,
+                                run_after_fail,
+                                reason,
+                                vec![format!("tandem factory run resume {run_id}")],
+                            );
+                        }
+                        return Ok(());
+                    }
+                }
+            }
             append_run_events(
                 store,
                 &current_run.idea.clone(),

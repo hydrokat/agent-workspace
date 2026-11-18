@@ -40,6 +40,13 @@ pub struct AssembledContext {
     pub prompt: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ReviewContextExtras {
+    pub changed_files: Vec<String>,
+    pub diff: String,
+    pub evidence: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ContextError {
     #[error("context size {total_bytes} bytes exceeds {max_bytes} byte cap")]
@@ -119,4 +126,55 @@ pub fn assemble_context(inputs: &ContextInputs) -> Result<AssembledContext, Cont
         manifest: ContextManifest { items, total_bytes },
         prompt,
     })
+}
+
+pub fn assemble_review_context(
+    inputs: &ContextInputs,
+    extras: &ReviewContextExtras,
+) -> Result<AssembledContext, ContextError> {
+    let base_inputs = ContextInputs {
+        plan_snapshot_path: inputs.plan_snapshot_path.clone(),
+        acceptance_criteria: inputs.acceptance_criteria.clone(),
+        playbook_path: inputs.playbook_path.clone(),
+        agent_def_path: inputs.agent_def_path.clone(),
+        dependency_summaries: Vec::new(),
+        retry_rationale: None,
+    };
+    let mut assembled = assemble_context(&base_inputs)?;
+
+    if !extras.changed_files.is_empty() {
+        let _ = writeln!(assembled.prompt, "\n## Changed Files");
+        for f in &extras.changed_files {
+            let _ = writeln!(assembled.prompt, "- {f}");
+        }
+    }
+    if !extras.evidence.trim().is_empty() {
+        let _ = writeln!(assembled.prompt, "\n## Evidence\n{}", extras.evidence);
+    }
+    if !extras.diff.trim().is_empty() {
+        let header = "\n## Diff\n```diff\n";
+        let footer = "\n```\n";
+        let budget = MAX_CONTEXT_BYTES
+            .saturating_sub(assembled.prompt.len())
+            .saturating_sub(header.len() + footer.len());
+        let diff_slice = if extras.diff.len() > budget {
+            let mut end = budget;
+            while end > 0 && !extras.diff.is_char_boundary(end) {
+                end -= 1;
+            }
+            &extras.diff[..end]
+        } else {
+            extras.diff.as_str()
+        };
+        let _ = write!(assembled.prompt, "{header}{diff_slice}{footer}");
+    }
+
+    assembled.manifest.total_bytes = assembled.prompt.len();
+    if assembled.manifest.total_bytes > MAX_CONTEXT_BYTES {
+        return Err(ContextError::CapExceeded {
+            total_bytes: assembled.manifest.total_bytes,
+            max_bytes: MAX_CONTEXT_BYTES,
+        });
+    }
+    Ok(assembled)
 }

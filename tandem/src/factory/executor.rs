@@ -5,9 +5,14 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::broker::context::{ContextInputs, assemble_context};
+use super::broker::context::{
+    ContextInputs, ReviewContextExtras, assemble_context, assemble_review_context,
+};
 use super::broker::gate::{check, today_iso_date};
-use super::broker::job::{JobError, JobSpec, JobState, job_dir, run_job_idempotent, set_job_state};
+use super::broker::git::{AllowedGitSubcommand, run_git};
+use super::broker::job::{
+    JobError, JobInput, JobSpec, JobState, job_dir, run_job_idempotent, set_job_state,
+};
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
 use super::broker::spawn::{DEFAULT_STOP_GRACE, ProviderCommand, WaitOutcome, spawn_provider};
 use super::model::KNOWN_PROVIDERS;
@@ -65,6 +70,107 @@ fn ensure_context_file(
             .map_err(|e| std::io::Error::other(e.to_string()))?;
     }
     Ok(fallback)
+}
+
+pub(crate) fn last_stage_provider_model(
+    store: &FactoryStore,
+    run: &super::model::Run,
+    stage: &str,
+) -> (Option<String>, Option<String>) {
+    let Some(st) = run.stages.iter().find(|s| s.name == stage) else {
+        return (None, None);
+    };
+    if st.attempts == 0 {
+        return (None, None);
+    }
+    let input_path = job_dir(store, &run.id, stage, st.attempts).join("input.json");
+    let Ok(raw) = fs::read_to_string(input_path) else {
+        return (None, None);
+    };
+    let Ok(input) = serde_json::from_str::<JobInput>(&raw) else {
+        return (None, None);
+    };
+    (Some(input.provider), Some(input.model))
+}
+
+fn collect_review_extras(
+    store: &FactoryStore,
+    run: &super::model::Run,
+    worktree_path: &Path,
+    artifact_dir: &Path,
+) -> ReviewContextExtras {
+    let mut changed_files = Vec::new();
+    if let Some(dev_stage) = run.stages.iter().find(|s| s.name == "develop")
+        && dev_stage.attempts > 0
+    {
+        let dev_result = job_dir(store, &run.id, "develop", dev_stage.attempts).join("result.json");
+        if dev_result.exists() {
+            let parsed = parse_and_validate_result(&dev_result, dev_stage.attempts > 1);
+            changed_files = parsed.files_changed;
+        }
+    }
+
+    let range = run
+        .base_commit
+        .as_deref()
+        .filter(|b| !b.trim().is_empty())
+        .map(|b| format!("{b}..HEAD"));
+    if changed_files.is_empty() {
+        let args: Vec<&str> = match range.as_deref() {
+            Some(r) => vec!["--name-only", r],
+            None => vec!["--name-only", "HEAD"],
+        };
+        if let Ok(out) = run_git(
+            AllowedGitSubcommand::Diff,
+            &args,
+            worktree_path,
+            Duration::from_secs(15),
+        ) {
+            changed_files = out
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(ToString::to_string)
+                .collect();
+        }
+    }
+
+    let diff_args: Vec<&str> = match range.as_deref() {
+        Some(r) => vec![r],
+        None => vec!["HEAD"],
+    };
+    let diff = run_git(
+        AllowedGitSubcommand::Diff,
+        &diff_args,
+        worktree_path,
+        Duration::from_secs(15),
+    )
+    .unwrap_or_default();
+
+    let mut evidence_parts = Vec::new();
+    let checks_dir = artifact_dir.join("checks");
+    if checks_dir.is_dir()
+        && let Ok(entries) = fs::read_dir(&checks_dir)
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            evidence_parts.push(format!("check artifact: {name}"));
+        }
+    }
+    if let Some(test_stage) = run.stages.iter().find(|s| s.name == "test")
+        && test_stage.attempts > 0
+    {
+        evidence_parts.push(format!(
+            "test stage state: {:?} (attempts: {})",
+            test_stage.state, test_stage.attempts
+        ));
+    }
+
+    ReviewContextExtras {
+        changed_files,
+        diff,
+        evidence: evidence_parts.join("\n"),
+    }
 }
 
 impl Executor for BrokerExecutor {
@@ -182,6 +288,18 @@ impl BrokerExecutor {
                     };
                 }
             };
+            let sys_actor = super::model::Actor {
+                kind: super::model::ActorKind::System,
+                id: "executor".to_string(),
+            };
+            let _ = super::evidence::record_test_stage_evidence(
+                &store,
+                &run.idea,
+                &job.run,
+                job.attempt,
+                &report,
+                &sys_actor,
+            );
             if report.all_passed {
                 return StageOutcome::Succeeded;
             }
@@ -208,12 +326,19 @@ impl BrokerExecutor {
             };
         }
 
+        let (avoid_provider, avoid_model) = if job.stage == "review" {
+            last_stage_provider_model(&store, &run, "develop")
+        } else {
+            (None, None)
+        };
         let r_ctx = RoutingContext {
             preferred_provider: idea
                 .as_ref()
                 .and_then(|i| i.orchestrator.as_ref())
                 .map(|o| o.cli.clone()),
             is_ui_work: has_ui_slices(&store, &job.run),
+            avoid_provider,
+            avoid_model,
         };
         let routed = match route(
             stage_def,
@@ -312,7 +437,7 @@ impl BrokerExecutor {
             .find(|s| s.name == job.stage)
             .and_then(|s| s.retry_hypothesis.clone().or_else(|| s.rationale.clone()));
 
-        let assembled = match assemble_context(&ContextInputs {
+        let context_inputs = ContextInputs {
             plan_snapshot_path: plan_snapshot_path.clone(),
             acceptance_criteria: idea
                 .as_ref()
@@ -321,9 +446,20 @@ impl BrokerExecutor {
                 .unwrap_or_default(),
             playbook_path,
             agent_def_path,
-            dependency_summaries,
+            dependency_summaries: if job.stage == "review" {
+                Vec::new()
+            } else {
+                dependency_summaries
+            },
             retry_rationale,
-        }) {
+        };
+        let assembled_res = if job.stage == "review" {
+            let extras = collect_review_extras(&store, &run, &worktree_path, &artifact_dir);
+            assemble_review_context(&context_inputs, &extras)
+        } else {
+            assemble_context(&context_inputs)
+        };
+        let assembled = match assembled_res {
             Ok(c) => c,
             Err(e) => {
                 return StageOutcome::Failed {
@@ -470,18 +606,46 @@ impl BrokerExecutor {
                             reason: failure.to_string(),
                         };
                     }
+                    let sys_actor = super::model::Actor {
+                        kind: super::model::ActorKind::System,
+                        id: "executor".to_string(),
+                    };
+                    if job.stage == "create-tests" && parsed.no_behaviour_change {
+                        let _ = super::evidence::record_create_tests_exception(
+                            &store,
+                            &run.idea,
+                            &job.run,
+                            job.attempt,
+                            parsed.rationale.as_deref().unwrap_or("no_behaviour_change"),
+                            &sys_actor,
+                        );
+                    }
                     if matches!(job.stage.as_str(), "create-tests" | "develop") {
                         match super::stages::scope::list_changed_files(&worktree_path).and_then(
                             |files| {
+                                let committed = !files.is_empty();
                                 super::stages::commit_stage_changes(
                                     &worktree_path,
                                     &run.idea,
                                     &job.stage,
                                     &files,
-                                )
+                                )?;
+                                Ok(committed)
                             },
                         ) {
-                            Ok(()) => {}
+                            Ok(committed) => {
+                                if committed {
+                                    let _ = super::evidence::record_committed_diff_stat(
+                                        &store,
+                                        &run.idea,
+                                        &job.run,
+                                        &job.stage,
+                                        job.attempt,
+                                        &worktree_path,
+                                        &sys_actor,
+                                    );
+                                }
+                            }
                             Err(failure) => {
                                 return StageOutcome::Failed {
                                     reason: failure.to_string(),

@@ -208,6 +208,8 @@ pub struct Run {
     #[serde(default)]
     pub stages: Vec<Stage>,
     #[serde(default)]
+    pub evidence: Vec<super::evidence::EvidenceItem>,
+    #[serde(default)]
     pub budget: Option<Budget>,
     pub created: f64,
     pub updated: f64,
@@ -285,6 +287,10 @@ fn default_temperature() -> f64 {
     0.4
 }
 
+fn default_max_review_rounds() -> u32 {
+    2
+}
+
 fn default_provider_gates() -> Vec<ProviderGate> {
     KNOWN_PROVIDERS
         .iter()
@@ -306,6 +312,8 @@ pub struct FactorySettings {
     pub max_parallel_agents: usize,
     #[serde(default = "default_temperature")]
     pub default_temperature: f64,
+    #[serde(default = "default_max_review_rounds")]
+    pub max_review_rounds: u32,
     #[serde(default = "default_provider_gates")]
     pub provider_gates: Vec<ProviderGate>,
     #[serde(default)]
@@ -319,6 +327,7 @@ impl Default for FactorySettings {
         Self {
             max_parallel_agents: default_max_parallel_agents(),
             default_temperature: default_temperature(),
+            max_review_rounds: default_max_review_rounds(),
             provider_gates: default_provider_gates(),
             default_budget: Budget::default(),
             checks: BTreeMap::new(),

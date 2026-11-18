@@ -8,6 +8,7 @@ use crate::factory::checks::ConfirmedChecks;
 pub mod create_tests;
 pub mod develop;
 pub mod plan;
+pub mod review;
 pub mod scope;
 pub mod test;
 
@@ -55,6 +56,7 @@ pub fn contract_for_stage(stage: &str) -> Option<Box<dyn StageContract>> {
         "create-tests" => Some(Box::new(create_tests::CreateTestsStageContract)),
         "develop" => Some(Box::new(develop::DevelopStageContract)),
         "test" => Some(Box::new(test::TestStageContract)),
+        "review" => Some(Box::new(review::ReviewStageContract)),
         _ => None,
     }
 }
