@@ -5,8 +5,8 @@ use serde::Serialize;
 
 use super::parse::RawWorkflow;
 use super::schema::{
-    Policy, ProtectedAction, StageBudget, StageCondition, StageDef, StageRequirement, Workflow,
-    WorkflowAgent, WorkflowTool, WorkflowTrigger,
+    EvidenceKind, Policy, ProtectedAction, StageBudget, StageCondition, StageDef, StageRequirement,
+    Workflow, WorkflowAgent, WorkflowTool, WorkflowTrigger,
 };
 use crate::factory::model::FactorySettings;
 
@@ -310,6 +310,23 @@ pub fn validate(
             .map(|d| d.items.iter().map(|i| i.value.clone()).collect())
             .unwrap_or_default();
 
+        let mut evidence = Vec::new();
+        if let Some(ref ev_list) = st.evidence {
+            for item in &ev_list.items {
+                match EvidenceKind::parse(&item.value) {
+                    Some(k) => evidence.push(k),
+                    None => diags.push(Diagnostic {
+                        code: "W013",
+                        line: item.line,
+                        message: format!(
+                            "unknown evidence kind \"{}\" on stage \"{}\"",
+                            item.value, sname
+                        ),
+                    }),
+                }
+            }
+        }
+
         stages.push(StageDef {
             name: sname,
             agent,
@@ -318,7 +335,7 @@ pub fn validate(
             when,
             requires,
             budget,
-            evidence: Vec::new(),
+            evidence,
         });
     }
 

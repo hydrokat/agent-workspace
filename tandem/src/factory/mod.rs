@@ -6,6 +6,7 @@ pub mod broker;
 pub mod checks;
 pub mod commands;
 pub mod events;
+pub mod evidence;
 pub mod executor;
 pub mod ids;
 pub mod machine;

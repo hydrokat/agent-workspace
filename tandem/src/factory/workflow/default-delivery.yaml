@@ -26,10 +26,12 @@ stages:
     agent: verifier
     depends_on: [develop]
     tools: [test_runner, lint_runner]
+    evidence: [test_report, lint_report]
   - name: review
     agent: reviewer
     depends_on: [test]
     tools: [repo_read, diff_review]
+    evidence: [review_findings]
   - name: demo
     when: ui_changed
     agent: demo-maker

@@ -51,6 +51,7 @@ pub struct RawStage {
     pub when: Option<Spanned<String>>,
     pub requires: Option<SpannedList>,
     pub retries: Option<Spanned<i64>>,
+    pub evidence: Option<SpannedList>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -170,6 +171,7 @@ enum ListTarget {
     StageDependsOn,
     StageTools,
     StageRequires,
+    StageEvidence,
 }
 
 pub fn load_workflow_file(path: &Path) -> Result<RawWorkflow, ParseError> {
@@ -488,6 +490,13 @@ fn append_list_item(wf: &mut RawWorkflow, target: ListTarget, item: Spanned<Stri
                 list.items.push(item);
             }
         }
+        ListTarget::StageEvidence => {
+            if let Some(s) = wf.stages.last_mut()
+                && let Some(ref mut list) = s.evidence
+            {
+                list.items.push(item);
+            }
+        }
     }
 }
 
@@ -594,6 +603,22 @@ fn parse_stage_kv(
                 });
             }
         }
+        "evidence" => {
+            if val.is_empty() {
+                stage.evidence = Some(SpannedList {
+                    items: Vec::new(),
+                    line: line_no,
+                });
+                *section = Section::List {
+                    target: ListTarget::StageEvidence,
+                };
+            } else {
+                stage.evidence = Some(SpannedList {
+                    items: parse_flow_list(val, line_no)?,
+                    line: line_no,
+                });
+            }
+        }
         _ => {
             return Err(ParseError::Syntax {
                 line: line_no,
@@ -607,6 +632,7 @@ fn parse_stage_kv(
                         "when",
                         "requires",
                         "retries",
+                        "evidence",
                     ],
                 ),
             });

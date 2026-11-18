@@ -292,6 +292,8 @@ pub enum FactoryRunCommand {
     Cancel(FactoryRunCancelArgs),
     #[command(about = "tail a job log for a run")]
     Log(FactoryRunLogArgs),
+    #[command(about = "list or inspect evidence items for a run")]
+    Evidence(FactoryRunEvidenceArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -411,6 +413,15 @@ pub struct FactoryRunLogArgs {
     pub job: String,
     #[arg(long, default_value_t = 65536)]
     pub tail: usize,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunEvidenceArgs {
+    pub run: String,
+    #[arg(long)]
+    pub show: Option<String>,
     #[arg(long)]
     pub json: bool,
 }
@@ -734,6 +745,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Resume(a) => a.json,
             FactoryRunCommand::Cancel(a) => a.json,
             FactoryRunCommand::Log(a) => a.json,
+            FactoryRunCommand::Evidence(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -1532,6 +1544,7 @@ fn execute(
                 }
             }
             FactoryRunCommand::Log(a) => read_run_job_log(&store, a),
+            FactoryRunCommand::Evidence(a) => run_evidence_cmd(&store, workspace, a),
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {
@@ -2068,6 +2081,111 @@ fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<St
     } else {
         Ok(cleaned)
     }
+}
+
+fn load_run_workflow(
+    store: &FactoryStore,
+    workspace: &Path,
+    run_id: &str,
+) -> Result<super::workflow::schema::Workflow, CmdError> {
+    let run_wf_path = store.root.join("runs").join(run_id).join("workflow.yaml");
+    let raw = if run_wf_path.exists() {
+        super::workflow::parse::load_workflow_file(&run_wf_path)
+            .map_err(|e| CmdError::invalid_input(e.to_string()))?
+    } else {
+        super::workflow::load_default_workflow(workspace)
+            .map_err(|e| CmdError::invalid_input(e.to_string()))?
+            .0
+    };
+    let settings = if store.exists() {
+        store.settings().map_err(map_factory_error)?
+    } else {
+        FactorySettings::default()
+    };
+    super::workflow::validate::validate(&raw, &settings)
+        .map_err(|diags| CmdError::invalid_input(format!("workflow validation failed: {diags:?}")))
+}
+
+fn run_evidence_cmd(
+    store: &FactoryStore,
+    workspace: &Path,
+    args: &FactoryRunEvidenceArgs,
+) -> Result<String, CmdError> {
+    if !super::ids::is_valid_run_id(&args.run) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid run id {}",
+            args.run
+        )));
+    }
+    let run = super::run::get_run(store, &args.run)
+        .map_err(|e| CmdError {
+            exit_code: 1,
+            code: e.code(),
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| CmdError::not_found(format!("run {}", args.run)))?;
+
+    if let Some(ref item_id) = args.show {
+        let items = super::evidence::list(store, &args.run).map_err(map_factory_error)?;
+        let item = items
+            .into_iter()
+            .find(|i| i.id == *item_id)
+            .ok_or_else(|| CmdError::not_found(format!("evidence item {item_id}")))?;
+        let raw =
+            super::evidence::read_item(store, &args.run, item_id).map_err(map_factory_error)?;
+        let cleaned = sanitize::clean(&raw);
+        if args.json {
+            return serialize_compact(&serde_json::json!({
+                "run": args.run,
+                "item": item,
+                "content": cleaned,
+            }));
+        }
+        return Ok(cleaned);
+    }
+
+    let workflow = load_run_workflow(store, workspace, &args.run)?;
+    let items = if !run.evidence.is_empty() {
+        run.evidence.clone()
+    } else {
+        super::evidence::list(store, &args.run).map_err(map_factory_error)?
+    };
+    let missing = super::evidence::missing(&run, &workflow);
+    let summary = super::evidence::bundle_summary(&items);
+    let complete = missing.is_empty();
+
+    if args.json {
+        return serialize_compact(&serde_json::json!({
+            "run": args.run,
+            "items": items,
+            "missing": missing,
+            "complete": complete,
+            "summary": summary,
+        }));
+    }
+
+    let mut lines = Vec::new();
+    lines.push(format!("Evidence ({}) — {summary}", args.run));
+    for item in &items {
+        let hash_short: String = item.sha256.chars().take(12).collect();
+        lines.push(format!(
+            "  {}  {:<16}  {:<12}  a{}  {}  {}",
+            item.id,
+            item.kind.as_str(),
+            item.stage,
+            item.attempt,
+            hash_short,
+            item.summary
+        ));
+    }
+    if !missing.is_empty() {
+        let missing_names: Vec<&str> = missing.iter().map(|k| k.as_str()).collect();
+        lines.push(format!(
+            "Missing required evidence: {}",
+            missing_names.join(", ")
+        ));
+    }
+    Ok(lines.join("\n"))
 }
 
 fn map_checks_error(err: super::checks::ChecksError) -> CmdError {

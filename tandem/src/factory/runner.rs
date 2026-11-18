@@ -496,7 +496,7 @@ pub fn drive_run_step(
         attempt: next_attempt,
     });
 
-    let current_run = match get_run(store, run_id)? {
+    let mut current_run = match get_run(store, run_id)? {
         Some(r) => r,
         None => return Ok(()),
     };
@@ -541,6 +541,24 @@ pub fn drive_run_step(
                     let record =
                         super::stages::review::record_review_round(&artifact_dir, round, &report)
                             .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+                    if let Ok(findings_bytes) = serde_json::to_vec_pretty(&report) {
+                        let summary = if report.findings.is_empty() {
+                            format!("review round {round}: clean")
+                        } else {
+                            format!("review round {round}: {} finding(s)", report.findings.len())
+                        };
+                        if let Ok(ev_item) = super::evidence::record_review_findings(
+                            store,
+                            &current_run.idea,
+                            &current_run.id,
+                            round,
+                            &findings_bytes,
+                            summary,
+                            &sys,
+                        ) {
+                            current_run.evidence.push(ev_item);
+                        }
+                    }
 
                     if record.derived_verdict
                         == super::stages::review::ReviewVerdict::ChangesRequested
