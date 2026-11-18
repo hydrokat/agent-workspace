@@ -12,14 +12,18 @@ use crate::factory::broker::gate::{AuthType, consent_provider, today_iso_date};
 use crate::factory::broker::job::{JobInput, JobState, job_dir, jobs_dir, read_job_state};
 use crate::factory::broker::result::JobResult;
 use crate::factory::broker::terms::{PROVIDER_TERMS, TermsVerdict, lookup};
+use crate::factory::checks::{CheckKind, CheckProposal, discover_checks, set_checks};
 use crate::factory::events::{self, Event};
+use crate::factory::evidence::{self, load_review_rounds};
 use crate::factory::machine::EventData;
 use crate::factory::model::{Actor, ActorKind, Idea, KNOWN_PROVIDERS, Run, RunState, StageState};
 use crate::factory::run::get_run;
 use crate::factory::runner::{
     cancel_run, pause_run_by_user, resume_paused_run, retry_paused_stage,
 };
+use crate::factory::stages::review::ReviewVerdict;
 use crate::factory::store::FactoryStore;
+use crate::factory::workflow::schema::EvidenceKind;
 use crate::factory::workspace::{TargetResolution, resolve_target, set_run_target};
 use crate::sanitize::clean;
 use crate::snapshot::RunSummary;
@@ -85,12 +89,30 @@ pub enum RunSubView {
         selected: usize,
         error: Option<String>,
     },
+    EvidenceList {
+        selected: usize,
+    },
+    EvidenceReader {
+        title: String,
+        raw_text: String,
+        scroll: ScrollView,
+    },
+    ConfirmChecks {
+        target: String,
+        proposals: Vec<CheckProposal>,
+        input: TextInput,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
 enum PauseResolution {
     TargetAmbiguous {
         choices: Vec<String>,
+    },
+    ChecksUnconfirmed {
+        target: String,
+        proposals: Vec<CheckProposal>,
     },
     GateClosed {
         provider: Option<String>,
@@ -277,6 +299,7 @@ impl FactoryRun {
                 | RunSubView::RetryPrompt { .. }
                 | RunSubView::ConsentDialog { .. }
                 | RunSubView::TargetPicker { .. }
+                | RunSubView::ConfirmChecks { .. }
         )
     }
 
@@ -304,6 +327,25 @@ impl FactoryRun {
                 TargetResolution::Resolved { name, .. } => vec![name],
             };
             return Some(PauseResolution::TargetAmbiguous { choices });
+        }
+        if reason.contains("test and lint commands are not confirmed")
+            || run
+                .action_commands
+                .iter()
+                .any(|c| c.contains("checks discover"))
+        {
+            let target = run
+                .target
+                .clone()
+                .unwrap_or_else(|| "workspace".to_string());
+            let target_path = match resolve_target(&self.workspace) {
+                TargetResolution::Resolved { path, .. } => path,
+                TargetResolution::Ambiguous { .. } => self.workspace.clone(),
+            };
+            let proposals = discover_checks(&target, &target_path, None)
+                .map(|r| r.proposals)
+                .unwrap_or_default();
+            return Some(PauseResolution::ChecksUnconfirmed { target, proposals });
         }
         if reason.contains("gate") || reason.contains("consent") {
             let today = today_iso_date();
@@ -595,6 +637,102 @@ impl FactoryRun {
                 }
                 _ => RunKeyOutcome::Consumed,
             },
+            RunSubView::EvidenceList { selected } => {
+                let count = self.run.as_ref().map(|r| r.evidence.len()).unwrap_or(0);
+                match event.code {
+                    KeyCode::Esc => {
+                        self.sub_view = RunSubView::Main;
+                        RunKeyOutcome::Consumed
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        *selected = selected.saturating_sub(1);
+                        RunKeyOutcome::Consumed
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if count > 0 {
+                            *selected = (*selected + 1).min(count - 1);
+                        }
+                        RunKeyOutcome::Consumed
+                    }
+                    KeyCode::Enter => {
+                        let idx = *selected;
+                        self.open_evidence_item(idx);
+                        RunKeyOutcome::Consumed
+                    }
+                    _ => RunKeyOutcome::Consumed,
+                }
+            }
+            RunSubView::EvidenceReader {
+                raw_text, scroll, ..
+            } => {
+                let total = raw_text.lines().count().max(1);
+                if scroll.handle_key(event.code, total, 18) {
+                    return RunKeyOutcome::Consumed;
+                }
+                if event.code == KeyCode::Esc {
+                    self.sub_view = RunSubView::EvidenceList { selected: 0 };
+                    return RunKeyOutcome::Consumed;
+                }
+                RunKeyOutcome::Consumed
+            }
+            RunSubView::ConfirmChecks {
+                target,
+                proposals,
+                input,
+                error,
+            } => match event.code {
+                KeyCode::Esc => {
+                    self.sub_view = RunSubView::Main;
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Enter => {
+                    let typed = input.value.trim().to_string();
+                    if typed != *target {
+                        *error = Some(format!("Type \"{target}\" to confirm."));
+                        return RunKeyOutcome::Consumed;
+                    }
+                    let test_cmds: Vec<Vec<String>> = proposals
+                        .iter()
+                        .filter(|p| p.kind == CheckKind::Test)
+                        .map(|p| p.argv.clone())
+                        .collect();
+                    let lint_cmds: Vec<Vec<String>> = proposals
+                        .iter()
+                        .filter(|p| p.kind == CheckKind::Lint)
+                        .map(|p| p.argv.clone())
+                        .collect();
+                    let store = FactoryStore::new(&self.workspace);
+                    let env_fn = |var: &str| std::env::var(var).ok();
+                    match set_checks(
+                        &store,
+                        target,
+                        test_cmds,
+                        lint_cmds,
+                        None,
+                        Vec::new(),
+                        &typed,
+                        &owner,
+                        &env_fn,
+                    ) {
+                        Ok(_) => {
+                            let _ = resume_paused_run(&store, &self.run_id, &actor);
+                            self.notice = format!("Check commands confirmed for {target}.");
+                            self.sub_view = RunSubView::Main;
+                            self.reload();
+                            RunKeyOutcome::Refresh
+                        }
+                        Err(err) => {
+                            *error = Some(clean(&err.to_string()));
+                            RunKeyOutcome::Consumed
+                        }
+                    }
+                }
+                _ => {
+                    input.handle_key(event);
+                    *error = None;
+                    RunKeyOutcome::Consumed
+                }
+            },
             RunSubView::Main => {
                 if matches_crossterm_event(FACTORY_PAUSE_RUN_KEY, event, &self.platform) {
                     return self.toggle_pause_or_resume();
@@ -628,6 +766,27 @@ impl FactoryRun {
                     KeyCode::Char('l') => {
                         self.open_selected_log();
                         RunKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('e') => {
+                        self.open_evidence_view();
+                        RunKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('k') => {
+                        if let Some(PauseResolution::ChecksUnconfirmed { target, proposals }) =
+                            self.pause_resolution()
+                        {
+                            let mut input = TextInput::with_placeholder(&target);
+                            input.focused = true;
+                            self.sub_view = RunSubView::ConfirmChecks {
+                                target,
+                                proposals,
+                                input,
+                                error: None,
+                            };
+                            RunKeyOutcome::Consumed
+                        } else {
+                            RunKeyOutcome::Ignored
+                        }
                     }
                     KeyCode::Char('r') => self.handle_paused_r(),
                     KeyCode::Char('c') => {
@@ -807,6 +966,52 @@ impl FactoryRun {
         };
     }
 
+    pub fn open_evidence_view(&mut self) {
+        self.sub_view = RunSubView::EvidenceList { selected: 0 };
+    }
+
+    fn open_evidence_item(&mut self, idx: usize) {
+        let Some(ref run) = self.run else {
+            return;
+        };
+        let Some(item) = run.evidence.get(idx) else {
+            return;
+        };
+        let title = format!(
+            "{} · {} (attempt {})",
+            item.id,
+            item.kind.as_str(),
+            item.attempt
+        );
+        if item.kind == EvidenceKind::Screenshot {
+            let raw_text = format!(
+                "Screenshot: {}\nStage: {} (attempt {})\nPath: {}\nSize: {} bytes\nSHA-256: {}\n\nScreenshots are rendered as thumbnails in tandem-web.",
+                clean(&item.summary),
+                clean(&item.stage),
+                item.attempt,
+                clean(&item.path),
+                item.bytes,
+                item.sha256
+            );
+            self.sub_view = RunSubView::EvidenceReader {
+                title,
+                raw_text,
+                scroll: ScrollView::new(),
+            };
+            return;
+        }
+        let store = FactoryStore::new(&self.workspace);
+        let raw_text = match evidence::read_item(&store, &self.run_id, &item.id) {
+            Ok(text) => clean(&text),
+            Err(err) => clean(&err.to_string()),
+        };
+        self.sub_view = RunSubView::EvidenceReader {
+            title,
+            raw_text,
+            scroll: ScrollView::new(),
+        };
+    }
+
     pub fn render(&mut self, now: f64, area: Rect, buf: &mut Buffer) {
         if area.height == 0 || area.width == 0 {
             return;
@@ -860,6 +1065,25 @@ impl FactoryRun {
                 error,
             } => {
                 render_target_picker(choices, *selected, error.as_deref(), area, buf);
+            }
+            RunSubView::EvidenceList { selected } => {
+                let sel = *selected;
+                self.render_evidence_list(sel, area, buf);
+            }
+            RunSubView::EvidenceReader {
+                title,
+                raw_text,
+                scroll,
+            } => {
+                render_evidence_reader(title, raw_text, scroll, area, buf);
+            }
+            RunSubView::ConfirmChecks {
+                target,
+                proposals,
+                input,
+                error,
+            } => {
+                render_confirm_checks(target, proposals, input, error.as_deref(), area, buf);
             }
             RunSubView::Main => {
                 self.render_main(now, area, buf);
@@ -956,6 +1180,33 @@ impl FactoryRun {
                 let action_line = match resolution {
                     PauseResolution::TargetAmbiguous { .. } => {
                         "  t choose target   c cancel".to_string()
+                    }
+                    PauseResolution::ChecksUnconfirmed {
+                        ref target,
+                        ref proposals,
+                    } => {
+                        let summary = if proposals.is_empty() {
+                            "no commands discovered".to_string()
+                        } else {
+                            proposals
+                                .iter()
+                                .take(2)
+                                .map(|p| p.argv.join(" "))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        };
+                        if !short && y + 1 < bottom.saturating_sub(1) {
+                            write_clipped(
+                                buf,
+                                area.x,
+                                y,
+                                max_w,
+                                &format!("  Proposed checks for {target}: {summary}"),
+                                dim_style,
+                            );
+                            y += 1;
+                        }
+                        "  k confirm check commands   c cancel".to_string()
                     }
                     PauseResolution::GateClosed {
                         consent_possible: true,
@@ -1077,10 +1328,12 @@ impl FactoryRun {
                 "pause"
             };
             let hints = if narrow {
-                format!("{pause_key} {pause_word}  {cancel_key} cancel  l log  Esc back")
+                format!(
+                    "{pause_key} {pause_word}  {cancel_key} cancel  l log  e evidence  Esc back"
+                )
             } else {
                 format!(
-                    "{pause_key} {pause_word}   {cancel_key} cancel   Enter stage   l log   Esc back"
+                    "{pause_key} {pause_word}   {cancel_key} cancel   Enter stage   l log   e evidence   Esc back"
                 )
             };
             write_clipped(buf, area.x, bottom - 1, max_w, &hints, dim_style);
@@ -1661,6 +1914,272 @@ fn extract_quoted(s: &str) -> Option<String> {
     let rest = &s[start..];
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
+}
+
+impl FactoryRun {
+    fn render_evidence_list(&self, selected: usize, area: Rect, buf: &mut Buffer) {
+        let max_w = area.width as usize;
+        let narrow = area.width < 80;
+        let header_style = Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD);
+        let text_style = Style::default().fg(Color::Gray);
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let ok_style = Style::default().fg(Color::Green);
+
+        let mut y = area.y;
+        let bottom = area.y + area.height;
+
+        write_clipped(
+            buf,
+            area.x,
+            y,
+            max_w,
+            &format!("Evidence for {}", self.run_id),
+            header_style,
+        );
+        y += 1;
+
+        let Some(ref run) = self.run else {
+            return;
+        };
+
+        if run.evidence.is_empty() && y < bottom.saturating_sub(1) {
+            write_clipped(
+                buf,
+                area.x,
+                y,
+                max_w,
+                "  No evidence recorded yet.",
+                dim_style,
+            );
+            y += 1;
+        } else {
+            for (idx, item) in run.evidence.iter().enumerate() {
+                if y >= bottom.saturating_sub(1) {
+                    break;
+                }
+                let pointer = if idx == selected { "▸" } else { " " };
+                let row = if narrow {
+                    format!(
+                        "{pointer} {:<10} a{} {}",
+                        clean(&item.stage),
+                        item.attempt,
+                        item.kind.as_str()
+                    )
+                } else {
+                    format!(
+                        "{pointer} {:<10} attempt {}   {:<15}   {}",
+                        clean(&item.stage),
+                        item.attempt,
+                        item.kind.as_str(),
+                        clean(&item.summary)
+                    )
+                };
+                let style = if idx == selected {
+                    header_style
+                } else {
+                    text_style
+                };
+                write_clipped(buf, area.x, y, max_w, &row, style);
+                y += 1;
+            }
+        }
+
+        let store = FactoryStore::new(&self.workspace);
+        let rounds = load_review_rounds(&store, &self.run_id);
+        for rd in &rounds.rounds {
+            if y >= bottom.saturating_sub(1) {
+                break;
+            }
+            let verdict = match rd.stated_verdict {
+                ReviewVerdict::Approve => "approved",
+                ReviewVerdict::ChangesRequested => "changes requested",
+            };
+            let open_count = rd.findings.len();
+            let fixed_count = rd.fixed_from_previous.len();
+            let line = format!(
+                "  review   round {}   {} open, {} fixed   ({verdict})",
+                rd.round, open_count, fixed_count
+            );
+            write_clipped(buf, area.x, y, max_w, &line, ok_style);
+            y += 1;
+
+            for f in &rd.findings {
+                if y >= bottom.saturating_sub(1) {
+                    break;
+                }
+                let fline = format!(
+                    "    [open] {:?} {}:{} {}",
+                    f.severity,
+                    clean(&f.file),
+                    f.line,
+                    clean(&f.title)
+                );
+                write_clipped(buf, area.x, y, max_w, &fline, text_style);
+                y += 1;
+            }
+        }
+
+        let has_screenshots = run
+            .evidence
+            .iter()
+            .any(|i| i.kind == EvidenceKind::Screenshot);
+        if !has_screenshots && y < bottom.saturating_sub(1) {
+            write_clipped(
+                buf,
+                area.x,
+                y,
+                max_w,
+                "  demo     no screenshots (not a UI change or skipped)",
+                dim_style,
+            );
+        }
+
+        if area.height >= 2 {
+            write_clipped(
+                buf,
+                area.x,
+                bottom - 1,
+                max_w,
+                "↑/↓ select   Enter open item   Esc back",
+                dim_style,
+            );
+        }
+    }
+}
+
+fn render_evidence_reader(
+    title: &str,
+    raw_text: &str,
+    scroll: &mut ScrollView,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let max_w = area.width as usize;
+    let header_style = Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(Color::Gray);
+    let dim_style = Style::default().fg(Color::DarkGray);
+
+    write_clipped(buf, area.x, area.y, max_w, &clean(title), header_style);
+    let body_rows = area.height.saturating_sub(2) as usize;
+    let lines: Vec<&str> = raw_text.lines().collect();
+    scroll.clamp(lines.len().max(1), body_rows.max(1));
+    for row in 0..body_rows {
+        let idx = scroll.offset + row;
+        if let Some(line) = lines.get(idx) {
+            write_clipped(
+                buf,
+                area.x,
+                area.y + 1 + row as u16,
+                max_w,
+                line,
+                text_style,
+            );
+        }
+    }
+    if area.height >= 2 {
+        write_clipped(
+            buf,
+            area.x,
+            area.y + area.height - 1,
+            max_w,
+            "↑/↓ scroll   Esc back",
+            dim_style,
+        );
+    }
+}
+
+fn render_confirm_checks(
+    target: &str,
+    proposals: &[CheckProposal],
+    input: &TextInput,
+    error: Option<&str>,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let max_w = area.width as usize;
+    let header_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(Color::White);
+    let dim_style = Style::default().fg(Color::DarkGray);
+    let err_style = Style::default().fg(Color::Red);
+
+    let mut y = area.y;
+    let bottom = area.y + area.height;
+    write_clipped(
+        buf,
+        area.x,
+        y,
+        max_w,
+        &format!("Confirm check commands for target \"{target}\""),
+        header_style,
+    );
+    y += 1;
+
+    if proposals.is_empty() && y < bottom.saturating_sub(2) {
+        write_clipped(
+            buf,
+            area.x,
+            y,
+            max_w,
+            "  No check commands discovered.",
+            dim_style,
+        );
+        y += 1;
+    } else {
+        for prop in proposals {
+            if y >= bottom.saturating_sub(2) {
+                break;
+            }
+            let kind_word = match prop.kind {
+                CheckKind::Test => "test",
+                CheckKind::Lint => "lint",
+            };
+            write_clipped(
+                buf,
+                area.x,
+                y,
+                max_w,
+                &format!("  [{kind_word}] {}", prop.argv.join(" ")),
+                text_style,
+            );
+            y += 1;
+        }
+    }
+
+    if y < bottom.saturating_sub(1) {
+        write_clipped(
+            buf,
+            area.x,
+            y,
+            max_w,
+            &format!(
+                "Type the target name ({target}) to confirm: {}_",
+                clean(&input.value)
+            ),
+            text_style,
+        );
+        y += 1;
+    }
+    if let Some(err) = error
+        && y < bottom.saturating_sub(1)
+    {
+        write_clipped(buf, area.x, y, max_w, err, err_style);
+    }
+    if area.height >= 2 {
+        write_clipped(
+            buf,
+            area.x,
+            bottom - 1,
+            max_w,
+            "Enter confirm   Esc cancel",
+            dim_style,
+        );
+    }
 }
 
 fn run_state_label(state: RunState) -> &'static str {

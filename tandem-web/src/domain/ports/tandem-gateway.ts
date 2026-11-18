@@ -1,12 +1,15 @@
 import type {
   ArtifactKind,
+  EvidenceItemContent,
   FactoryCli,
   Idea,
   IdeaDetail,
+  PrLink,
   ProviderStatusItem,
   ReadyResult,
   RunControlAction,
   RunControlOptions,
+  RunEvidenceBundle,
   RunSummary,
   WorkflowListItem,
 } from "../models/factory";
@@ -81,4 +84,11 @@ export interface ITandemGateway {
     options?: RunControlOptions
   ): Promise<RunSummary>;
   factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]>;
+  factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle>;
+  factoryEvidenceItem(
+    workspacePath: string,
+    runId: string,
+    itemId: string
+  ): Promise<EvidenceItemContent>;
+  factoryRefreshRunPrs(workspacePath: string, runId: string): Promise<PrLink[]>;
 }

@@ -1,12 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, RefreshCw, Terminal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Idea, IdeaDetail, ReadyResult } from "@/domain/models/factory";
+import type {
+  Idea,
+  IdeaDetail,
+  PrLink,
+  ReadyResult,
+  RunEvidenceBundle,
+  WorkflowListItem,
+} from "@/domain/models/factory";
 import {
   formatFeasibilityVerdict,
   formatIdeaRelativeTime,
@@ -14,10 +21,10 @@ import {
   formatIdeaState,
   formatShortTime,
 } from "./format";
+import { EvidencePanel } from "./evidence-panel";
 import { ReadyDialog } from "./ready-dialog";
 import { RunMonitor } from "./run-monitor";
 import { useFactoryRun } from "@/hooks/use-factory-run";
-import type { WorkflowListItem } from "@/domain/models/factory";
 
 interface IdeaDetailViewProps {
   workspaceId?: string | null;
@@ -119,6 +126,70 @@ export function IdeaDetailView({
     initialRun: detail?.run ?? null,
     streamKey,
   });
+
+  const [evidenceBundle, setEvidenceBundle] = useState<RunEvidenceBundle | null>(null);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [refreshingPrs, setRefreshingPrs] = useState(false);
+
+  const loadEvidence = useCallback(async () => {
+    if (!workspaceId || !activeRun?.id) return;
+    setEvidenceLoading(true);
+    setEvidenceError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/evidence`
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw new Error(err.error?.message || `Failed to load evidence (${res.status})`);
+      }
+      const data = (await res.json()) as RunEvidenceBundle;
+      setEvidenceBundle(data);
+    } catch (err: unknown) {
+      setEvidenceError(err instanceof Error ? err.message : "Failed to load evidence.");
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }, [workspaceId, activeRun?.id]);
+
+  useEffect(() => {
+    void loadEvidence();
+  }, [loadEvidence]);
+
+  const handleRefreshPrs = async () => {
+    if (!workspaceId || !activeRun?.id) return;
+    setRefreshingPrs(true);
+    setEvidenceError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/prs/refresh`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw new Error(err.error?.message || `Failed to refresh PR status (${res.status})`);
+      }
+      const data = (await res.json()) as { prs: PrLink[] };
+      setEvidenceBundle((prev) => (prev ? { ...prev, prs: data.prs } : prev));
+    } catch (err: unknown) {
+      setEvidenceError(err instanceof Error ? err.message : "Failed to refresh PR status.");
+    } finally {
+      setRefreshingPrs(false);
+    }
+  };
+
+  const handleOpenEvidenceItem = async (itemId: string): Promise<string> => {
+    if (!workspaceId || !activeRun?.id) return "";
+    const res = await fetch(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/evidence/${encodeURIComponent(itemId)}`
+    );
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      throw new Error(err.error?.message || `Failed to load item (${res.status})`);
+    }
+    return res.text();
+  };
 
   const readyEvent = useMemo(() => {
     if (!detail) return null;
@@ -509,6 +580,19 @@ export function IdeaDetailView({
               onControl={controlRun}
               onFetchLog={fetchLog}
               onWithdraw={onWithdrawRun}
+            />
+          )}
+
+          {activeRun && (
+            <EvidencePanel
+              workspaceId={workspaceId}
+              runId={activeRun.id}
+              bundle={evidenceBundle}
+              loading={evidenceLoading}
+              error={evidenceError}
+              refreshingPrs={refreshingPrs}
+              onRefreshPrs={handleRefreshPrs}
+              onOpenItem={handleOpenEvidenceItem}
             />
           )}
         </div>

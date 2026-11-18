@@ -85,7 +85,8 @@ export function ReadyDialog({
           <DialogTitle id="ready-dialog-title">Mark ready for development</DialogTitle>
           <DialogDescription>
             This freezes {planVersion ? `plan v${planVersion}` : "the current plan"} and authorizes
-            Factory Mode to spend budget and change the repository.
+            Factory Mode to spend budget, change the repository on a new branch, and open a pull
+            request.
           </DialogDescription>
         </DialogHeader>
 

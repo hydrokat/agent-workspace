@@ -2242,6 +2242,7 @@ fn run_evidence_cmd(
     let missing = super::evidence::missing(&run, &workflow);
     let summary = super::evidence::bundle_summary(&items);
     let complete = missing.is_empty();
+    let review_rounds = super::evidence::load_review_rounds(store, &args.run);
 
     if args.json {
         return serialize_compact(&serde_json::json!({
@@ -2250,6 +2251,8 @@ fn run_evidence_cmd(
             "missing": missing,
             "complete": complete,
             "summary": summary,
+            "review_rounds": review_rounds.rounds,
+            "prs": run.prs,
         }));
     }
 

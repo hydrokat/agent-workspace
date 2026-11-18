@@ -1,13 +1,18 @@
 import {
   FactoryGatewayError,
+  isPngSignature,
   isValidCorrelationId,
+  isValidEvidenceItemId,
   isValidHypothesis,
   isValidLogTailBytes,
   isValidRunControlAction,
   isValidRunId,
   isValidStageName,
+  type EvidenceItemContent,
+  type PrLink,
   type ProviderStatusItem,
   type RunControlOptions,
+  type RunEvidenceBundle,
   type RunSummary,
 } from "@/domain/models/factory";
 import type { ITandemGateway } from "@/domain/ports/tandem-gateway";
@@ -123,5 +128,63 @@ export class ListFactoryProvidersUseCase {
   async execute(workspaceId: string): Promise<ProviderStatusItem[]> {
     const workspace = await requireWorkspace(this.registry, workspaceId);
     return this.gateway.factoryProviderStatus(workspace.path);
+  }
+}
+
+export class GetFactoryRunEvidenceUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(workspaceId: string, runId: string): Promise<RunEvidenceBundle> {
+    if (!isValidRunId(runId)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid run ID format");
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    return this.gateway.factoryRunEvidence(workspace.path, runId);
+  }
+}
+
+export class GetFactoryEvidenceItemUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(
+    workspaceId: string,
+    runId: string,
+    itemId: string
+  ): Promise<EvidenceItemContent> {
+    if (!isValidRunId(runId)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid run ID format");
+    }
+    if (!isValidEvidenceItemId(itemId)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid evidence item ID format");
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    const result = await this.gateway.factoryEvidenceItem(workspace.path, runId, itemId);
+    if (result.item.kind === "screenshot") {
+      if (!result.pngBytes || !isPngSignature(result.pngBytes)) {
+        throw new FactoryGatewayError("invalid_input", "Screenshot file is not a valid PNG");
+      }
+    }
+    return result;
+  }
+}
+
+export class RefreshFactoryRunPrsUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(workspaceId: string, runId: string): Promise<PrLink[]> {
+    if (!isValidRunId(runId)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid run ID format");
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    return this.gateway.factoryRefreshRunPrs(workspace.path, runId);
   }
 }

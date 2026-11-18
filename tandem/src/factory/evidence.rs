@@ -278,6 +278,31 @@ pub fn missing(run: &Run, workflow: &Workflow) -> Vec<EvidenceKind> {
     out
 }
 
+pub fn load_review_rounds(
+    store: &FactoryStore,
+    run_id: &str,
+) -> super::stages::review::ReviewRoundsReport {
+    let run_dir = store.run_dir(run_id);
+    let candidates = [
+        run_dir
+            .join("artifacts")
+            .join("review")
+            .join("review-rounds.json"),
+        run_dir.join("artifacts").join("review-rounds.json"),
+        run_dir.join("review-rounds.json"),
+    ];
+    for path in &candidates {
+        if reject_if_symlink(path).is_ok()
+            && let Ok(raw) = fs::read_to_string(path)
+            && let Ok(parsed) =
+                serde_json::from_str::<super::stages::review::ReviewRoundsReport>(&raw)
+        {
+            return parsed;
+        }
+    }
+    super::stages::review::ReviewRoundsReport::default()
+}
+
 pub fn bundle_summary(items: &[EvidenceItem]) -> String {
     if items.is_empty() {
         return "no evidence recorded".to_string();

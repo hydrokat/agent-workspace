@@ -85,6 +85,17 @@ function makeGateway(overrides?: Partial<ITandemGateway>): ITandemGateway {
     factoryRunLog: async () => "line 1\nline 2\n",
     factoryRunControl: async () => SAMPLE_RUN,
     factoryProviderStatus: async () => SAMPLE_PROVIDERS,
+    factoryRunEvidence: async () => ({
+      run: SAMPLE_RUN.id,
+      items: [],
+      missing: [],
+      complete: true,
+      summary: "no evidence recorded",
+    }),
+    factoryEvidenceItem: async () => {
+      throw new Error("not implemented");
+    },
+    factoryRefreshRunPrs: async () => [],
     ...overrides,
   };
 }
