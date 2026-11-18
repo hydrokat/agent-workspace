@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const KNOWN_PROVIDERS: &[&str] = &["claude", "agy", "opencode"];
 pub const TITLE_MAX_LEN: usize = 120;
@@ -201,9 +202,15 @@ pub struct Run {
     pub pause_reason: Option<String>,
     #[serde(default)]
     pub action_commands: Vec<String>,
+    #[serde(default)]
+    pub baseline_passed: Option<bool>,
     pub state: RunState,
     #[serde(default)]
     pub stages: Vec<Stage>,
+    #[serde(default)]
+    pub evidence: Vec<super::evidence::EvidenceItem>,
+    #[serde(default)]
+    pub prs: Vec<PrLink>,
     #[serde(default)]
     pub budget: Option<Budget>,
     pub created: f64,
@@ -215,6 +222,10 @@ pub struct PrLink {
     pub repo: String,
     pub number: u64,
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -282,6 +293,10 @@ fn default_temperature() -> f64 {
     0.4
 }
 
+fn default_max_review_rounds() -> u32 {
+    2
+}
+
 fn default_provider_gates() -> Vec<ProviderGate> {
     KNOWN_PROVIDERS
         .iter()
@@ -303,10 +318,14 @@ pub struct FactorySettings {
     pub max_parallel_agents: usize,
     #[serde(default = "default_temperature")]
     pub default_temperature: f64,
+    #[serde(default = "default_max_review_rounds")]
+    pub max_review_rounds: u32,
     #[serde(default = "default_provider_gates")]
     pub provider_gates: Vec<ProviderGate>,
     #[serde(default)]
     pub default_budget: Budget,
+    #[serde(default)]
+    pub checks: BTreeMap<String, super::checks::ChecksConfig>,
 }
 
 impl Default for FactorySettings {
@@ -314,8 +333,10 @@ impl Default for FactorySettings {
         Self {
             max_parallel_agents: default_max_parallel_agents(),
             default_temperature: default_temperature(),
+            max_review_rounds: default_max_review_rounds(),
             provider_gates: default_provider_gates(),
             default_budget: Budget::default(),
+            checks: BTreeMap::new(),
         }
     }
 }

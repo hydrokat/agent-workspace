@@ -453,9 +453,16 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
     let factory_dir = src_dir.join("factory");
     let broker_dir = factory_dir.join("broker");
     let spawn_markers = ["std::process", "Command::new"];
-    let allowed_broker_spawners: &[(&str, &[&str])] = &[
-        ("spawn.rs", &["claude", "agy", "opencode"]),
-        ("git.rs", &["git"]),
+    let allowed_broker_spawners: &[(&str, Option<&[&str]>)] = &[
+        ("mod.rs", Some(&[])),
+        ("spawn.rs", Some(&["claude", "agy", "opencode"])),
+        ("git.rs", Some(&["git"])),
+        ("gh.rs", Some(&["gh"])),
+        (
+            "browser.rs",
+            Some(&["chromium", "chromium-browser", "google-chrome"]),
+        ),
+        ("checks.rs", None),
     ];
     let gate_env_keywords = ["GATE", "BYPASS", "SKIP_TERMS", "OVERRIDE", "ALLOW_PROVIDER"];
 
@@ -495,7 +502,7 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
                         rel_path.display()
                     ));
                 }
-                Some((_, allowed_progs)) => {
+                Some((_, Some(allowed_progs))) => {
                     for (line_no, line) in content.lines().enumerate() {
                         if let Some(idx) = line.find("Command::new(\"") {
                             let rest = &line[idx + "Command::new(\"".len()..];
@@ -514,6 +521,7 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
                         }
                     }
                 }
+                Some((_, None)) => {}
             }
         }
 
@@ -523,6 +531,19 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
                 if line.contains("GatePass {") || line.contains("GatePass{") {
                     violations.push(format!(
                         "{}:{}: GatePass constructed outside gate.rs",
+                        rel_path.display(),
+                        line_no + 1
+                    ));
+                }
+            }
+        }
+
+        // Rule 4b: ConfirmedChecks constructed only in factory/checks.rs
+        if rel_str != "factory/checks.rs" {
+            for (line_no, line) in content.lines().enumerate() {
+                if line.contains("ConfirmedChecks {") || line.contains("ConfirmedChecks{") {
+                    violations.push(format!(
+                        "{}:{}: ConfirmedChecks constructed outside checks.rs",
                         rel_path.display(),
                         line_no + 1
                     ));
@@ -579,6 +600,27 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
         }
     }
 
+    // Rule 3b: run_checks in factory/broker/checks.rs must take a &ConfirmedChecks parameter
+    let checks_rs = broker_dir.join("checks.rs");
+    if checks_rs.exists() {
+        let content = fs::read_to_string(&checks_rs).unwrap_or_default();
+        let has_valid_sig = content.find("fn run_checks(").is_some_and(|start| {
+            let sig_rest = &content[start..];
+            let sig_end = sig_rest
+                .find('{')
+                .or_else(|| sig_rest.find("->"))
+                .unwrap_or(sig_rest.len());
+            let params = &sig_rest[..sig_end];
+            params.contains("&ConfirmedChecks") && !params.contains("Option<&ConfirmedChecks>")
+        });
+        if !has_valid_sig {
+            violations.push(
+                "factory/broker/checks.rs: run_checks must take a required &ConfirmedChecks parameter"
+                    .to_string(),
+            );
+        }
+    }
+
     violations
 }
 
@@ -623,6 +665,24 @@ fn test_factory_spawn_sites() {
     let src = manifest_dir().join("src");
     let violations = check_factory_spawn_sites(&src);
     assert_eq!(violations, Vec::<String>::new());
+}
+
+#[test]
+fn test_gh_broker_forbids_merge_and_auto_merge() {
+    let factory_dir = manifest_dir().join("src").join("factory");
+    for file in collect_rs_files(&factory_dir) {
+        let content = fs::read_to_string(&file).unwrap_or_default();
+        for (line_no, line) in content.lines().enumerate() {
+            assert!(
+                !line.contains("\"pr merge\"")
+                    && !line.contains("\"merge\"")
+                    && !line.contains("--auto"),
+                "{}:{}: forbidden gh merge or auto-merge reference",
+                file.display(),
+                line_no + 1
+            );
+        }
+    }
 }
 
 #[test]
@@ -713,6 +773,24 @@ fn test_negative_tos_violations_are_detected() {
     )
     .unwrap();
 
+    // Rule 3b: run_checks without &ConfirmedChecks
+    fs::write(
+        tmp_broker.join("checks.rs"),
+        "pub fn run_checks(cmds: &[String]) {}",
+    )
+    .unwrap();
+    // Rule 4b: ConfirmedChecks constructed outside checks.rs
+    fs::write(
+        tmp_broker.join("forged_checks.rs"),
+        "pub fn forge() -> ConfirmedChecks { ConfirmedChecks { target: String::new() } }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_broker.join("browser.rs"),
+        "pub fn cap() { let _ = std::process::Command::new(\"curl\"); }",
+    )
+    .unwrap();
+
     let v6 = check_factory_spawn_sites(&tmp_src);
     assert!(
         v6.iter()
@@ -738,6 +816,21 @@ fn test_negative_tos_violations_are_detected() {
         v6.iter()
             .any(|v| v.contains("bad_env_gate.rs") && v.contains("decide a gate")),
         "expected Rule 5 violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("checks.rs") && v.contains("ConfirmedChecks parameter")),
+        "expected Rule 3b violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("forged_checks.rs") && v.contains("outside checks.rs")),
+        "expected Rule 4b violation, got {v6:?}"
+    );
+    assert!(
+        v6.iter()
+            .any(|v| v.contains("browser.rs") && v.contains("may not spawn 'curl'")),
+        "expected browser.rs allowlist violation, got {v6:?}"
     );
 
     let _ = fs::remove_dir_all(&tmp);

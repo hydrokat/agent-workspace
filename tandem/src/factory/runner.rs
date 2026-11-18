@@ -9,12 +9,15 @@ use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
 use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapshot};
 use crate::factory::broker::gate::{check, today_iso_date};
+use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
 use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
-use crate::factory::executor::{Executor, StageJob, StageOutcome};
+use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
-use crate::factory::machine::{self, Command, EventData};
-use crate::factory::model::{Actor, ActorKind, Idea, KNOWN_PROVIDERS, Run, RunState, StageState};
+use crate::factory::machine::{self, Command, EventData, Facts};
+use crate::factory::model::{
+    Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
+};
 use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
@@ -103,6 +106,109 @@ pub fn has_ui_slices(store: &FactoryStore, run_id: &str) -> bool {
         return false;
     };
     manifest.slices.iter().any(|s| s.ui)
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    let (mut pi, mut ti) = (0, 0);
+    let (mut star_p, mut star_t) = (None, 0);
+    while ti < t.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star_p = Some(pi);
+            star_t = ti;
+            pi += 1;
+        } else if let Some(sp) = star_p {
+            pi = sp + 1;
+            star_t += 1;
+            ti = star_t;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+fn path_matches_ui_pattern(path: &str, raw_pattern: &str) -> bool {
+    let norm_path = path.trim().replace('\\', "/");
+    let norm_path = norm_path.trim_start_matches("./");
+    let pat = raw_pattern.trim().replace('\\', "/");
+    let pat = pat.trim_start_matches("./").trim_end_matches('/');
+    if pat.is_empty() {
+        return false;
+    }
+    if pat.contains('*') || pat.contains('?') {
+        if let Some(prefix) = pat.strip_suffix("/**")
+            && (norm_path == prefix || norm_path.starts_with(&format!("{prefix}/")))
+        {
+            return true;
+        }
+        return glob_match(pat, norm_path);
+    }
+    norm_path == pat || norm_path.starts_with(&format!("{pat}/"))
+}
+
+pub fn compute_ui_changed(store: &FactoryStore, run: &Run, settings: &FactorySettings) -> TriState {
+    let develop_done = run
+        .stages
+        .iter()
+        .any(|s| s.name == "develop" && s.state == StageState::Succeeded);
+    if !develop_done {
+        return TriState::Unknown;
+    }
+    if has_ui_slices(store, &run.id) {
+        return TriState::Yes;
+    }
+    let target_name = run.target.as_deref().unwrap_or("workspace");
+    let Some(checks) = settings.checks.get(target_name) else {
+        return TriState::No;
+    };
+    if checks.ui_paths.is_empty() {
+        return TriState::No;
+    }
+    let Some(wt_str) = run.worktree_path.as_deref() else {
+        return TriState::No;
+    };
+    let wt = Path::new(wt_str);
+    if !wt.exists() {
+        return TriState::No;
+    }
+    let range = run
+        .base_commit
+        .as_deref()
+        .filter(|b| !b.trim().is_empty())
+        .map(|b| format!("{b}..HEAD"));
+    let args: Vec<&str> = match range.as_deref() {
+        Some(r) => vec!["--name-only", r],
+        None => vec!["--name-only", "HEAD"],
+    };
+    let Ok(out) = run_git(
+        AllowedGitSubcommand::Diff,
+        &args,
+        wt,
+        Duration::from_secs(15),
+    ) else {
+        return TriState::No;
+    };
+    let touched_ui = out.lines().any(|file| {
+        let f = file.trim();
+        !f.is_empty()
+            && checks
+                .ui_paths
+                .iter()
+                .any(|p| path_matches_ui_pattern(f, p))
+    });
+    if touched_ui {
+        TriState::Yes
+    } else {
+        TriState::No
+    }
 }
 
 pub fn stop_request_path(store: &FactoryStore, run_id: &str) -> PathBuf {
@@ -208,6 +314,53 @@ fn pause_run(
     Ok(())
 }
 
+pub fn deliver_if_pr_created(
+    store: &FactoryStore,
+    workspace: &Path,
+    run_id: &str,
+) -> Result<bool, RunnerError> {
+    let Some(run) = get_run(store, run_id)? else {
+        return Ok(false);
+    };
+    if run.state != RunState::Review {
+        return Ok(false);
+    }
+    let Some(idea) = store.get_idea(&run.idea)? else {
+        return Ok(false);
+    };
+    if idea.state != IdeaState::Review {
+        return Ok(false);
+    }
+    let prs = if run.prs.is_empty() {
+        idea.prs.clone()
+    } else {
+        run.prs.clone()
+    };
+    if prs.is_empty() {
+        return Ok(false);
+    }
+
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "runner".to_string(),
+    };
+    let events = machine::decide(
+        Some(&idea),
+        &Command::Deliver {
+            run: run_id.to_string(),
+            prs,
+        },
+        &sys,
+        &Facts::default(),
+    )
+    .map_err(FactoryError::from)?;
+
+    append_run_events(store, &idea.id, run_id, Some(run), events, &sys)?;
+    super::handoff::write_and_record_handoff(store, workspace, run_id, &sys)
+        .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+    Ok(true)
+}
+
 pub fn drive_run_step(
     store: &FactoryStore,
     workspace: &Path,
@@ -217,6 +370,21 @@ pub fn drive_run_step(
     let Some(mut run) = get_run(store, run_id)? else {
         return Ok(());
     };
+    if run.state == RunState::Review {
+        let sys = Actor {
+            kind: ActorKind::System,
+            id: "runner".to_string(),
+        };
+        if run.prs.is_empty() {
+            let outcome = super::pr::open_pull_request(store, workspace, run_id, &sys)
+                .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+            if matches!(outcome, super::pr::PrOutcome::Paused { .. }) {
+                return Ok(());
+            }
+        }
+        let _ = deliver_if_pr_created(store, workspace, run_id)?;
+        return Ok(());
+    }
     if !matches!(run.state, RunState::Queued | RunState::Running) {
         return Ok(());
     }
@@ -257,18 +425,64 @@ pub fn drive_run_step(
         Err(e) => return Err(RunnerError::Workspace(e)),
     }
 
-    let is_ui = has_ui_slices(store, run_id);
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "runner".to_string(),
+    };
+
+    if run.baseline_passed.is_none()
+        && run.stages.iter().all(|s| s.attempts == 0)
+        && let Some(wt_str) = run.worktree_path.as_deref()
+    {
+        let target_name = run.target.as_deref().unwrap_or("workspace");
+        if let Ok(confirmed) = super::checks::require_confirmed_checks(&settings, target_name) {
+            let artifact_dir = store.run_dir(run_id).join("artifacts");
+            let _ = fs::create_dir_all(&artifact_dir);
+            let report = super::stages::test::run_test_stage_checks(
+                &confirmed,
+                Path::new(wt_str),
+                &artifact_dir,
+                0,
+            )
+            .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+            let failed_checks: Vec<String> = report
+                .outcomes
+                .iter()
+                .filter(|o| !o.passed())
+                .map(|o| o.argv.join(" "))
+                .collect();
+            run = append_run_events(
+                store,
+                &run.idea.clone(),
+                &run.id.clone(),
+                Some(run),
+                vec![EventData::RunBaseline {
+                    run: run_id.to_string(),
+                    passed: report.all_passed,
+                    failed_checks,
+                }],
+                &sys,
+            )?;
+            if !report.all_passed {
+                return pause_run(
+                    store,
+                    run,
+                    "checks fail on the base branch".to_string(),
+                    vec![format!("tandem factory run resume {run_id}")],
+                );
+            }
+        }
+    }
+
+    let ui_changed = compute_ui_changed(store, &run, &settings);
+    let is_ui = matches!(ui_changed, TriState::Yes) || has_ui_slices(store, run_id);
     let facts = RunFacts {
-        ui_changed: if is_ui { TriState::Yes } else { TriState::No },
+        ui_changed,
         deploy_requested: run.deploy_requested,
         approvals: Vec::new(),
     };
     let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages);
     let decision = next(&wf, &run.stages, &facts, &limits);
-    let sys = Actor {
-        kind: ActorKind::System,
-        id: "runner".to_string(),
-    };
 
     if !decision.skip.is_empty() {
         let evs: Vec<EventData> = decision
@@ -333,6 +547,32 @@ pub fn drive_run_step(
         return Ok(());
     };
 
+    if stage_name == "demo" {
+        let dep_status = crate::web_deps::screenshot_tool_status(
+            &crate::web_deps::DepsEnv::from_process(),
+            &store.root,
+        );
+        if !dep_status.available_for_demo() {
+            let reason = "screenshot tool not installed".to_string();
+            let _ = super::evidence::record_demo_skipped_no_tool(
+                store, &run.idea, &run.id, &reason, &sys,
+            );
+            append_run_events(
+                store,
+                &run.idea.clone(),
+                &run.id.clone(),
+                Some(run),
+                vec![EventData::StageSkipped {
+                    run: run_id.to_string(),
+                    stage: "demo".to_string(),
+                    reason,
+                }],
+                &sys,
+            )?;
+            return Ok(());
+        }
+    }
+
     let today = today_iso_date();
     let open_providers: Vec<&str> = KNOWN_PROVIDERS
         .iter()
@@ -356,6 +596,26 @@ pub fn drive_run_step(
         .iter()
         .find(|s| s.name == stage_name)
         .ok_or_else(|| RunnerError::InvalidInput(format!("stage {stage_name} missing")))?;
+
+    let needs_checks = stage_def.name == "test"
+        || stage_def.name == "check"
+        || stage_def
+            .tools
+            .iter()
+            .any(|t| matches!(t, super::workflow::schema::WorkflowTool::LintRunner));
+    if needs_checks {
+        let target_name = run.target.as_deref().unwrap_or("workspace").to_string();
+        if super::checks::require_confirmed_checks(&settings, &target_name).is_err() {
+            return pause_run(
+                store,
+                run,
+                "test and lint commands are not confirmed".to_string(),
+                vec![format!(
+                    "tandem factory checks discover --target {target_name}"
+                )],
+            );
+        }
+    }
     let current_attempts = run
         .stages
         .iter()
@@ -368,9 +628,16 @@ pub fn drive_run_step(
         .get_idea(&run.idea)?
         .and_then(|i| i.orchestrator)
         .map(|o| o.cli);
+    let (avoid_provider, avoid_model) = if stage_name == "review" {
+        last_stage_provider_model(store, &run, "develop")
+    } else {
+        (None, None)
+    };
     let r_ctx = RoutingContext {
         preferred_provider,
         is_ui_work: is_ui,
+        avoid_provider,
+        avoid_model,
     };
 
     let routed = match route(
@@ -424,7 +691,7 @@ pub fn drive_run_step(
         attempt: next_attempt,
     });
 
-    let current_run = match get_run(store, run_id)? {
+    let mut current_run = match get_run(store, run_id)? {
         Some(r) => r,
         None => return Ok(()),
     };
@@ -434,6 +701,120 @@ pub fn drive_run_step(
 
     match outcome {
         StageOutcome::Succeeded => {
+            if stage_name == "review" {
+                let artifact_dir = store.run_dir(run_id).join("artifacts");
+                if artifact_dir.join("findings.json").exists() {
+                    let report = match super::stages::review::load_findings_report(&artifact_dir) {
+                        Ok(r) => r,
+                        Err(failure) => {
+                            let reason = failure.to_string();
+                            let run_after_fail = append_run_events(
+                                store,
+                                &current_run.idea.clone(),
+                                &current_run.id.clone(),
+                                Some(current_run),
+                                vec![EventData::StageFailed {
+                                    run: run_id.to_string(),
+                                    stage: stage_name,
+                                    reason: reason.clone(),
+                                }],
+                                &sys,
+                            )?;
+                            return pause_run(
+                                store,
+                                run_after_fail,
+                                reason,
+                                vec![format!("tandem factory run resume {run_id}")],
+                            );
+                        }
+                    };
+                    let round = current_run
+                        .stages
+                        .iter()
+                        .find(|s| s.name == "review")
+                        .map_or(1, |s| s.attempts.max(1));
+                    let record =
+                        super::stages::review::record_review_round(&artifact_dir, round, &report)
+                            .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+                    if let Ok(findings_bytes) = serde_json::to_vec_pretty(&report) {
+                        let summary = if report.findings.is_empty() {
+                            format!("review round {round}: clean")
+                        } else {
+                            format!("review round {round}: {} finding(s)", report.findings.len())
+                        };
+                        if let Ok(ev_item) = super::evidence::record_review_findings(
+                            store,
+                            &current_run.idea,
+                            &current_run.id,
+                            round,
+                            &findings_bytes,
+                            summary,
+                            &sys,
+                        ) {
+                            current_run.evidence.push(ev_item);
+                        }
+                    }
+
+                    if record.derived_verdict
+                        == super::stages::review::ReviewVerdict::ChangesRequested
+                    {
+                        let findings_summary =
+                            super::stages::review::format_blocking_findings_summary(
+                                &report.findings,
+                            );
+                        if round < settings.max_review_rounds {
+                            append_run_events(
+                                store,
+                                &current_run.idea.clone(),
+                                &current_run.id.clone(),
+                                Some(current_run),
+                                vec![
+                                    EventData::StageSucceeded {
+                                        run: run_id.to_string(),
+                                        stage: stage_name,
+                                    },
+                                    EventData::RunStagesComplete {
+                                        run: run_id.to_string(),
+                                    },
+                                    EventData::RunChangesRequested {
+                                        run: run_id.to_string(),
+                                    },
+                                    EventData::StageReopened {
+                                        run: run_id.to_string(),
+                                        stage: "develop".to_string(),
+                                        reason: findings_summary,
+                                    },
+                                ],
+                                &sys,
+                            )?;
+                        } else {
+                            let reason = format!(
+                                "review requested changes after {round} round(s); max_review_rounds ({}) exhausted:\n{findings_summary}",
+                                settings.max_review_rounds
+                            );
+                            let run_after_fail = append_run_events(
+                                store,
+                                &current_run.idea.clone(),
+                                &current_run.id.clone(),
+                                Some(current_run),
+                                vec![EventData::StageFailed {
+                                    run: run_id.to_string(),
+                                    stage: stage_name,
+                                    reason: reason.clone(),
+                                }],
+                                &sys,
+                            )?;
+                            return pause_run(
+                                store,
+                                run_after_fail,
+                                reason,
+                                vec![format!("tandem factory run resume {run_id}")],
+                            );
+                        }
+                        return Ok(());
+                    }
+                }
+            }
             append_run_events(
                 store,
                 &current_run.idea.clone(),
@@ -491,7 +872,41 @@ pub fn drive_run_step(
                 &sys,
             )?;
 
-            if !has_new_hypothesis && !already_paused {
+            if stage_name == "test"
+                && let Some(dev_def) = wf.stages.iter().find(|s| s.name == "develop")
+            {
+                let dev_max_retries = dev_def.budget.max_retries.unwrap_or(0);
+                let dev_retries_used = run_after_fail
+                    .stages
+                    .iter()
+                    .find(|s| s.name == "develop")
+                    .map_or(0, |s| s.attempts.saturating_sub(1 + s.interrupted_attempts));
+                if dev_retries_used < dev_max_retries {
+                    append_run_events(
+                        store,
+                        &run_after_fail.idea.clone(),
+                        &run_after_fail.id.clone(),
+                        Some(run_after_fail),
+                        vec![EventData::StageReopened {
+                            run: run_id.to_string(),
+                            stage: "develop".to_string(),
+                            reason,
+                        }],
+                        &sys,
+                    )?;
+                } else if !already_paused {
+                    pause_run(
+                        store,
+                        run_after_fail,
+                        format!(
+                            "stage \"develop\" retries are used up after test failure: {reason}"
+                        ),
+                        vec![format!(
+                            "tandem factory run retry {run_id} develop --hypothesis \"<new hypothesis>\""
+                        )],
+                    )?;
+                }
+            } else if !has_new_hypothesis && !already_paused {
                 pause_run(
                     store,
                     run_after_fail,
@@ -924,7 +1339,10 @@ pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), Run
     loop {
         if let Ok(runs) = list_runs(&store, None) {
             for r in runs {
-                if matches!(r.state, RunState::Queued | RunState::Running) {
+                if matches!(
+                    r.state,
+                    RunState::Queued | RunState::Running | RunState::Review
+                ) {
                     let _ = drive_run_step(&store, workspace, &r.id, executor);
                 }
             }

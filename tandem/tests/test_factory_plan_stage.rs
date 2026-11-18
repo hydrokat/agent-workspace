@@ -134,6 +134,7 @@ impl PlanFixture {
             rationale: None,
             hypothesis: None,
             usage: None,
+            no_behaviour_change: false,
         };
 
         Self {
@@ -149,11 +150,15 @@ impl PlanFixture {
         let contract = contract_for_stage("plan").expect("plan stage contract registered");
         let ctx = StageContext {
             run_id: "r-001",
+            idea_id: "idea-001",
             stage: "plan",
+            attempt: 1,
+            has_repo_write: false,
             artifact_dir: &self.artifact_dir,
             target_repo: &self.repo_dir,
             worktree_path: &self.repo_dir,
             plan_snapshot_path: &self.plan_snapshot_path,
+            confirmed_checks: None,
             result: &self.result,
         };
         contract.verify(&ctx)

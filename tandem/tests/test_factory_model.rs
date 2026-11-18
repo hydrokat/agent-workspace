@@ -128,8 +128,11 @@ fn test_all_model_types_round_trip_json() {
         worktree_path: None,
         pause_reason: None,
         action_commands: Vec::new(),
+        baseline_passed: None,
         state: RunState::Running,
         stages: vec![stage.clone()],
+        evidence: Vec::new(),
+        prs: Vec::new(),
         budget: Some(budget.clone()),
         created: 1700000015.0,
         updated: 1700000080.0,
@@ -138,6 +141,8 @@ fn test_all_model_types_round_trip_json() {
         repo: "agent-workspace-package".to_string(),
         number: 42,
         url: "https://example.invalid/pr/42".to_string(),
+        state: None,
+        checks_summary: None,
     };
     let idea = Idea {
         id: "i-12345678".to_string(),
@@ -177,6 +182,7 @@ fn test_all_model_types_round_trip_json() {
         default_temperature: 0.2,
         provider_gates: vec![gate.clone()],
         default_budget: budget.clone(),
+        ..FactorySettings::default()
     };
 
     macro_rules! assert_round_trip {

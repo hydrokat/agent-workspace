@@ -656,6 +656,16 @@ impl FactoryTab {
                         }
                         None
                     }
+                    DetailKeyOutcome::Action(DetailAction::OpenRunEvidence { run_id }) => {
+                        if let Some(ref ws) = self.workspace {
+                            let mut monitor =
+                                FactoryRun::load(ws, &detail.idea_id, &run_id, &self.platform);
+                            monitor.open_evidence_view();
+                            self.run_monitor = Some(monitor);
+                            self.view = FactoryView::RunMonitor;
+                        }
+                        None
+                    }
                     DetailKeyOutcome::Action(DetailAction::Refresh) => Some(FactoryAction::Refresh),
                     DetailKeyOutcome::Consumed | DetailKeyOutcome::Ignored => None,
                 }

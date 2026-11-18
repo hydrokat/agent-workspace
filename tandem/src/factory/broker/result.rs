@@ -37,6 +37,8 @@ pub struct JobResult {
     pub hypothesis: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<JobUsage>,
+    #[serde(default, alias = "no_behavior_change")]
+    pub no_behaviour_change: bool,
 }
 
 fn no_structured_result(detail: &str) -> JobResult {
@@ -52,6 +54,7 @@ fn no_structured_result(detail: &str) -> JobResult {
         }),
         hypothesis: None,
         usage: None,
+        no_behaviour_change: false,
     }
 }
 

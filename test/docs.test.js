@@ -216,11 +216,20 @@ describe('repo-level runtime reference guard', () => {
     const violations = [];
 
     for (const file of strictTargets) {
+      const rel = file.replace(ROOT + '/', '');
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
       lines.forEach((line, idx) => {
         if (pattern.test(line)) {
-          violations.push(`${file.replace(ROOT + '/', '')}:${idx + 1}: ${line.trim()}`);
+          const isFactoryTargetSkillOrLockfile =
+            rel.startsWith('tandem/src/factory/') &&
+            (line.includes('run_tests.py') ||
+              line.includes('specs.py') ||
+              line.includes('uv.lock') ||
+              line.includes('"python3"'));
+          if (!isFactoryTargetSkillOrLockfile) {
+            violations.push(`${rel}:${idx + 1}: ${line.trim()}`);
+          }
         }
       });
     }
@@ -393,5 +402,77 @@ describe('factory mode execution documentation', () => {
   it('records Factory Mode execution under the next minor version in CHANGELOG.md', () => {
     assert.match(changelog, /^## \[1\.17\.0\]/m, '1.17.0 heading in CHANGELOG.md');
     assert.ok(changelog.includes('p-016'), 'p-016 in CHANGELOG.md');
+  });
+});
+
+describe('factory mode quality path documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+  const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
+
+  it('documents end-to-end quality path walkthrough through PR and handoff in root README', () => {
+    for (const term of [
+      'checks discover',
+      'checks set',
+      'create-tests',
+      'develop',
+      'test',
+      'review',
+      'demo',
+      'pull request',
+      'handoff',
+      'p-018',
+    ]) {
+      assert.ok(readme.includes(term), `"${term}" in README.md`);
+    }
+  });
+
+  it('documents check commands, stage contracts table, scope check, and protected paths in tandem README', () => {
+    for (const term of [
+      'checks discover',
+      'checks set',
+      'checks show',
+      'create-tests',
+      'develop',
+      'test',
+      'review',
+      'demo',
+      '.agent-workspace/',
+      'workflows/',
+      '.github/workflows/',
+      '.git/hooks/',
+      '.githooks/',
+      'checks.json',
+    ]) {
+      assert.ok(tandemReadme.includes(term), `"${term}" in tandem/README.md`);
+    }
+  });
+
+  it('documents review loop, evidence rules, PR preconditions/never-list, and CLI commands with exit codes in tandem README', () => {
+    for (const term of [
+      'max_review_rounds',
+      'run evidence',
+      'run prs',
+      'run export-specs',
+      'gh auth login',
+      'GitHub',
+      'one pull request per run',
+      'merge',
+      'approve',
+      'force push',
+      'protected branch',
+      'stay on the machine',
+    ]) {
+      assert.ok(
+        tandemReadme.toLowerCase().includes(term.toLowerCase()),
+        `"${term}" in tandem/README.md`
+      );
+    }
+    assert.match(tandemReadme, /exit code|exit codes/i, 'exit codes documented in tandem/README.md');
+  });
+
+  it('records Factory Mode quality path under 1.18.0 in CHANGELOG.md', () => {
+    assert.match(changelog, /^## \[1\.18\.0\]/m, '1.18.0 heading in CHANGELOG.md');
+    assert.ok(changelog.includes('p-017'), 'p-017 in CHANGELOG.md');
   });
 });

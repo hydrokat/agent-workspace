@@ -168,9 +168,10 @@ fn git_wrapper_allows_only_allowlisted_subcommands() {
     .unwrap();
     assert_eq!(out.trim(), "trunk");
 
-    assert!(AllowedGitSubcommand::parse("push").is_none());
-    assert!(AllowedGitSubcommand::parse("commit").is_none());
+    assert!(AllowedGitSubcommand::parse("push").is_some());
+    assert!(AllowedGitSubcommand::parse("commit").is_some());
     assert!(AllowedGitSubcommand::parse("checkout").is_none());
+    assert!(AllowedGitSubcommand::parse("merge").is_none());
     let _ = GitError::Timeout;
 
     let _ = fs::remove_dir_all(&dir);

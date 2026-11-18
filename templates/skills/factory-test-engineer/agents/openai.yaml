@@ -1,0 +1,4 @@
+interface:
+  display_name: "Factory Test Engineer"
+  short_description: "Write failing tests for Factory Mode slices without committing."
+  default_prompt: "Follow the factory-test-engineer playbook to read slices.json, write failing tests inside slice paths, never commit, and write result.json."

@@ -78,7 +78,10 @@ pub fn resolve_target(workspace: &Path) -> TargetResolution {
     }
 }
 
-fn target_path_for_name(workspace: &Path, target_name: &str) -> Result<PathBuf, WorkspaceError> {
+pub fn target_path_for_name(
+    workspace: &Path,
+    target_name: &str,
+) -> Result<PathBuf, WorkspaceError> {
     if target_name == "workspace" {
         return Ok(workspace.to_path_buf());
     }

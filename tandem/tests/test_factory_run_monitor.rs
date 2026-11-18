@@ -272,6 +272,7 @@ fn test_snapshot_run_summary_stages_jobs_cost_elapsed_and_paused_needs_you() {
             rationale: None,
             hypothesis: None,
             usage: None,
+            no_behaviour_change: false,
         }),
     );
     append_run_event(
@@ -345,6 +346,7 @@ fn test_snapshot_run_summary_stages_jobs_cost_elapsed_and_paused_needs_you() {
                 output_tokens: Some(50),
                 cost_usd: Some(0.42),
             }),
+            no_behaviour_change: false,
         }),
     );
     pause_run_by_user(&store, &run_id, false, &user_actor(), &no_agent_env).unwrap();
@@ -526,6 +528,7 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
             rationale: Some("empty team returns 500\x07".to_string()),
             hypothesis: Some("handle empty slice\x1b[0m".to_string()),
             usage: None,
+            no_behaviour_change: false,
         }),
     );
 

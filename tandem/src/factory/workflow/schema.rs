@@ -160,7 +160,9 @@ pub enum EvidenceKind {
     TestReport,
     LintReport,
     ReviewFindings,
-    Screenshots,
+    DiffStat,
+    Screenshot,
+    Exception,
     Handoff,
 }
 
@@ -170,9 +172,23 @@ impl EvidenceKind {
             "test_report" => Some(Self::TestReport),
             "lint_report" => Some(Self::LintReport),
             "review_findings" => Some(Self::ReviewFindings),
-            "screenshots" => Some(Self::Screenshots),
+            "diff_stat" => Some(Self::DiffStat),
+            "screenshot" | "screenshots" => Some(Self::Screenshot),
+            "exception" => Some(Self::Exception),
             "handoff" => Some(Self::Handoff),
             _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::TestReport => "test_report",
+            Self::LintReport => "lint_report",
+            Self::ReviewFindings => "review_findings",
+            Self::DiffStat => "diff_stat",
+            Self::Screenshot => "screenshot",
+            Self::Exception => "exception",
+            Self::Handoff => "handoff",
         }
     }
 }

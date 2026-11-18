@@ -205,4 +205,47 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.ok(text.includes('slices.json'), 'documents slices.json');
     assert.ok(text.includes('result.json'), 'documents result.json');
   });
+
+  for (const name of ['factory-test-engineer', 'factory-implementer']) {
+    it(`installs ${name} with valid front matter, provider sync, and spec-implement reuse`, () => {
+      has(`${name}/SKILL.md`);
+      has(`${name}/agents/openai.yaml`);
+      assert.ok(fileExists(dir, `.claude/skills/${name}/SKILL.md`), `${name} installed for claude provider`);
+
+      const text = skill(name);
+      assert.match(text, new RegExp(`^---\\nname: ${name}\\n`));
+      assert.ok(text.includes('slices.json'), `${name} reads slices.json`);
+      assert.ok(text.includes('result.json'), `${name} writes result.json`);
+      assert.ok(text.includes('hypothesis'), `${name} requires hypothesis on retry`);
+      assert.match(text, /do not commit|never commit/i, `${name} forbids committing`);
+      assert.ok(text.includes('spec-implement'), `${name} reuses spec-implement rules by reference`);
+    });
+  }
+
+  it('installs factory-reviewer with valid front matter, provider sync, read-only mandate, and code-review reuse', () => {
+    has('factory-reviewer/SKILL.md');
+    has('factory-reviewer/agents/openai.yaml');
+    assert.ok(fileExists(dir, '.claude/skills/factory-reviewer/SKILL.md'), 'installed for claude provider');
+
+    const text = skill('factory-reviewer');
+    assert.match(text, /^---\nname: factory-reviewer\n/);
+    assert.ok(text.includes('repo_read'), 'mentions repo_read');
+    assert.ok(text.includes('diff_review'), 'mentions diff_review');
+    assert.ok(text.includes('code-review'), 'reuses code-review checklist');
+    assert.ok(text.includes('findings.json'), 'writes findings.json');
+    assert.ok(text.includes('result.json'), 'writes result.json');
+    assert.match(text, /Read-Only/i, 'enforces read-only mandate');
+  });
+
+  it('installs factory-demo-maker with valid front matter, provider sync, and local-only screenshot contract', () => {
+    has('factory-demo-maker/SKILL.md');
+    has('factory-demo-maker/agents/openai.yaml');
+    assert.ok(fileExists(dir, '.claude/skills/factory-demo-maker/SKILL.md'), 'installed for claude provider');
+
+    const text = skill('factory-demo-maker');
+    assert.match(text, /^---\nname: factory-demo-maker\n/);
+    assert.ok(text.includes('demo.json'), 'writes demo.json');
+    assert.ok(text.includes('result.json'), 'writes result.json');
+    assert.match(text, /never uploaded/i, 'enforces local-only screenshots');
+  });
 });

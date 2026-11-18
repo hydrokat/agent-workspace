@@ -51,6 +51,9 @@ pub enum FactoryCommand {
     #[command(about = "manage headless provider gates and consent")]
     Provider(FactoryProviderArgs),
 
+    #[command(about = "discover, confirm, and inspect project test and lint commands")]
+    Checks(FactoryChecksArgs),
+
     #[command(about = "run the factory execution loop (factory sessions only)")]
     Runner,
 
@@ -289,6 +292,12 @@ pub enum FactoryRunCommand {
     Cancel(FactoryRunCancelArgs),
     #[command(about = "tail a job log for a run")]
     Log(FactoryRunLogArgs),
+    #[command(about = "list or inspect evidence items for a run")]
+    Evidence(FactoryRunEvidenceArgs),
+    #[command(about = "list or refresh pull request status for a run")]
+    Prs(FactoryRunPrsArgs),
+    #[command(about = "copy plan stage specs into workspace specs/ under next free phase")]
+    ExportSpecs(FactoryRunExportSpecsArgs),
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -413,6 +422,31 @@ pub struct FactoryRunLogArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunEvidenceArgs {
+    pub run: String,
+    #[arg(long)]
+    pub show: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunPrsArgs {
+    pub run: String,
+    #[arg(long)]
+    pub refresh: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunExportSpecsArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryProviderArgs {
     #[command(subcommand)]
     pub command: FactoryProviderCommand,
@@ -448,6 +482,56 @@ pub struct FactoryProviderConsentArgs {
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryProviderRevokeArgs {
     pub provider: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksArgs {
+    #[command(subcommand)]
+    pub command: FactoryChecksCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryChecksCommand {
+    #[command(about = "propose test and lint commands by reading target files")]
+    Discover(FactoryChecksDiscoverArgs),
+    #[command(about = "confirm test and lint commands for a target (user-only)")]
+    Set(FactoryChecksSetArgs),
+    #[command(about = "show configured check commands")]
+    Show(FactoryChecksShowArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksDiscoverArgs {
+    #[arg(long)]
+    pub target: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksSetArgs {
+    #[arg(long)]
+    pub target: String,
+    #[arg(long)]
+    pub test: Option<String>,
+    #[arg(long)]
+    pub lint: Option<String>,
+    #[arg(long)]
+    pub timeout_secs: Option<u64>,
+    #[arg(long)]
+    pub ui_paths: Option<String>,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryChecksShowArgs {
+    #[arg(long)]
+    pub target: Option<String>,
     #[arg(long)]
     pub json: bool,
 }
@@ -681,11 +765,19 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Resume(a) => a.json,
             FactoryRunCommand::Cancel(a) => a.json,
             FactoryRunCommand::Log(a) => a.json,
+            FactoryRunCommand::Evidence(a) => a.json,
+            FactoryRunCommand::Prs(a) => a.json,
+            FactoryRunCommand::ExportSpecs(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
             FactoryProviderCommand::Consent(a) => a.json,
             FactoryProviderCommand::Revoke(a) => a.json,
+        },
+        FactoryCommand::Checks(c_args) => match &c_args.command {
+            FactoryChecksCommand::Discover(a) => a.json,
+            FactoryChecksCommand::Set(a) => a.json,
+            FactoryChecksCommand::Show(a) => a.json,
         },
         FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
@@ -1474,6 +1566,74 @@ fn execute(
                 }
             }
             FactoryRunCommand::Log(a) => read_run_job_log(&store, a),
+            FactoryRunCommand::Evidence(a) => run_evidence_cmd(&store, workspace, a),
+            FactoryRunCommand::Prs(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let prs = if a.refresh {
+                    let actor = Actor {
+                        kind: ActorKind::User,
+                        id: resolve_owner(None)?,
+                    };
+                    super::handoff::refresh_run_prs(&store, workspace, &a.run, &actor).map_err(
+                        |e| CmdError {
+                            exit_code: e.exit_code(),
+                            code: e.code(),
+                            message: e.to_string(),
+                        },
+                    )?
+                } else {
+                    let run = super::run::get_run(&store, &a.run)
+                        .map_err(|e| CmdError {
+                            exit_code: 1,
+                            code: e.code(),
+                            message: e.to_string(),
+                        })?
+                        .ok_or_else(|| CmdError::not_found(format!("run {} not found", a.run)))?;
+                    run.prs
+                };
+                if a.json {
+                    serialize_compact(&prs)
+                } else if prs.is_empty() {
+                    Ok("No pull requests recorded.".to_string())
+                } else {
+                    let lines: Vec<String> = prs
+                        .iter()
+                        .map(|pr| {
+                            let state = pr.state.as_deref().unwrap_or("unknown");
+                            let checks = pr.checks_summary.as_deref().unwrap_or("not checked");
+                            format!(
+                                "{} #{}: {} [state: {state}, checks: {checks}]",
+                                pr.repo, pr.number, pr.url
+                            )
+                        })
+                        .collect();
+                    Ok(lines.join("\n"))
+                }
+            }
+            FactoryRunCommand::ExportSpecs(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let res = super::handoff::export_specs(&store, workspace, &a.run, &|k| {
+                    std::env::var(k).ok()
+                })
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format!(
+                        "Exported {} spec file(s) to {}",
+                        res.files.len(),
+                        res.destination.display()
+                    ))
+                }
+            }
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {
@@ -1529,6 +1689,12 @@ fn execute(
                     serialize_compact(&gate)
                 }
             }
+        }
+        FactoryCommand::Checks(c_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            handle_checks_command(&c_args.command, &store, workspace)
         }
         FactoryCommand::Runner => {
             if !enabled {
@@ -2003,6 +2169,275 @@ fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<St
         }))
     } else {
         Ok(cleaned)
+    }
+}
+
+fn load_run_workflow(
+    store: &FactoryStore,
+    workspace: &Path,
+    run_id: &str,
+) -> Result<super::workflow::schema::Workflow, CmdError> {
+    let run_wf_path = store.root.join("runs").join(run_id).join("workflow.yaml");
+    let raw = if run_wf_path.exists() {
+        super::workflow::parse::load_workflow_file(&run_wf_path)
+            .map_err(|e| CmdError::invalid_input(e.to_string()))?
+    } else {
+        super::workflow::load_default_workflow(workspace)
+            .map_err(|e| CmdError::invalid_input(e.to_string()))?
+            .0
+    };
+    let settings = if store.exists() {
+        store.settings().map_err(map_factory_error)?
+    } else {
+        FactorySettings::default()
+    };
+    super::workflow::validate::validate(&raw, &settings)
+        .map_err(|diags| CmdError::invalid_input(format!("workflow validation failed: {diags:?}")))
+}
+
+fn run_evidence_cmd(
+    store: &FactoryStore,
+    workspace: &Path,
+    args: &FactoryRunEvidenceArgs,
+) -> Result<String, CmdError> {
+    if !super::ids::is_valid_run_id(&args.run) {
+        return Err(CmdError::invalid_input(format!(
+            "invalid run id {}",
+            args.run
+        )));
+    }
+    let run = super::run::get_run(store, &args.run)
+        .map_err(|e| CmdError {
+            exit_code: 1,
+            code: e.code(),
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| CmdError::not_found(format!("run {}", args.run)))?;
+
+    if let Some(ref item_id) = args.show {
+        let items = super::evidence::list(store, &args.run).map_err(map_factory_error)?;
+        let item = items
+            .into_iter()
+            .find(|i| i.id == *item_id)
+            .ok_or_else(|| CmdError::not_found(format!("evidence item {item_id}")))?;
+        let raw =
+            super::evidence::read_item(store, &args.run, item_id).map_err(map_factory_error)?;
+        let cleaned = sanitize::clean(&raw);
+        if args.json {
+            return serialize_compact(&serde_json::json!({
+                "run": args.run,
+                "item": item,
+                "content": cleaned,
+            }));
+        }
+        return Ok(cleaned);
+    }
+
+    let workflow = load_run_workflow(store, workspace, &args.run)?;
+    let items = if !run.evidence.is_empty() {
+        run.evidence.clone()
+    } else {
+        super::evidence::list(store, &args.run).map_err(map_factory_error)?
+    };
+    let missing = super::evidence::missing(&run, &workflow);
+    let summary = super::evidence::bundle_summary(&items);
+    let complete = missing.is_empty();
+    let review_rounds = super::evidence::load_review_rounds(store, &args.run);
+
+    if args.json {
+        return serialize_compact(&serde_json::json!({
+            "run": args.run,
+            "items": items,
+            "missing": missing,
+            "complete": complete,
+            "summary": summary,
+            "review_rounds": review_rounds.rounds,
+            "prs": run.prs,
+        }));
+    }
+
+    let mut lines = Vec::new();
+    lines.push(format!("Evidence ({}) — {summary}", args.run));
+    for item in &items {
+        let hash_short: String = item.sha256.chars().take(12).collect();
+        lines.push(format!(
+            "  {}  {:<16}  {:<12}  a{}  {}  {}",
+            item.id,
+            item.kind.as_str(),
+            item.stage,
+            item.attempt,
+            hash_short,
+            item.summary
+        ));
+    }
+    if !missing.is_empty() {
+        let missing_names: Vec<&str> = missing.iter().map(|k| k.as_str()).collect();
+        lines.push(format!(
+            "Missing required evidence: {}",
+            missing_names.join(", ")
+        ));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn map_checks_error(err: super::checks::ChecksError) -> CmdError {
+    CmdError {
+        exit_code: err.exit_code(),
+        code: err.code(),
+        message: err.to_string(),
+    }
+}
+
+fn resolve_checks_target(
+    workspace: &Path,
+    explicit: Option<&str>,
+) -> Result<(String, std::path::PathBuf), CmdError> {
+    if let Some(name) = explicit {
+        super::checks::validate_target_name(name).map_err(map_checks_error)?;
+        let path = super::workspace::target_path_for_name(workspace, name)
+            .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+        return Ok((name.to_string(), path));
+    }
+    match super::workspace::resolve_target(workspace) {
+        super::workspace::TargetResolution::Resolved { name, path } => Ok((name, path)),
+        super::workspace::TargetResolution::Ambiguous { choices } => {
+            Err(CmdError::invalid_input(format!(
+                "multiple targets found ({}); pass --target <name>",
+                choices.join(", ")
+            )))
+        }
+    }
+}
+
+fn format_discover_text(report: &super::checks::DiscoverReport) -> String {
+    let mut lines = vec![format!("target {}", report.target)];
+    for p in &report.proposals {
+        let kind = match p.kind {
+            super::checks::CheckKind::Test => "test",
+            super::checks::CheckKind::Lint => "lint",
+        };
+        let note = p
+            .note
+            .as_deref()
+            .map(|n| format!(", {n}"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  {kind:<6} {}  ({}: line {}{note})",
+            p.argv.join(" "),
+            p.source_file,
+            p.source_line
+        ));
+    }
+    if report.proposals.is_empty() {
+        lines.push("  (no check commands discovered)".to_string());
+    }
+    if let Some(ref cfg) = report.confirmed {
+        let by = cfg.confirmed_by.as_deref().unwrap_or("unknown");
+        lines.push(format!(
+            "Confirmed by {by} (timeout {}s).",
+            cfg.timeout_secs
+        ));
+    } else {
+        lines.push(format!(
+            "Nothing is confirmed yet. Confirm with: {}",
+            report.confirm_command
+        ));
+    }
+    lines.join("\n")
+}
+
+fn format_show_checks_text(checks: &BTreeMap<String, super::checks::ChecksConfig>) -> String {
+    if checks.is_empty() {
+        return "No check commands confirmed yet.".to_string();
+    }
+    let mut lines = Vec::new();
+    for (target, cfg) in checks {
+        lines.push(format!(
+            "target {target} (timeout {}s, confirmed_by={})",
+            cfg.timeout_secs,
+            cfg.confirmed_by.as_deref().unwrap_or("none")
+        ));
+        for cmd in &cfg.test {
+            lines.push(format!("  test   {}", cmd.join(" ")));
+        }
+        for cmd in &cfg.lint {
+            lines.push(format!("  lint   {}", cmd.join(" ")));
+        }
+    }
+    lines.join("\n")
+}
+
+fn handle_checks_command(
+    cmd: &FactoryChecksCommand,
+    store: &FactoryStore,
+    workspace: &Path,
+) -> Result<String, CmdError> {
+    match cmd {
+        FactoryChecksCommand::Discover(a) => {
+            let (target_name, target_path) = resolve_checks_target(workspace, a.target.as_deref())?;
+            let settings = if store.exists() {
+                store.settings().map_err(map_factory_error)?
+            } else {
+                FactorySettings::default()
+            };
+            let confirmed = settings.checks.get(&target_name).cloned();
+            let report = super::checks::discover_checks(&target_name, &target_path, confirmed)
+                .map_err(map_checks_error)?;
+            if a.json {
+                serialize_compact(&report)
+            } else {
+                Ok(format_discover_text(&report))
+            }
+        }
+        FactoryChecksCommand::Set(a) => {
+            let test_cmds: Vec<Vec<String>> = match a.test.as_deref() {
+                Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --test JSON argv list: {e}"))
+                })?,
+                None => Vec::new(),
+            };
+            let lint_cmds: Vec<Vec<String>> = match a.lint.as_deref() {
+                Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --lint JSON argv list: {e}"))
+                })?,
+                None => Vec::new(),
+            };
+            let ui_paths: Vec<String> = match a.ui_paths.as_deref() {
+                Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --ui-paths JSON list: {e}"))
+                })?,
+                None => Vec::new(),
+            };
+            let confirmed_by = resolve_owner(None)?;
+            let cfg = super::checks::set_checks(
+                store,
+                &a.target,
+                test_cmds,
+                lint_cmds,
+                a.timeout_secs,
+                ui_paths,
+                &a.confirm,
+                &confirmed_by,
+                &|k| std::env::var(k).ok(),
+            )
+            .map_err(map_checks_error)?;
+            if a.json {
+                serialize_compact(&cfg)
+            } else {
+                let mut map = BTreeMap::new();
+                map.insert(a.target.clone(), cfg);
+                Ok(format_show_checks_text(&map))
+            }
+        }
+        FactoryChecksCommand::Show(a) => {
+            let map =
+                super::checks::show_checks(store, a.target.as_deref()).map_err(map_checks_error)?;
+            if a.json {
+                serialize_compact(&map)
+            } else {
+                Ok(format_show_checks_text(&map))
+            }
+        }
     }
 }
 

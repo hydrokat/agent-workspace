@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::evidence::EvidenceItem;
 use super::model::{
     Actor, ActorKind, ApprovalGate, ArtifactRef, FeasibilityVerdict, Idea, IdeaState,
     OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, validate_owner,
@@ -254,6 +255,25 @@ pub enum EventData {
     RunCancelled { run: String },
     #[serde(rename = "stage.interrupted")]
     StageInterrupted { run: String, stage: String },
+    #[serde(rename = "stage.reopened")]
+    StageReopened {
+        run: String,
+        stage: String,
+        reason: String,
+    },
+    #[serde(rename = "run.baseline")]
+    RunBaseline {
+        run: String,
+        passed: bool,
+        #[serde(default)]
+        failed_checks: Vec<String>,
+    },
+    #[serde(rename = "evidence.added")]
+    EvidenceAdded { run: String, item: EvidenceItem },
+    #[serde(rename = "pr.created")]
+    PrCreated { run: String, pr: PrLink },
+    #[serde(rename = "pr.status_refreshed")]
+    PrStatusRefreshed { run: String, pr: PrLink },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -752,6 +772,27 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.prs = prs.clone();
                     idea.updated = ts;
                 }
+                EventData::PrCreated { pr, .. } => {
+                    if !idea
+                        .prs
+                        .iter()
+                        .any(|e| e.url == pr.url || (e.repo == pr.repo && e.number == pr.number))
+                    {
+                        idea.prs.push(pr.clone());
+                    }
+                    idea.updated = ts;
+                }
+                EventData::PrStatusRefreshed { pr, .. } => {
+                    if let Some(existing) = idea
+                        .prs
+                        .iter_mut()
+                        .find(|e| e.url == pr.url || (e.repo == pr.repo && e.number == pr.number))
+                    {
+                        existing.state = pr.state.clone();
+                        existing.checks_summary = pr.checks_summary.clone();
+                    }
+                    idea.updated = ts;
+                }
                 EventData::IdeaCancelled { .. } if !idea.state.is_terminal() => {
                     idea.cancelled_from = Some(idea.state);
                     idea.state = IdeaState::Cancelled;
@@ -793,8 +834,11 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             worktree_path: None,
             pause_reason: None,
             action_commands: Vec::new(),
+            baseline_passed: None,
             state: RunState::Queued,
             stages: stages.clone(),
+            evidence: Vec::new(),
+            prs: Vec::new(),
             budget: None,
             created: ts,
             updated: ts,
@@ -924,6 +968,61 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         st.interrupted_attempts += 1;
                         st.finished = Some(ts);
                         st.rationale = Some("interrupted".to_string());
+                    }
+                    run.updated = ts;
+                }
+                EventData::StageReopened { stage, reason, .. } => {
+                    if let Some(st) = run.stages.iter_mut().find(|s| s.name == *stage) {
+                        st.state = StageState::Pending;
+                        st.finished = None;
+                        st.rationale = Some(reason.clone());
+                        st.retry_hypothesis = Some(reason.clone());
+                    }
+                    // Reset downstream test, review, and demo stages to Pending so the scheduler re-runs them after develop.
+                    if stage == "develop" {
+                        for downstream in ["test", "review", "demo"] {
+                            if let Some(st) = run.stages.iter_mut().find(|s| {
+                                s.name == downstream
+                                    && matches!(
+                                        s.state,
+                                        StageState::Failed
+                                            | StageState::Succeeded
+                                            | StageState::Running
+                                    )
+                            }) {
+                                st.state = StageState::Pending;
+                                st.finished = None;
+                            }
+                        }
+                    }
+                    run.updated = ts;
+                }
+                EventData::RunBaseline { passed, .. } => {
+                    run.baseline_passed = Some(*passed);
+                    run.updated = ts;
+                }
+                EventData::EvidenceAdded { item, .. } => {
+                    run.evidence.push(item.clone());
+                    run.updated = ts;
+                }
+                EventData::PrCreated { pr, .. } => {
+                    if !run
+                        .prs
+                        .iter()
+                        .any(|e| e.url == pr.url || (e.repo == pr.repo && e.number == pr.number))
+                    {
+                        run.prs.push(pr.clone());
+                    }
+                    run.updated = ts;
+                }
+                EventData::PrStatusRefreshed { pr, .. } => {
+                    if let Some(existing) = run
+                        .prs
+                        .iter_mut()
+                        .find(|e| e.url == pr.url || (e.repo == pr.repo && e.number == pr.number))
+                    {
+                        existing.state = pr.state.clone();
+                        existing.checks_summary = pr.checks_summary.clone();
                     }
                     run.updated = ts;
                 }
