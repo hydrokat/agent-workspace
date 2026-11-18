@@ -429,7 +429,9 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::PrCreated { run, .. }
         | EventData::PrStatusRefreshed { run, .. }
         | EventData::BudgetChanged { run, .. }
-        | EventData::JobUsage { run, .. } => Some(run.clone()),
+        | EventData::JobUsage { run, .. }
+        | EventData::ApprovalGranted { run, .. }
+        | EventData::ApprovalConsumed { run, .. } => Some(run.clone()),
         _ => None,
     }
 }

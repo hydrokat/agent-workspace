@@ -317,7 +317,7 @@ fn scan_fixed_tokens(text: &str, spans: &mut Vec<Span>) {
                 }
             }
 
-            if len - i >= 7 && text[i..i + 7].eq_ignore_ascii_case("bearer ") {
+            if len - i >= 7 && bytes[i..i + 7].eq_ignore_ascii_case(b"bearer ") {
                 let tok_start = i + 7;
                 let mut end = tok_start;
                 while end < len && is_bearer_token_char(bytes[end]) {

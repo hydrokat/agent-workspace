@@ -314,6 +314,24 @@ pub enum EventData {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cost_usd: Option<f64>,
     },
+    #[serde(rename = "approval.granted")]
+    ApprovalGranted {
+        gate: u8,
+        action: super::protected::ProtectedAction,
+        run: String,
+        stage: String,
+        workflow_sha256: String,
+        actor: Actor,
+        surface: String,
+        expires_at: f64,
+    },
+    #[serde(rename = "approval.consumed")]
+    ApprovalConsumed {
+        run: String,
+        stage: String,
+        action: super::protected::ProtectedAction,
+        approval_seq: u64,
+    },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {

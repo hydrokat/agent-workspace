@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::factory::checks::{CheckKind, ConfirmedChecks};
+use crate::factory::checks::{CheckKind, ConfirmedChecks, ConfirmedDeploy};
 
 pub const MAX_CHECK_LOG_BYTES: usize = 16 * 1024 * 1024;
 const SUMMARY_TAIL_BYTES: usize = 8 * 1024;
@@ -70,12 +70,14 @@ pub fn run_checks(
     let commands = match kind {
         CheckKind::Test => config.test(),
         CheckKind::Lint => config.lint(),
+        CheckKind::Deploy => &[],
     };
     let timeout = Duration::from_secs(config.timeout_secs());
     let env = build_scrubbed_env();
     let kind_label = match kind {
         CheckKind::Test => "test",
         CheckKind::Lint => "lint",
+        CheckKind::Deploy => "deploy",
     };
 
     let mut outcomes = Vec::with_capacity(commands.len());
@@ -86,6 +88,30 @@ pub fn run_checks(
     }
 
     Ok(outcomes)
+}
+
+pub fn run_deploy_command(
+    config: &ConfirmedDeploy,
+    worktree: &Path,
+    artifact_dir: &Path,
+    attempt: u32,
+) -> Result<CheckOutcome, CheckRunError> {
+    validate_worktree_dir(worktree)?;
+
+    let checks_dir = artifact_dir.join("checks");
+    ensure_real_dir(&checks_dir)?;
+
+    let timeout = Duration::from_secs(config.timeout_secs());
+    let env = build_scrubbed_env();
+    let log_path = checks_dir.join(format!("deploy-attempt{attempt}.log"));
+    run_single_check(
+        CheckKind::Deploy,
+        config.command(),
+        worktree,
+        &log_path,
+        timeout,
+        &env,
+    )
 }
 
 fn validate_worktree_dir(worktree: &Path) -> Result<(), CheckRunError> {

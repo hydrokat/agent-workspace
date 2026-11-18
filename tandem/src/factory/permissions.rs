@@ -72,7 +72,12 @@ pub struct Denied {
 impl Denied {
     pub fn action_commands(&self, run_id: &str) -> Vec<String> {
         match self.reason {
-            DeniedReason::Gate3Required => vec![format!("tandem factory run resume {run_id}")],
+            DeniedReason::Gate3Required => vec![
+                format!(
+                    "tandem factory run approve {run_id} --action production_deploy --confirm {run_id}"
+                ),
+                format!("tandem factory run resume {run_id}"),
+            ],
             DeniedReason::NotAllowedForAgent => vec![
                 format!(
                     "tandem factory permissions allow {} {}",

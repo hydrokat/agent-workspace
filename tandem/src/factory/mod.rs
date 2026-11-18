@@ -15,6 +15,7 @@ pub mod machine;
 pub mod model;
 pub mod permissions;
 pub mod pr;
+pub mod protected;
 pub mod questions;
 pub mod redact;
 pub mod routing;

@@ -349,6 +349,8 @@ pub struct FactorySettings {
     pub default_budget: Budget,
     #[serde(default)]
     pub checks: BTreeMap<String, super::checks::ChecksConfig>,
+    #[serde(default)]
+    pub deploy_commands: BTreeMap<String, super::checks::DeployConfig>,
     #[serde(default = "super::routing::default_model_tiers")]
     pub model_tiers: BTreeMap<String, super::routing::ProviderModelTiers>,
     #[serde(default)]
@@ -374,6 +376,7 @@ impl Default for FactorySettings {
             provider_gates: default_provider_gates(),
             default_budget: Budget::default(),
             checks: BTreeMap::new(),
+            deploy_commands: BTreeMap::new(),
             model_tiers: super::routing::default_model_tiers(),
             price_table: BTreeMap::new(),
             approval_grace_secs: default_approval_grace_secs(),

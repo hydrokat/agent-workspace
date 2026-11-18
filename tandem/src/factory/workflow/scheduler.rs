@@ -207,9 +207,15 @@ pub fn next(
                     }
                     ConditionEval::Met => {
                         if !has_required_approvals(stage_def, &facts.approvals) {
+                            let action = crate::factory::protected::action_for_stage(
+                                stage_def,
+                                &workflow.policy.require_human_approval,
+                            );
                             decision.blocked.push(BlockedStage {
                                 name: stage_def.name.clone(),
-                                reason: "requires human_approval".to_string(),
+                                reason: format!(
+                                    "needs your approval for {action} (tandem factory run approve <run> --action {action} --confirm <run>)"
+                                ),
                             });
                         } else if decision.start.len() < slots {
                             let is_writer = stage_has_writer_tool(stage_def);

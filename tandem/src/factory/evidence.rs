@@ -19,6 +19,7 @@ use super::ids::{is_valid_idea_id, is_valid_run_id};
 use super::machine::{self, EventData};
 use super::model::{Actor, Run, StageState};
 use super::redact::{RedactContext, Redacted, redact};
+use super::stages::deploy::DeployReport;
 use super::stages::test::{TestStageReport, format_failures_summary};
 use super::store::{FactoryStore, current_time, event_run_id, write_atomic};
 use super::workflow::schema::{EvidenceKind, Workflow};
@@ -432,6 +433,42 @@ pub fn record_test_stage_evidence(
     )?;
 
     Ok(vec![test_item, lint_item])
+}
+
+pub fn record_deploy_stage_evidence(
+    store: &FactoryStore,
+    idea_id: &str,
+    run_id: &str,
+    attempt: u32,
+    report: &DeployReport,
+    actor: &Actor,
+) -> Result<EvidenceItem, FactoryError> {
+    let ctx = RedactContext::from_env();
+    let payload = serde_json::to_string_pretty(report)?;
+    let status_word = if report.passed { "passed" } else { "failed" };
+    let code_str = report
+        .exit_code
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let summary = format!(
+        "deploy {status_word} (exit_code={code_str}): {}",
+        report.command.join(" ")
+    );
+
+    add(
+        store,
+        AddEvidenceInput {
+            idea_id,
+            run_id,
+            kind: EvidenceKind::DeployReport,
+            stage: "deploy",
+            attempt,
+            extension: "json",
+            content: EvidenceContent::Text(redact(&payload, &ctx)),
+            summary: redact(&summary, &ctx),
+        },
+        actor,
+    )
 }
 
 pub fn record_review_findings(

@@ -169,20 +169,7 @@ impl StageRequirement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProtectedAction {
-    ProductionDeploy,
-}
-
-impl ProtectedAction {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "production_deploy" => Some(Self::ProductionDeploy),
-            _ => None,
-        }
-    }
-}
+pub use crate::factory::protected::ProtectedAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -192,6 +179,7 @@ pub enum EvidenceKind {
     ReviewFindings,
     DiffStat,
     Screenshot,
+    DeployReport,
     Exception,
     Handoff,
 }
@@ -204,6 +192,7 @@ impl EvidenceKind {
             "review_findings" => Some(Self::ReviewFindings),
             "diff_stat" => Some(Self::DiffStat),
             "screenshot" | "screenshots" => Some(Self::Screenshot),
+            "deploy_report" => Some(Self::DeployReport),
             "exception" => Some(Self::Exception),
             "handoff" => Some(Self::Handoff),
             _ => None,
@@ -217,6 +206,7 @@ impl EvidenceKind {
             Self::ReviewFindings => "review_findings",
             Self::DiffStat => "diff_stat",
             Self::Screenshot => "screenshot",
+            Self::DeployReport => "deploy_report",
             Self::Exception => "exception",
             Self::Handoff => "handoff",
         }

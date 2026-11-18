@@ -2147,6 +2147,7 @@ fn render_confirm_checks(
             let kind_word = match prop.kind {
                 CheckKind::Test => "test",
                 CheckKind::Lint => "lint",
+                CheckKind::Deploy => "deploy",
             };
             write_clipped(
                 buf,

@@ -248,7 +248,7 @@ pub fn acquire_runner_lock(store: &FactoryStore) -> Result<File, RunnerError> {
     }
 }
 
-fn append_run_events(
+pub fn append_run_events(
     store: &FactoryStore,
     idea_id: &str,
     run_id: &str,
@@ -525,10 +525,12 @@ pub fn drive_run_step(
 
     let ui_changed = compute_ui_changed(store, &run, &settings);
     let is_ui = matches!(ui_changed, TriState::Yes) || has_ui_slices(store, run_id);
+    let now = current_time();
+    let run_approvals = super::protected::load_run_approvals(store, run_id)?;
     let facts = RunFacts {
         ui_changed,
         deploy_requested: run.deploy_requested,
-        approvals: Vec::new(),
+        approvals: super::protected::to_scheduler_approvals(&run_approvals, &run, now),
     };
     let workspace_running = count_workspace_running_jobs(store);
     let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages)
@@ -610,7 +612,20 @@ pub fn drive_run_step(
 
     let Some(stage_name) = stage_to_run else {
         if let Some(blocked) = decision.blocked.first() {
-            return pause_run(store, run, blocked.reason.clone(), vec![]);
+            let reason = blocked.reason.replace("<run>", run_id);
+            let mut cmds = Vec::new();
+            if let Some(sdef) = wf.stages.iter().find(|s| s.name == blocked.name)
+                && sdef
+                    .requires
+                    .contains(&super::workflow::schema::StageRequirement::HumanApproval)
+            {
+                let action =
+                    super::protected::action_for_stage(sdef, &wf.policy.require_human_approval);
+                cmds.push(format!(
+                    "tandem factory run approve {run_id} --action {action} --confirm {run_id}"
+                ));
+            }
+            return pause_run(store, run, reason, cmds);
         }
         return Ok(());
     };
@@ -708,14 +723,46 @@ pub fn drive_run_step(
         avoid_model,
     };
 
-    let target_name = run.target.as_deref().unwrap_or("workspace");
+    let target_name = run
+        .target
+        .clone()
+        .unwrap_or_else(|| "workspace".to_string());
+    if stage_name == "deploy" {
+        if run.prs.is_empty() {
+            return pause_run(
+                store,
+                run,
+                "a pull request is required before deploy".to_string(),
+                vec![format!("tandem factory run prs {run_id} --refresh")],
+            );
+        }
+        if super::checks::require_confirmed_deploy(&settings, &target_name).is_err() {
+            return pause_run(
+                store,
+                run,
+                format!("no deploy command is confirmed for {target_name}"),
+                vec![format!(
+                    "tandem factory checks set --target {target_name} --deploy '[\"<cmd>\"]' --confirm {target_name}"
+                )],
+            );
+        }
+    }
+
+    let matching_approval = super::protected::find_matching_approval(
+        &run_approvals,
+        &run.id,
+        &stage_name,
+        &run.workflow_sha256,
+        now,
+    )
+    .cloned();
     let tool_grant = match crate::factory::permissions::grant(
         stage_def.agent,
         stage_def,
-        target_name,
+        &target_name,
         &wf,
         &settings,
-        false,
+        matching_approval.is_some(),
     ) {
         Ok(g) => g,
         Err(denied) => {
@@ -770,6 +817,14 @@ pub fn drive_run_step(
         attempt: next_attempt,
         grant: Some(tool_grant),
     });
+    if let Some(approval) = matching_approval {
+        pre_evs.push(EventData::ApprovalConsumed {
+            run: run.id.clone(),
+            stage: stage_name.clone(),
+            action: approval.action,
+            approval_seq: approval.seq,
+        });
+    }
     run = append_run_events(
         store,
         &run.idea.clone(),

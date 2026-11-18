@@ -47,6 +47,7 @@ pub fn format_failures_summary(outcomes: &[CheckOutcome]) -> String {
         let kind = match outcome.kind {
             CheckKind::Test => "test",
             CheckKind::Lint => "lint",
+            CheckKind::Deploy => "deploy",
         };
         let status = if outcome.timed_out {
             "timed out".to_string()

@@ -310,6 +310,64 @@ impl BrokerExecutor {
             check_failures_summary = Some(report.failures_summary);
         }
 
+        if job.stage == "deploy" {
+            if !run.deploy_requested {
+                return StageOutcome::Blocked {
+                    reason: "deploy was not requested at mark-ready".to_string(),
+                    action_commands: vec![],
+                };
+            }
+            if run.prs.is_empty() {
+                return StageOutcome::Blocked {
+                    reason: "a pull request is required before deploy".to_string(),
+                    action_commands: vec![format!("tandem factory run prs {} --refresh", job.run)],
+                };
+            }
+            let target_name = run.target.as_deref().unwrap_or("workspace");
+            let confirmed = match super::checks::require_confirmed_deploy(&settings, target_name) {
+                Ok(c) => c,
+                Err(e) => {
+                    return StageOutcome::Blocked {
+                        reason: e.to_string(),
+                        action_commands: vec![format!(
+                            "tandem factory checks set --target {target_name} --deploy '[\"<cmd>\"]' --confirm {target_name}"
+                        )],
+                    };
+                }
+            };
+            let report = match super::stages::deploy::run_deploy_stage(
+                &confirmed,
+                &worktree_path,
+                &artifact_dir,
+                job.attempt,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    return StageOutcome::Failed {
+                        reason: e.to_string(),
+                    };
+                }
+            };
+            let sys_actor = super::model::Actor {
+                kind: super::model::ActorKind::System,
+                id: "executor".to_string(),
+            };
+            let _ = super::evidence::record_deploy_stage_evidence(
+                &store,
+                &run.idea,
+                &job.run,
+                job.attempt,
+                &report,
+                &sys_actor,
+            );
+            if report.passed {
+                return StageOutcome::Succeeded;
+            }
+            return StageOutcome::Failed {
+                reason: format!("deploy command failed: {}", report.summary),
+            };
+        }
+
         let today = today_iso_date();
         let open_providers: Vec<&str> = KNOWN_PROVIDERS
             .iter()

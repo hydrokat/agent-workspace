@@ -339,6 +339,23 @@ pub enum FactoryRunCommand {
     ExportSpecs(FactoryRunExportSpecsArgs),
     #[command(about = "show usage, cost basis, and rework signals for a run")]
     Usage(FactoryRunUsageArgs),
+    #[command(about = "grant a one-time Gate 3 approval for a protected action (user-only)")]
+    Approve(FactoryRunApproveArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunApproveArgs {
+    pub run: String,
+    #[arg(long)]
+    pub action: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub stage: Option<String>,
+    #[arg(long, default_value = "cli")]
+    pub via: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -579,6 +596,8 @@ pub struct FactoryChecksSetArgs {
     pub test: Option<String>,
     #[arg(long)]
     pub lint: Option<String>,
+    #[arg(long)]
+    pub deploy: Option<String>,
     #[arg(long)]
     pub timeout_secs: Option<u64>,
     #[arg(long)]
@@ -906,6 +925,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Prs(a) => a.json,
             FactoryRunCommand::ExportSpecs(a) => a.json,
             FactoryRunCommand::Usage(a) => a.json,
+            FactoryRunCommand::Approve(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -1852,6 +1872,55 @@ fn execute(
                     Ok(format_run_usage_text(&report))
                 }
             }
+            FactoryRunCommand::Approve(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let action = super::protected::ProtectedAction::parse(&a.action).ok_or_else(|| {
+                    CmdError::invalid_input(format!(
+                        "invalid --action '{}': expected production_deploy, secrets_access, or production_access",
+                        a.action
+                    ))
+                })?;
+                let approved_by = resolve_owner(None)?;
+                let outcome = super::protected::approve_with_details(
+                    &store,
+                    &a.run,
+                    action,
+                    &a.confirm,
+                    a.stage.as_deref(),
+                    &a.via,
+                    &approved_by,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&outcome)
+                } else {
+                    let mut lines = Vec::new();
+                    if let Some(cmd) = &outcome.deploy_command {
+                        lines.push(format!(
+                            "This lets run {} execute the confirmed deploy command once:",
+                            outcome.approval.run
+                        ));
+                        lines.push(format!("  {}", cmd.join(" ")));
+                    } else {
+                        lines.push(format!(
+                            "Granted {} approval for run {} stage {}.",
+                            outcome.approval.action, outcome.approval.run, outcome.approval.stage
+                        ));
+                    }
+                    lines.push(format!(
+                        "Approval recorded. It expires in {} minutes.",
+                        outcome.expires_in_minutes
+                    ));
+                    Ok(lines.join("\n"))
+                }
+            }
         },
         FactoryCommand::Provider(p_args) => {
             if !enabled {
@@ -2737,6 +2806,7 @@ fn format_discover_text(report: &super::checks::DiscoverReport) -> String {
         let kind = match p.kind {
             super::checks::CheckKind::Test => "test",
             super::checks::CheckKind::Lint => "lint",
+            super::checks::CheckKind::Deploy => "deploy",
         };
         let note = p
             .note
@@ -2905,43 +2975,79 @@ fn handle_checks_command(
             }
         }
         FactoryChecksCommand::Set(a) => {
-            let test_cmds: Vec<Vec<String>> = match a.test.as_deref() {
-                Some(raw) => serde_json::from_str(raw).map_err(|e| {
-                    CmdError::invalid_input(format!("invalid --test JSON argv list: {e}"))
-                })?,
-                None => Vec::new(),
-            };
-            let lint_cmds: Vec<Vec<String>> = match a.lint.as_deref() {
-                Some(raw) => serde_json::from_str(raw).map_err(|e| {
-                    CmdError::invalid_input(format!("invalid --lint JSON argv list: {e}"))
-                })?,
-                None => Vec::new(),
-            };
-            let ui_paths: Vec<String> = match a.ui_paths.as_deref() {
-                Some(raw) => serde_json::from_str(raw).map_err(|e| {
-                    CmdError::invalid_input(format!("invalid --ui-paths JSON list: {e}"))
-                })?,
-                None => Vec::new(),
-            };
             let confirmed_by = resolve_owner(None)?;
-            let cfg = super::checks::set_checks(
-                store,
-                &a.target,
-                test_cmds,
-                lint_cmds,
-                a.timeout_secs,
-                ui_paths,
-                &a.confirm,
-                &confirmed_by,
-                &|k| std::env::var(k).ok(),
-            )
-            .map_err(map_checks_error)?;
-            if a.json {
-                serialize_compact(&cfg)
+            let has_checks = a.test.is_some() || a.lint.is_some() || a.ui_paths.is_some();
+            let deploy_cmd: Option<Vec<String>> = match a.deploy.as_deref() {
+                Some(raw) => Some(serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --deploy JSON argv list: {e}"))
+                })?),
+                None => None,
+            };
+
+            let mut deploy_cfg = None;
+            if let Some(cmd) = deploy_cmd {
+                let dcfg = super::checks::set_deploy_command_with_timeout(
+                    store,
+                    &a.target,
+                    cmd,
+                    a.timeout_secs,
+                    &a.confirm,
+                    &confirmed_by,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(map_checks_error)?;
+                deploy_cfg = Some(dcfg);
+            }
+
+            if has_checks || deploy_cfg.is_none() {
+                let test_cmds: Vec<Vec<String>> = match a.test.as_deref() {
+                    Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                        CmdError::invalid_input(format!("invalid --test JSON argv list: {e}"))
+                    })?,
+                    None => Vec::new(),
+                };
+                let lint_cmds: Vec<Vec<String>> = match a.lint.as_deref() {
+                    Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                        CmdError::invalid_input(format!("invalid --lint JSON argv list: {e}"))
+                    })?,
+                    None => Vec::new(),
+                };
+                let ui_paths: Vec<String> = match a.ui_paths.as_deref() {
+                    Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                        CmdError::invalid_input(format!("invalid --ui-paths JSON list: {e}"))
+                    })?,
+                    None => Vec::new(),
+                };
+                let cfg = super::checks::set_checks(
+                    store,
+                    &a.target,
+                    test_cmds,
+                    lint_cmds,
+                    a.timeout_secs,
+                    ui_paths,
+                    &a.confirm,
+                    &confirmed_by,
+                    &|k| std::env::var(k).ok(),
+                )
+                .map_err(map_checks_error)?;
+                if a.json {
+                    serialize_compact(&cfg)
+                } else {
+                    let mut map = BTreeMap::new();
+                    map.insert(a.target.clone(), cfg);
+                    Ok(format_show_checks_text(&map))
+                }
+            } else if a.json {
+                serialize_compact(&deploy_cfg)
             } else {
-                let mut map = BTreeMap::new();
-                map.insert(a.target.clone(), cfg);
-                Ok(format_show_checks_text(&map))
+                let cmd_str = deploy_cfg
+                    .as_ref()
+                    .map(|d| d.command.join(" "))
+                    .unwrap_or_default();
+                Ok(format!(
+                    "target {}: deploy command confirmed: {}",
+                    a.target, cmd_str
+                ))
             }
         }
         FactoryChecksCommand::Show(a) => {
