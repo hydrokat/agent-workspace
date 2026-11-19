@@ -1225,6 +1225,12 @@ impl StatusApp {
                     {
                         self.action_refresh_now();
                     }
+                    StatusTab::Factory => {
+                        self.factory_tab.platform = self.platform.clone();
+                        let action = self.factory_tab.handle_mouse(event, &self.snapshot);
+                        self.handle_factory_action(action);
+                        self.dirty = true;
+                    }
                     StatusTab::Web => {
                         let action = self.web_tab.handle_mouse(event, self.body_area);
                         self.handle_web_action(action);
@@ -1288,17 +1294,9 @@ impl StatusApp {
                             .handle_mouse(event.kind, lines.len(), view_h);
                     }
                     StatusTab::Factory => {
-                        let ideas = self
-                            .snapshot
-                            .factory
-                            .as_ref()
-                            .map(|f| f.ideas.as_slice())
-                            .unwrap_or(&[]);
-                        match event.kind {
-                            MouseEventKind::ScrollUp => self.factory_tab.select_prev(ideas),
-                            MouseEventKind::ScrollDown => self.factory_tab.select_next(ideas),
-                            _ => {}
-                        }
+                        self.factory_tab.platform = self.platform.clone();
+                        let action = self.factory_tab.handle_mouse(event, &self.snapshot);
+                        self.handle_factory_action(action);
                         self.dirty = true;
                     }
                     _ => {}

@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -31,9 +31,11 @@ use crate::status::render::age;
 use crate::tmux::keys::{
     FACTORY_CANCEL_RUN_KEY, FACTORY_PAUSE_RUN_KEY, display_shortcut, matches_crossterm_event,
 };
+use crate::ui::hits::{Hit, HitMap, Resolved};
 use crate::ui::input::TextInput;
 use crate::ui::scroll::ScrollView;
 use crate::ui::text::truncate_to_width;
+use unicode_width::UnicodeWidthStr;
 
 pub const LOG_TAIL_BYTES: usize = 65_536;
 
@@ -147,6 +149,7 @@ pub struct FactoryRun {
     pub notice: String,
     pub error: Option<String>,
     pub loaded_updated: Option<f64>,
+    pub hits: HitMap,
 }
 
 impl FactoryRun {
@@ -174,6 +177,7 @@ impl FactoryRun {
             notice: String::new(),
             error: None,
             loaded_updated: None,
+            hits: HitMap::default(),
         };
         view.reload();
         if let Some(ref run) = view.run
@@ -1036,7 +1040,29 @@ impl FactoryRun {
         };
     }
 
+    pub fn mouse_key(&mut self, event: &MouseEvent) -> Option<KeyEvent> {
+        let enter = KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+        match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
+            Resolved::Key(key) => Some(key),
+            Resolved::Row(idx) => match &mut self.sub_view {
+                RunSubView::Main if idx == self.selected_stage => Some(enter),
+                RunSubView::Main => {
+                    self.selected_stage = idx;
+                    None
+                }
+                RunSubView::TargetPicker { selected, .. }
+                | RunSubView::EvidenceList { selected } => {
+                    *selected = idx;
+                    Some(enter)
+                }
+                _ => None,
+            },
+            Resolved::Cmd(_) => None,
+        }
+    }
+
     pub fn render(&mut self, now: f64, area: Rect, buf: &mut Buffer) {
+        self.hits.clear();
         if area.height == 0 || area.width == 0 {
             return;
         }
@@ -1054,18 +1080,39 @@ impl FactoryRun {
                 ..
             } => {
                 render_log_reader(
-                    stage_name, *attempt, raw_text, *truncated, scroll, area, buf,
+                    stage_name,
+                    *attempt,
+                    raw_text,
+                    *truncated,
+                    scroll,
+                    &mut self.hits,
+                    area,
+                    buf,
                 );
             }
             RunSubView::ConfirmCancel { input, error } => {
-                render_confirm_cancel(&self.run_id, input, error.as_deref(), area, buf);
+                render_confirm_cancel(
+                    &self.run_id,
+                    input,
+                    error.as_deref(),
+                    &mut self.hits,
+                    area,
+                    buf,
+                );
             }
             RunSubView::RetryPrompt {
                 stage_name,
                 input,
                 error,
             } => {
-                render_retry_prompt(stage_name, input, error.as_deref(), area, buf);
+                render_retry_prompt(
+                    stage_name,
+                    input,
+                    error.as_deref(),
+                    &mut self.hits,
+                    area,
+                    buf,
+                );
             }
             RunSubView::ConsentDialog {
                 provider_idx,
@@ -1079,6 +1126,7 @@ impl FactoryRun {
                     AUTH_TYPES[*auth_idx],
                     input,
                     error.as_deref(),
+                    &mut self.hits,
                     area,
                     buf,
                 );
@@ -1088,7 +1136,14 @@ impl FactoryRun {
                 selected,
                 error,
             } => {
-                render_target_picker(choices, *selected, error.as_deref(), area, buf);
+                render_target_picker(
+                    choices,
+                    *selected,
+                    error.as_deref(),
+                    &mut self.hits,
+                    area,
+                    buf,
+                );
             }
             RunSubView::EvidenceList { selected } => {
                 let sel = *selected;
@@ -1099,7 +1154,7 @@ impl FactoryRun {
                 raw_text,
                 scroll,
             } => {
-                render_evidence_reader(title, raw_text, scroll, area, buf);
+                render_evidence_reader(title, raw_text, scroll, &mut self.hits, area, buf);
             }
             RunSubView::ConfirmChecks {
                 target,
@@ -1107,7 +1162,15 @@ impl FactoryRun {
                 input,
                 error,
             } => {
-                render_confirm_checks(target, proposals, input, error.as_deref(), area, buf);
+                render_confirm_checks(
+                    target,
+                    proposals,
+                    input,
+                    error.as_deref(),
+                    &mut self.hits,
+                    area,
+                    buf,
+                );
             }
             RunSubView::Main => {
                 self.render_main(now, area, buf);
@@ -1115,7 +1178,7 @@ impl FactoryRun {
         }
     }
 
-    fn render_main(&self, now: f64, area: Rect, buf: &mut Buffer) {
+    fn render_main(&mut self, now: f64, area: Rect, buf: &mut Buffer) {
         let max_w = area.width as usize;
         let narrow = area.width < 80;
         let short = area.height <= 8;
@@ -1187,6 +1250,10 @@ impl FactoryRun {
             )
         };
         write_clipped(buf, area.x, y, max_w, &hdr, header_style);
+        self.hits.push(
+            Rect::new(area.x, y, area.width.min("◀ Idea".width() as u16), 1),
+            Hit::key(KeyCode::Esc),
+        );
         y += 1;
 
         if let Some(resolution) = self.pause_resolution()
@@ -1257,6 +1324,18 @@ impl FactoryRun {
                     PauseResolution::UserPaused => "  r resume   c cancel".to_string(),
                 };
                 write_clipped(buf, area.x, y, max_w, &action_line, text_style);
+                self.hits.tags(
+                    Rect::new(area.x, y, area.width, 1),
+                    &action_line,
+                    &[
+                        ("t choose target", Hit::ch('t')),
+                        ("k confirm check commands", Hit::ch('k')),
+                        ("a allow provider (consent)", Hit::ch('a')),
+                        ("r retry with a new hypothesis", Hit::ch('r')),
+                        ("r resume", Hit::ch('r')),
+                        ("c cancel", Hit::ch('c')),
+                    ],
+                );
                 y += 1;
             }
         }
@@ -1285,14 +1364,18 @@ impl FactoryRun {
                         text_style
                     };
                     write_clipped(buf, area.x, y, max_w, &line, st_style);
+                    self.hits
+                        .push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
                     y += 1;
                 }
             } else {
                 let mut strip = String::new();
+                let mut spans: Vec<(usize, usize, usize)> = Vec::new();
                 for (idx, st) in run.stages.iter().enumerate() {
                     if idx > 0 {
                         strip.push_str("   ");
                     }
+                    let span_start = strip.width();
                     let marker = stage_marker(st.state);
                     let extra = self.stage_running_detail(idx, st);
                     let item = if extra.is_empty() {
@@ -1305,8 +1388,19 @@ impl FactoryRun {
                     } else {
                         strip.push_str(&item);
                     }
+                    spans.push((idx, span_start, strip.width()));
                 }
                 write_clipped(buf, area.x, y, max_w, &strip, text_style);
+                for (idx, start, end) in spans {
+                    if start >= max_w {
+                        break;
+                    }
+                    let w = end.min(max_w) - start;
+                    self.hits.push(
+                        Rect::new(area.x + start as u16, y, w as u16, 1),
+                        Hit::Row(idx),
+                    );
+                }
                 y += 1;
             }
         }
@@ -1366,6 +1460,29 @@ impl FactoryRun {
                 )
             };
             write_clipped(buf, area.x, bottom - 1, max_w, &hints, dim_style);
+            let key_hit = |raw: &str, fallback: char| {
+                crate::tmux::keys::crossterm_key(raw)
+                    .map(|k| Hit::Key(k.code, k.modifiers))
+                    .unwrap_or(Hit::ch(fallback))
+            };
+            self.hits.tags(
+                Rect::new(area.x, bottom - 1, area.width, 1),
+                &hints,
+                &[
+                    (
+                        &format!("{pause_key} {pause_word}"),
+                        key_hit(FACTORY_PAUSE_RUN_KEY, 'p'),
+                    ),
+                    (
+                        &format!("{cancel_key} cancel"),
+                        key_hit(FACTORY_CANCEL_RUN_KEY, 'c'),
+                    ),
+                    ("Enter stage", Hit::key(KeyCode::Enter)),
+                    ("l log", Hit::ch('l')),
+                    ("e evidence", Hit::ch('e')),
+                    ("Esc back", Hit::key(KeyCode::Esc)),
+                ],
+            );
         }
     }
 
@@ -1385,7 +1502,7 @@ impl FactoryRun {
         }
     }
 
-    fn render_stage_detail(&self, stage_idx: usize, area: Rect, buf: &mut Buffer) {
+    fn render_stage_detail(&mut self, stage_idx: usize, area: Rect, buf: &mut Buffer) {
         let max_w = area.width as usize;
         let header_style = Style::default()
             .fg(Color::White)
@@ -1513,6 +1630,14 @@ impl FactoryRun {
                 "l log   Esc back",
                 dim_style,
             );
+            self.hits.tags(
+                Rect::new(area.x, bottom - 1, area.width, 1),
+                "l log   Esc back",
+                &[
+                    ("l log", Hit::ch('l')),
+                    ("Esc back", Hit::key(KeyCode::Esc)),
+                ],
+            );
         }
     }
 
@@ -1635,12 +1760,14 @@ impl FactoryRun {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_log_reader(
     stage_name: &str,
     attempt: u32,
     raw_text: &str,
     truncated: bool,
     scroll: &mut ScrollView,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -1675,12 +1802,22 @@ fn render_log_reader(
         "↑↓/PgUp/PgDn scroll   r refresh   Esc back",
         dim_style,
     );
+    hits.tags(
+        Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+        "↑↓/PgUp/PgDn scroll   r refresh   Esc back",
+        &[
+            ("↑↓/PgUp/PgDn scroll", Hit::key(KeyCode::Down)),
+            ("r refresh", Hit::ch('r')),
+            ("Esc back", Hit::key(KeyCode::Esc)),
+        ],
+    );
 }
 
 fn render_confirm_cancel(
     run_id: &str,
     input: &TextInput,
     error: Option<&str>,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -1728,6 +1865,14 @@ fn render_confirm_cancel(
             "Enter confirm   Esc back",
             dim_style,
         );
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            "Enter confirm   Esc back",
+            &[
+                ("Enter confirm", Hit::key(KeyCode::Enter)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
+        );
     }
 }
 
@@ -1735,6 +1880,7 @@ fn render_retry_prompt(
     stage_name: &str,
     input: &TextInput,
     error: Option<&str>,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -1782,6 +1928,14 @@ fn render_retry_prompt(
             "Enter retry   Esc back",
             dim_style,
         );
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            "Enter retry   Esc back",
+            &[
+                ("Enter retry", Hit::key(KeyCode::Enter)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
+        );
     }
 }
 
@@ -1790,6 +1944,7 @@ fn render_consent_dialog(
     auth: AuthType,
     input: &TextInput,
     error: Option<&str>,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -1902,6 +2057,16 @@ fn render_consent_dialog(
             "↑↓ provider   ←→ auth   Enter allow   Esc back",
             dim_style,
         );
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            "↑↓ provider   ←→ auth   Enter allow   Esc back",
+            &[
+                ("↑↓ provider", Hit::key(KeyCode::Down)),
+                ("←→ auth", Hit::key(KeyCode::Right)),
+                ("Enter allow", Hit::key(KeyCode::Enter)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
+        );
     }
 }
 
@@ -1909,6 +2074,7 @@ fn render_target_picker(
     choices: &[String],
     selected: usize,
     error: Option<&str>,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -1950,6 +2116,7 @@ fn render_target_picker(
             &format!("{prefix}{}", clean(choice)),
             style,
         );
+        hits.push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
         y += 1;
     }
 
@@ -1967,6 +2134,15 @@ fn render_target_picker(
             max_w,
             "↑↓ choose   Enter select   Esc back",
             dim_style,
+        );
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            "↑↓ choose   Enter select   Esc back",
+            &[
+                ("↑↓ choose", Hit::key(KeyCode::Down)),
+                ("Enter select", Hit::key(KeyCode::Enter)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
         );
     }
 }
@@ -2075,7 +2251,7 @@ fn extract_quoted(s: &str) -> Option<String> {
 }
 
 impl FactoryRun {
-    fn render_evidence_list(&self, selected: usize, area: Rect, buf: &mut Buffer) {
+    fn render_evidence_list(&mut self, selected: usize, area: Rect, buf: &mut Buffer) {
         let max_w = area.width as usize;
         let narrow = area.width < 80;
         let header_style = Style::default()
@@ -2140,6 +2316,8 @@ impl FactoryRun {
                     text_style
                 };
                 write_clipped(buf, area.x, y, max_w, &row, style);
+                self.hits
+                    .push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
                 y += 1;
             }
         }
@@ -2203,6 +2381,15 @@ impl FactoryRun {
                 "↑/↓ select   Enter open item   Esc back",
                 dim_style,
             );
+            self.hits.tags(
+                Rect::new(area.x, bottom - 1, area.width, 1),
+                "↑/↓ select   Enter open item   Esc back",
+                &[
+                    ("↑/↓ select", Hit::key(KeyCode::Down)),
+                    ("Enter open item", Hit::key(KeyCode::Enter)),
+                    ("Esc back", Hit::key(KeyCode::Esc)),
+                ],
+            );
         }
     }
 }
@@ -2211,6 +2398,7 @@ fn render_evidence_reader(
     title: &str,
     raw_text: &str,
     scroll: &mut ScrollView,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -2247,6 +2435,14 @@ fn render_evidence_reader(
             "↑/↓ scroll   Esc back",
             dim_style,
         );
+        hits.tags(
+            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+            "↑/↓ scroll   Esc back",
+            &[
+                ("↑/↓ scroll", Hit::key(KeyCode::Down)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
+        );
     }
 }
 
@@ -2255,6 +2451,7 @@ fn render_confirm_checks(
     proposals: &[CheckProposal],
     input: &TextInput,
     error: Option<&str>,
+    hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
@@ -2337,6 +2534,14 @@ fn render_confirm_checks(
             max_w,
             "Enter confirm   Esc cancel",
             dim_style,
+        );
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            "Enter confirm   Esc cancel",
+            &[
+                ("Enter confirm", Hit::key(KeyCode::Enter)),
+                ("Esc cancel", Hit::key(KeyCode::Esc)),
+            ],
         );
     }
 }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -14,6 +14,7 @@ use crate::factory::audit::{
 };
 use crate::factory::store::FactoryStore;
 use crate::sanitize::clean;
+use crate::ui::hits::{Hit, HitMap, Resolved, plain, seg};
 use crate::ui::text::truncate_to_width;
 
 const WIDE_BREAKPOINT: u16 = 90;
@@ -84,6 +85,7 @@ pub struct FactoryAudit {
     pub narrow_detail_open: bool,
     pub notice: String,
     pub error: Option<String>,
+    pub hits: HitMap,
 }
 
 impl FactoryAudit {
@@ -101,6 +103,7 @@ impl FactoryAudit {
             narrow_detail_open: false,
             notice: String::new(),
             error: None,
+            hits: HitMap::default(),
         };
         view.reload();
         view
@@ -239,7 +242,23 @@ impl FactoryAudit {
         }
     }
 
+    pub fn mouse_key(&mut self, event: &MouseEvent) -> Option<KeyEvent> {
+        match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
+            Resolved::Key(key) => Some(key),
+            Resolved::Row(idx) if idx == self.selected => Some(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            Resolved::Row(idx) => {
+                self.selected = idx.min(self.filtered_entries.len().saturating_sub(1));
+                None
+            }
+            Resolved::Cmd(_) => None,
+        }
+    }
+
     pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        self.hits.clear();
         if area.width == 0 || area.height == 0 {
             return;
         }
@@ -253,14 +272,23 @@ impl FactoryAudit {
                 .map(|a| format!(" ({a})"))
                 .unwrap_or_default()
         );
-        let header = format!(
-            "◀ Idea   Audit · {}   {}   v verify   x export",
-            self.idea_id, filter_label
-        );
         let header_style = Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD);
-        put_line(buf, area.x, area.y, area.width, &header, header_style);
+        let header_segments = [
+            seg("◀ Idea", Hit::key(KeyCode::Esc)),
+            plain(format!("Audit · {}", self.idea_id)),
+            seg(filter_label, Hit::ch('f')),
+            seg("v verify", Hit::ch('v')),
+            seg("x export", Hit::ch('x')),
+        ];
+        self.hits.put_hints(
+            buf,
+            Rect::new(area.x, area.y, area.width, 1),
+            &header_segments,
+            "   ",
+            header_style,
+        );
 
         let mut y = area.y + 1;
         let footer_y = area.y + area.height.saturating_sub(1);
@@ -356,6 +384,10 @@ impl FactoryAudit {
             .enumerate()
         {
             let abs_idx = self.list_scroll + row_idx;
+            self.hits.push(
+                Rect::new(area.x, area.y + row_idx as u16, area.width, 1),
+                Hit::Row(abs_idx),
+            );
             let is_sel = abs_idx == self.selected;
             let marker = if is_sel { "▶" } else { " " };
             let time = format_time_short(entry.ts);
@@ -417,24 +449,45 @@ impl FactoryAudit {
         }
     }
 
-    fn render_footer(&self, area: Rect, footer_y: u16, buf: &mut Buffer, is_wide: bool) {
-        let text = if !self.notice.is_empty() {
-            clean(&self.notice)
-        } else if is_wide {
-            "↑/↓ select  f filter kind  a filter actor  v verify  x export  Esc back".to_string()
+    fn render_footer(&mut self, area: Rect, footer_y: u16, buf: &mut Buffer, is_wide: bool) {
+        let style = Style::default().fg(Color::DarkGray);
+        let line = Rect::new(area.x, footer_y, area.width, 1);
+        if !self.notice.is_empty() {
+            put_line(
+                buf,
+                area.x,
+                footer_y,
+                area.width,
+                &clean(&self.notice),
+                style,
+            );
+            return;
+        }
+        let up_down = plain("↑/↓ select");
+        let esc = |label: &str| seg(label, Hit::key(KeyCode::Esc));
+        let segments = if is_wide {
+            vec![
+                up_down,
+                seg("f filter kind", Hit::ch('f')),
+                seg("a filter actor", Hit::ch('a')),
+                seg("v verify", Hit::ch('v')),
+                seg("x export", Hit::ch('x')),
+                esc("Esc back"),
+            ]
         } else if self.narrow_detail_open {
-            "Esc back to list".to_string()
+            vec![esc("Esc back to list")]
         } else {
-            "↑/↓ select  Enter detail  f filter  a actor  v verify  x export  Esc back".to_string()
+            vec![
+                up_down,
+                seg("Enter detail", Hit::key(KeyCode::Enter)),
+                seg("f filter", Hit::ch('f')),
+                seg("a actor", Hit::ch('a')),
+                seg("v verify", Hit::ch('v')),
+                seg("x export", Hit::ch('x')),
+                esc("Esc back"),
+            ]
         };
-        put_line(
-            buf,
-            area.x,
-            footer_y,
-            area.width,
-            &text,
-            Style::default().fg(Color::DarkGray),
-        );
+        self.hits.put_hints(buf, line, &segments, "  ", style);
     }
 }
 
