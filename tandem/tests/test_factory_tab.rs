@@ -98,13 +98,13 @@ fn test_status_tab_visible_normal_vs_factory() {
     assert_eq!(StatusTab::ALL.len(), 7);
     assert_eq!(StatusTab::visible(false), &StatusTab::ALL);
     let factory_tabs = StatusTab::visible(true);
-    assert_eq!(factory_tabs.len(), 8);
-    assert_eq!(factory_tabs[7], StatusTab::Factory);
+    assert_eq!(factory_tabs, &StatusTab::FACTORY_TABS);
+    assert_eq!(factory_tabs[0], StatusTab::Factory);
     assert_eq!(StatusTab::Settings.next_for(false), StatusTab::Status);
     assert_eq!(StatusTab::Settings.next_for(true), StatusTab::Factory);
-    assert_eq!(StatusTab::Factory.next_for(true), StatusTab::Status);
+    assert_eq!(StatusTab::Factory.next_for(true), StatusTab::Queries);
     assert_eq!(StatusTab::Status.prev_for(false), StatusTab::Settings);
-    assert_eq!(StatusTab::Status.prev_for(true), StatusTab::Factory);
+    assert_eq!(StatusTab::Factory.prev_for(true), StatusTab::Settings);
 }
 
 #[test]
@@ -126,8 +126,9 @@ fn test_status_app_tabs_normal_vs_factory() {
             ..Config::default()
         }),
     );
-    assert_eq!(factory_app.tab_bar.titles.len(), 8);
-    assert_eq!(factory_app.tab_bar.titles[7], "Factory");
+    assert_eq!(factory_app.tab_bar.titles.len(), 4);
+    assert_eq!(factory_app.tab_bar.titles[0], "Factory");
+    assert_eq!(factory_app.tab, StatusTab::Factory);
     factory_app.handle_key(&KeyEvent::new(KeyCode::Char('8'), KeyModifiers::empty()));
     assert_eq!(factory_app.tab, StatusTab::Factory);
 
@@ -261,7 +262,7 @@ fn test_factory_shortcut_has_modifier_and_only_in_factory_help() {
     let factory_help = help_lines_with_factory("linux", &km, true).join("\n");
     assert!(factory_help.contains("Factory"));
     assert!(factory_help.contains("Alt+f"));
-    assert!(factory_help.contains("1-8 direct"));
+    assert!(factory_help.contains("1-4 direct"));
 }
 
 #[test]

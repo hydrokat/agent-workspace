@@ -410,7 +410,7 @@ fn summarize_run(
     }
 }
 
-fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> FactorySummary {
+pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> FactorySummary {
     let fstore = FactoryStore::new(workspace);
     match fstore.list_ideas() {
         Ok(ideas) => {

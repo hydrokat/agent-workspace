@@ -512,6 +512,14 @@ impl FactoryTab {
         self.view = FactoryView::NewIdea;
     }
 
+    pub fn focus_idea(&mut self, idea_id: &str) {
+        self.notice.clear();
+        self.new_idea = None;
+        self.view = FactoryView::Board;
+        self.filter = IdeaFilter::All;
+        self.selected_id = Some(idea_id.to_string());
+    }
+
     pub fn filtered_ideas<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
         let Some(summary) = snapshot.factory.as_ref() else {
             return Vec::new();

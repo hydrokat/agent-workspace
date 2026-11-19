@@ -33,7 +33,7 @@ impl TabBar {
             titles,
             short_titles,
             number_titles,
-            selected: selected.index(),
+            selected: tabs.iter().position(|t| *t == selected).unwrap_or(0),
         }
     }
 

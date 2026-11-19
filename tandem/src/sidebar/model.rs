@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
 use crate::coordination::schema::{Query, Session};
+use crate::factory::model::RunState;
+use crate::snapshot::FactorySummary;
 use crate::tmux::tabs::PaneInfo;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,13 +25,25 @@ pub enum SidebarRow {
         is_in_grid: bool,
         has_query: bool,
     },
+    NewIdea,
+    Run {
+        run_id: String,
+        idea_id: String,
+        label: String,
+    },
     AddAgent,
     Empty,
 }
 
 impl SidebarRow {
     pub fn is_selectable(&self) -> bool {
-        matches!(self, SidebarRow::Agent { .. } | SidebarRow::AddAgent)
+        matches!(
+            self,
+            SidebarRow::Agent { .. }
+                | SidebarRow::AddAgent
+                | SidebarRow::NewIdea
+                | SidebarRow::Run { .. }
+        )
     }
 
     pub fn pane_id(&self) -> Option<&str> {
@@ -47,6 +61,127 @@ pub fn rows_from(
     active_pane: Option<&str>,
     selected: &[String],
 ) -> Vec<SidebarRow> {
+    rows_from_for(panes, sessions, open_queries, active_pane, selected, None)
+}
+
+fn short_id(id: &str) -> String {
+    id.chars().take(6).collect()
+}
+
+fn run_state_label(state: &RunState) -> &'static str {
+    match state {
+        RunState::Pending => "pending",
+        RunState::Queued => "queued",
+        RunState::Running => "running",
+        RunState::Paused => "paused",
+        RunState::Review => "review",
+        RunState::Succeeded => "succeeded",
+        RunState::Delivered => "delivered",
+        RunState::Failed => "failed",
+        RunState::Cancelled => "cancelled",
+        RunState::Withdrawn => "withdrawn",
+    }
+}
+
+fn is_active_run(state: &RunState) -> bool {
+    matches!(
+        state,
+        RunState::Pending
+            | RunState::Queued
+            | RunState::Running
+            | RunState::Paused
+            | RunState::Review
+    )
+}
+
+fn factory_rows(
+    panes: &[PaneInfo],
+    sessions: &[Session],
+    open_queries: &[Query],
+    active_pane: Option<&str>,
+    selected: &[String],
+    summary: &FactorySummary,
+) -> Vec<SidebarRow> {
+    let mut orchestrators: Vec<&PaneInfo> = panes
+        .iter()
+        .filter(|p| p.kind == "agent" && p.role == "orchestrator")
+        .collect();
+    orchestrators.sort_by_key(|p| p.index);
+
+    let open_query_sessions: HashSet<&str> = open_queries
+        .iter()
+        .filter(|q| q.status == "open")
+        .map(|q| q.asked_by.as_str())
+        .collect();
+
+    let mut rows = vec![
+        SidebarRow::Header {
+            title: "FACTORY".to_string(),
+            count: 0,
+        },
+        SidebarRow::NewIdea,
+        SidebarRow::Header {
+            title: "ORCHESTRATORS".to_string(),
+            count: orchestrators.len(),
+        },
+    ];
+    if orchestrators.is_empty() {
+        rows.push(SidebarRow::Empty);
+    }
+    for p in orchestrators {
+        let mut row = build_agent_row(p, sessions, &open_query_sessions, active_pane, selected);
+        if let SidebarRow::Agent { label, .. } = &mut row
+            && let Some(card) = summary.ideas.iter().find(|i| i.id == p.idea)
+        {
+            *label = format!("{} · {}", short_id(&card.id), card.state.label());
+        }
+        rows.push(row);
+    }
+
+    let runs: Vec<(&str, &str, &RunState)> = summary
+        .ideas
+        .iter()
+        .filter_map(|i| {
+            i.run
+                .as_ref()
+                .map(|r| (i.id.as_str(), r.id.as_str(), &r.state))
+        })
+        .filter(|(_, _, state)| is_active_run(state))
+        .collect();
+    if !runs.is_empty() {
+        rows.push(SidebarRow::Header {
+            title: "ACTIVE RUNS".to_string(),
+            count: runs.len(),
+        });
+        for (idea_id, run_id, state) in runs {
+            rows.push(SidebarRow::Run {
+                run_id: run_id.to_string(),
+                idea_id: idea_id.to_string(),
+                label: format!("{} · {}", short_id(run_id), run_state_label(state)),
+            });
+        }
+    }
+    rows
+}
+
+pub fn rows_from_for(
+    panes: &[PaneInfo],
+    sessions: &[Session],
+    open_queries: &[Query],
+    active_pane: Option<&str>,
+    selected: &[String],
+    factory: Option<&FactorySummary>,
+) -> Vec<SidebarRow> {
+    if let Some(summary) = factory {
+        return factory_rows(
+            panes,
+            sessions,
+            open_queries,
+            active_pane,
+            selected,
+            summary,
+        );
+    }
     let mut orchestrators: Vec<&PaneInfo> = panes
         .iter()
         .filter(|p| p.kind == "agent" && p.role == "orchestrator")

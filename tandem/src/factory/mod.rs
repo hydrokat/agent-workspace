@@ -29,6 +29,7 @@ pub mod simulate;
 pub mod stages;
 pub mod store;
 pub mod telemetry;
+pub mod ui_intent;
 pub mod workflow;
 pub mod workspace;
 

@@ -288,6 +288,7 @@ pub fn make_layout(workspace: &Path, config: &Config) -> Layout {
     let mut layout = Layout::new(&TmuxClient::new(&socket, None));
     layout.coord = Some(CoordStore::new(coord_dir_for(workspace, config)));
     layout.workspace = Some(workspace.to_string_lossy().to_string());
+    layout.factory = config.factory;
     let _ = layout.write_conf(&conf);
     layout.client = TmuxClient::new(&socket, Some(conf));
     layout
@@ -299,6 +300,7 @@ pub fn inspect_layout(workspace: &Path, config: &Config) -> Layout {
     let mut layout = Layout::new(&TmuxClient::new(&socket, Some(conf)));
     layout.coord = Some(CoordStore::new(coord_dir_for(workspace, config)));
     layout.workspace = Some(workspace.to_string_lossy().to_string());
+    layout.factory = config.factory;
     layout
 }
 
