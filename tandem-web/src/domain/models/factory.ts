@@ -435,3 +435,39 @@ export function isValidAuditActor(actor: string): boolean {
   const trimmed = actor.trim();
   return trimmed.length > 0 && trimmed.length <= 64 && !/[\x00-\x1f\x7f]/.test(trimmed);
 }
+
+export interface ContextItem {
+  kind: string;
+  path: string;
+  bytes: number;
+  sha256: string;
+}
+
+export interface ExcludedPathEntry {
+  path: string;
+  rule: string;
+}
+
+export interface JobDataView {
+  correlation_id: string;
+  stage: string;
+  attempt: number;
+  provider: string;
+  model: string;
+  sent_files: ContextItem[];
+  total_bytes: number;
+  redactions: number;
+  readable_scope: string;
+  tool_grants: string[];
+  excluded_paths: string[];
+  limitation: string;
+}
+
+export interface RunDataView {
+  run: string;
+  worktree_path?: string | null;
+  limitation: string;
+  excluded_paths: string[];
+  exclusions: ExcludedPathEntry[];
+  jobs: JobDataView[];
+}

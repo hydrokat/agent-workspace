@@ -52,6 +52,7 @@ pub struct StageJobInfo {
     pub input: Option<JobInput>,
     pub result: Option<JobResult>,
     pub job_state: Option<JobState>,
+    pub redactions: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +137,7 @@ pub struct FactoryRun {
     pub run: Option<Run>,
     pub events: Vec<Event>,
     pub stage_jobs: Vec<Option<StageJobInfo>>,
+    pub exclusions: Vec<crate::factory::data_policy::ExcludedPathEntry>,
     pub running_jobs: usize,
     pub job_limit: usize,
     pub cost_usd: Option<f64>,
@@ -162,6 +164,7 @@ impl FactoryRun {
             run: None,
             events: Vec::new(),
             stage_jobs: Vec::new(),
+            exclusions: Vec::new(),
             running_jobs: 0,
             job_limit: 3,
             cost_usd: None,
@@ -210,16 +213,21 @@ impl FactoryRun {
                             .ok()
                             .and_then(|s| serde_json::from_str::<JobResult>(&s).ok());
                         let job_state = read_job_state(&dir).ok();
+                        let redactions = fs::read_to_string(dir.join("prompt.md"))
+                            .map(|text| text.matches("«redacted:").count())
+                            .unwrap_or(0);
                         stage_jobs.push(Some(StageJobInfo {
                             input,
                             result,
                             job_state,
+                            redactions,
                         }));
                     } else {
                         stage_jobs.push(None);
                     }
                 }
                 self.stage_jobs = stage_jobs;
+                self.exclusions = crate::factory::data_policy::load_exclusions(&store, &run.id);
 
                 let jdir = jobs_dir(&store, &run.id);
                 let mut total_cost: Option<f64> = None;
@@ -1306,6 +1314,14 @@ impl FactoryRun {
 
         let reserve_bottom = 1 + u16::from(!self.notice.is_empty());
         let activity_bottom = bottom.saturating_sub(reserve_bottom);
+        self.render_data_section(
+            self.selected_stage,
+            &mut y,
+            activity_bottom,
+            area,
+            narrow,
+            buf,
+        );
         for ev in &self.events {
             if y >= activity_bottom {
                 break;
@@ -1459,6 +1475,7 @@ impl FactoryRun {
                     &format!("Hypothesis: {}", clean(hyp)),
                     text_style,
                 );
+                y += 1;
             }
         } else if let Some(ref rat) = st.rationale
             && y < bottom.saturating_sub(1)
@@ -1471,7 +1488,17 @@ impl FactoryRun {
                 &format!("Rationale: {}", clean(rat)),
                 err_style,
             );
+            y += 1;
         }
+
+        self.render_data_section(
+            stage_idx,
+            &mut y,
+            bottom.saturating_sub(1),
+            area,
+            area.width < 80,
+            buf,
+        );
 
         if area.height >= 2 {
             write_clipped(
@@ -1483,6 +1510,124 @@ impl FactoryRun {
                 dim_style,
             );
         }
+    }
+
+    fn render_data_section(
+        &self,
+        stage_idx: usize,
+        y: &mut u16,
+        limit_y: u16,
+        area: Rect,
+        narrow: bool,
+        buf: &mut Buffer,
+    ) {
+        let Some(job) = self.stage_jobs.get(stage_idx).and_then(|o| o.as_ref()) else {
+            return;
+        };
+        let Some(ref inp) = job.input else {
+            return;
+        };
+        if *y >= limit_y {
+            return;
+        }
+
+        let max_w = area.width as usize;
+        let header_style = Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD);
+        let text_style = Style::default().fg(Color::Gray);
+        let dim_style = Style::default().fg(Color::DarkGray);
+
+        let header = format!(
+            "Data · {} attempt {} · {} / {}",
+            clean(&inp.stage),
+            inp.attempt,
+            clean(&inp.provider),
+            clean(&inp.model)
+        );
+        write_clipped(buf, area.x, *y, max_w, &header, header_style);
+        *y += 1;
+        if *y >= limit_y {
+            return;
+        }
+
+        let sent_line = if narrow {
+            format!(
+                "Sent: {} files · {} · {} redactions",
+                inp.context_manifest.items.len(),
+                crate::factory::data_policy::format_bytes(inp.context_manifest.total_bytes),
+                job.redactions
+            )
+        } else {
+            format!(
+                "Sent by tandem     {} files · {} · {} redactions",
+                inp.context_manifest.items.len(),
+                crate::factory::data_policy::format_bytes(inp.context_manifest.total_bytes),
+                job.redactions
+            )
+        };
+        write_clipped(buf, area.x, *y, max_w, &sent_line, text_style);
+        *y += 1;
+        if *y >= limit_y {
+            return;
+        }
+
+        let scope = inp
+            .context_manifest
+            .readable_scope
+            .clone()
+            .unwrap_or_else(|| {
+                crate::factory::data_policy::format_readable_scope(
+                    self.run.as_ref().and_then(|r| r.worktree_path.as_deref()),
+                    &inp.cwd,
+                )
+            });
+        let tools = if inp.tool_grants.is_empty() {
+            "none".to_string()
+        } else {
+            inp.tool_grants.join(", ")
+        };
+        let readable_line = if narrow {
+            format!("Readable: {scope} with {tools}")
+        } else {
+            format!("Readable by job    {scope} with {tools}")
+        };
+        write_clipped(buf, area.x, *y, max_w, &readable_line, text_style);
+        *y += 1;
+        if *y >= limit_y {
+            return;
+        }
+
+        let excluded: Vec<String> = if !inp.context_manifest.excluded_paths.is_empty() {
+            inp.context_manifest.excluded_paths.clone()
+        } else {
+            self.exclusions.iter().map(|e| e.path.clone()).collect()
+        };
+        let excluded_summary = if excluded.is_empty() {
+            "none".to_string()
+        } else {
+            format!("{} paths: {}", excluded.len(), excluded.join(", "))
+        };
+        let excluded_line = if narrow {
+            format!("Excluded: {excluded_summary}")
+        } else {
+            format!("Excluded           {excluded_summary}")
+        };
+        write_clipped(buf, area.x, *y, max_w, &excluded_line, text_style);
+        *y += 1;
+        if *y >= limit_y {
+            return;
+        }
+
+        write_clipped(
+            buf,
+            area.x,
+            *y,
+            max_w,
+            crate::factory::data_policy::PROVIDER_LIMITATION_SENTENCE,
+            dim_style,
+        );
+        *y += 1;
     }
 }
 

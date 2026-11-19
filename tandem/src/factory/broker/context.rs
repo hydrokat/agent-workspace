@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::factory::FactoryError;
+use crate::factory::data_policy::{PolicyDenial, check_path};
 use crate::factory::events::reject_if_symlink;
+use crate::factory::model::FactorySettings;
 use crate::factory::permissions::ToolGrant;
 
 pub const MAX_CONTEXT_BYTES: usize = 512 * 1024;
@@ -25,6 +27,10 @@ pub struct ContextManifest {
     pub total_bytes: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_grant: Option<ToolGrant>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readable_scope: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +64,8 @@ pub enum ContextError {
         total_bytes: usize,
         max_bytes: usize,
     },
+    #[error("{0}")]
+    PolicyDenied(#[from] PolicyDenial),
     #[error(transparent)]
     Factory(#[from] FactoryError),
     #[error(transparent)]
@@ -131,9 +139,45 @@ pub fn assemble_context(inputs: &ContextInputs) -> Result<AssembledContext, Cont
             items,
             total_bytes,
             tool_grant: inputs.tool_grant.clone(),
+            excluded_paths: Vec::new(),
+            readable_scope: None,
         },
         prompt,
     })
+}
+
+pub fn assemble_context_with_policy(
+    inputs: &ContextInputs,
+    provider: &str,
+    settings: &FactorySettings,
+) -> Result<AssembledContext, ContextError> {
+    check_path(
+        &inputs.plan_snapshot_path.to_string_lossy(),
+        provider,
+        settings,
+    )?;
+    check_path(&inputs.playbook_path.to_string_lossy(), provider, settings)?;
+    check_path(&inputs.agent_def_path.to_string_lossy(), provider, settings)?;
+    assemble_context(inputs)
+}
+
+pub fn assemble_review_context_with_policy(
+    inputs: &ContextInputs,
+    extras: &ReviewContextExtras,
+    provider: &str,
+    settings: &FactorySettings,
+) -> Result<AssembledContext, ContextError> {
+    check_path(
+        &inputs.plan_snapshot_path.to_string_lossy(),
+        provider,
+        settings,
+    )?;
+    check_path(&inputs.playbook_path.to_string_lossy(), provider, settings)?;
+    check_path(&inputs.agent_def_path.to_string_lossy(), provider, settings)?;
+    for changed in &extras.changed_files {
+        check_path(changed, provider, settings)?;
+    }
+    assemble_review_context(inputs, extras)
 }
 
 pub fn assemble_review_context(

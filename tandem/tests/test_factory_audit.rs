@@ -277,6 +277,7 @@ fn entries_collect_job_details_approvals_decisions_and_filters() {
             "agent-workspace",
             vec![WorkflowTool::RepoRead, WorkflowTool::RepoWrite],
         )),
+        ..Default::default()
     };
     let assembled = tandem::factory::broker::context::AssembledContext {
         manifest: ctx_manifest.clone(),

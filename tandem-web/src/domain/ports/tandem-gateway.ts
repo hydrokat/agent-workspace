@@ -11,6 +11,7 @@ import type {
   ReadyResult,
   RunControlAction,
   RunControlOptions,
+  RunDataView,
   RunEvidenceBundle,
   RunSummary,
   WorkflowListItem,
@@ -87,6 +88,7 @@ export interface ITandemGateway {
   ): Promise<RunSummary>;
   factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]>;
   factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle>;
+  factoryRunData(workspacePath: string, runId: string): Promise<RunDataView>;
   factoryEvidenceItem(
     workspacePath: string,
     runId: string,

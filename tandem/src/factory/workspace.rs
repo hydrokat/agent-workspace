@@ -6,14 +6,18 @@ use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
 use crate::factory::approval::{ApprovalError, ensure_user_caller};
 use crate::factory::broker::git::{AllowedGitSubcommand, GitError, run_git};
+use crate::factory::data_policy::{
+    ExcludedPathEntry, is_worktree_excluded, load_exclusions, normalize_rel_path, save_exclusions,
+};
 use crate::factory::events::{
     Event, append_locked, redact_event, reject_if_symlink, set_private_file_mode,
 };
 use crate::factory::ids::is_valid_run_id;
 use crate::factory::machine::{self, EventData};
-use crate::factory::model::{Actor, ActorKind, Run, RunState};
+use crate::factory::model::{Actor, ActorKind, FactorySettings, Run, RunState};
 use crate::factory::redact::RedactContext;
 use crate::factory::run::{RunError, get_run};
+use crate::factory::settings::load as load_settings;
 use crate::factory::store::{FactoryStore, create_private_dir, current_time, write_atomic};
 use crate::sources::codebases::list_codebases;
 
@@ -33,6 +37,7 @@ pub struct RunWorkspace {
     pub artifact_dir: PathBuf,
     pub branch: String,
     pub base_commit: String,
+    pub excluded_paths: Vec<ExcludedPathEntry>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -247,8 +252,11 @@ pub fn prepare_worktree(
             artifact_dir,
             branch: branch.clone(),
             base_commit: base_commit.clone(),
+            excluded_paths: load_exclusions(store, run_id),
         });
     }
+
+    let settings = load_settings(store)?;
 
     if let Ok(remotes) = run_git(
         AllowedGitSubcommand::Branch,
@@ -290,6 +298,9 @@ pub fn prepare_worktree(
         GIT_TIMEOUT,
     )?;
 
+    let excluded_paths = apply_sparse_checkout_exclusions(&wt_path, &settings)?;
+    save_exclusions(store, run_id, &excluded_paths)?;
+
     let ev_data = EventData::WorkspacePrepared {
         run: run_id.to_string(),
         target: target.clone(),
@@ -324,7 +335,75 @@ pub fn prepare_worktree(
         artifact_dir,
         branch,
         base_commit,
+        excluded_paths,
     })
+}
+
+fn collect_worktree_files(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<String>,
+) -> Result<(), WorkspaceError> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == ".git" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_symlink() {
+            continue;
+        }
+        if path.is_dir() {
+            collect_worktree_files(root, &path, out)?;
+        } else if path.is_file()
+            && let Ok(rel) = path.strip_prefix(root)
+        {
+            out.push(normalize_rel_path(&rel.to_string_lossy()));
+        }
+    }
+    Ok(())
+}
+
+fn apply_sparse_checkout_exclusions(
+    wt_path: &Path,
+    settings: &FactorySettings,
+) -> Result<Vec<ExcludedPathEntry>, WorkspaceError> {
+    let mut files = Vec::new();
+    collect_worktree_files(wt_path, wt_path, &mut files)?;
+    files.sort();
+
+    let mut excluded = Vec::new();
+    for rel in files {
+        if let Some(rule) = is_worktree_excluded(&rel, settings) {
+            excluded.push(ExcludedPathEntry { path: rel, rule });
+        }
+    }
+
+    if !excluded.is_empty() {
+        run_git(
+            AllowedGitSubcommand::SparseCheckout,
+            &["init", "--no-cone"],
+            wt_path,
+            GIT_TIMEOUT,
+        )?;
+        let mut patterns: Vec<String> = Vec::with_capacity(excluded.len() + 3);
+        patterns.push("set".to_string());
+        patterns.push("--no-cone".to_string());
+        patterns.push("/*".to_string());
+        for item in &excluded {
+            patterns.push(format!("!/{}", item.path));
+        }
+        let args: Vec<&str> = patterns.iter().map(String::as_str).collect();
+        run_git(
+            AllowedGitSubcommand::SparseCheckout,
+            &args,
+            wt_path,
+            GIT_TIMEOUT,
+        )?;
+    }
+
+    Ok(excluded)
 }
 
 pub fn cleanup_worktree(

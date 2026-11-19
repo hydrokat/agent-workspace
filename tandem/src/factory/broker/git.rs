@@ -18,6 +18,7 @@ pub enum AllowedGitSubcommand {
     Add,
     Commit,
     Push,
+    SparseCheckout,
 }
 
 impl AllowedGitSubcommand {
@@ -35,6 +36,7 @@ impl AllowedGitSubcommand {
             Self::Add => "add",
             Self::Commit => "commit",
             Self::Push => "push",
+            Self::SparseCheckout => "sparse-checkout",
         }
     }
 
@@ -52,6 +54,7 @@ impl AllowedGitSubcommand {
             "add" => Some(Self::Add),
             "commit" => Some(Self::Commit),
             "push" => Some(Self::Push),
+            "sparse-checkout" => Some(Self::SparseCheckout),
             _ => None,
         }
     }

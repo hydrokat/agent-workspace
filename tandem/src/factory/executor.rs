@@ -6,7 +6,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::broker::context::{
-    ContextInputs, ReviewContextExtras, assemble_context, assemble_review_context,
+    ContextError, ContextInputs, ReviewContextExtras, assemble_context_with_policy,
+    assemble_review_context_with_policy,
 };
 use super::broker::gate::{check, today_iso_date};
 use super::broker::git::{AllowedGitSubcommand, run_git};
@@ -15,6 +16,7 @@ use super::broker::job::{
 };
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
 use super::broker::spawn::{DEFAULT_STOP_GRACE, ProviderCommand, WaitOutcome, spawn_provider};
+use super::data_policy::{format_readable_scope, load_exclusions};
 use super::model::KNOWN_PROVIDERS;
 use super::routing::{RoutingContext, TemperatureSupport, route};
 use super::runner::{has_ui_slices, is_stop_requested};
@@ -533,18 +535,37 @@ impl BrokerExecutor {
         };
         let assembled_res = if job.stage == "review" {
             let extras = collect_review_extras(&store, &run, &worktree_path, &artifact_dir);
-            assemble_review_context(&context_inputs, &extras)
+            assemble_review_context_with_policy(
+                &context_inputs,
+                &extras,
+                &routed.provider,
+                &settings,
+            )
         } else {
-            assemble_context(&context_inputs)
+            assemble_context_with_policy(&context_inputs, &routed.provider, &settings)
         };
-        let assembled = match assembled_res {
+        let mut assembled = match assembled_res {
             Ok(c) => c,
+            Err(ContextError::PolicyDenied(denial)) => {
+                return StageOutcome::Blocked {
+                    reason: denial.to_string(),
+                    action_commands: vec![format!("tandem factory run resume {}", job.run)],
+                };
+            }
             Err(e) => {
                 return StageOutcome::Failed {
                     reason: e.to_string(),
                 };
             }
         };
+        assembled.manifest.excluded_paths = load_exclusions(&store, &job.run)
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assembled.manifest.readable_scope = Some(format_readable_scope(
+            run.worktree_path.as_deref(),
+            &worktree_path.to_string_lossy(),
+        ));
 
         let headless_req = HeadlessRequest {
             model: routed.model.clone(),

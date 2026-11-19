@@ -383,8 +383,17 @@ pub enum FactoryRunCommand {
     ExportSpecs(FactoryRunExportSpecsArgs),
     #[command(about = "show usage, cost basis, and rework signals for a run")]
     Usage(FactoryRunUsageArgs),
+    #[command(about = "show what data was sent and readable for each job in a run")]
+    Data(FactoryRunDataArgs),
     #[command(about = "grant a one-time Gate 3 approval for a protected action (user-only)")]
     Approve(FactoryRunApproveArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunDataArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -969,6 +978,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Prs(a) => a.json,
             FactoryRunCommand::ExportSpecs(a) => a.json,
             FactoryRunCommand::Usage(a) => a.json,
+            FactoryRunCommand::Data(a) => a.json,
             FactoryRunCommand::Approve(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
@@ -1918,6 +1928,31 @@ fn execute(
                     serialize_compact(&report)
                 } else {
                     Ok(format_run_usage_text(&report))
+                }
+            }
+            FactoryRunCommand::Data(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if !super::ids::is_valid_run_id(&a.run) {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid run id: {}",
+                        a.run
+                    )));
+                }
+                let run = super::run::get_run(&store, &a.run)
+                    .map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?
+                    .ok_or_else(|| CmdError::not_found(format!("run {} not found", a.run)))?;
+                let view = super::data_policy::build_run_data(&store, &run)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                if a.json {
+                    serialize_compact(&view)
+                } else {
+                    Ok(super::data_policy::format_run_data_text(&view))
                 }
             }
             FactoryRunCommand::Approve(a) => {

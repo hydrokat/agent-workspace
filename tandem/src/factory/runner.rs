@@ -120,6 +120,25 @@ pub fn has_ui_slices(store: &FactoryStore, run_id: &str) -> bool {
     manifest.slices.iter().any(|s| s.ui)
 }
 
+fn check_run_slices_exclusions(
+    store: &FactoryStore,
+    run_id: &str,
+    settings: &FactorySettings,
+) -> Option<(String, String)> {
+    let slices_path = store.run_dir(run_id).join("artifacts/slices.json");
+    if !slices_path.exists() || reject_if_symlink(&slices_path).is_err() {
+        return None;
+    }
+    let raw = fs::read_to_string(&slices_path).ok()?;
+    let manifest: crate::factory::stages::plan::SlicesManifest = serde_json::from_str(&raw).ok()?;
+    let paths: Vec<String> = manifest
+        .slices
+        .iter()
+        .flat_map(|s| s.paths.iter().cloned())
+        .collect();
+    crate::factory::data_policy::check_slices_against_exclusions(&paths, settings)
+}
+
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -782,9 +801,53 @@ pub fn drive_run_step(
     ) {
         Ok(r) => r,
         Err(unroutable) => {
-            return pause_run(store, run, unroutable.to_string(), vec![]);
+            let reason = unroutable.to_string();
+            let sys = Actor {
+                kind: ActorKind::System,
+                id: "engine".to_string(),
+            };
+            let idea_id = run.idea.clone();
+            let r_id = run.id.clone();
+            let run_after_block = append_run_events(
+                store,
+                &idea_id,
+                &r_id,
+                Some(run),
+                vec![EventData::StageBlocked {
+                    run: r_id.clone(),
+                    stage: stage_name.clone(),
+                    reason: reason.clone(),
+                }],
+                &sys,
+            )?;
+            return pause_run(store, run_after_block, reason, vec![]);
         }
     };
+
+    if let Some((excluded_file, rule)) = check_run_slices_exclusions(store, &run.id, &settings) {
+        let reason = format!(
+            "slice requires excluded file '{excluded_file}' ({rule}); update data policy or slice paths"
+        );
+        let sys = Actor {
+            kind: ActorKind::System,
+            id: "engine".to_string(),
+        };
+        let idea_id = run.idea.clone();
+        let r_id = run.id.clone();
+        let run_after_block = append_run_events(
+            store,
+            &idea_id,
+            &r_id,
+            Some(run),
+            vec![EventData::StageBlocked {
+                run: r_id.clone(),
+                stage: stage_name.clone(),
+                reason: reason.clone(),
+            }],
+            &sys,
+        )?;
+        return pause_run(store, run_after_block, reason, vec![]);
+    }
 
     let run_budget = RunBudget::from_run_or_settings(&run, &settings);
     let pre_log = read_all(&store.events_path())?;

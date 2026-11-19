@@ -485,7 +485,7 @@ pub fn entries(
                 } else {
                     "none".to_string()
                 };
-                details.push(detail("tools", tools, &ctx));
+                details.push(detail("tools", &tools, &ctx));
 
                 if let Some(ref ji) = job_input {
                     let files = ji.context_manifest.items.len();
@@ -493,6 +493,37 @@ pub fn entries(
                     details.push(detail(
                         "context",
                         format!("{files} files · {bytes} · {redactions} redactions"),
+                        &ctx,
+                    ));
+                    let scope = ji
+                        .context_manifest
+                        .readable_scope
+                        .clone()
+                        .unwrap_or_else(|| {
+                            super::data_policy::format_readable_scope(None, &ji.cwd)
+                        });
+                    details.push(detail("readable", format!("{scope} with {tools}"), &ctx));
+                    let excluded_list = if !ji.context_manifest.excluded_paths.is_empty() {
+                        ji.context_manifest.excluded_paths.clone()
+                    } else {
+                        super::data_policy::load_exclusions(store, &run)
+                            .into_iter()
+                            .map(|e| e.path)
+                            .collect()
+                    };
+                    let excluded_str = if excluded_list.is_empty() {
+                        "none".to_string()
+                    } else {
+                        format!(
+                            "{} paths: {}",
+                            excluded_list.len(),
+                            excluded_list.join(", ")
+                        )
+                    };
+                    details.push(detail("excluded", excluded_str, &ctx));
+                    details.push(detail(
+                        "data",
+                        super::data_policy::PROVIDER_LIMITATION_SENTENCE,
                         &ctx,
                     ));
                 }

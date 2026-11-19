@@ -136,6 +136,39 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
             ));
         }
     }
+    for (provider, classes) in &settings.allowed_data_classes {
+        if provider.trim().is_empty() {
+            return Err(FactoryError::InvalidInput(
+                "allowed_data_classes provider name must not be empty".to_string(),
+            ));
+        }
+        if classes.contains(&super::data_policy::DataClass::Secrets) {
+            return Err(FactoryError::InvalidInput(format!(
+                "allowed_data_classes.{provider} cannot include \"secrets\""
+            )));
+        }
+    }
+    for (provider, models) in &settings.allowed_models {
+        if provider.trim().is_empty() {
+            return Err(FactoryError::InvalidInput(
+                "allowed_models provider name must not be empty".to_string(),
+            ));
+        }
+        for model in models {
+            validate_model_id(model).map_err(|reason| {
+                FactoryError::InvalidInput(format!(
+                    "allowed_models.{provider} \"{model}\" invalid: {reason}"
+                ))
+            })?;
+        }
+    }
+    for pattern in &settings.denied_path_patterns {
+        if pattern.trim().is_empty() {
+            return Err(FactoryError::InvalidInput(
+                "denied_path_patterns entries must not be empty".to_string(),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -329,7 +362,62 @@ fn apply_setting_change(
             let new = serde_json::to_value(&settings.price_table)?;
             Ok((old, new))
         }
+        "allowed_data_classes" => {
+            let old = serde_json::to_value(&settings.allowed_data_classes)?;
+            let parsed: BTreeMap<String, Vec<super::data_policy::DataClass>> =
+                serde_json::from_str(raw_value).map_err(|e| {
+                    FactoryError::InvalidInput(format!(
+                        "allowed_data_classes must be JSON map: {e}"
+                    ))
+                })?;
+            settings.allowed_data_classes = parsed;
+            let new = serde_json::to_value(&settings.allowed_data_classes)?;
+            Ok((old, new))
+        }
+        "allowed_models" => {
+            let old = serde_json::to_value(&settings.allowed_models)?;
+            let parsed: BTreeMap<String, Vec<String>> =
+                serde_json::from_str(raw_value).map_err(|e| {
+                    FactoryError::InvalidInput(format!("allowed_models must be JSON map: {e}"))
+                })?;
+            settings.allowed_models = parsed;
+            let new = serde_json::to_value(&settings.allowed_models)?;
+            Ok((old, new))
+        }
+        "denied_path_patterns" => {
+            let old = serde_json::to_value(&settings.denied_path_patterns)?;
+            let parsed: Vec<String> = serde_json::from_str(raw_value).map_err(|e| {
+                FactoryError::InvalidInput(format!("denied_path_patterns must be JSON array: {e}"))
+            })?;
+            settings.denied_path_patterns = parsed;
+            let new = serde_json::to_value(&settings.denied_path_patterns)?;
+            Ok((old, new))
+        }
         _ => {
+            if let Some(provider) = key.strip_prefix("allowed_data_classes.") {
+                let old = serde_json::to_value(settings.allowed_data_classes.get(provider))?;
+                if let Some(parsed) =
+                    parse_optional::<Vec<super::data_policy::DataClass>>(raw_value)?
+                {
+                    settings
+                        .allowed_data_classes
+                        .insert(provider.to_string(), parsed);
+                } else {
+                    settings.allowed_data_classes.remove(provider);
+                }
+                let new = serde_json::to_value(settings.allowed_data_classes.get(provider))?;
+                return Ok((old, new));
+            }
+            if let Some(provider) = key.strip_prefix("allowed_models.") {
+                let old = serde_json::to_value(settings.allowed_models.get(provider))?;
+                if let Some(parsed) = parse_optional::<Vec<String>>(raw_value)? {
+                    settings.allowed_models.insert(provider.to_string(), parsed);
+                } else {
+                    settings.allowed_models.remove(provider);
+                }
+                let new = serde_json::to_value(settings.allowed_models.get(provider))?;
+                return Ok((old, new));
+            }
             if let Some(rest) = key.strip_prefix("model_tiers.") {
                 if let Some((provider, tier)) = rest.split_once('.') {
                     let entry = settings

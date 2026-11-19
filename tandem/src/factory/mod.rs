@@ -7,6 +7,7 @@ pub mod broker;
 pub mod budget;
 pub mod checks;
 pub mod commands;
+pub mod data_policy;
 pub mod events;
 pub mod evidence;
 pub mod executor;

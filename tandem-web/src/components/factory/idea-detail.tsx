@@ -12,6 +12,7 @@ import type {
   IdeaDetail,
   PrLink,
   ReadyResult,
+  RunDataView,
   RunEvidenceBundle,
   WorkflowListItem,
 } from "@/domain/models/factory";
@@ -158,6 +159,35 @@ export function IdeaDetailView({
   useEffect(() => {
     void loadEvidence();
   }, [loadEvidence]);
+
+  const [dataView, setDataView] = useState<RunDataView | null>(null);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  const loadRunData = useCallback(async () => {
+    if (!workspaceId || !activeRun?.id) return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/data`
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw new Error(err.error?.message || `Failed to load data view (${res.status})`);
+      }
+      const payload = (await res.json()) as { data?: RunDataView };
+      setDataView(payload.data ?? null);
+    } catch (err: unknown) {
+      setDataError(err instanceof Error ? err.message : "Failed to load data view.");
+    } finally {
+      setDataLoading(false);
+    }
+  }, [workspaceId, activeRun?.id]);
+
+  useEffect(() => {
+    void loadRunData();
+  }, [loadRunData]);
 
   const [auditPayload, setAuditPayload] = useState<AuditTimelinePayload | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -613,6 +643,9 @@ export function IdeaDetailView({
               logText={logText}
               logLoading={logLoading}
               logError={logError}
+              dataView={dataView}
+              dataLoading={dataLoading}
+              dataError={dataError}
               controlling={controlling}
               controlError={controlError}
               onControl={controlRun}

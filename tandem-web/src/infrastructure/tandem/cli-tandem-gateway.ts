@@ -405,6 +405,17 @@ export class CliTandemGateway implements ITandemGateway {
     return JSON.parse(stdout) as RunEvidenceBundle;
   }
 
+  async factoryRunData(workspacePath: string, runId: string): Promise<import("@/domain/models/factory").RunDataView> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "data",
+      runId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as import("@/domain/models/factory").RunDataView;
+  }
+
   async factoryEvidenceItem(
     workspacePath: string,
     runId: string,

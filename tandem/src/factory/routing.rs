@@ -107,6 +107,8 @@ pub enum Unroutable {
         model: String,
         reason: String,
     },
+    #[error("no allowed model left for provider {provider}")]
+    NoAllowedModel { provider: String },
 }
 
 pub fn map_agent_definition(agent: WorkflowAgent, is_ui_work: bool) -> &'static str {
@@ -272,6 +274,42 @@ pub fn route(
     {
         tier = next_tier;
     }
+
+    if let Some(allowed) = settings.allowed_models.get(provider) {
+        let tier_is_allowed = |t: ModelTier| {
+            let candidate = provider_tiers.for_tier(t);
+            allowed.iter().any(|m| m == candidate)
+        };
+        if !tier_is_allowed(tier) {
+            let candidates = [
+                tier.upgrade(),
+                Some(ModelTier::Standard),
+                Some(ModelTier::Premium),
+                Some(ModelTier::Economy),
+            ];
+            let found = candidates
+                .into_iter()
+                .flatten()
+                .find(|&t| {
+                    tier_is_allowed(t)
+                        && ctx.avoid_model.as_deref() != Some(provider_tiers.for_tier(t))
+                })
+                .or_else(|| {
+                    [ModelTier::Economy, ModelTier::Standard, ModelTier::Premium]
+                        .into_iter()
+                        .find(|&t| tier_is_allowed(t))
+                });
+            match found {
+                Some(t) => tier = t,
+                None => {
+                    return Err(Unroutable::NoAllowedModel {
+                        provider: provider.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
     let upgraded_from = if tier != base_tier {
         Some(base_tier)
     } else {

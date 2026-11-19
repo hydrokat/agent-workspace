@@ -361,6 +361,12 @@ pub struct FactorySettings {
     pub allowed_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
     #[serde(default)]
     pub denied_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
+    #[serde(default)]
+    pub allowed_data_classes: BTreeMap<String, Vec<super::data_policy::DataClass>>,
+    #[serde(default)]
+    pub allowed_models: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub denied_path_patterns: Vec<String>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
@@ -382,6 +388,9 @@ impl Default for FactorySettings {
             approval_grace_secs: default_approval_grace_secs(),
             allowed_tools: BTreeMap::new(),
             denied_tools: BTreeMap::new(),
+            allowed_data_classes: BTreeMap::new(),
+            allowed_models: BTreeMap::new(),
+            denied_path_patterns: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
