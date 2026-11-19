@@ -1299,6 +1299,10 @@ impl StatusApp {
                         self.handle_factory_action(action);
                         self.dirty = true;
                     }
+                    StatusTab::Settings => {
+                        self.settings_tab.handle_mouse(event, self.body_area);
+                        self.dirty = true;
+                    }
                     _ => {}
                 }
             }

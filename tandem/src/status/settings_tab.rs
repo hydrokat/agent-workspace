@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -17,6 +18,9 @@ use crate::factory::store::FactoryStore;
 use crate::factory::workflow::{parse as wf_parse, validate as wf_validate};
 use crate::sanitize::clean;
 use crate::tmux::grid::{FillOrder, GridCols, GridPrefs, GridRows, SidebarMode};
+use crate::ui::hits::{Hit, HitMap};
+
+const STANDARD_SECTION_HEIGHT: usize = 10;
 
 pub const COLS_OPTIONS: [GridCols; 5] = [
     GridCols::Auto,
@@ -120,6 +124,7 @@ pub struct SettingsTab {
     pub factory_consent: Option<FactoryConsentState>,
     pub factory_revoke: Option<FactoryRevokeState>,
     pub scroll_offset: usize,
+    pub render_scroll: Cell<usize>,
 }
 
 impl Default for SettingsTab {
@@ -146,6 +151,7 @@ impl Default for SettingsTab {
             factory_consent: None,
             factory_revoke: None,
             scroll_offset: 0,
+            render_scroll: Cell::new(0),
         }
     }
 }
@@ -811,9 +817,88 @@ impl SettingsTab {
         }
     }
 
-    pub fn handle_mouse(&mut self, mouse: &MouseEvent, area: Rect) -> Option<SettingsAction> {
-        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+    fn handle_wheel(&mut self, up: bool) -> Option<SettingsAction> {
+        if self.is_editing_or_modal() {
             return None;
+        }
+        let max_row = self.max_row_index();
+        self.focused_row = if up {
+            self.focused_row.saturating_sub(1)
+        } else {
+            (self.focused_row + 1).min(max_row)
+        };
+        None
+    }
+
+    fn handle_factory_modal_click(
+        &mut self,
+        mouse: &MouseEvent,
+        area: Rect,
+    ) -> Option<SettingsAction> {
+        let mut hits = HitMap::default();
+        if self.factory_edit.is_some() {
+            let r = modal_rect(area, EDIT_MODAL_SIZE);
+            if r.width >= 10 && r.height >= 5 {
+                hits.tags(
+                    Rect::new(r.x + 2, r.y + 3, r.width.saturating_sub(3), 1),
+                    EDIT_MODAL_HINT,
+                    &[
+                        ("Enter save", Hit::key(KeyCode::Enter)),
+                        ("Esc cancel", Hit::key(KeyCode::Esc)),
+                    ],
+                );
+            }
+        } else if let Some(ref state) = self.factory_consent {
+            let r = modal_rect(area, CONSENT_MODAL_SIZE);
+            if r.width >= 12 && r.height >= 6 {
+                let auth = AUTH_TYPES[state.auth_idx].as_str();
+                let auth_line = format!("Auth: < {auth} >");
+                let line_w = r.width.saturating_sub(3);
+                hits.tags(
+                    Rect::new(r.x + 2, r.y + 1, line_w, 1),
+                    &auth_line,
+                    &[
+                        ("<", Hit::key(KeyCode::Left)),
+                        (auth, Hit::key(KeyCode::Right)),
+                        (">", Hit::key(KeyCode::Right)),
+                    ],
+                );
+                hits.tags(
+                    Rect::new(r.x + 2, r.y + 4, line_w, 1),
+                    CONSENT_MODAL_HINT,
+                    &[
+                        ("Left/Right auth", Hit::key(KeyCode::Right)),
+                        ("Enter consent", Hit::key(KeyCode::Enter)),
+                        ("Esc cancel", Hit::key(KeyCode::Esc)),
+                    ],
+                );
+            }
+        } else if self.factory_revoke.is_some() {
+            let r = modal_rect(area, REVOKE_MODAL_SIZE);
+            if r.width >= 12 && r.height >= 5 {
+                hits.push(Rect::new(r.x + 12, r.y + 3, 7, 1), Hit::ch('y'));
+                hits.push(Rect::new(r.x + 24, r.y + 3, 6, 1), Hit::ch('n'));
+            }
+        }
+        match hits.at(mouse.column, mouse.row)? {
+            Hit::Key(code, mods) => self.handle_key(&KeyEvent::new(code, mods)),
+            Hit::Row(_) | Hit::Cmd(_) => None,
+        }
+    }
+
+    pub fn handle_mouse(&mut self, mouse: &MouseEvent, area: Rect) -> Option<SettingsAction> {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => return self.handle_wheel(true),
+            MouseEventKind::ScrollDown => return self.handle_wheel(false),
+            MouseEventKind::Down(MouseButton::Left) => {}
+            _ => return None,
+        }
+
+        if self.factory_edit.is_some()
+            || self.factory_consent.is_some()
+            || self.factory_revoke.is_some()
+        {
+            return self.handle_factory_modal_click(mouse, area);
         }
 
         if self.confirm_reset {
@@ -836,7 +921,9 @@ impl SettingsTab {
             return None;
         }
 
-        let rel_y = mouse.row.saturating_sub(area.y) as usize + self.scroll_offset;
+        let rel_y = mouse.row.saturating_sub(area.y) as usize
+            + self.scroll_offset
+            + self.render_scroll.get();
         match rel_y {
             0 => {
                 if mouse.column >= area.x + 14 && mouse.column <= area.x + 22 {
@@ -873,6 +960,15 @@ impl SettingsTab {
                 self.modal_focus = 1;
                 None
             }
+            y if self.factory_enabled && y >= STANDARD_SECTION_HEIGHT => {
+                let lines = self.build_factory_lines(area.width);
+                let row = lines.get(y - STANDARD_SECTION_HEIGHT)?.row_index?;
+                self.focused_row = row;
+                self.handle_key(&KeyEvent::new(
+                    KeyCode::Enter,
+                    crossterm::event::KeyModifiers::NONE,
+                ))
+            }
             _ => None,
         }
     }
@@ -883,13 +979,14 @@ impl SettingsTab {
         }
 
         if !self.factory_enabled {
+            self.render_scroll.set(0);
             self.render_standard_section(area, buf, 0);
             self.render_overlays(area, buf);
             return;
         }
 
         let factory_lines = self.build_factory_lines(area.width);
-        let standard_height = 10usize;
+        let standard_height = STANDARD_SECTION_HEIGHT;
         let total_lines = standard_height + factory_lines.len();
         let focused_line = if self.focused_row <= QUIT_ROW {
             match self.focused_row {
@@ -913,6 +1010,7 @@ impl SettingsTab {
             0
         };
 
+        self.render_scroll.set(scroll);
         if scroll == 0 {
             self.render_standard_section(area, buf, 0);
         }
@@ -1339,6 +1437,20 @@ fn clear_box(buf: &mut Buffer, x: u16, y: u16, width: u16, height: u16) {
     }
 }
 
+const EDIT_MODAL_SIZE: (u16, u16) = (62, 6);
+const CONSENT_MODAL_SIZE: (u16, u16) = (66, 7);
+const REVOKE_MODAL_SIZE: (u16, u16) = (54, 5);
+const EDIT_MODAL_HINT: &str = "Enter save · Esc cancel";
+const CONSENT_MODAL_HINT: &str = "Left/Right auth · Enter consent · Esc cancel";
+
+fn modal_rect(area: Rect, size: (u16, u16)) -> Rect {
+    let width = size.0.min(area.width);
+    let height = size.1.min(area.height);
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect::new(x, y, width, height)
+}
+
 fn render_modal(area: Rect, buf: &mut Buffer, modal_focus: usize) {
     let width = 50u16.min(area.width);
     let height = 5u16.min(area.height);
@@ -1420,10 +1532,12 @@ fn render_modal(area: Rect, buf: &mut Buffer, modal_focus: usize) {
 }
 
 fn render_factory_edit_modal(area: Rect, buf: &mut Buffer, edit: &FactoryEditState) {
-    let width = 62u16.min(area.width);
-    let height = 6u16.min(area.height);
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    let Rect {
+        x,
+        y,
+        width,
+        height,
+    } = modal_rect(area, EDIT_MODAL_SIZE);
     clear_box(buf, x, y, width, height);
     if width < 10 || height < 5 {
         return;
@@ -1458,7 +1572,7 @@ fn render_factory_edit_modal(area: Rect, buf: &mut Buffer, edit: &FactoryEditSta
     buf.set_stringn(
         x + 2,
         y + 3,
-        "Enter save · Esc cancel",
+        EDIT_MODAL_HINT,
         w.saturating_sub(3),
         Style::default().fg(Color::DarkGray),
     );
@@ -1472,10 +1586,12 @@ fn render_factory_edit_modal(area: Rect, buf: &mut Buffer, edit: &FactoryEditSta
 }
 
 fn render_factory_consent_modal(area: Rect, buf: &mut Buffer, state: &FactoryConsentState) {
-    let width = 66u16.min(area.width);
-    let height = 7u16.min(area.height);
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    let Rect {
+        x,
+        y,
+        width,
+        height,
+    } = modal_rect(area, CONSENT_MODAL_SIZE);
     clear_box(buf, x, y, width, height);
     if width < 12 || height < 6 {
         return;
@@ -1524,7 +1640,7 @@ fn render_factory_consent_modal(area: Rect, buf: &mut Buffer, state: &FactoryCon
     buf.set_stringn(
         x + 2,
         y + 4,
-        "Left/Right auth · Enter consent · Esc cancel",
+        CONSENT_MODAL_HINT,
         w.saturating_sub(3),
         Style::default().fg(Color::DarkGray),
     );
@@ -1538,10 +1654,12 @@ fn render_factory_consent_modal(area: Rect, buf: &mut Buffer, state: &FactoryCon
 }
 
 fn render_factory_revoke_modal(area: Rect, buf: &mut Buffer, state: &FactoryRevokeState) {
-    let width = 54u16.min(area.width);
-    let height = 5u16.min(area.height);
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    let Rect {
+        x,
+        y,
+        width,
+        height,
+    } = modal_rect(area, REVOKE_MODAL_SIZE);
     clear_box(buf, x, y, width, height);
     if width < 12 || height < 5 {
         return;
