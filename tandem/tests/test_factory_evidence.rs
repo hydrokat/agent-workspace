@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
 use tandem::config::Config;
-use tandem::factory::approval::mark_ready;
+use tandem::factory::approval::{Caller, mark_ready};
 use tandem::factory::artifacts;
 use tandem::factory::broker::checks::CheckOutcome;
 use tandem::factory::checks::CheckKind;
@@ -120,7 +120,8 @@ fn setup_run(ws: &Path) -> (FactoryStore, String, String) {
     store
         .execute(&idea.id, Command::SelectDirection, &user_actor())
         .unwrap();
-    mark_ready(&store, &idea.id, &idea.id, "cli", "user", &|_| None).unwrap();
+    let caller = Caller::cli(true, &|_| None, &|_| None);
+    mark_ready(&store, &idea.id, &idea.id, "user", &caller).unwrap();
 
     let run = create_run(
         &store,

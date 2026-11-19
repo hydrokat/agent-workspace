@@ -181,6 +181,16 @@ fn set_and_show_enforce_user_caller_confirm_and_record_metadata() {
     let store = FactoryStore::new(&ws);
     store.ensure().unwrap();
 
+    let agent_env = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            Some("implementer".into())
+        } else {
+            None
+        }
+    };
+    let no_pane = |_: &str| None;
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &no_pane);
+    let user_caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     let agent_err = set_checks(
         &store,
         "workspace",
@@ -190,13 +200,7 @@ fn set_and_show_enforce_user_caller_confirm_and_record_metadata() {
         vec![],
         "workspace",
         "alice",
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                Some("implementer".into())
-            } else {
-                None
-            }
-        },
+        &agent_caller,
     )
     .unwrap_err();
     assert!(matches!(agent_err, ChecksError::AgentCaller));
@@ -210,7 +214,7 @@ fn set_and_show_enforce_user_caller_confirm_and_record_metadata() {
         vec![],
         "wrong-target",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap_err();
     assert!(matches!(confirm_err, ChecksError::InvalidInput(_)));
@@ -224,7 +228,7 @@ fn set_and_show_enforce_user_caller_confirm_and_record_metadata() {
         vec!["tandem-web/**".into()],
         "workspace",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
     assert_eq!(saved.timeout_secs, DEFAULT_CHECK_TIMEOUT_SECS);
@@ -387,8 +391,22 @@ fn runner_pauses_at_test_stage_when_checks_unconfirmed_then_resumes_after_confir
         )
         .unwrap();
 
+    let no_pane = |_: &str| None;
+    let user_caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
+    let zero_grace = tandem::factory::model::FactorySettings {
+        approval_grace_secs: 0,
+        ..Default::default()
+    };
+    tandem::factory::settings::save(&store, &zero_grace).unwrap();
     let ready = mark_ready_with_workflow(
-        &store, &ws, &idea.id, &idea.id, "cli", "alice", None, false, &no_env,
+        &store,
+        &ws,
+        &idea.id,
+        &idea.id,
+        "alice",
+        None,
+        false,
+        &user_caller,
     )
     .unwrap();
     let run_id = ready.run.unwrap().id;
@@ -399,7 +417,7 @@ fn runner_pauses_at_test_stage_when_checks_unconfirmed_then_resumes_after_confir
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
 
@@ -435,7 +453,7 @@ fn runner_pauses_at_test_stage_when_checks_unconfirmed_then_resumes_after_confir
         vec![],
         "workspace",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
     resume_paused_run(&store, &run_id, &user_actor()).unwrap();

@@ -197,7 +197,8 @@ fn setup_review_run(ws: &Path) -> (FactoryStore, String, String) {
         .execute(&idea.id, Command::SelectDirection, &user_actor())
         .unwrap();
 
-    mark_ready(&store, &idea.id, &idea.id, "cli", "alice", &|_| None).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    mark_ready(&store, &idea.id, &idea.id, "alice", &caller).unwrap();
 
     let run = create_run(
         &store,
@@ -345,7 +346,8 @@ fn deliver_requires_pr_link_and_moves_idea_and_run_to_delivered_and_keeps_worktr
         .unwrap();
     assert!(branch_check.success());
 
-    cleanup_worktree(&store, &ws, &run_id, &user_actor(), &|_| None).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    cleanup_worktree(&store, &ws, &run_id, &user_actor(), &caller).unwrap();
     assert!(!wt_path.exists());
 
     let _ = fs::remove_dir_all(&ws);
@@ -553,17 +555,19 @@ fn export_specs_is_user_only_allocates_next_phase_commits_nothing_and_refuses_ov
         .unwrap()
         .stdout;
 
-    let err = export_specs(&store, &ws, &run_id, &|k| {
+    let agent_env = |k: &str| {
         if k == "TANDEM_ROLE" {
             Some("orchestrator".to_string())
         } else {
             None
         }
-    })
-    .unwrap_err();
+    };
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &|_| None);
+    let user_caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    let err = export_specs(&store, &ws, &run_id, &agent_caller).unwrap_err();
     assert!(err.to_string().contains("user") || err.to_string().contains("agent"));
 
-    let res = export_specs(&store, &ws, &run_id, &|_| None).unwrap();
+    let res = export_specs(&store, &ws, &run_id, &user_caller).unwrap();
     assert!(res.phase_dir.starts_with("p-003-"));
     assert!(res.destination.join("impl.md").is_file());
     assert!(res.destination.join("t-001.md").is_file());
@@ -586,16 +590,28 @@ fn export_specs_is_user_only_allocates_next_phase_commits_nothing_and_refuses_ov
         "import json, sys\nprint(json.dumps({'next': '004'}))\n",
     )
     .unwrap();
-    let collide_err = export_specs(&store, &ws, &run_id, &|_| None).unwrap_err();
+    let collide_err = export_specs(&store, &ws, &run_id, &user_caller).unwrap_err();
     assert!(
         collide_err.to_string().contains("already exists"),
         "expected already exists error, got: {collide_err}"
     );
     fs::remove_file(specs_py_dir.join("specs.py")).unwrap();
 
+    let state_dir = ws.join(".test-state");
+    tandem::web_manager::save_web_config(
+        &tandem::web_manager::web_config_path(&state_dir.join("tandem")),
+        &tandem::web_manager::WebConfig {
+            auth_token: "test-token".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let out = StdCommand::new(env!("CARGO_BIN_EXE_tandem"))
         .args(["factory", "run", "export-specs", &run_id, "--json"])
         .env("TANDEM_WORKSPACE", &ws)
+        .env("XDG_STATE_HOME", &state_dir)
+        .env("TANDEM_AUTH_TOKEN", "test-token")
+        .env("TANDEM_INTERNAL_SURFACE", "web")
         .env("TANDEM_FACTORY", "1")
         .env_remove("TANDEM_ROLE")
         .env_remove("TANDEM_SESSION_ID")

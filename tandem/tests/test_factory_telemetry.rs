@@ -8,7 +8,7 @@ use clap::Parser;
 use tandem::cli::Cli;
 use tandem::config::Config;
 use tandem::coordination::store::CoordStore;
-use tandem::factory::approval::{MarkReadyOptions, mark_ready_with_options};
+use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
 use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::job_dir;
@@ -112,16 +112,18 @@ fn setup_queued_run(ws: &Path, budget: Budget) -> (FactoryStore, String, String)
 
     let settings = FactorySettings {
         default_budget: budget,
+        approval_grace_secs: 0,
         ..Default::default()
     };
     save_settings(&store, &settings).unwrap();
+    let caller = Caller::cli(true, &no_agent_env, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_agent_env,
+        &caller,
     )
     .unwrap();
 
@@ -189,10 +191,9 @@ fn setup_queued_run(ws: &Path, budget: Budget) -> (FactoryStore, String, String)
         ws,
         &idea.id,
         &idea.id,
-        "cli",
         "alice",
         MarkReadyOptions::default(),
-        &no_agent_env,
+        &caller,
     )
     .unwrap();
     let run_id = res.run.unwrap().id;

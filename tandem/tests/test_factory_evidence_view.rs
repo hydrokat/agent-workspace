@@ -99,6 +99,9 @@ fn full_plan_md() -> &'static str {
 fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = user_actor();
     let orch = orch_actor();
     let sys = sys_actor();
@@ -174,16 +177,16 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             std::env::var(k).ok()
         }
     };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     let ready = mark_ready_with_workflow(
         &store,
         ws,
         &idea.id,
         &idea.id,
-        "tui",
         &user.id,
         Some("default-delivery"),
         false,
-        &env_fn,
+        &caller,
     )
     .unwrap();
     let run_id = ready.run.expect("run created").id;
@@ -418,19 +421,24 @@ fn factory_detail_mark_ready_text_states_full_authorization() {
     let ws = temp_workspace("ready-copy");
     let store = FactoryStore::new(&ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     tandem::factory::broker::gate::consent_provider(
         &store,
         "claude",
         tandem::factory::broker::gate::AuthType::ApiKey,
         "claude",
         "argie",
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     let user = user_actor();
@@ -573,19 +581,24 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
     .unwrap();
     let store = FactoryStore::new(&ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     tandem::factory::broker::gate::consent_provider(
         &store,
         "claude",
         tandem::factory::broker::gate::AuthType::ApiKey,
         "claude",
         "argie",
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     let user = user_actor();
@@ -642,22 +655,23 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
             &orch,
         )
         .unwrap();
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     let ready = mark_ready_with_workflow(
         &store,
         &ws,
         &idea.id,
         &idea.id,
-        "tui",
         &user.id,
         Some("default-delivery"),
         false,
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     let run_id = ready.run.expect("run").id;

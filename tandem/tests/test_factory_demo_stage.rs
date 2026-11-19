@@ -100,6 +100,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
     init_git_repo(ws);
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".into(),
@@ -155,13 +158,14 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
             &orch,
         )
         .unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     tandem::factory::checks::set_checks(
@@ -173,19 +177,11 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
         vec![],
         "workspace",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     let ready = mark_ready_with_workflow(
-        &store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     (store, idea.id, ready.run.unwrap().id)

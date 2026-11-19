@@ -78,6 +78,9 @@ fn commit_all(dir: &Path, msg: &str) {
 fn setup_queued_run(ws: &Path) -> (FactoryStore, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".into(),
@@ -141,16 +144,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String) {
             &orch,
         )
         .unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
     let ready = tandem::factory::approval::mark_ready_with_workflow(
-        &store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     let run_id = ready.run.unwrap().id;

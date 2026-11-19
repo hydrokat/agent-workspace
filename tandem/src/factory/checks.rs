@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::events::set_private_file_mode;
 use super::model::FactorySettings;
 use super::store::{FactoryStore, current_time};
@@ -227,6 +227,10 @@ pub struct DiscoverReport {
 pub enum ChecksError {
     #[error("only the user can confirm or change check commands")]
     AgentCaller,
+    #[error(
+        "Refused: this action needs a terminal. Use the Factory tab, the web UI, or run it in your own shell."
+    )]
+    TerminalRequired,
     #[error("test and lint commands are not confirmed")]
     NotConfirmed,
     #[error("no deploy command is confirmed for {0}")]
@@ -242,7 +246,10 @@ pub enum ChecksError {
 impl ChecksError {
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::AgentCaller | Self::NotConfirmed | Self::DeployNotConfirmed(_) => 3,
+            Self::AgentCaller
+            | Self::TerminalRequired
+            | Self::NotConfirmed
+            | Self::DeployNotConfirmed(_) => 3,
             Self::InvalidInput(_) | Self::Factory(_) | Self::Io(_) => 1,
         }
     }
@@ -250,6 +257,7 @@ impl ChecksError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::AgentCaller => "agent_caller_forbidden",
+            Self::TerminalRequired => "terminal_required",
             Self::NotConfirmed => "checks_not_confirmed",
             Self::DeployNotConfirmed(_) => "deploy_not_confirmed",
             Self::InvalidInput(_) => "invalid_input",
@@ -262,6 +270,7 @@ impl From<ApprovalError> for ChecksError {
     fn from(err: ApprovalError) -> Self {
         match err {
             ApprovalError::AgentCaller => Self::AgentCaller,
+            ApprovalError::TerminalRequired => Self::TerminalRequired,
             ApprovalError::InvalidInput(m) | ApprovalError::Gate(m) => Self::InvalidInput(m),
             ApprovalError::Factory(f) => Self::Factory(f),
             ApprovalError::Io(e) => Self::Io(e),
@@ -386,9 +395,9 @@ pub fn set_deploy_command(
     command: Vec<String>,
     confirm: &str,
     confirmed_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<DeployConfig, ChecksError> {
-    set_deploy_command_with_timeout(store, target, command, None, confirm, confirmed_by, env)
+    set_deploy_command_with_timeout(store, target, command, None, confirm, confirmed_by, caller)
 }
 
 pub fn set_deploy_command_with_timeout(
@@ -398,9 +407,9 @@ pub fn set_deploy_command_with_timeout(
     timeout_secs: Option<u64>,
     confirm: &str,
     confirmed_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<DeployConfig, ChecksError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     validate_target_name(target)?;
     if confirm != target {
         return Err(ChecksError::InvalidInput(format!(
@@ -462,9 +471,9 @@ pub fn set_checks(
     ui_paths: Vec<String>,
     confirm: &str,
     confirmed_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ChecksConfig, ChecksError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     validate_target_name(target)?;
     if confirm != target {
         return Err(ChecksError::InvalidInput(format!(

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tandem::factory::approval::mark_ready_with_workflow;
+use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::context::{
     ContextInputs, ReviewContextExtras, assemble_review_context,
@@ -72,9 +72,12 @@ fn setup_review_workflow_run(
     init_git_repo(ws);
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
-    if let Some(rounds) = max_review_rounds {
+    {
         let mut settings = store.settings().unwrap();
-        settings.max_review_rounds = rounds;
+        settings.approval_grace_secs = 0;
+        if let Some(rounds) = max_review_rounds {
+            settings.max_review_rounds = rounds;
+        }
         fs::write(
             store.root.join("settings.json"),
             serde_json::to_vec_pretty(&settings).unwrap(),
@@ -159,8 +162,9 @@ stages:
         )
         .unwrap();
     let env = |_: &str| None;
+    let caller = Caller::cli(true, &env, &|_| None);
     let ready = mark_ready_with_workflow(
-        &store, ws, &idea.id, &idea.id, "cli", "alice", None, false, &env,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     set_checks(
@@ -172,10 +176,18 @@ stages:
         vec![],
         "workspace",
         "alice",
-        &env,
+        &caller,
     )
     .unwrap();
-    consent_provider(&store, "claude", AuthType::ApiKey, "claude", "alice", &env).unwrap();
+    consent_provider(
+        &store,
+        "claude",
+        AuthType::ApiKey,
+        "claude",
+        "alice",
+        &caller,
+    )
+    .unwrap();
     (store, idea.id, ready.run.unwrap().id)
 }
 

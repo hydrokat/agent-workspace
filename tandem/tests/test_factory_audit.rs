@@ -238,8 +238,8 @@ fn entries_collect_job_details_approvals_decisions_and_filters() {
             &user,
         )
         .unwrap();
-    tandem::factory::approval::mark_ready(&store, &idea.id, &idea.id, "tui", "you", &|_| None)
-        .unwrap();
+    let caller = tandem::factory::approval::Caller::tui(&|_| None, &|_| None);
+    tandem::factory::approval::mark_ready(&store, &idea.id, &idea.id, "you", &caller).unwrap();
 
     let run = create_run(
         &store,

@@ -162,6 +162,8 @@ fn test_all_model_types_round_trip_json() {
         feasibility_verdict: None,
         plan: Some(plan.clone()),
         plan_snapshot: Some(artifact.clone()),
+        ready_via: None,
+        ready_at: None,
         artifacts: Vec::new(),
         assumptions: vec!["Single repo".to_string()],
         runs: vec![run.id.clone()],

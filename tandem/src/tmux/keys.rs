@@ -14,6 +14,7 @@ pub const WITHDRAW: &str = "Alt+w";
 pub const FACTORY_TAB_KEY: &str = "Alt+f";
 pub const FACTORY_NEW_IDEA_KEY: &str = "Ctrl+Alt+n";
 pub const FACTORY_MARK_READY_KEY: &str = "Ctrl+Alt+y";
+pub const FACTORY_UNDO_READY_KEY: &str = "Ctrl+Alt+u";
 pub const FACTORY_PAUSE_RUN_KEY: &str = "Ctrl+Alt+p";
 pub const FACTORY_CANCEL_RUN_KEY: &str = "Ctrl+Alt+c";
 pub const WIZARD_ADD: &str = "Alt+a";

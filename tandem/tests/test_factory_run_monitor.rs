@@ -72,6 +72,9 @@ fn full_plan_md() -> &'static str {
 fn setup_run(ws: &Path) -> (FactoryStore, String, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = user_actor();
     let orch = orch_actor();
 
@@ -139,22 +142,23 @@ fn setup_run(ws: &Path) -> (FactoryStore, String, String) {
         )
         .unwrap();
 
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     let ready = mark_ready_with_workflow(
         &store,
         ws,
         &idea.id,
         &idea.id,
-        "tui",
         &user.id,
         Some("default-delivery"),
         false,
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     assert!(!ready.message.contains("Execution arrives"));
@@ -351,7 +355,8 @@ fn test_snapshot_run_summary_stages_jobs_cost_elapsed_and_paused_needs_you() {
             no_behaviour_change: false,
         }),
     );
-    pause_run_by_user(&store, &run_id, false, &user_actor(), &no_agent_env).unwrap();
+    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
+    pause_run_by_user(&store, &run_id, false, &user_actor(), &caller).unwrap();
 
     let snap2 = collect_with_factory(&ws, &coord, Duration::from_secs(1), true);
     let factory2 = snap2.factory.as_ref().unwrap();
@@ -607,13 +612,14 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
 fn test_pause_resume_cancel_and_retry_controls() {
     let ws = temp_workspace("controls");
     let (store, idea_id, run_id) = setup_run(&ws);
+    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
     tandem::factory::broker::gate::consent_provider(
         &store,
         "claude",
         tandem::factory::broker::gate::AuthType::ApiKey,
         "claude",
         "argie",
-        &no_agent_env,
+        &caller,
     )
     .unwrap();
     let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
@@ -636,7 +642,8 @@ fn test_pause_resume_cancel_and_retry_controls() {
     );
 
     // Pause again and test Retry with hypothesis
-    pause_run_by_user(&store, &run_id, false, &user_actor(), &no_agent_env).unwrap();
+    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
+    pause_run_by_user(&store, &run_id, false, &user_actor(), &caller).unwrap();
     append_run_event(
         &store,
         &idea_id,
@@ -869,13 +876,14 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
 
     let ws = temp_workspace("nav-esc");
     let (store, idea_id, run_id) = setup_run(&ws);
+    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
     tandem::factory::broker::gate::consent_provider(
         &store,
         "claude",
         tandem::factory::broker::gate::AuthType::ApiKey,
         "claude",
         "argie",
-        &no_agent_env,
+        &caller,
     )
     .unwrap();
 
@@ -923,7 +931,8 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
     assert!(matches!(monitor.sub_view, RunSubView::Main));
 
     // Paused with retries exhausted -> 'r' opens RetryPrompt -> render error -> Esc back
-    pause_run_by_user(&store, &run_id, false, &user_actor(), &no_agent_env).unwrap();
+    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
+    pause_run_by_user(&store, &run_id, false, &user_actor(), &caller).unwrap();
     append_run_event(
         &store,
         &idea_id,

@@ -14,7 +14,7 @@ use tandem::factory::budget::{
     StageTokenEstimate, check, cost_cap_label, effective_stage_budget, estimate,
     provider_reports_usage,
 };
-use tandem::factory::commands::run_with_io;
+use tandem::factory::commands::run_with_caller;
 use tandem::factory::events::{Event, append, read_all};
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
 use tandem::factory::machine::{Command, EventData};
@@ -170,14 +170,16 @@ fn setup_queued_run_with_budget(
     let (store, idea_id) = setup_planning_idea(ws);
     let mut settings = store.settings().unwrap();
     settings.default_budget = default_budget;
+    settings.approval_grace_secs = 0;
     save_settings(&store, &settings).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
 
@@ -186,10 +188,9 @@ fn setup_queued_run_with_budget(
         ws,
         &idea_id,
         &idea_id,
-        "cli",
         "alice",
         MarkReadyOptions::default(),
-        &no_env,
+        &caller,
     )
     .unwrap();
     let run_id = ready.run.unwrap().id;
@@ -350,6 +351,7 @@ fn idea_ready_requires_accept_estimate_when_upper_end_exceeds_cap() {
 
     // Record a completed historical run for default-delivery so estimate has duration history.
     let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
     settings.default_budget = Budget {
         max_cost_usd: Some(5.0),
         max_duration_secs: Some(600),
@@ -426,15 +428,15 @@ fn idea_ready_requires_accept_estimate_when_upper_end_exceeds_cap() {
     .unwrap();
 
     // Without --accept-estimate: refused because 1200s estimate > 600s cap.
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
     let err = mark_ready_with_options(
         &store,
         &ws,
         &idea_id,
         &idea_id,
-        "cli",
         "alice",
         MarkReadyOptions::default(),
-        &no_env,
+        &caller,
     )
     .unwrap_err();
     assert!(matches!(err, ApprovalError::Gate(_)));
@@ -446,14 +448,13 @@ fn idea_ready_requires_accept_estimate_when_upper_end_exceeds_cap() {
         &ws,
         &idea_id,
         &idea_id,
-        "cli",
         "alice",
         MarkReadyOptions {
             max_cost_usd: Some(3.0),
             accept_estimate: true,
             ..Default::default()
         },
-        &no_env,
+        &caller,
     )
     .unwrap();
     assert_eq!(ready.budget.as_ref().unwrap().max_cost_usd, Some(3.0));
@@ -653,18 +654,19 @@ fn run_budget_command_is_user_only_validates_upper_bound_and_emits_budget_change
     let user = user_actor();
 
     // Agent caller rejected.
-    let err = change_run_budget(&store, &run_id, Some(5.0), None, None, &user, &|k| {
-        (k == "TANDEM_ROLE").then(|| "orchestrator".to_string())
-    })
-    .unwrap_err();
+    let agent_env = |k: &str| (k == "TANDEM_ROLE").then(|| "orchestrator".to_string());
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &|_| None);
+    let user_caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
+    let err = change_run_budget(&store, &run_id, Some(5.0), None, None, &user, &agent_caller)
+        .unwrap_err();
     assert!(matches!(
         err,
         RunnerError::Approval(ApprovalError::AgentCaller)
     ));
 
     // Above settings upper-bound rejected.
-    let err =
-        change_run_budget(&store, &run_id, Some(20.0), None, None, &user, &no_env).unwrap_err();
+    let err = change_run_budget(&store, &run_id, Some(20.0), None, None, &user, &user_caller)
+        .unwrap_err();
     assert!(
         err.to_string().contains("exceeds settings limit"),
         "got: {err}"
@@ -692,10 +694,9 @@ fn run_budget_command_is_user_only_validates_upper_bound_and_emits_budget_change
         factory: true,
         ..Default::default()
     };
-    let mut stdin = std::io::empty();
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    let code = run_with_io(&f_args, &ws, &cfg, &mut stdin, &mut stdout, &mut stderr);
+    let code = run_with_caller(&f_args, &ws, &cfg, &user_caller, &mut stdout, &mut stderr);
     assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&stderr));
 
     let run = get_run(&store, &run_id).unwrap().unwrap();

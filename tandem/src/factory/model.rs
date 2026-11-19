@@ -251,6 +251,10 @@ pub struct Idea {
     #[serde(default)]
     pub plan_snapshot: Option<ArtifactRef>,
     #[serde(default)]
+    pub ready_via: Option<String>,
+    #[serde(default)]
+    pub ready_at: Option<f64>,
+    #[serde(default)]
     pub artifacts: Vec<ArtifactRef>,
     #[serde(default)]
     pub assumptions: Vec<String>,

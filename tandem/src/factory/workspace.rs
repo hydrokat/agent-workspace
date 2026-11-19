@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
-use crate::factory::approval::{ApprovalError, ensure_user_caller};
+use crate::factory::approval::{ApprovalError, Caller, require_user};
 use crate::factory::broker::git::{AllowedGitSubcommand, GitError, run_git};
 use crate::factory::data_policy::{
     ExcludedPathEntry, is_worktree_excluded, load_exclusions, normalize_rel_path, save_exclusions,
@@ -166,9 +166,9 @@ pub fn set_run_target(
     workspace: &Path,
     run_id: &str,
     target_name: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<Run, WorkspaceError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if !is_valid_run_id(run_id) {
         return Err(FactoryError::InvalidInput(format!("invalid run id: {run_id}")).into());
     }
@@ -411,9 +411,9 @@ pub fn cleanup_worktree(
     workspace: &Path,
     run_id: &str,
     _actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<(), WorkspaceError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if !is_valid_run_id(run_id) {
         return Err(FactoryError::InvalidInput(format!("invalid run id: {run_id}")).into());
     }

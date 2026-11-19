@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::coordination::filelock::exclusive_lock;
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::broker::gh::{AllowedGhSubcommand, GhError, run_gh_bin};
 use super::broker::job::job_dir;
 use super::events::{
@@ -755,9 +755,9 @@ pub fn export_specs(
     store: &FactoryStore,
     workspace: &Path,
     run_id: &str,
-    env_get: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ExportSpecsResult, HandoffError> {
-    ensure_user_caller(env_get)?;
+    require_user(caller)?;
     if !is_valid_run_id(run_id) {
         return Err(FactoryError::InvalidInput(format!("invalid run id: {run_id}")).into());
     }

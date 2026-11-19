@@ -190,8 +190,6 @@ pub struct FactoryIdeaReadyArgs {
     pub id: String,
     #[arg(long)]
     pub confirm: String,
-    #[arg(long, default_value = "cli")]
-    pub via: String,
     #[arg(long)]
     pub workflow: Option<String>,
     #[arg(long)]
@@ -405,8 +403,6 @@ pub struct FactoryRunApproveArgs {
     pub confirm: String,
     #[arg(long)]
     pub stage: Option<String>,
-    #[arg(long, default_value = "cli")]
-    pub via: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -1122,10 +1118,86 @@ fn run_simulate(
     }
 }
 
+fn lookup_tmux_pane_role(workspace: &Path, pane_id: &str) -> Option<String> {
+    let is_valid_pane =
+        pane_id.starts_with('%') && pane_id[1..].chars().all(|c| c.is_ascii_digit());
+    if !is_valid_pane {
+        return None;
+    }
+    let socket = std::env::var("TMUX")
+        .ok()
+        .and_then(|v| {
+            let sock_path = v.split(',').next()?;
+            Path::new(sock_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| crate::tmux::client::socket_for(workspace));
+    let client = crate::tmux::client::TmuxClient::new(socket, None);
+    let res = client
+        .run(&["display-message", "-p", "-t", pane_id, "#{@tandem_role}"])
+        .ok()?;
+    if res.code != 0 {
+        return None;
+    }
+    let role = res.out.trim().to_string();
+    if role.is_empty() { None } else { Some(role) }
+}
+
+fn is_authenticated_web_gateway(config: &Config) -> bool {
+    if std::env::var("TANDEM_INTERNAL_SURFACE").ok().as_deref() != Some("web") {
+        return false;
+    }
+    let Ok(token) = std::env::var("TANDEM_AUTH_TOKEN") else {
+        return false;
+    };
+    if token.trim().is_empty() {
+        return false;
+    }
+    let cfg_path = crate::web_manager::web_config_path(&config.state_dir);
+    let Ok(web_cfg) = crate::web_manager::load_web_config(&cfg_path) else {
+        return false;
+    };
+    !web_cfg.auth_token.is_empty() && web_cfg.auth_token == token
+}
+
 pub fn run_with_io(
     args: &FactoryArgs,
     workspace: &Path,
     config: &Config,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    use std::io::IsTerminal;
+    let env_fn = |k: &str| std::env::var(k).ok();
+    let pane_fn = |pane: &str| lookup_tmux_pane_role(workspace, pane);
+    let caller = if is_authenticated_web_gateway(config) {
+        super::approval::Caller::web(&env_fn)
+    } else {
+        super::approval::Caller::cli(std::io::stdin().is_terminal(), &env_fn, &pane_fn)
+    };
+    run_with_caller_io(args, workspace, config, &caller, stdin, stdout, stderr)
+}
+
+pub fn run_with_caller(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let mut empty = std::io::empty();
+    run_with_caller_io(args, workspace, config, caller, &mut empty, stdout, stderr)
+}
+
+pub fn run_with_caller_io(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -1136,7 +1208,7 @@ pub fn run_with_io(
     {
         return run_simulate(sim_args, workspace, stdout, stderr);
     }
-    match execute(args, workspace, config, stdin) {
+    match execute(args, workspace, config, caller, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
             let _ = stdout.write_all(b"\n");
@@ -1169,6 +1241,7 @@ fn execute(
     args: &FactoryArgs,
     workspace: &Path,
     config: &Config,
+    caller: &super::approval::Caller<'_>,
     stdin: &mut dyn Read,
 ) -> Result<String, CmdError> {
     let enabled = config.factory || registry::factory_enabled(&config.state_dir, workspace);
@@ -1340,7 +1413,6 @@ fn execute(
                     workspace,
                     &a.id,
                     &a.confirm,
-                    &a.via,
                     &approved_by,
                     super::approval::MarkReadyOptions {
                         workflow_override: a.workflow.clone(),
@@ -1350,7 +1422,7 @@ fn execute(
                         max_retries: a.max_retries,
                         accept_estimate: a.accept_estimate,
                     },
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -1368,14 +1440,12 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let user_id = resolve_owner(None)?;
-                let updated = super::approval::revoke_ready(&store, &a.id, &user_id, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let updated = super::approval::revoke_ready(&store, &a.id, &user_id, caller)
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
                 serialize_compact(&updated)
             }
             FactoryIdeaCommand::Cancel(a) => {
@@ -1386,14 +1456,12 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let res = super::runner::cancel_idea(&store, &a.id, &a.confirm, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let res = super::runner::cancel_idea(&store, &a.id, &a.confirm, &actor, caller)
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
                 if a.json {
                     serialize_compact(&res)
                 } else {
@@ -1591,12 +1659,10 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1649,12 +1715,10 @@ fn execute(
                         a.confirm, a.id
                     )));
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1676,17 +1740,15 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let run =
-                    super::workspace::set_run_target(&store, workspace, &a.run, &a.name, &|k| {
-                        std::env::var(k).ok()
-                    })
-                    .map_err(|e| match e {
-                        super::workspace::WorkspaceError::Approval(ae) => CmdError {
-                            exit_code: ae.exit_code(),
-                            code: ae.code(),
-                            message: ae.to_string(),
-                        },
-                        other => CmdError::invalid_input(other.to_string()),
-                    })?;
+                    super::workspace::set_run_target(&store, workspace, &a.run, &a.name, caller)
+                        .map_err(|e| match e {
+                            super::workspace::WorkspaceError::Approval(ae) => CmdError {
+                                exit_code: ae.exit_code(),
+                                code: ae.code(),
+                                message: ae.to_string(),
+                            },
+                            other => CmdError::invalid_input(other.to_string()),
+                        })?;
                 serialize_compact(&run)
             }
             FactoryRunCommand::Cleanup(a) => {
@@ -1703,22 +1765,18 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                super::workspace::cleanup_worktree(&store, workspace, &a.run, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                super::workspace::cleanup_worktree(&store, workspace, &a.run, &actor, caller)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
                 serialize_compact(&serde_json::json!({ "cleaned": a.run }))
             }
             FactoryRunCommand::Retry(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1730,7 +1788,7 @@ fn execute(
                     &a.stage,
                     &a.hypothesis,
                     &actor,
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -1747,10 +1805,8 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let res = super::runner::pause_run_by_user(&store, &a.run, a.now, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
+                let res = super::runner::pause_run_by_user(&store, &a.run, a.now, &actor, caller)
+                    .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
                     code: e.code(),
                     message: e.to_string(),
@@ -1765,12 +1821,10 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1814,7 +1868,7 @@ fn execute(
                     a.max_duration,
                     a.max_retries,
                     &actor,
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -1835,14 +1889,12 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let res = super::runner::cancel_run(&store, &a.run, &a.confirm, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let res = super::runner::cancel_run(&store, &a.run, &a.confirm, &actor, caller)
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
                 if a.json {
                     serialize_compact(&res)
                 } else {
@@ -1900,14 +1952,13 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                let res = super::handoff::export_specs(&store, workspace, &a.run, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let res = super::handoff::export_specs(&store, workspace, &a.run, caller).map_err(
+                    |e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    },
+                )?;
                 if a.json {
                     serialize_compact(&res)
                 } else {
@@ -1972,9 +2023,8 @@ fn execute(
                     action,
                     &a.confirm,
                     a.stage.as_deref(),
-                    &a.via,
                     &approved_by,
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -2034,7 +2084,7 @@ fn execute(
                         auth_type,
                         &a.confirm,
                         &consented_by,
-                        &|k| std::env::var(k).ok(),
+                        caller,
                     )
                     .map_err(|e| CmdError {
                         exit_code: e.exit_code(),
@@ -2049,7 +2099,7 @@ fn execute(
                         &store,
                         &a.provider,
                         &revoked_by,
-                        &|k| std::env::var(k).ok(),
+                        caller,
                     )
                     .map_err(|e| CmdError {
                         exit_code: e.exit_code(),
@@ -2064,7 +2114,7 @@ fn execute(
             if !enabled {
                 return Err(CmdError::factory_disabled());
             }
-            handle_checks_command(&c_args.command, &store, workspace)
+            handle_checks_command(&c_args.command, &store, workspace, caller)
         }
         FactoryCommand::Settings(s_args) => {
             if !enabled {
@@ -2086,14 +2136,12 @@ fn execute(
                 }
                 FactorySettingsCommand::Set(a) => {
                     let actor = resolve_owner(None)?;
-                    let res = super::settings::set(&store, &a.key, &a.value, &actor, &|k| {
-                        std::env::var(k).ok()
-                    })
-                    .map_err(|e| CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    })?;
+                    let res = super::settings::set(&store, &a.key, &a.value, &actor, caller)
+                        .map_err(|e| CmdError {
+                            exit_code: e.exit_code(),
+                            code: e.code(),
+                            message: e.to_string(),
+                        })?;
                     if a.json {
                         serialize_compact(&res)
                     } else {
@@ -2106,7 +2154,7 @@ fn execute(
             if !enabled {
                 return Err(CmdError::factory_disabled());
             }
-            handle_permissions_command(&p_args.command, &store)
+            handle_permissions_command(&p_args.command, &store, caller)
         }
         FactoryCommand::Runner => {
             if !enabled {
@@ -3021,6 +3069,7 @@ fn format_show_checks_text(checks: &BTreeMap<String, super::checks::ChecksConfig
 fn handle_permissions_command(
     cmd: &FactoryPermissionsCommand,
     store: &FactoryStore,
+    caller: &super::approval::Caller<'_>,
 ) -> Result<String, CmdError> {
     let map_approval_err = |e: super::approval::ApprovalError| CmdError {
         exit_code: e.exit_code(),
@@ -3052,19 +3101,15 @@ fn handle_permissions_command(
                 .ok_or_else(|| CmdError::invalid_input(format!("unknown tool: {}", a.tool)))?;
             let actor = resolve_owner(None)?;
             let res = if a.target {
-                super::permissions::allow_target_tool(store, &a.subject, tool, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(map_approval_err)?
+                super::permissions::allow_target_tool(store, &a.subject, tool, &actor, caller)
+                    .map_err(map_approval_err)?
             } else {
                 let agent =
                     super::workflow::schema::WorkflowAgent::parse(&a.subject).ok_or_else(|| {
                         CmdError::invalid_input(format!("unknown agent: {}", a.subject))
                     })?;
-                super::permissions::allow_agent_tool(store, agent, tool, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(map_approval_err)?
+                super::permissions::allow_agent_tool(store, agent, tool, &actor, caller)
+                    .map_err(map_approval_err)?
             };
             if a.json {
                 serialize_compact(&res)
@@ -3089,15 +3134,11 @@ fn handle_permissions_command(
                     super::workflow::schema::WorkflowAgent::parse(&a.subject).ok_or_else(|| {
                         CmdError::invalid_input(format!("unknown agent: {}", a.subject))
                     })?;
-                super::permissions::deny_agent_tool(store, agent, tool, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(map_approval_err)?
+                super::permissions::deny_agent_tool(store, agent, tool, &actor, caller)
+                    .map_err(map_approval_err)?
             } else {
-                super::permissions::deny_target_tool(store, &a.subject, tool, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(map_approval_err)?
+                super::permissions::deny_target_tool(store, &a.subject, tool, &actor, caller)
+                    .map_err(map_approval_err)?
             };
             if a.json {
                 serialize_compact(&res)
@@ -3115,6 +3156,7 @@ fn handle_checks_command(
     cmd: &FactoryChecksCommand,
     store: &FactoryStore,
     workspace: &Path,
+    caller: &super::approval::Caller<'_>,
 ) -> Result<String, CmdError> {
     match cmd {
         FactoryChecksCommand::Discover(a) => {
@@ -3152,7 +3194,7 @@ fn handle_checks_command(
                     a.timeout_secs,
                     &a.confirm,
                     &confirmed_by,
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(map_checks_error)?;
                 deploy_cfg = Some(dcfg);
@@ -3186,7 +3228,7 @@ fn handle_checks_command(
                     ui_paths,
                     &a.confirm,
                     &confirmed_by,
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(map_checks_error)?;
                 if a.json {

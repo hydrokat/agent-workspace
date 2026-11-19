@@ -290,7 +290,7 @@ export class CliTandemGateway implements ITandemGateway {
     ideaId: string,
     options?: { workflow?: string; deploy?: boolean }
   ): Promise<ReadyResult> {
-    const args = ["factory", "idea", "ready", ideaId, "--confirm", ideaId, "--via", "web"];
+    const args = ["factory", "idea", "ready", ideaId, "--confirm", ideaId];
     if (options?.workflow) {
       args.push("--workflow", options.workflow);
     }

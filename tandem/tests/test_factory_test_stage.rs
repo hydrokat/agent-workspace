@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tandem::factory::approval::mark_ready_with_workflow;
+use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::checks::{CheckOutcome, MAX_CHECK_LOG_BYTES, run_checks};
 use tandem::factory::broker::gate::{AuthType, consent_provider};
@@ -78,6 +78,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
     init_git_repo(ws);
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".into(),
@@ -133,16 +136,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
             &orch,
         )
         .unwrap();
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     let ready = mark_ready_with_workflow(
-        &store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     (store, idea.id, ready.run.unwrap().id)
@@ -315,13 +311,14 @@ sys.exit(proc.returncode)
 fn test_stage_passing_checks_succeeds_without_starting_agent_job() {
     let ws = temp_ws("pass-no-agent");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     set_checks(
@@ -333,7 +330,7 @@ fn test_stage_passing_checks_succeeds_without_starting_agent_job() {
         vec![],
         "workspace",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
 
@@ -366,13 +363,14 @@ fn test_stage_passing_checks_succeeds_without_starting_agent_job() {
 fn test_stage_failing_checks_invokes_economy_verifier_and_records_diagnosis() {
     let ws = temp_ws("fail-verifier");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     set_checks(
@@ -384,7 +382,7 @@ fn test_stage_failing_checks_invokes_economy_verifier_and_records_diagnosis() {
         vec![],
         "workspace",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
 
@@ -467,13 +465,14 @@ EOF
 fn runner_reopens_develop_on_test_failure_and_pauses_when_develop_retries_exhausted() {
     let ws = temp_ws("reopen-develop");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     set_checks(
@@ -485,7 +484,7 @@ fn runner_reopens_develop_on_test_failure_and_pauses_when_develop_retries_exhaus
         vec![],
         "workspace",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
 
@@ -549,13 +548,14 @@ fn runner_reopens_develop_on_test_failure_and_pauses_when_develop_retries_exhaus
 fn baseline_failure_pauses_run_before_any_work() {
     let ws = temp_ws("baseline-fail");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     set_checks(
@@ -567,7 +567,7 @@ fn baseline_failure_pauses_run_before_any_work() {
         vec![],
         "workspace",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
 
