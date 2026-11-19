@@ -288,7 +288,10 @@ impl SettingsTab {
         };
         let store = FactoryStore::new(ws);
         let owner = Self::owner_name();
-        match factory_settings::set(&store, key, value, &owner, &|k| std::env::var(k).ok()) {
+        let env_fn = |k: &str| std::env::var(k).ok();
+        let no_pane = |_: &str| None;
+        let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+        match factory_settings::set(&store, key, value, &owner, &caller) {
             Ok(res) => {
                 self.factory_settings = res.settings;
                 self.factory_providers =
@@ -672,9 +675,10 @@ impl SettingsTab {
                 };
                 let store = FactoryStore::new(ws);
                 let owner = Self::owner_name();
-                match consent_provider(&store, &provider, auth, &confirm, &owner, &|k| {
-                    std::env::var(k).ok()
-                }) {
+                let env_fn = |k: &str| std::env::var(k).ok();
+                let no_pane = |_: &str| None;
+                let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+                match consent_provider(&store, &provider, auth, &confirm, &owner, &caller) {
                     Ok(_) => {
                         self.factory_consent = None;
                         self.reload_factory();
@@ -729,7 +733,10 @@ impl SettingsTab {
         };
         let store = FactoryStore::new(ws);
         let owner = Self::owner_name();
-        match revoke_provider(&store, provider, &owner, &|k| std::env::var(k).ok()) {
+        let env_fn = |k: &str| std::env::var(k).ok();
+        let no_pane = |_: &str| None;
+        let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+        match revoke_provider(&store, provider, &owner, &caller) {
             Ok(_) => {
                 self.factory_revoke = None;
                 self.reload_factory();
