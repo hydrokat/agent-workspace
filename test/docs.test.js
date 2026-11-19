@@ -565,3 +565,72 @@ describe('factory mode governance documentation', () => {
     assert.ok(changelog.includes('--via'), '--via removal noted in CHANGELOG.md');
   });
 });
+
+describe('factory mode user guide, troubleshooting, governance stance, and non-goals', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+
+  it('documents what Factory Mode is, prerequisites, walkthrough, and the three gates in root README', () => {
+    for (const phrase of [
+      'from idea to pull request',
+      'Before you start',
+      'gh auth login',
+      'The three gates',
+      'Gate 1',
+      'Gate 2',
+      'Gate 3',
+      'idea revoke-ready',
+      'run withdraw',
+    ]) {
+      assert.ok(
+        readme.toLowerCase().includes(phrase.toLowerCase()),
+        `"${phrase}" in README.md`
+      );
+    }
+  });
+
+  it('documents the pause reasons table, settings/workflows, and troubleshooting including factory doctor', () => {
+    for (const phrase of [
+      'When a run pauses',
+      'Settings and workflows',
+      'only tighten',
+      'Troubleshooting',
+      'mode mismatch',
+      'unsupported host',
+      'screenshot',
+      'tandem factory doctor',
+    ]) {
+      assert.ok(
+        readme.toLowerCase().includes(phrase.toLowerCase()),
+        `"${phrase}" in README.md`
+      );
+    }
+    assert.ok(tandemReadme.includes('tandem factory doctor'), 'tandem factory doctor in tandem/README.md');
+  });
+
+  it('documents what stays yours, the six non-goals, known limits, and your data in root README', () => {
+    for (const phrase of [
+      'What stays yours',
+      'What Factory Mode does not do',
+      'autonomous production deployment by default',
+      'unrestricted provider execution',
+      'cross-project portfolio optimization',
+      'self-modifying workflows',
+      'fully automatic merge',
+      'IDE replacement',
+      'Known limits',
+      'same OS user',
+      'grace period',
+      'one pull request per run',
+      'GitHub only',
+      'Your data',
+      '.env*',
+      'secrets/**',
+    ]) {
+      assert.ok(
+        readme.toLowerCase().includes(phrase.toLowerCase()),
+        `"${phrase}" in README.md`
+      );
+    }
+  });
+});
