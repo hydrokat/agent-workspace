@@ -267,7 +267,7 @@ pub fn acquire_runner_lock(store: &FactoryStore) -> Result<File, RunnerError> {
             use std::io::{Seek, SeekFrom, Write};
             file.set_len(0)?;
             file.seek(SeekFrom::Start(0))?;
-            writeln!(file, "{}", std::process::id())?;
+            writeln!(file, "{}", super::broker::current_process_id())?;
             file.sync_all()?;
             Ok(file)
         }

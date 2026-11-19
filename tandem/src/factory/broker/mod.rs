@@ -16,6 +16,10 @@ use std::time::{Duration, Instant};
 
 pub(crate) const MAX_BROKER_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
+pub(crate) fn current_process_id() -> u32 {
+    std::process::id()
+}
+
 pub(crate) enum ChildWaitOutcome {
     Exited {
         status: ExitStatus,

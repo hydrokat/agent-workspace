@@ -1,7 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::Command as StdCommand;
 
 use serde::{Deserialize, Serialize};
 
@@ -123,21 +122,7 @@ fn runner_lock_path(store: &FactoryStore) -> std::path::PathBuf {
 }
 
 fn is_pid_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        StdCommand::new("kill")
-            .args(["-0", &pid.to_string()])
-            .output()
-            .is_ok_and(|out| out.status.success())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
-    }
+    pid != 0 && crate::web_manager::is_pid_alive(pid)
 }
 
 pub fn is_runner_live(store: &FactoryStore) -> bool {
