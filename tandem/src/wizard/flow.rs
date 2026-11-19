@@ -208,7 +208,7 @@ impl WizardFlow {
                 self.step = Step::Cli;
             }
             Step::Model => {
-                self.step = Step::Role;
+                self.step = if self.factory { Step::Cli } else { Step::Role };
             }
             Step::Perms => {
                 self.step = Step::Model;

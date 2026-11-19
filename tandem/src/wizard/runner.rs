@@ -35,9 +35,17 @@ pub fn run_add_agent(
     installed: Option<HashMap<String, bool>>,
     loader: Option<ModelLoader>,
 ) -> Result<Option<AgentSpec>, std::io::Error> {
+    run_add_agent_for_session(installed, loader, false)
+}
+
+pub fn run_add_agent_for_session(
+    installed: Option<HashMap<String, bool>>,
+    loader: Option<ModelLoader>,
+    factory: bool,
+) -> Result<Option<AgentSpec>, std::io::Error> {
     let installed = installed.unwrap_or_else(installed_clis);
     let loader = loader.unwrap_or_else(|| Arc::new(load_models));
-    let mut app = WizardApp::new(installed, loader, true);
+    let mut app = WizardApp::new_for_session(installed, loader, true, factory);
     let result = run_app_in_terminal(&mut app)?;
     Ok(result.and_then(|mut agents| agents.pop()))
 }

@@ -703,7 +703,19 @@ pub fn save_state_for(
     factory: bool,
 ) -> Result<SavedState, anyhow::Error> {
     let snapshot = capture_state(layout, clean)?;
+    store_snapshot(workspace, snapshot, factory)
+}
+
+pub fn store_snapshot(
+    workspace: &Path,
+    snapshot: SavedState,
+    factory: bool,
+) -> Result<SavedState, anyhow::Error> {
     if snapshot.agents.is_empty() {
+        if factory {
+            let _ = state::discard(&state::state_path_for(workspace, true));
+            return Ok(snapshot);
+        }
         return Err(anyhow::anyhow!("no agents to save"));
     }
     if factory {
@@ -848,8 +860,20 @@ pub fn restart(layout: &mut Layout, pane_id: &str, workspace: &Path, config: &Co
 
 pub fn resume_specs<F>(
     saved: &SavedState,
+    workspace: &Path,
+    which: F,
+) -> (Vec<AgentSpec>, Vec<String>)
+where
+    F: Fn(&str) -> Option<PathBuf>,
+{
+    resume_specs_for(saved, workspace, which, false)
+}
+
+pub fn resume_specs_for<F>(
+    saved: &SavedState,
     _workspace: &Path,
     which: F,
+    factory: bool,
 ) -> (Vec<AgentSpec>, Vec<String>)
 where
     F: Fn(&str) -> Option<PathBuf>,
@@ -857,6 +881,13 @@ where
     let mut specs = Vec::new();
     let mut notes = Vec::new();
     for a in &saved.agents {
+        if factory && a.role != "orchestrator" {
+            notes.push(format!(
+                "Ignored saved {} {}: Factory Mode only restores orchestrators.",
+                a.role, a.index
+            ));
+            continue;
+        }
         if which(&a.cli).is_none() {
             notes.push(format!(
                 "Skipped {} {}: {} is not installed.",

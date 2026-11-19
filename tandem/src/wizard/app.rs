@@ -43,7 +43,16 @@ pub struct WizardApp {
 
 impl WizardApp {
     pub fn new(installed: HashMap<String, bool>, model_loader: ModelLoader, single: bool) -> Self {
-        let flow = WizardFlow::new(installed);
+        Self::new_for_session(installed, model_loader, single, false)
+    }
+
+    pub fn new_for_session(
+        installed: HashMap<String, bool>,
+        model_loader: ModelLoader,
+        single: bool,
+        factory: bool,
+    ) -> Self {
+        let flow = WizardFlow::new_for_session(installed, factory);
         let mut app = Self {
             flow,
             single,
