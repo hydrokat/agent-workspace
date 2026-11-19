@@ -46,6 +46,8 @@ fn idea_in_state(state: IdeaState) -> Idea {
         feasibility: None,
         plan: None,
         plan_snapshot: None,
+        ready_via: None,
+        ready_at: None,
         feasibility_verdict: None,
         artifacts: Vec::new(),
         assumptions: Vec::new(),

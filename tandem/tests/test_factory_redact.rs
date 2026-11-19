@@ -463,7 +463,8 @@ fn planted_secrets_never_reach_events_evidence_handoff_or_pr_body() {
     store
         .execute(&idea.id, Command::SelectDirection, &user_actor())
         .unwrap();
-    mark_ready(&store, &idea.id, &idea.id, "cli", "tester", &|_| None).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    mark_ready(&store, &idea.id, &idea.id, "tester", &caller).unwrap();
 
     let run = create_run(
         &store,

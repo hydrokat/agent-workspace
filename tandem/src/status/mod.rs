@@ -15,7 +15,7 @@ pub mod task_tab;
 pub mod web_tab;
 
 pub use app::{StatusApp, StatusTab, run_status};
-pub use banners::{BannerAction, OfferBanner, UpdateBanner};
+pub use banners::{BannerAction, OfferBanner, ReadyGraceBanner, UpdateBanner};
 pub use notify::{ACK_LIMIT, Notifier, order_queries};
 pub use queries_tab::QueriesTab;
 pub use render::*;

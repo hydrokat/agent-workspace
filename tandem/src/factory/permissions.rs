@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::events::{Event, append_locked, redact_event};
 use super::machine::EventData;
 use super::model::{Actor, ActorKind, FactorySettings};
@@ -222,13 +222,13 @@ fn mutate_permissions<F>(
     store: &FactoryStore,
     mutation: PermissionMutation<'_>,
     actor_id: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
     mutate: F,
 ) -> Result<PermissionChangeResult, ApprovalError>
 where
     F: FnOnce(&mut FactorySettings) -> Result<(serde_json::Value, serde_json::Value), FactoryError>,
 {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     store.ensure()?;
 
     let lock_file = OpenOptions::new()
@@ -280,7 +280,7 @@ pub fn allow_agent_tool(
     agent: WorkflowAgent,
     tool: WorkflowTool,
     actor_id: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<PermissionChangeResult, ApprovalError> {
     let agent_key = agent.as_str().to_string();
     mutate_permissions(
@@ -293,7 +293,7 @@ pub fn allow_agent_tool(
             action: "allow",
         },
         actor_id,
-        env,
+        caller,
         |settings| {
             let old = serde_json::to_value(settings.allowed_tools.get(&agent_key))?;
             let entry = settings
@@ -314,7 +314,7 @@ pub fn deny_agent_tool(
     agent: WorkflowAgent,
     tool: WorkflowTool,
     actor_id: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<PermissionChangeResult, ApprovalError> {
     let agent_key = agent.as_str().to_string();
     mutate_permissions(
@@ -327,7 +327,7 @@ pub fn deny_agent_tool(
             action: "deny",
         },
         actor_id,
-        env,
+        caller,
         |settings| {
             let old = serde_json::to_value(settings.allowed_tools.get(&agent_key))?;
             let entry = settings
@@ -346,7 +346,7 @@ pub fn deny_target_tool(
     target: &str,
     tool: WorkflowTool,
     actor_id: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<PermissionChangeResult, ApprovalError> {
     let trimmed = target.trim();
     if trimmed.is_empty() {
@@ -365,7 +365,7 @@ pub fn deny_target_tool(
             action: "deny",
         },
         actor_id,
-        env,
+        caller,
         |settings| {
             let old = serde_json::to_value(settings.denied_tools.get(&target_key))?;
             let entry = settings.denied_tools.entry(target_key.clone()).or_default();
@@ -383,7 +383,7 @@ pub fn allow_target_tool(
     target: &str,
     tool: WorkflowTool,
     actor_id: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<PermissionChangeResult, ApprovalError> {
     let trimmed = target.trim();
     if trimmed.is_empty() {
@@ -402,7 +402,7 @@ pub fn allow_target_tool(
             action: "allow",
         },
         actor_id,
-        env,
+        caller,
         |settings| {
             let old = serde_json::to_value(settings.denied_tools.get(&target_key))?;
             if let Some(entry) = settings.denied_tools.get_mut(&target_key) {

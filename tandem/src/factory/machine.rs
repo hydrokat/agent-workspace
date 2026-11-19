@@ -713,6 +713,8 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
             feasibility_verdict: None,
             plan: None,
             plan_snapshot: None,
+            ready_via: None,
+            ready_at: None,
             artifacts: Vec::new(),
             assumptions: Vec::new(),
             runs: Vec::new(),
@@ -783,12 +785,18 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.state = IdeaState::ReadyForDevelopment;
                     idea.updated = ts;
                 }
-                EventData::IdeaPlanSnapshotFrozen { plan_snapshot, .. } => {
+                EventData::IdeaPlanSnapshotFrozen {
+                    plan_snapshot, via, ..
+                } => {
                     idea.plan_snapshot = Some(plan_snapshot.clone());
+                    idea.ready_via = Some(via.clone());
+                    idea.ready_at = Some(ts);
                     idea.updated = ts;
                 }
                 EventData::IdeaReadyRevoked {} if idea.state == IdeaState::ReadyForDevelopment => {
                     idea.state = IdeaState::Planning;
+                    idea.ready_via = None;
+                    idea.ready_at = None;
                     idea.updated = ts;
                 }
                 EventData::RunCreated { run, .. }

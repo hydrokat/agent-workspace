@@ -3,7 +3,6 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -44,23 +43,37 @@ impl TestWorkspace {
         Self { root, state_dir }
     }
 
-    fn run_cli(&self, args: &[&str], extra_env: &[(&str, &str)]) -> Output {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tandem"));
-        cmd.args(args)
-            .env("TANDEM_WORKSPACE", &self.root)
-            .env("XDG_STATE_HOME", &self.state_dir)
-            .env("TANDEM_FACTORY", "1")
-            .env_remove("TANDEM_ROLE")
-            .env_remove("TANDEM_SESSION_ID")
-            .env_remove("CLAUDECODE")
-            .env_remove("CODEX_THREAD_ID")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-        for (k, v) in extra_env {
-            cmd.env(k, v);
-        }
-        cmd.output().expect("run tandem")
+    fn run_cli(&self, args: &[&str], extra_env: &[(&str, &str)]) -> (i32, Vec<u8>, Vec<u8>) {
+        use clap::Parser;
+        use tandem::cli::{Cli, Command as CliCommand};
+        use tandem::config::Config;
+        use tandem::factory::approval::Caller;
+        use tandem::factory::commands::run_with_caller;
+
+        let mut argv = vec!["tandem"];
+        argv.extend_from_slice(args);
+        let cli = Cli::try_parse_from(argv).expect("parse cli");
+        let Some(CliCommand::Factory(f_args)) = cli.command else {
+            panic!("expected factory command");
+        };
+        let cfg = Config {
+            factory: true,
+            state_dir: self.state_dir.clone(),
+            ..Default::default()
+        };
+        let env_fn = |k: &str| {
+            extra_env
+                .iter()
+                .rev()
+                .find(|(ek, _)| *ek == k)
+                .map(|(_, ev)| (*ev).to_string())
+        };
+        let no_pane = |_: &str| None;
+        let caller = Caller::cli(true, &env_fn, &no_pane);
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = run_with_caller(&f_args, &self.root, &cfg, &caller, &mut stdout, &mut stderr);
+        (code, stdout, stderr)
     }
 }
 
@@ -73,6 +86,10 @@ impl Drop for TestWorkspace {
 }
 
 fn no_env(_: &str) -> Option<String> {
+    None
+}
+
+fn no_pane(_: &str) -> Option<String> {
     None
 }
 
@@ -345,9 +362,11 @@ fn settings_set_is_user_only_blocks_protected_keys_and_emits_event() {
             None
         }
     };
-    let err = set_setting(&store, "max_parallel_agents", "4", "bob", &agent_env).unwrap_err();
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &no_pane);
+    let err = set_setting(&store, "max_parallel_agents", "4", "bob", &agent_caller).unwrap_err();
     assert!(matches!(err, ApprovalError::AgentCaller));
 
+    let user_caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     for protected in [
         "provider_gates",
         "providers",
@@ -355,14 +374,14 @@ fn settings_set_is_user_only_blocks_protected_keys_and_emits_event() {
         "deploy",
         "deploy_command",
     ] {
-        let err = set_setting(&store, protected, "{}", "alice", &no_env).unwrap_err();
+        let err = set_setting(&store, protected, "{}", "alice", &user_caller).unwrap_err();
         assert!(
             matches!(err, ApprovalError::InvalidInput(_)),
             "expected InvalidInput for {protected}, got: {err:?}"
         );
     }
 
-    let res = set_setting(&store, "max_parallel_agents", "5", "alice", &no_env).unwrap();
+    let res = set_setting(&store, "max_parallel_agents", "5", "alice", &user_caller).unwrap();
     assert_eq!(res.key, "max_parallel_agents");
     assert_eq!(res.old_value, json!(3));
     assert_eq!(res.new_value, json!(5));
@@ -390,17 +409,13 @@ fn settings_set_is_user_only_blocks_protected_keys_and_emits_event() {
 fn cli_settings_get_and_set_round_trip() {
     let ws = TestWorkspace::new("cli");
 
-    let get_out = ws.run_cli(&["factory", "settings", "get", "--json"], &[]);
-    assert!(
-        get_out.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&get_out.stderr)
-    );
-    let get_json: Value = serde_json::from_slice(&get_out.stdout).unwrap();
+    let (code, stdout, stderr) = ws.run_cli(&["factory", "settings", "get", "--json"], &[]);
+    assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let get_json: Value = serde_json::from_slice(&stdout).unwrap();
     assert_eq!(get_json["max_parallel_agents"], json!(3));
     assert_eq!(get_json["default_workflow"], json!("default-delivery"));
 
-    let bad_out = ws.run_cli(
+    let (bad_code, _, _) = ws.run_cli(
         &[
             "factory",
             "settings",
@@ -411,9 +426,9 @@ fn cli_settings_get_and_set_round_trip() {
         ],
         &[("USER", "alice")],
     );
-    assert!(!bad_out.status.success());
+    assert_ne!(bad_code, 0);
 
-    let agent_out = ws.run_cli(
+    let (agent_code, _, _) = ws.run_cli(
         &[
             "factory",
             "settings",
@@ -424,9 +439,9 @@ fn cli_settings_get_and_set_round_trip() {
         ],
         &[("TANDEM_ROLE", "implementer"), ("USER", "alice")],
     );
-    assert!(!agent_out.status.success());
+    assert_ne!(agent_code, 0);
 
-    let set_out = ws.run_cli(
+    let (set_code, set_stdout, set_stderr) = ws.run_cli(
         &[
             "factory",
             "settings",
@@ -437,18 +452,19 @@ fn cli_settings_get_and_set_round_trip() {
         ],
         &[("USER", "alice")],
     );
-    assert!(
-        set_out.status.success(),
+    assert_eq!(
+        set_code,
+        0,
         "stderr: {}",
-        String::from_utf8_lossy(&set_out.stderr)
+        String::from_utf8_lossy(&set_stderr)
     );
-    let set_json: Value = serde_json::from_slice(&set_out.stdout).unwrap();
+    let set_json: Value = serde_json::from_slice(&set_stdout).unwrap();
     assert_eq!(set_json["key"], json!("max_parallel_agents"));
     assert_eq!(set_json["old_value"], json!(3));
     assert_eq!(set_json["new_value"], json!(4));
 
-    let get_after = ws.run_cli(&["factory", "settings", "get", "--json"], &[]);
-    assert!(get_after.status.success());
-    let after_json: Value = serde_json::from_slice(&get_after.stdout).unwrap();
+    let (after_code, after_stdout, _) = ws.run_cli(&["factory", "settings", "get", "--json"], &[]);
+    assert_eq!(after_code, 0);
+    let after_json: Value = serde_json::from_slice(&after_stdout).unwrap();
     assert_eq!(after_json["max_parallel_agents"], json!(4));
 }

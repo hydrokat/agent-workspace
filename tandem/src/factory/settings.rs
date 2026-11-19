@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::events::{Event, append_locked, redact_event, reject_if_symlink, set_private_file_mode};
 use super::machine::EventData;
 use super::model::{Actor, ActorKind, Budget, FactorySettings, ModelPrice};
@@ -486,9 +486,9 @@ pub fn set(
     key: &str,
     value: &str,
     actor_id: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<SettingsChangeResult, ApprovalError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
 
     if is_protected_key(key) {
         return Err(ApprovalError::InvalidInput(format!(

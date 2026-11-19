@@ -99,6 +99,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
     init_git_repo(ws);
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = user_actor();
     let orch = Actor {
         kind: ActorKind::Orchestrator,
@@ -156,17 +159,18 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
             &orch,
         )
         .unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
     let ready = mark_ready_with_workflow(
-        &store, ws, &idea.id, &idea.id, "cli", "alice", None, false, &no_env,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     (store, idea.id, ready.run.unwrap().id)
@@ -197,7 +201,8 @@ fn pause_at_stage_boundary_lets_running_stage_finish_and_starts_no_new_stage() {
         calls: Arc::clone(&calls),
         hook: move |job| {
             if job.stage == "create-tests" {
-                pause_run_by_user(&store_clone, &job.run, false, &user_actor(), &no_env).unwrap();
+                let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
+                pause_run_by_user(&store_clone, &job.run, false, &user_actor(), &caller).unwrap();
             }
             StageOutcome::Succeeded
         },
@@ -303,7 +308,8 @@ fn pause_now_stops_running_child_process_and_interrupted_attempt_does_not_consum
                 let j_dir = job_dir(&store_clone, &job.run, &job.stage, job.attempt);
                 fs::create_dir_all(&j_dir).unwrap();
                 set_job_state(&j_dir, JobState::Running).unwrap();
-                let res = pause_run_by_user(&store_clone, &job.run, true, &user_actor(), &no_env)
+                let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
+                let res = pause_run_by_user(&store_clone, &job.run, true, &user_actor(), &caller)
                     .unwrap();
                 assert_eq!(res.stopped_jobs.len(), 1);
                 assert_eq!(read_job_state(&j_dir).unwrap(), JobState::Interrupted);
@@ -389,8 +395,9 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
     };
 
     // Run plan, then pause
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
     drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
-    pause_run_by_user(&store, &run_id, false, &user_actor(), &no_env).unwrap();
+    pause_run_by_user(&store, &run_id, false, &user_actor(), &caller).unwrap();
 
     // 1. Tamper with plan snapshot -> resume refused, run stays Paused
     let snap_path = ws
@@ -423,7 +430,7 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
     fs::write(&wf_path, &orig_wf).unwrap();
 
     // 3. Revoke provider consent -> resume refused with gate closed message
-    revoke_provider(&store, "claude", "alice", &no_env).unwrap();
+    revoke_provider(&store, "claude", "alice", &caller).unwrap();
     let err = resume_paused_run(&store, &run_id, &user_actor()).unwrap_err();
     assert!(err.to_string().to_lowercase().contains("gate"));
     assert_eq!(
@@ -438,7 +445,7 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
     let resumed = resume_paused_run(&store, &run_id, &user_actor()).unwrap();
@@ -475,7 +482,8 @@ fn cancel_run_stops_jobs_returns_idea_to_ready_keeps_worktree_and_allows_revoke_
     assert!(wt_path.exists());
 
     // Confirmation mismatch must fail
-    let err = cancel_run(&store, &run_id, "r-wrong", &user_actor(), &no_env).unwrap_err();
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
+    let err = cancel_run(&store, &run_id, "r-wrong", &user_actor(), &caller).unwrap_err();
     assert!(err.to_string().contains("--confirm"));
 
     // Agent caller must fail
@@ -486,11 +494,12 @@ fn cancel_run_stops_jobs_returns_idea_to_ready_keeps_worktree_and_allows_revoke_
             None
         }
     };
-    let err = cancel_run(&store, &run_id, &run_id, &user_actor(), &agent_env).unwrap_err();
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &|_| None);
+    let err = cancel_run(&store, &run_id, &run_id, &user_actor(), &agent_caller).unwrap_err();
     assert!(matches!(err, RunnerError::Approval(_)));
 
     // Valid cancel succeeds, keeps worktree, returns idea to ReadyForDevelopment
-    let res = cancel_run(&store, &run_id, &run_id, &user_actor(), &no_env).unwrap();
+    let res = cancel_run(&store, &run_id, &run_id, &user_actor(), &caller).unwrap();
     assert_eq!(res.run.state, RunState::Cancelled);
     assert_eq!(res.idea.state, IdeaState::ReadyForDevelopment);
     assert!(wt_path.exists(), "worktree must be kept on cancel");
@@ -500,7 +509,7 @@ fn cancel_run_stops_jobs_returns_idea_to_ready_keeps_worktree_and_allows_revoke_
     assert_eq!(calls.lock().unwrap().len(), 1);
 
     // Idea can create a new run or revoke ready tag
-    let revoked = revoke_ready(&store, &idea_id, "alice", &no_env).unwrap();
+    let revoked = revoke_ready(&store, &idea_id, "alice", &caller).unwrap();
     assert_eq!(revoked.state, IdeaState::Planning);
 
     let _ = fs::remove_dir_all(&ws);
@@ -522,10 +531,11 @@ fn idea_cancel_cancels_idea_and_active_run_and_keeps_worktree() {
     assert!(wt_path.exists());
 
     // Mismatched confirm fails
-    let err = cancel_idea(&store, &idea_id, "i-wrong", &user_actor(), &no_env).unwrap_err();
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
+    let err = cancel_idea(&store, &idea_id, "i-wrong", &user_actor(), &caller).unwrap_err();
     assert!(err.to_string().contains("--confirm"));
 
-    let res = cancel_idea(&store, &idea_id, &idea_id, &user_actor(), &no_env).unwrap();
+    let res = cancel_idea(&store, &idea_id, &idea_id, &user_actor(), &caller).unwrap();
     assert_eq!(res.idea.state, IdeaState::Cancelled);
     assert_eq!(
         get_run(&store, &run_id).unwrap().unwrap().state,
@@ -577,14 +587,15 @@ fn cli_run_control_commands_work_and_enforce_factory_mode() {
     assert_eq!(code, 2);
 
     // Enable factory mode
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
     cfg.factory = true;
     let mut out = Vec::new();
     let mut err = Vec::new();
-    let code = run_with_io(
+    let code = tandem::factory::commands::run_with_caller(
         &parsed.args,
         &ws,
         &cfg,
-        &mut Cursor::new(b""),
+        &caller,
         &mut out,
         &mut err,
     );
@@ -598,11 +609,11 @@ fn cli_run_control_commands_work_and_enforce_factory_mode() {
     let parsed = Wrapper::try_parse_from(["factory", "run", "resume", &run_id]).unwrap();
     let mut out = Vec::new();
     let mut err = Vec::new();
-    let code = run_with_io(
+    let code = tandem::factory::commands::run_with_caller(
         &parsed.args,
         &ws,
         &cfg,
-        &mut Cursor::new(b""),
+        &caller,
         &mut out,
         &mut err,
     );
@@ -618,11 +629,11 @@ fn cli_run_control_commands_work_and_enforce_factory_mode() {
             .unwrap();
     let mut out = Vec::new();
     let mut err = Vec::new();
-    let code = run_with_io(
+    let code = tandem::factory::commands::run_with_caller(
         &parsed.args,
         &ws,
         &cfg,
-        &mut Cursor::new(b""),
+        &caller,
         &mut out,
         &mut err,
     );
@@ -726,10 +737,20 @@ fn run_tandem_cli(
     args: &[&str],
     extra_env: &[(&str, &str)],
 ) -> std::process::Output {
+    tandem::web_manager::save_web_config(
+        &tandem::web_manager::web_config_path(&state_dir.join("tandem")),
+        &tandem::web_manager::WebConfig {
+            auth_token: "test-token".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let mut cmd = StdCommand::new(env!("CARGO_BIN_EXE_tandem"));
     cmd.args(args)
         .env("TANDEM_WORKSPACE", ws)
         .env("XDG_STATE_HOME", state_dir)
+        .env("TANDEM_AUTH_TOKEN", "test-token")
+        .env("TANDEM_INTERNAL_SURFACE", "web")
         .env_remove("TANDEM_FACTORY")
         .env_remove("TANDEM_ROLE")
         .env_remove("TANDEM_SESSION_ID")

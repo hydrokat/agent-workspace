@@ -485,9 +485,10 @@ impl FactoryRun {
                         return RunKeyOutcome::Consumed;
                     }
                     let store = FactoryStore::new(&self.workspace);
-                    match cancel_run(&store, &self.run_id, &typed, &actor, &|k| {
-                        std::env::var(k).ok()
-                    }) {
+                    let env_fn = |k: &str| std::env::var(k).ok();
+                    let no_pane = |_: &str| None;
+                    let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+                    match cancel_run(&store, &self.run_id, &typed, &actor, &caller) {
                         Ok(_) => {
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Run {} cancelled.", self.run_id);
@@ -522,9 +523,10 @@ impl FactoryRun {
                     }
                     let store = FactoryStore::new(&self.workspace);
                     let stage = stage_name.clone();
-                    match retry_paused_stage(&store, &self.run_id, &stage, &hyp, &actor, &|k| {
-                        std::env::var(k).ok()
-                    }) {
+                    let env_fn = |k: &str| std::env::var(k).ok();
+                    let no_pane = |_: &str| None;
+                    let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+                    match retry_paused_stage(&store, &self.run_id, &stage, &hyp, &actor, &caller) {
                         Ok(_) => {
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Retrying stage {stage}.");
@@ -594,9 +596,10 @@ impl FactoryRun {
                         return RunKeyOutcome::Consumed;
                     }
                     let store = FactoryStore::new(&self.workspace);
-                    match consent_provider(&store, &provider, auth, &confirm, &owner, &|k| {
-                        std::env::var(k).ok()
-                    }) {
+                    let env_fn = |k: &str| std::env::var(k).ok();
+                    let no_pane = |_: &str| None;
+                    let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+                    match consent_provider(&store, &provider, auth, &confirm, &owner, &caller) {
                         Ok(_) => {
                             let _ = resume_paused_run(&store, &self.run_id, &actor);
                             self.sub_view = RunSubView::Main;
@@ -639,9 +642,10 @@ impl FactoryRun {
                         return RunKeyOutcome::Consumed;
                     };
                     let store = FactoryStore::new(&self.workspace);
-                    match set_run_target(&store, &self.workspace, &self.run_id, &target, &|k| {
-                        std::env::var(k).ok()
-                    }) {
+                    let env_fn = |k: &str| std::env::var(k).ok();
+                    let no_pane = |_: &str| None;
+                    let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+                    match set_run_target(&store, &self.workspace, &self.run_id, &target, &caller) {
                         Ok(_) => {
                             let _ = resume_paused_run(&store, &self.run_id, &actor);
                             self.sub_view = RunSubView::Main;
@@ -723,6 +727,8 @@ impl FactoryRun {
                         .collect();
                     let store = FactoryStore::new(&self.workspace);
                     let env_fn = |var: &str| std::env::var(var).ok();
+                    let no_pane = |_: &str| None;
+                    let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
                     match set_checks(
                         &store,
                         target,
@@ -732,7 +738,7 @@ impl FactoryRun {
                         Vec::new(),
                         &typed,
                         &owner,
-                        &env_fn,
+                        &caller,
                     ) {
                         Ok(_) => {
                             let _ = resume_paused_run(&store, &self.run_id, &actor);
@@ -862,9 +868,10 @@ impl FactoryRun {
         let actor = self.user_actor();
         match run.state {
             RunState::Queued | RunState::Running => {
-                match pause_run_by_user(&store, &self.run_id, false, &actor, &|k| {
-                    std::env::var(k).ok()
-                }) {
+                let env_fn = |k: &str| std::env::var(k).ok();
+                let no_pane = |_: &str| None;
+                let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+                match pause_run_by_user(&store, &self.run_id, false, &actor, &caller) {
                     Ok(_) => {
                         self.notice = format!("Run {} paused.", self.run_id);
                         self.reload();

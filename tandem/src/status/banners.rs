@@ -17,6 +17,53 @@ pub enum BannerAction {
     RunUpdate,
     Later,
     SkipVersion(String),
+    UndoReady(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadyGraceBanner {
+    pub idea_id: String,
+    pub via: String,
+    pub remaining_secs: u64,
+    pub undo_shortcut: String,
+}
+
+impl ReadyGraceBanner {
+    pub fn format_text(&self, width: u16) -> String {
+        let full = format!(
+            " ! Idea {} was marked ready via {} · run starts in {} s · {} undo ",
+            self.idea_id, self.via, self.remaining_secs, self.undo_shortcut
+        );
+        if full.chars().count() as u16 <= width {
+            return full;
+        }
+        format!(
+            " ! {} · starts in {} s · {} undo ",
+            self.idea_id, self.remaining_secs, self.undo_shortcut
+        )
+    }
+
+    pub fn click_at(&self, col: u16, row: u16, area: Rect) -> BannerAction {
+        if row != area.y || col < area.x || col >= area.x + area.width {
+            return BannerAction::None;
+        }
+        BannerAction::UndoReady(self.idea_id.clone())
+    }
+
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        if area.height == 0 || area.width == 0 {
+            return;
+        }
+        let text = self.format_text(area.width);
+        let style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+        for x in area.x..area.x + area.width {
+            buf[(x, area.y)].set_style(style).set_symbol(" ");
+        }
+        buf.set_stringn(area.x, area.y, &text, area.width as usize, style);
+    }
 }
 
 #[derive(Debug, Clone)]

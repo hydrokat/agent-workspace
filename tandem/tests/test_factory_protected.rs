@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tandem::factory::approval::{MarkReadyOptions, mark_ready_with_options};
+use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
 use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::checks::{set_checks, set_deploy_command};
@@ -41,7 +41,14 @@ impl TestWorkspace {
         let root = base.join("ws");
         let state_dir = base.join("state");
         fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&state_dir).unwrap();
+        tandem::web_manager::save_web_config(
+            &tandem::web_manager::web_config_path(&state_dir.join("tandem")),
+            &tandem::web_manager::WebConfig {
+                auth_token: "test-token".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         Self { root, state_dir }
     }
 
@@ -50,6 +57,8 @@ impl TestWorkspace {
         cmd.args(args)
             .env("TANDEM_WORKSPACE", &self.root)
             .env("XDG_STATE_HOME", &self.state_dir)
+            .env("TANDEM_AUTH_TOKEN", "test-token")
+            .env("TANDEM_INTERNAL_SURFACE", "web")
             .env("TANDEM_FACTORY", "1")
             .env_remove("TANDEM_ROLE")
             .env_remove("TANDEM_SESSION_ID")
@@ -143,14 +152,18 @@ fn setup_ready_idea_and_run(
     git_init_repo(&ws.root);
     let store = FactoryStore::new(&ws.root);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
 
+    let caller = Caller::cli(true, &no_env, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
 
@@ -217,14 +230,13 @@ fn setup_ready_idea_and_run(
         &ws.root,
         &idea_id,
         &idea_id,
-        "cli",
         "alice",
         MarkReadyOptions {
             deploy_requested,
             accept_estimate: true,
             ..Default::default()
         },
-        &no_env,
+        &caller,
     )
     .unwrap();
     let run_id = ready.run.expect("run created").id;
@@ -291,15 +303,17 @@ fn run_approve_enforces_user_only_confirm_and_confirmed_deploy_command() {
     let ws = TestWorkspace::new("approve-checks");
     let (store, _idea_id, run_id) = setup_ready_idea_and_run(&ws, true);
 
+    let agent_caller = Caller::cli(true, &agent_env, &|_| None);
+    let user_caller = Caller::cli(true, &no_env, &|_| None);
+
     let agent_err = approve(
         &store,
         &run_id,
         ProtectedAction::ProductionDeploy,
         &run_id,
         None,
-        "cli",
         "alice",
-        &agent_env,
+        &agent_caller,
     )
     .unwrap_err();
     assert_eq!(agent_err.exit_code(), 3);
@@ -310,9 +324,8 @@ fn run_approve_enforces_user_only_confirm_and_confirmed_deploy_command() {
         ProtectedAction::ProductionDeploy,
         "wrong-id",
         None,
-        "cli",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap_err();
     assert!(confirm_err.to_string().contains("--confirm"));
@@ -323,9 +336,8 @@ fn run_approve_enforces_user_only_confirm_and_confirmed_deploy_command() {
         ProtectedAction::ProductionDeploy,
         &run_id,
         None,
-        "cli",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap_err();
     assert!(
@@ -341,9 +353,8 @@ fn run_approve_enforces_user_only_confirm_and_confirmed_deploy_command() {
         ProtectedAction::SecretsAccess,
         &run_id,
         Some("develop"),
-        "cli",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
     assert_eq!(sec_approval.gate, 3);
@@ -356,7 +367,7 @@ fn run_approve_enforces_user_only_confirm_and_confirmed_deploy_command() {
         vec!["echo".to_string(), "deployed".to_string()],
         "workspace",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
 
@@ -366,9 +377,8 @@ fn run_approve_enforces_user_only_confirm_and_confirmed_deploy_command() {
         ProtectedAction::ProductionDeploy,
         &run_id,
         None,
-        "cli",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
     assert_eq!(granted.gate, 3);
@@ -569,6 +579,7 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
     let ws = TestWorkspace::new("deploy-e2e");
     let (store, idea_id, run_id) = setup_ready_idea_and_run(&ws, true);
 
+    let caller = Caller::cli(true, &no_env, &|_| None);
     set_checks(
         &store,
         "workspace",
@@ -578,7 +589,7 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
         vec![],
         "workspace",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
 
@@ -632,7 +643,7 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
         ],
         "workspace",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
 
@@ -642,9 +653,8 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
         ProtectedAction::ProductionDeploy,
         &run_id,
         None,
-        "cli",
         "alice",
-        &no_env,
+        &caller,
     )
     .unwrap();
 

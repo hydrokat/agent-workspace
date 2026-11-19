@@ -8,7 +8,9 @@ use serde::Serialize;
 
 use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
-use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapshot};
+use crate::factory::approval::{
+    ApprovalError, Caller, require_user, take_pending_run, verify_snapshot,
+};
 use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, job_dir, jobs_dir, read_job_state, set_job_state};
@@ -454,6 +456,12 @@ pub fn drive_run_step(
     }
 
     let settings = store.settings()?;
+    if run.state == RunState::Queued
+        && let Ok(Some(idea)) = store.get_idea(&run.idea)
+        && idea_within_grace_period(&idea, settings.approval_grace_secs, current_time())
+    {
+        return Ok(());
+    }
     let wf_path = store.run_dir(run_id).join("workflow.yaml");
     let raw = load_workflow_file(&wf_path).map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
     let mut validation_settings = settings.clone();
@@ -1233,9 +1241,9 @@ pub fn pause_run_by_user(
     run_id: &str,
     now: bool,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<PauseRunResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1406,9 +1414,9 @@ pub fn cancel_run(
     run_id: &str,
     confirm: &str,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<CancelRunResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1462,9 +1470,9 @@ pub fn cancel_idea(
     idea_id: &str,
     confirm: &str,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<CancelIdeaResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1533,9 +1541,9 @@ pub fn retry_paused_stage(
     stage: &str,
     hypothesis: &str,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<Run, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1599,9 +1607,9 @@ pub fn change_run_budget(
     max_duration_secs: Option<u64>,
     max_retries: Option<u32>,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ChangeBudgetResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1686,11 +1694,47 @@ pub fn count_workspace_running_jobs(store: &FactoryStore) -> usize {
         .sum()
 }
 
+fn idea_within_grace_period(idea: &crate::factory::model::Idea, grace_secs: u64, now: f64) -> bool {
+    if grace_secs == 0 {
+        return false;
+    }
+    let ready_at = idea
+        .ready_at
+        .or_else(|| idea.plan_snapshot.as_ref().map(|s| s.created))
+        .unwrap_or(idea.updated);
+    now < ready_at + grace_secs as f64
+}
+
 pub fn drive_workspace_step(
     store: &FactoryStore,
     workspace: &Path,
     executor: &mut dyn Executor,
 ) -> Result<(), RunnerError> {
+    let settings = store.settings()?;
+    let now = current_time();
+    if let Ok(ideas) = store.list_ideas() {
+        let sys = Actor {
+            kind: ActorKind::System,
+            id: "engine".to_string(),
+        };
+        for idea in ideas {
+            if idea.state == crate::factory::model::IdeaState::ReadyForDevelopment
+                && !idea_within_grace_period(&idea, settings.approval_grace_secs, now)
+            {
+                let pending = take_pending_run(store, &idea.id);
+                let opts = match pending {
+                    Some(cfg) => super::run::CreateRunOptions {
+                        deploy_requested: cfg.deploy_requested,
+                        workflow: cfg.workflow,
+                        budget: cfg.budget,
+                    },
+                    None => super::run::CreateRunOptions::default(),
+                };
+                let _ = super::run::create_run(store, workspace, &idea.id, opts, &sys);
+            }
+        }
+    }
+
     let mut runs = list_runs(store, None)?;
     runs.sort_by(|a, b| {
         a.created

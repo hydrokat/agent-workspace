@@ -3,7 +3,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::checks::require_confirmed_deploy;
 use super::events::{Event, append_locked, read_all, redact_events, set_private_file_mode};
 use super::ids::is_valid_run_id;
@@ -103,11 +103,10 @@ pub fn approve(
     action: ProtectedAction,
     confirm: &str,
     stage: Option<&str>,
-    via: &str,
     approved_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ProtectedApproval, ApprovalError> {
-    approve_with_details(store, run_id, action, confirm, stage, via, approved_by, env)
+    approve_with_details(store, run_id, action, confirm, stage, approved_by, caller)
         .map(|o| o.approval)
 }
 
@@ -118,11 +117,11 @@ pub fn approve_with_details(
     action: ProtectedAction,
     confirm: &str,
     stage: Option<&str>,
-    via: &str,
     approved_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ApproveOutcome, ApprovalError> {
-    ensure_user_caller(env)?;
+    let surface = require_user(caller)?;
+    let via = surface.as_str();
 
     if !is_valid_run_id(run_id) {
         return Err(ApprovalError::InvalidInput(format!(
@@ -132,11 +131,6 @@ pub fn approve_with_details(
     if confirm != run_id {
         return Err(ApprovalError::InvalidInput(format!(
             "confirmation mismatch: pass --confirm {run_id}"
-        )));
-    }
-    if !matches!(via, "cli" | "tui" | "web") {
-        return Err(ApprovalError::InvalidInput(format!(
-            "invalid --via value: {via} (expected cli, tui, or web)"
         )));
     }
     if approved_by.trim().is_empty() {

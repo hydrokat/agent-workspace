@@ -5,7 +5,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
-use tandem::factory::approval::mark_ready_with_workflow;
+use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::context::{ContextInputs, assemble_context};
 use tandem::factory::broker::gate::{AuthType, consent_provider};
@@ -44,7 +44,14 @@ impl TestWorkspace {
         let root = base.join("ws");
         let state_dir = base.join("state");
         fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&state_dir).unwrap();
+        tandem::web_manager::save_web_config(
+            &tandem::web_manager::web_config_path(&state_dir.join("tandem")),
+            &tandem::web_manager::WebConfig {
+                auth_token: "test-token".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         Self { root, state_dir }
     }
 
@@ -53,6 +60,8 @@ impl TestWorkspace {
         cmd.args(args)
             .env("TANDEM_WORKSPACE", &self.root)
             .env("XDG_STATE_HOME", &self.state_dir)
+            .env("TANDEM_AUTH_TOKEN", "test-token")
+            .env("TANDEM_INTERNAL_SURFACE", "web")
             .env("TANDEM_FACTORY", "1")
             .env_remove("TANDEM_ROLE")
             .env_remove("TANDEM_SESSION_ID")
@@ -123,6 +132,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
     git_init_repo(ws);
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    save_settings(&store, &settings).unwrap();
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".to_string(),
@@ -131,13 +143,14 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
         kind: ActorKind::Orchestrator,
         id: "orch".to_string(),
     };
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     let idea = store
@@ -188,15 +201,7 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
         )
         .unwrap();
     let ready = mark_ready_with_workflow(
-        &store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     (store, idea.id, ready.run.unwrap().id)

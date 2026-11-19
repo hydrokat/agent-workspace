@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use tandem::config::Config;
 use tandem::factory::approval::{mark_ready, revoke_ready};
 use tandem::factory::artifacts;
-use tandem::factory::commands::run_with_io;
+use tandem::factory::commands::run_with_caller;
 use tandem::factory::events::{Event, read_all};
 use tandem::factory::machine::{Command, EventData, TransitionError};
 use tandem::factory::model::{Actor, ActorKind, IdeaState, Risk, RunState, StageState};
@@ -113,7 +113,8 @@ fn setup_ready_idea(ws: &Path) -> (FactoryStore, String) {
         )
         .unwrap();
 
-    mark_ready(&store, &idea.id, &idea.id, "cli", "user", &|_| None).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    mark_ready(&store, &idea.id, &idea.id, "user", &caller).unwrap();
     (store, idea.id)
 }
 
@@ -390,11 +391,12 @@ fn withdraw_run_is_user_only_requires_no_started_stage_and_allows_revoke() {
     assert_eq!(idea.state, IdeaState::ReadyForDevelopment);
 
     // User can now revoke ready tag
-    let revoked = revoke_ready(&store, &idea_id, "user", &|_| None).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    let revoked = revoke_ready(&store, &idea_id, "user", &caller).unwrap();
     assert_eq!(revoked.state, IdeaState::Planning);
 
     // Cannot withdraw if a stage already started
-    mark_ready(&store, &idea_id, &idea_id, "cli", "user", &|_| None).unwrap();
+    mark_ready(&store, &idea_id, &idea_id, "user", &caller).unwrap();
     let run2 = create_run(&store, &ws, &idea_id, CreateRunOptions::default(), &user).unwrap();
     let sys = Actor {
         kind: ActorKind::System,
@@ -435,8 +437,8 @@ fn call_factory(
     let tandem::cli::Command::Factory(f_args) = cli.command.unwrap() else {
         panic!("expected factory command");
     };
-    let mut stdin = std::io::empty();
-    run_with_io(&f_args, ws, cfg, &mut stdin, stdout, stderr)
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    run_with_caller(&f_args, ws, cfg, &caller, stdout, stderr)
 }
 
 #[test]

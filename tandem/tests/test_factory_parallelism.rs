@@ -6,7 +6,7 @@ use std::process::Command as StdCommand;
 use std::time::Duration;
 
 use tandem::coordination::store::CoordStore;
-use tandem::factory::approval::mark_ready_with_workflow;
+use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::{JobState, job_dir, set_job_state};
@@ -126,18 +126,10 @@ fn add_queued_run(ws: &Path, store: &FactoryStore, title: &str) -> (String, Stri
             &orch,
         )
         .unwrap();
-    let ready = mark_ready_with_workflow(
-        store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
-    )
-    .unwrap();
+    let caller = Caller::cli(true, &|_| None, &|_| None);
+    let ready =
+        mark_ready_with_workflow(store, ws, &idea.id, &idea.id, "alice", None, false, &caller)
+            .unwrap();
     (idea.id, ready.run.unwrap().id)
 }
 
@@ -148,14 +140,16 @@ fn setup_workspace(name: &str, max_parallel_agents: usize) -> (PathBuf, FactoryS
     store.ensure().unwrap();
     let mut settings = store.settings().unwrap();
     settings.max_parallel_agents = max_parallel_agents;
+    settings.approval_grace_secs = 0;
     save_settings(&store, &settings).unwrap();
+    let caller = Caller::cli(true, &|_| None, &|_| None);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     (ws, store)
