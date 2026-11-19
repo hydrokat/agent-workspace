@@ -15,7 +15,7 @@ use tandem::factory::broker::job::{JobSpec, prepare_job};
 use tandem::factory::commands::run_with_io;
 use tandem::factory::events::{self, Event, redact_event};
 use tandem::factory::machine::{Command, EventData};
-use tandem::factory::model::{Actor, ActorKind, Budget, FeasibilityVerdict, Risk};
+use tandem::factory::model::{Actor, ActorKind, Budget, FeasibilityVerdict, PrLink, Risk};
 use tandem::factory::permissions::ToolGrant;
 use tandem::factory::protected::ProtectedAction;
 use tandem::factory::redact::RedactContext;
@@ -635,6 +635,436 @@ fn entries_collect_job_details_approvals_decisions_and_filters() {
         AuditKeyOutcome::Consumed
     );
     assert!(!audit_view.notice.is_empty());
+
+    let _ = fs::remove_dir_all(&ws);
+}
+
+#[test]
+fn audit_verify_edge_cases_and_format_summaries() {
+    let ws = temp_ws("verify-edges");
+    let store = FactoryStore::new(&ws);
+    store.ensure().unwrap();
+    let events_path = ws.join(".agent-workspace/factory/events.jsonl");
+
+    // Missing file
+    let missing_rep = verify(&events_path).unwrap();
+    assert!(missing_rep.intact);
+    assert_eq!(missing_rep.total_events, 0);
+    assert_eq!(
+        audit::format_verify_summary(&missing_rep),
+        "No events recorded yet."
+    );
+
+    // Empty file
+    fs::write(&events_path, b"").unwrap();
+    let empty_rep = verify(&events_path).unwrap();
+    assert!(empty_rep.intact);
+    assert_eq!(empty_rep.total_events, 0);
+
+    // Legacy-only events with CRLF, blank line, and partial trailing line (no newline)
+    let legacy1 = serde_json::json!({
+        "v": 1,
+        "seq": 1,
+        "ts": 1000.0,
+        "actor": {"kind": "user", "id": "you"},
+        "type": "idea.created",
+        "idea": "i-11112222",
+        "data": {"id": "i-11112222", "title": "L1", "text": "L1", "owner": "you"}
+    });
+    let line1 = serde_json::to_string(&legacy1).unwrap();
+    fs::write(&events_path, format!("{line1}\r\n\r\n{{\"partial\":")).unwrap();
+    let legacy_rep = verify(&events_path).unwrap();
+    assert!(legacy_rep.intact);
+    assert_eq!(legacy_rep.total_events, 1);
+    assert!(audit::format_verify_summary(&legacy_rep).contains("legacy events"));
+
+    // First event has prev hash -> break at seq 1
+    let bad_first = serde_json::json!({
+        "v": 1,
+        "seq": 1,
+        "ts": 1000.0,
+        "actor": {"kind": "user", "id": "you"},
+        "type": "idea.discovery_started",
+        "idea": "i-11112222",
+        "prev": "deadbeef",
+        "data": {}
+    });
+    fs::write(
+        &events_path,
+        format!("{}\n", serde_json::to_string(&bad_first).unwrap()),
+    )
+    .unwrap();
+    let bad_first_rep = verify(&events_path).unwrap();
+    assert!(!bad_first_rep.intact);
+    assert_eq!(
+        bad_first_rep
+            .first_break
+            .as_ref()
+            .map(|b| b.reason.as_str()),
+        Some("prev hash present on first event")
+    );
+    assert!(audit::format_verify_summary(&bad_first_rep).contains("Chain break at event 1"));
+
+    // Missing prev mid-chain after chain starts
+    let ev2_chained = serde_json::json!({
+        "v": 1,
+        "seq": 2,
+        "ts": 1001.0,
+        "actor": {"kind": "system", "id": "system"},
+        "type": "idea.discovery_started",
+        "idea": "i-11112222",
+        "prev": sha256_hex(line1.as_bytes()),
+        "data": {}
+    });
+    let ev3_no_prev = serde_json::json!({
+        "v": 1,
+        "seq": 3,
+        "ts": 1002.0,
+        "actor": {"kind": "system", "id": "system"},
+        "type": "idea.discovery_started",
+        "idea": "i-11112222",
+        "data": {}
+    });
+    fs::write(
+        &events_path,
+        format!(
+            "{line1}\n{}\n{}\n",
+            serde_json::to_string(&ev2_chained).unwrap(),
+            serde_json::to_string(&ev3_no_prev).unwrap()
+        ),
+    )
+    .unwrap();
+    let missing_mid = verify(&events_path).unwrap();
+    assert!(!missing_mid.intact);
+    assert_eq!(
+        missing_mid.first_break.as_ref().map(|b| b.reason.as_str()),
+        Some("missing prev hash after chain start")
+    );
+    assert!(audit::format_verify_summary(&missing_mid).contains("verified before break"));
+
+    // Corrupt JSON line after chain start
+    fs::write(
+        &events_path,
+        format!(
+            "{line1}\n{}\n{{corrupt json\n",
+            serde_json::to_string(&ev2_chained).unwrap(),
+        ),
+    )
+    .unwrap();
+    let corrupt_rep = verify(&events_path).unwrap();
+    assert!(!corrupt_rep.intact);
+    assert_eq!(
+        corrupt_rep.first_break.as_ref().map(|b| b.reason.as_str()),
+        Some("corrupt event line")
+    );
+
+    let _ = fs::remove_dir_all(&ws);
+}
+
+#[test]
+fn audit_entries_cover_remaining_event_kinds_and_helpers() {
+    assert_eq!(AuditKind::JobStart.as_str(), "job_start");
+    assert_eq!(AuditKind::JobEnd.as_str(), "job_end");
+    assert_eq!(AuditKind::Approval.as_str(), "approval");
+    assert_eq!(AuditKind::Decision.as_str(), "decision");
+    assert_eq!(AuditKind::Lifecycle.as_str(), "lifecycle");
+    assert_eq!(AuditKind::JobStart.label(), "Job start");
+    assert_eq!(AuditKind::JobEnd.label(), "Job end");
+    assert_eq!(AuditKind::Approval.label(), "Approval");
+    assert_eq!(AuditKind::Decision.label(), "Decision");
+    assert_eq!(AuditKind::Lifecycle.label(), "Lifecycle");
+    assert_eq!(AuditKind::parse("job-start"), Some(AuditKind::JobStart));
+    assert_eq!(AuditKind::parse("end"), Some(AuditKind::JobEnd));
+    assert_eq!(AuditKind::parse("approvals"), Some(AuditKind::Approval));
+    assert_eq!(AuditKind::parse("decisions"), Some(AuditKind::Decision));
+    assert_eq!(AuditKind::parse("lifecycle"), Some(AuditKind::Lifecycle));
+    assert_eq!(AuditKind::parse("unknown"), None);
+
+    assert_eq!(audit::format_duration(42.0), "42s");
+    assert_eq!(audit::format_duration(125.0), "2m 5s");
+    assert_eq!(audit::format_time_short(0.0).len(), 5);
+    assert!(audit::format_time_iso(0.0).contains("1970-01-01"));
+
+    let ws = temp_ws("all-kinds");
+    let store = FactoryStore::new(&ws);
+    store.ensure().unwrap();
+    let user = user_actor();
+    let sys = sys_actor();
+
+    assert!(audit::entries(&store, "../bad", &AuditFilter::default()).is_err());
+
+    let idea = store
+        .create_idea("All Kinds", "Cover all audit events", "you", &user)
+        .unwrap();
+    let run_id = "r-11112222".to_string();
+
+    // Prepare a job with >1 MiB total_bytes, excluded_paths, and no context_manifest.tool_grant
+    let manifest_mib = ContextManifest {
+        items: vec![],
+        total_bytes: 2 * 1024 * 1024,
+        tool_grant: None,
+        excluded_paths: vec![".env".to_string()],
+        ..Default::default()
+    };
+    let spec_mib = JobSpec {
+        run: run_id.clone(),
+        stage: "plan".to_string(),
+        attempt: 1,
+        agent: "business-analyst".to_string(),
+        provider: "claude".to_string(),
+        model: "haiku".to_string(),
+        tool_grants: vec!["repo_read".to_string()],
+        cwd: ws.display().to_string(),
+        time_limit_secs: 120,
+    };
+    prepare_job(
+        &store,
+        &spec_mib,
+        &tandem::factory::broker::context::AssembledContext {
+            manifest: manifest_mib,
+            prompt: "clean".to_string(),
+        },
+    )
+    .unwrap();
+
+    let events_path = ws.join(".agent-workspace/factory/events.jsonl");
+    let lock_path = ws.join(".agent-workspace/factory/.lock");
+    let evs = vec![
+        Event::from_data(
+            1000.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::RunCreated {
+                run: run_id.clone(),
+                workflow: "default-delivery".to_string(),
+                version: "1".to_string(),
+                sha256: "abc".to_string(),
+                source: "builtin".to_string(),
+                plan_sha256: "def".to_string(),
+                deploy_requested: false,
+                stages: vec![],
+                budget: None,
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1001.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::StageStarted {
+                run: run_id.clone(),
+                stage: "plan".to_string(),
+                attempt: 1,
+                grant: None,
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1002.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::JobUsage {
+                run: run_id.clone(),
+                stage: "plan".to_string(),
+                attempt: 1,
+                provider: "claude".to_string(),
+                model: "haiku".to_string(),
+                tier: "economy".to_string(),
+                duration_secs: 12.0,
+                input_tokens: Some(100),
+                output_tokens: Some(50),
+                cost: Cost {
+                    value: Some(0.05),
+                    basis: CostBasis::Actual,
+                },
+                cost_usd: Some(0.05),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1003.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::StageSucceeded {
+                run: run_id.clone(),
+                stage: "plan".to_string(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1004.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::StageStarted {
+                run: run_id.clone(),
+                stage: "test".to_string(),
+                attempt: 1,
+                grant: None,
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1005.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::StageBlocked {
+                run: run_id.clone(),
+                stage: "test".to_string(),
+                reason: "missing check".to_string(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1006.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::StageSkipped {
+                run: run_id.clone(),
+                stage: "demo".to_string(),
+                reason: "not needed".to_string(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1007.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::StageInterrupted {
+                run: run_id.clone(),
+                stage: "test".to_string(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1008.0,
+            user.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::BudgetChanged {
+                run: run_id.clone(),
+                old: Budget::default(),
+                new: Budget {
+                    max_cost_usd: Some(10.0),
+                    max_duration_secs: Some(600),
+                    max_retries: Some(3),
+                },
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1009.0,
+            user.clone(),
+            "provider".to_string(),
+            None,
+            &EventData::ProviderRevoked {
+                provider: "claude".to_string(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1010.0,
+            user.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::RunWithdrawn {
+                run: run_id.clone(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1011.0,
+            user.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::RunCancelled {
+                run: run_id.clone(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1012.0,
+            user.clone(),
+            idea.id.clone(),
+            None,
+            &EventData::IdeaCancelled {
+                reason: "superseded".to_string(),
+            },
+        )
+        .unwrap(),
+        Event::from_data(
+            1013.0,
+            sys.clone(),
+            idea.id.clone(),
+            Some(run_id.clone()),
+            &EventData::IdeaDelivered {
+                run: run_id.clone(),
+                prs: vec![PrLink {
+                    repo: "org/repo".to_string(),
+                    number: 99,
+                    url: "https://github.com/org/repo/pull/99".to_string(),
+                    state: Some("merged".to_string()),
+                    checks_summary: Some("ok".to_string()),
+                }],
+            },
+        )
+        .unwrap(),
+    ];
+    let rctx = RedactContext::new();
+    let redacted: Vec<_> = evs.into_iter().map(|e| redact_event(e, &rctx)).collect();
+    events::append(&events_path, &lock_path, &redacted).unwrap();
+
+    let all = audit::entries(&store, &idea.id, &AuditFilter::default()).unwrap();
+    let summaries: Vec<&str> = all.iter().map(|e| e.summary.as_str()).collect();
+    assert!(summaries.iter().any(|s| s.contains("plan succeeded")));
+    assert!(summaries.iter().any(|s| s.contains("test blocked")));
+    assert!(summaries.iter().any(|s| s.contains("demo skipped")));
+    assert!(summaries.iter().any(|s| s.contains("test interrupted")));
+    assert!(summaries.iter().any(|s| s.contains("provider revoked")));
+    assert!(summaries.iter().any(|s| s.contains("withdrawn")));
+    assert!(summaries.iter().any(|s| s.contains("cancelled")));
+    assert!(summaries.iter().any(|s| s.contains("idea cancelled")));
+    assert!(summaries.iter().any(|s| s.contains("idea delivered")));
+
+    let plan_start = all
+        .iter()
+        .find(|e| e.kind == AuditKind::JobStart && e.stage.as_deref() == Some("plan"))
+        .unwrap();
+    let plan_details: String = plan_start
+        .details
+        .iter()
+        .map(|d| format!("{}: {}", d.label, d.value))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(plan_details.contains("2.0 MiB"));
+    assert!(plan_details.contains(".env"));
+    assert!(plan_details.contains("repo_read"));
+
+    // Combined filter (run + kind + case-insensitive actor)
+    let combined = audit::entries(
+        &store,
+        &idea.id,
+        &AuditFilter {
+            run: Some(run_id.clone()),
+            kind: Some(AuditKind::JobEnd),
+            actor: Some("SYSTEM".to_string()),
+        },
+    )
+    .unwrap();
+    assert_eq!(combined.len(), 4);
+
+    // Export helpers with None verify_report and empty entries
+    let empty_md = export_markdown(&idea.id, &[], None);
+    assert!(empty_md.contains("No audit entries match"));
+    let json_no_rep = export_json(&all, None).unwrap();
+    assert!(json_no_rep.contains("total_events"));
 
     let _ = fs::remove_dir_all(&ws);
 }

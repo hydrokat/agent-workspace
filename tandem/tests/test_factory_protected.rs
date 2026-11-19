@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
 use tandem::factory::broker::gate::{AuthType, consent_provider};
+use tandem::factory::broker::result::{JobResult, JobResultStatus};
 use tandem::factory::checks::{set_checks, set_deploy_command};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::BrokerExecutor;
@@ -16,7 +17,10 @@ use tandem::factory::protected::{
 };
 use tandem::factory::run::get_run;
 use tandem::factory::runner::{append_run_events, drive_run_step, resume_paused_run};
-use tandem::factory::stages::deploy::{DeployBlockReason, check_deploy_preconditions};
+use tandem::factory::stages::deploy::{
+    DeployBlockReason, DeployStageContract, check_deploy_preconditions, run_deploy_stage,
+};
+use tandem::factory::stages::{StageContext, StageContract};
 use tandem::factory::store::FactoryStore;
 use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
 use tandem::factory::workflow::parse::parse_workflow_str;
@@ -751,4 +755,136 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
             .any(|c| c.contains("tandem factory run approve")),
         "retried deploy must require a new approval"
     );
+}
+
+#[test]
+fn deploy_contract_preconditions_block_reasons_and_failure_exit_code() {
+    let ws = TestWorkspace::new("deploy-edges");
+    let wt = ws.root.join("wt");
+    let art = ws.root.join("art");
+    fs::create_dir_all(&wt).unwrap();
+    fs::create_dir_all(&art).unwrap();
+
+    let empty_result = JobResult {
+        status: JobResultStatus::Succeeded,
+        summary: String::new(),
+        files_changed: vec![],
+        artifacts: vec![],
+        rationale: None,
+        hypothesis: None,
+        usage: None,
+        no_behaviour_change: false,
+    };
+    let contract = DeployStageContract;
+    assert_eq!(contract.name(), "deploy");
+
+    let mut ctx = StageContext {
+        run_id: "r-1",
+        idea_id: "i-1",
+        stage: "deploy",
+        attempt: 1,
+        has_repo_write: true,
+        artifact_dir: &art,
+        target_repo: &ws.root,
+        worktree_path: &wt,
+        plan_snapshot_path: &ws.root,
+        confirmed_checks: None,
+        result: &empty_result,
+    };
+    let err = contract.verify(&ctx).unwrap_err();
+    assert_eq!(err.check, "deploy_read_only");
+    assert!(err.detail.contains("repo_write"));
+
+    ctx.has_repo_write = false;
+    assert!(contract.verify(&ctx).is_ok());
+
+    let reasons = [
+        (
+            DeployBlockReason::DeployNotRequested,
+            "not requested",
+            false,
+        ),
+        (DeployBlockReason::MissingPullRequest, "pull request", true),
+        (
+            DeployBlockReason::NoDeployCommandConfirmed("app".to_string()),
+            "app",
+            true,
+        ),
+        (
+            DeployBlockReason::MissingApproval,
+            "production_deploy",
+            true,
+        ),
+    ];
+    for (reason, expected_msg, has_cmds) in reasons {
+        assert!(reason.message().contains(expected_msg));
+        let cmds = reason.action_commands("r-1", "app");
+        assert_eq!(!cmds.is_empty(), has_cmds);
+    }
+
+    let (store, _idea_id, run_id) = setup_ready_idea_and_run(&ws, false);
+    let mut run = get_run(&store, &run_id).unwrap().unwrap();
+    let settings = FactorySettings::default();
+    assert_eq!(
+        check_deploy_preconditions(&run, &settings, &[], now_secs()).unwrap_err(),
+        DeployBlockReason::DeployNotRequested
+    );
+
+    run.deploy_requested = true;
+    run.target = Some("workspace".to_string());
+    assert_eq!(
+        check_deploy_preconditions(&run, &settings, &[], now_secs()).unwrap_err(),
+        DeployBlockReason::MissingPullRequest
+    );
+
+    run.prs.push(PrLink {
+        repo: "org/repo".to_string(),
+        number: 7,
+        url: "https://github.com/org/repo/pull/7".to_string(),
+        state: Some("open".to_string()),
+        checks_summary: None,
+    });
+    assert_eq!(
+        check_deploy_preconditions(&run, &settings, &[], now_secs()).unwrap_err(),
+        DeployBlockReason::NoDeployCommandConfirmed("workspace".to_string())
+    );
+
+    let caller = Caller::cli(true, &no_env, &|_| None);
+    set_deploy_command(
+        &store,
+        "workspace",
+        vec![
+            "python3".to_string(),
+            "-c".to_string(),
+            "import sys; sys.exit(2)".to_string(),
+        ],
+        "workspace",
+        "alice",
+        &caller,
+    )
+    .unwrap();
+    let settings_with_deploy = store.settings().unwrap();
+    assert_eq!(
+        check_deploy_preconditions(&run, &settings_with_deploy, &[], now_secs()).unwrap_err(),
+        DeployBlockReason::MissingApproval
+    );
+
+    approve(
+        &store,
+        &run_id,
+        ProtectedAction::ProductionDeploy,
+        &run_id,
+        None,
+        "alice",
+        &caller,
+    )
+    .unwrap();
+    let approvals = load_run_approvals(&store, &run_id).unwrap();
+    let confirmed =
+        check_deploy_preconditions(&run, &settings_with_deploy, &approvals, now_secs()).unwrap();
+
+    let report = run_deploy_stage(&confirmed, &wt, &art, 1).unwrap();
+    assert!(!report.passed);
+    assert_eq!(report.exit_code, Some(2));
+    assert!(report.summary.contains("exited with"));
 }

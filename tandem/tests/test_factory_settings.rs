@@ -467,4 +467,389 @@ fn cli_settings_get_and_set_round_trip() {
     assert_eq!(after_code, 0);
     let after_json: Value = serde_json::from_slice(&after_stdout).unwrap();
     assert_eq!(after_json["max_parallel_agents"], json!(4));
+
+    let (plain_set_code, plain_set_stdout, plain_set_err) = ws.run_cli(
+        &["factory", "settings", "set", "default_temperature", "0.6"],
+        &[("USER", "alice")],
+    );
+    assert_eq!(
+        plain_set_code,
+        0,
+        "stderr: {}",
+        String::from_utf8_lossy(&plain_set_err)
+    );
+    let plain_set_text = String::from_utf8_lossy(&plain_set_stdout);
+    assert!(
+        plain_set_text.contains("default_temperature = 0.6"),
+        "got: {plain_set_text}"
+    );
+
+    let (plain_get_code, plain_get_stdout, _) = ws.run_cli(&["factory", "settings", "get"], &[]);
+    assert_eq!(plain_get_code, 0);
+    let plain_get_text = String::from_utf8_lossy(&plain_get_stdout);
+    assert!(plain_get_text.contains("\"default_temperature\": 0.6"));
+}
+
+#[test]
+fn settings_set_covers_all_keys_errors_and_validate_edges() {
+    let ws = TestWorkspace::new("all-keys");
+    let store = FactoryStore::new(&ws.root);
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
+
+    let (code, stdout, _) = ws.run_cli(&["factory", "settings", "get"], &[]);
+    assert_eq!(code, 0);
+    assert!(String::from_utf8_lossy(&stdout).contains("\"max_parallel_agents\": 3"));
+
+    for protected in [
+        "version",
+        "allowed_tools",
+        "denied_tools",
+        "checks.workspace",
+    ] {
+        let err = set_setting(&store, protected, "{}", "alice", &caller).unwrap_err();
+        assert!(
+            matches!(err, ApprovalError::InvalidInput(_)),
+            "got: {err:?}"
+        );
+    }
+
+    assert_eq!(
+        set_setting(&store, "default_temperature", "0.75", "alice", &caller)
+            .unwrap()
+            .new_value,
+        json!(0.75)
+    );
+    assert_eq!(
+        set_setting(
+            &store,
+            "default_workflow",
+            "\"custom-flow\"",
+            "alice",
+            &caller
+        )
+        .unwrap()
+        .new_value,
+        json!("custom-flow")
+    );
+    assert_eq!(
+        set_setting(&store, "max_review_rounds", "4", "alice", &caller)
+            .unwrap()
+            .new_value,
+        json!(4)
+    );
+    assert_eq!(
+        set_setting(&store, "approval_grace_secs", "120", "alice", &caller)
+            .unwrap()
+            .new_value,
+        json!(120)
+    );
+    assert!(
+        set_setting(
+            &store,
+            "default_budget",
+            r#"{"max_cost_usd": 10.0, "max_duration_secs": 300, "max_retries": 2}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        set_setting(
+            &store,
+            "default_budget.max_cost_usd",
+            "20.5",
+            "alice",
+            &caller
+        )
+        .unwrap()
+        .new_value,
+        json!(20.5)
+    );
+    assert_eq!(
+        set_setting(
+            &store,
+            "default_budget.max_cost_usd",
+            "none",
+            "alice",
+            &caller
+        )
+        .unwrap()
+        .new_value,
+        Value::Null
+    );
+    assert_eq!(
+        set_setting(
+            &store,
+            "default_budget.max_duration_secs",
+            "900",
+            "alice",
+            &caller
+        )
+        .unwrap()
+        .new_value,
+        json!(900)
+    );
+    assert_eq!(
+        set_setting(
+            &store,
+            "default_budget.max_duration_secs",
+            "null",
+            "alice",
+            &caller
+        )
+        .unwrap()
+        .new_value,
+        Value::Null
+    );
+    assert_eq!(
+        set_setting(&store, "default_budget.max_retries", "3", "alice", &caller)
+            .unwrap()
+            .new_value,
+        json!(3)
+    );
+    assert_eq!(
+        set_setting(
+            &store,
+            "default_budget.max_retries",
+            "null",
+            "alice",
+            &caller
+        )
+        .unwrap()
+        .new_value,
+        Value::Null
+    );
+
+    assert!(
+        set_setting(
+            &store,
+            "model_tiers",
+            r#"{"claude":{"economy":"claude-haiku","standard":"claude-sonnet","premium":"claude-opus"}}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert!(
+        set_setting(
+            &store,
+            "model_tiers.codex",
+            r#"{"economy":"gpt-mini","standard":"gpt-codex","premium":"gpt-pro"}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    for (tier, val) in [
+        ("economy", "claude-haiku-2"),
+        ("standard", "\"claude-sonnet-2\""),
+        ("premium", "claude-opus-2"),
+    ] {
+        let key = format!("model_tiers.claude.{tier}");
+        assert!(set_setting(&store, &key, val, "alice", &caller).is_ok());
+    }
+
+    assert!(
+        set_setting(
+            &store,
+            "price_table",
+            r#"{"claude-sonnet":{"input":3.0,"output":15.0,"as_of":"2026-11-18"}}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert!(
+        set_setting(
+            &store,
+            "price_table.claude-opus",
+            r#"{"input":15.0,"output":75.0,"as_of":"2026-11-18"}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+
+    assert!(
+        set_setting(
+            &store,
+            "allowed_data_classes",
+            r#"{"claude":["source","tests"]}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert!(
+        set_setting(
+            &store,
+            "allowed_data_classes.codex",
+            r#"["docs"]"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert!(
+        set_setting(
+            &store,
+            "allowed_data_classes.codex",
+            "null",
+            "alice",
+            &caller
+        )
+        .is_ok()
+    );
+
+    assert!(
+        set_setting(
+            &store,
+            "allowed_models",
+            r#"{"claude":["claude-sonnet-4-6"]}"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert!(
+        set_setting(
+            &store,
+            "allowed_models.codex",
+            r#"["gpt-5"]"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+    assert!(set_setting(&store, "allowed_models.codex", "none", "alice", &caller).is_ok());
+
+    assert!(
+        set_setting(
+            &store,
+            "denied_path_patterns",
+            r#"["*.pem",".env.*"]"#,
+            "alice",
+            &caller,
+        )
+        .is_ok()
+    );
+
+    let invalid_cases = [
+        ("max_parallel_agents", "abc"),
+        ("max_parallel_agents", "0"),
+        ("default_temperature", "hot"),
+        ("default_temperature", "1.5"),
+        ("default_workflow", "Bad Flow!"),
+        ("max_review_rounds", "abc"),
+        ("max_review_rounds", "9"),
+        ("approval_grace_secs", "abc"),
+        ("approval_grace_secs", "601"),
+        ("default_budget", "not-json"),
+        ("default_budget.max_cost_usd", "not-a-num"),
+        ("default_budget.max_cost_usd", "-1"),
+        ("model_tiers", "not-json"),
+        ("model_tiers.claude", "not-json"),
+        ("model_tiers.claude.ultra", "x"),
+        ("price_table", "not-json"),
+        ("price_table.claude-opus", "not-json"),
+        ("allowed_data_classes", "not-json"),
+        ("allowed_data_classes.claude", r#"["secrets"]"#),
+        ("allowed_models", "not-json"),
+        ("denied_path_patterns", "not-json"),
+        ("denied_path_patterns", r#"[""]"#),
+        ("unknown_setting_key", "1"),
+    ];
+    for (k, v) in invalid_cases {
+        let err = set_setting(&store, k, v, "alice", &caller).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ApprovalError::InvalidInput(_)
+                    | ApprovalError::Factory(tandem::factory::FactoryError::InvalidInput(_))
+            ),
+            "expected InvalidInput for {k}={v}, got: {err:?}"
+        );
+    }
+
+    let base = FactorySettings::default();
+
+    let mut s = base.clone();
+    s.model_tiers.insert(
+        " ".to_string(),
+        ProviderModelTiers {
+            economy: "a".to_string(),
+            standard: "b".to_string(),
+            premium: "c".to_string(),
+        },
+    );
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.price_table.insert(
+        "bad model!".to_string(),
+        ModelPrice {
+            input: 1.0,
+            output: 1.0,
+            as_of: "2026-11-18".to_string(),
+        },
+    );
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.price_table.insert(
+        "claude-sonnet-4-6".to_string(),
+        ModelPrice {
+            input: 1.0,
+            output: -1.0,
+            as_of: "2026-11-18".to_string(),
+        },
+    );
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.allowed_tools.insert("no-such-agent".to_string(), vec![]);
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.denied_tools.insert("  ".to_string(), vec![]);
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.allowed_data_classes.insert(" ".to_string(), vec![]);
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.allowed_models.insert(" ".to_string(), vec![]);
+    assert!(validate_settings(&s).is_err());
+
+    let mut s = base.clone();
+    s.allowed_models
+        .insert("claude".to_string(), vec!["bad model!".to_string()]);
+    assert!(validate_settings(&s).is_err());
+
+    let eff_nan_policy = effective(
+        &Policy {
+            max_parallel_agents: 2,
+            default_temperature: f64::NAN,
+            require_human_approval: vec![],
+        },
+        &FactorySettings {
+            default_temperature: 0.4,
+            ..Default::default()
+        },
+    );
+    assert_eq!(eff_nan_policy.default_temperature, 0.4);
+
+    let eff_nan_settings = effective(
+        &Policy {
+            max_parallel_agents: 2,
+            default_temperature: 0.5,
+            require_human_approval: vec![],
+        },
+        &FactorySettings {
+            default_temperature: f64::NAN,
+            ..Default::default()
+        },
+    );
+    assert_eq!(eff_nan_settings.default_temperature, 0.5);
 }
