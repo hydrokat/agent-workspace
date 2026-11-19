@@ -365,12 +365,22 @@ Factory Mode is an opt-in operating mode where an Orchestrator prepares an idea 
    - `demo` (conditional): runs when `ui_changed` is set, capturing local PNG screenshots for UI acceptance criteria.
    - **Pull request & handoff**: once review approves and required evidence is complete, tandem pushes the feature branch and opens one GitHub pull request per run via `gh`, then hands off the PR link, evidence summary (`tandem factory run evidence <run-id>`), and `tandem factory run prs <run-id>` status to you for review and merge. Clean up the worktree afterward with `tandem factory run cleanup <run-id> --confirm <run-id>`.
 
-**What does not exist yet:**
-- Cost/duration budgets and secret/log redaction (`p-018`).
+**Governance (`p-018`):**
+- **Settings, budgets & telemetry:** Configure workspace bounds with `tandem factory settings get|set`, inspect/update run caps with `tandem factory run budget`, and review `actual` / `estimated` / `unknown` usage with `tandem factory run usage`. Workflows can only tighten workspace settings.
+- **Redaction, permissions & audit:** Redaction masks secrets in exported artifacts and audit summaries (`tandem factory redact test <file>`), tool permissions are enforced per agent and target (`tandem factory permissions allow|deny|show`), and `tandem factory audit` / `audit verify` provide a hash-chained timeline and redacted Markdown/JSON export.
+- **Data handling & approval boundary:** Inspect what each job sends vs. can read with `tandem factory run data <run>`. User-only actions use five defence-in-depth checks (terminal check, `@tandem_role` pane check, derived surface with `--via` removed, `approval_grace_secs` undo window, and audit log).
+
+#### Governance
 
 > **Governance stance:** Factory Mode accelerates execution; it does not transfer accountability. Teams keep approval, merge, deployment, and compliance responsibility.
 
-> **User-only rule (known limit):** Refusing agent environments (`TANDEM_ROLE`, `TANDEM_SESSION_ID`, `TANDEM_FACTORY_IDEA`) is a guard-rail and audit trail (`approved_by` + `via`), not a sandbox—an agent running as the same OS user can inspect or unset environment variables. Approval, merge, and deployment stay with people.
+| Gate | Transition / Action | Requirement |
+|---|---|---|
+| **Gate 1** | Ideation → Planning | Non-infeasible `feasibility` artifact recorded before `idea select-direction`. |
+| **Gate 2** | Planning → `ready-for-development` | User-only approval (`idea ready`) freezing `plan-snapshot.md` (SHA-256), followed by `approval_grace_secs` undo window before execution starts. |
+| **Gate 3** | Protected actions (`production_deploy`, `secrets_access`, `production_access`) | One-time user-only approval (`run approve`) bound to run, stage, and `workflow_sha256` (1-hour TTL); deploy also requires `--deploy`, a PR, and a confirmed deploy command. |
+
+> **User-only rule (known limit):** The approval boundary is a guard-rail and audit trail against accidental or prompt-injected agent actions, not a sandbox—it does not stop a deliberately hostile process running as the same OS user (which requires OS isolation). See `tandem/README.md` for all five measures, limits, and exit codes.
 
 **Auto-update on launch.** Before checking dependencies, `run.sh` checks whether a newer agent-workspace release exists. When one is found, it applies the update (`npx --yes hydrokat/agent-workspace update --yes --no-link --no-update-clis --no-commit`), prints the old → new version and what changed, then re-execs the updated `run.sh`. If the workspace has no `manifest.json` (a dev checkout), if `npx` is not on `PATH`, or if the update fails, launch continues with the installed version.
 

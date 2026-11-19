@@ -476,3 +476,92 @@ describe('factory mode quality path documentation', () => {
     assert.ok(changelog.includes('p-017'), 'p-017 in CHANGELOG.md');
   });
 });
+
+describe('factory mode governance documentation', () => {
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const tandemReadme = readFileSync(join(ROOT, 'tandem/README.md'), 'utf8');
+  const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
+
+  it('documents Governance subsection, stance, and three-gate table in root README', () => {
+    assert.match(readme, /####\s+Governance\b|\*\*Governance\*\*/, 'Governance subsection in README.md');
+    assert.ok(
+      readme.includes('Factory Mode accelerates execution; it does not transfer accountability.'),
+      'governance stance in README.md'
+    );
+    assert.ok(
+      readme.includes('Teams keep approval, merge, deployment, and compliance responsibility.'),
+      'accountability sentence in README.md'
+    );
+    for (const gate of ['Gate 1', 'Gate 2', 'Gate 3']) {
+      assert.ok(readme.includes(gate), `${gate} in README.md`);
+    }
+  });
+
+  it('documents settings, ranges, tightening rule, budgets, and telemetry in tandem README', () => {
+    for (const term of [
+      'max_parallel_agents',
+      'default_temperature',
+      'max_review_rounds',
+      'approval_grace_secs',
+      'only tighten',
+      'not enforceable',
+      'actual',
+      'estimated',
+      'unknown',
+    ]) {
+      assert.ok(
+        tandemReadme.toLowerCase().includes(term.toLowerCase()),
+        `"${term}" in tandem/README.md`
+      );
+    }
+  });
+
+  it('documents redaction, permissions, Gate 3, deploy preconditions, audit, data handling, and approval boundary in tandem README', () => {
+    for (const term of [
+      'screenshots',
+      'raw local logs',
+      'Gate 3',
+      'production_deploy',
+      'audit verify',
+      '.env*',
+      'secrets/**',
+      '.git/**',
+      'does not see which',
+      'same OS user',
+      '--via',
+      'IsTerminal',
+      '@tandem_role',
+    ]) {
+      assert.ok(
+        tandemReadme.toLowerCase().includes(term.toLowerCase()),
+        `"${term}" in tandem/README.md`
+      );
+    }
+  });
+
+  it('documents all governance CLI commands and exit codes in tandem README', () => {
+    for (const cmd of [
+      'settings get',
+      'settings set',
+      'run budget',
+      'run usage',
+      'run approve',
+      'run data',
+      'redact test',
+      'permissions allow',
+      'permissions deny',
+      'permissions show',
+      'audit verify',
+    ]) {
+      assert.ok(tandemReadme.includes(cmd), `${cmd} in tandem/README.md`);
+    }
+    assert.match(tandemReadme, /tandem factory audit\b/, 'tandem factory audit in tandem/README.md');
+    assert.match(tandemReadme, /exit code/i, 'exit codes in tandem/README.md');
+  });
+
+  it('records Factory Mode governance under 1.19.0 and notes --via removal in CHANGELOG.md', () => {
+    assert.match(changelog, /^## \[1\.19\.0\]/m, '1.19.0 heading in CHANGELOG.md');
+    assert.ok(changelog.includes('p-018'), 'p-018 in CHANGELOG.md');
+    assert.ok(changelog.includes('--via'), '--via removal noted in CHANGELOG.md');
+  });
+});
