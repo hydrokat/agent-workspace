@@ -230,6 +230,15 @@ fn collect_half_created_runs(store: &FactoryStore) -> Result<Vec<String>, Factor
         let has_run_json = dir.join("run.json").is_file();
         let has_workflow = dir.join("workflow.yaml").is_file();
         if !has_run_json || !has_workflow {
+            if has_run_json
+                && let Ok(Some(run)) = get_run(store, &run_id)
+                && matches!(
+                    run.state,
+                    RunState::Failed | RunState::Cancelled | RunState::Delivered
+                )
+            {
+                continue;
+            }
             out.push(run_id);
         }
     }
