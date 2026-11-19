@@ -4,10 +4,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 pub use super::FactoryError;
 use super::machine::EventData;
 use super::model::Actor;
+use super::redact::{RedactContext, redact};
 use crate::coordination::filelock::exclusive_lock;
 
 pub const EVENT_VERSION: u32 = 1;
@@ -24,6 +26,8 @@ pub struct Event {
     #[serde(default)]
     pub run: Option<String>,
     pub data: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev: Option<String>,
 }
 
 impl Event {
@@ -57,6 +61,7 @@ impl Event {
             idea,
             run,
             data,
+            prev: None,
         })
     }
 
@@ -66,6 +71,61 @@ impl Event {
             "data": self.data,
         }))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RedactedEvent(Event);
+
+impl RedactedEvent {
+    pub fn as_event(&self) -> &Event {
+        &self.0
+    }
+
+    pub fn into_event(self) -> Event {
+        self.0
+    }
+}
+
+fn is_hash_json_key(key: &str) -> bool {
+    matches!(
+        key,
+        "sha256" | "plan_sha256" | "workflow_sha256" | "base_commit" | "commit" | "commit_id"
+    )
+}
+
+fn redact_json_value(val: &mut Value, context: &RedactContext) {
+    match val {
+        Value::String(s) => {
+            *s = redact(s, context).into_string();
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_json_value(item, context);
+            }
+        }
+        Value::Object(map) => {
+            for (k, v) in map.iter_mut() {
+                if is_hash_json_key(k) {
+                    continue;
+                }
+                redact_json_value(v, context);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+pub fn redact_event(mut event: Event, context: &RedactContext) -> RedactedEvent {
+    redact_json_value(&mut event.data, context);
+    RedactedEvent(event)
+}
+
+pub fn redact_events(events: &[Event], context: &RedactContext) -> Vec<RedactedEvent> {
+    events
+        .iter()
+        .cloned()
+        .map(|ev| redact_event(ev, context))
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,13 +232,33 @@ pub fn read_since(log_path: &Path, seq: u64) -> Result<ReadResult, FactoryError>
     Ok(res)
 }
 
-pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Event>, FactoryError> {
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn last_non_empty_line_hash(bytes: &[u8]) -> Option<String> {
+    let mut last_line: Option<&[u8]> = None;
+    for raw_line in bytes.split(|&b| b == b'\n') {
+        let trimmed = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if !trimmed.iter().all(|b| b.is_ascii_whitespace()) {
+            last_line = Some(trimmed);
+        }
+    }
+    last_line.map(sha256_hex)
+}
+
+pub(crate) fn append_locked(
+    log_path: &Path,
+    events: &[RedactedEvent],
+) -> Result<Vec<Event>, FactoryError> {
     reject_if_symlink(log_path)?;
     if events.is_empty() {
         return Ok(Vec::new());
     }
 
-    let (existing_len, valid_end, last_seq) = match fs::read(log_path) {
+    let (existing_len, valid_end, last_seq, mut prev_hash) = match fs::read(log_path) {
         Ok(bytes) => {
             let valid_end = if bytes.is_empty() || bytes.ends_with(b"\n") {
                 bytes.len()
@@ -191,19 +271,21 @@ pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Eve
             };
             let (existing_events, _) = parse_complete_lines(&bytes[..valid_end]);
             let last_seq = existing_events.iter().map(|ev| ev.seq).max().unwrap_or(0);
-            (bytes.len(), valid_end, last_seq)
+            let prev_hash = last_non_empty_line_hash(&bytes[..valid_end]);
+            (bytes.len(), valid_end, last_seq, prev_hash)
         }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (0, 0, 0),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (0, 0, 0, None),
         Err(err) => return Err(FactoryError::Io(err)),
     };
 
     let mut assigned = Vec::with_capacity(events.len());
     let mut buf = String::new();
 
-    for (idx, event) in events.iter().enumerate() {
-        let mut ev = event.clone();
+    for (idx, redacted) in events.iter().enumerate() {
+        let mut ev = redacted.0.clone();
         ev.v = EVENT_VERSION;
         ev.seq = last_seq + 1 + idx as u64;
+        ev.prev = prev_hash.clone();
 
         let line = serde_json::to_string(&ev)?;
         let line_bytes = line.len() + 1;
@@ -213,6 +295,7 @@ pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Eve
                 max: MAX_EVENT_BYTES,
             });
         }
+        prev_hash = Some(sha256_hex(line.as_bytes()));
         buf.push_str(&line);
         buf.push('\n');
         assigned.push(ev);
@@ -239,7 +322,7 @@ pub(crate) fn append_locked(log_path: &Path, events: &[Event]) -> Result<Vec<Eve
 pub fn append(
     log_path: &Path,
     lock_path: &Path,
-    events: &[Event],
+    events: &[RedactedEvent],
 ) -> Result<Vec<Event>, FactoryError> {
     reject_if_symlink(lock_path)?;
     let lock_file = OpenOptions::new()

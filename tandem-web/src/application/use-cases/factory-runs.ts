@@ -12,6 +12,7 @@ import {
   type PrLink,
   type ProviderStatusItem,
   type RunControlOptions,
+  type RunDataView,
   type RunEvidenceBundle,
   type RunSummary,
 } from "@/domain/models/factory";
@@ -26,6 +27,21 @@ async function requireWorkspace(registry: IWorkspaceRegistry, workspaceId: strin
     throw new FactoryGatewayError("not_found", "Workspace not found");
   }
   return workspace;
+}
+
+export class GetFactoryRunDataUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(workspaceId: string, runId: string): Promise<RunDataView> {
+    if (!isValidRunId(runId)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid run ID format");
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    return this.gateway.factoryRunData(workspace.path, runId);
+  }
 }
 
 export class ShowFactoryRunUseCase {

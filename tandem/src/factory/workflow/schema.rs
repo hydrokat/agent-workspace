@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +56,12 @@ impl WorkflowAgent {
     }
 }
 
+impl fmt::Display for WorkflowAgent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolClass {
@@ -97,6 +105,22 @@ impl WorkflowTool {
         }
     }
 
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::RepoRead => "repo_read",
+            Self::IssueContext => "issue_context",
+            Self::DiffReview => "diff_review",
+            Self::RepoWrite => "repo_write",
+            Self::Shell => "shell",
+            Self::TestRunner => "test_runner",
+            Self::LintRunner => "lint_runner",
+            Self::Browser => "browser",
+            Self::Screenshot => "screenshot",
+            Self::Ci => "ci",
+            Self::Deployment => "deployment",
+        }
+    }
+
     pub fn class(&self) -> ToolClass {
         match self {
             Self::RepoRead | Self::IssueContext | Self::DiffReview => ToolClass::Read,
@@ -104,6 +128,12 @@ impl WorkflowTool {
             Self::Shell | Self::TestRunner | Self::LintRunner => ToolClass::Execute,
             Self::Browser | Self::Screenshot | Self::Ci | Self::Deployment => ToolClass::External,
         }
+    }
+}
+
+impl fmt::Display for WorkflowTool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -139,20 +169,7 @@ impl StageRequirement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProtectedAction {
-    ProductionDeploy,
-}
-
-impl ProtectedAction {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "production_deploy" => Some(Self::ProductionDeploy),
-            _ => None,
-        }
-    }
-}
+pub use crate::factory::protected::ProtectedAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -162,6 +179,7 @@ pub enum EvidenceKind {
     ReviewFindings,
     DiffStat,
     Screenshot,
+    DeployReport,
     Exception,
     Handoff,
 }
@@ -174,6 +192,7 @@ impl EvidenceKind {
             "review_findings" => Some(Self::ReviewFindings),
             "diff_stat" => Some(Self::DiffStat),
             "screenshot" | "screenshots" => Some(Self::Screenshot),
+            "deploy_report" => Some(Self::DeployReport),
             "exception" => Some(Self::Exception),
             "handoff" => Some(Self::Handoff),
             _ => None,
@@ -187,6 +206,7 @@ impl EvidenceKind {
             Self::ReviewFindings => "review_findings",
             Self::DiffStat => "diff_stat",
             Self::Screenshot => "screenshot",
+            Self::DeployReport => "deploy_report",
             Self::Exception => "exception",
             Self::Handoff => "handoff",
         }

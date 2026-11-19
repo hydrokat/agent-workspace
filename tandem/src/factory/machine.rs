@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::evidence::EvidenceItem;
 use super::model::{
-    Actor, ActorKind, ApprovalGate, ArtifactRef, FeasibilityVerdict, Idea, IdeaState,
+    Actor, ActorKind, ApprovalGate, ArtifactRef, Budget, FeasibilityVerdict, Idea, IdeaState,
     OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, validate_owner,
     validate_text, validate_title,
 };
@@ -146,6 +146,8 @@ pub enum EventData {
         deploy_requested: bool,
         #[serde(default)]
         stages: Vec<Stage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        budget: Option<Budget>,
     },
     #[serde(rename = "run.withdrawn")]
     RunWithdrawn { run: String },
@@ -156,6 +158,8 @@ pub enum EventData {
         run: String,
         stage: String,
         attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<super::permissions::ToolGrant>,
     },
     #[serde(rename = "stage.succeeded")]
     StageSucceeded { run: String, stage: String },
@@ -242,6 +246,12 @@ pub enum EventData {
         reason: String,
         #[serde(default)]
         commands: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cap: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spent: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<f64>,
     },
     #[serde(rename = "run.resumed")]
     RunResumed { run: String },
@@ -274,6 +284,54 @@ pub enum EventData {
     PrCreated { run: String, pr: PrLink },
     #[serde(rename = "pr.status_refreshed")]
     PrStatusRefreshed { run: String, pr: PrLink },
+    #[serde(rename = "settings.changed")]
+    SettingsChanged {
+        key: String,
+        old_value: serde_json::Value,
+        new_value: serde_json::Value,
+        actor: String,
+    },
+    #[serde(rename = "budget.changed")]
+    BudgetChanged {
+        run: String,
+        old: Budget,
+        new: Budget,
+    },
+    #[serde(rename = "job.usage")]
+    JobUsage {
+        run: String,
+        stage: String,
+        attempt: u32,
+        provider: String,
+        model: String,
+        tier: String,
+        duration_secs: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_tokens: Option<u64>,
+        cost: super::telemetry::Cost,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_usd: Option<f64>,
+    },
+    #[serde(rename = "approval.granted")]
+    ApprovalGranted {
+        gate: u8,
+        action: super::protected::ProtectedAction,
+        run: String,
+        stage: String,
+        workflow_sha256: String,
+        actor: Actor,
+        surface: String,
+        expires_at: f64,
+    },
+    #[serde(rename = "approval.consumed")]
+    ApprovalConsumed {
+        run: String,
+        stage: String,
+        action: super::protected::ProtectedAction,
+        approval_seq: u64,
+    },
 }
 
 fn actor_label(actor: ActorKind) -> &'static str {
@@ -469,6 +527,7 @@ pub fn decide(
                 plan_sha256: String::new(),
                 deploy_requested: false,
                 stages: Vec::new(),
+                budget: None,
             }])
         }
 
@@ -654,6 +713,8 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
             feasibility_verdict: None,
             plan: None,
             plan_snapshot: None,
+            ready_via: None,
+            ready_at: None,
             artifacts: Vec::new(),
             assumptions: Vec::new(),
             runs: Vec::new(),
@@ -724,12 +785,18 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                     idea.state = IdeaState::ReadyForDevelopment;
                     idea.updated = ts;
                 }
-                EventData::IdeaPlanSnapshotFrozen { plan_snapshot, .. } => {
+                EventData::IdeaPlanSnapshotFrozen {
+                    plan_snapshot, via, ..
+                } => {
                     idea.plan_snapshot = Some(plan_snapshot.clone());
+                    idea.ready_via = Some(via.clone());
+                    idea.ready_at = Some(ts);
                     idea.updated = ts;
                 }
                 EventData::IdeaReadyRevoked {} if idea.state == IdeaState::ReadyForDevelopment => {
                     idea.state = IdeaState::Planning;
+                    idea.ready_via = None;
+                    idea.ready_at = None;
                     idea.updated = ts;
                 }
                 EventData::RunCreated { run, .. }
@@ -818,6 +885,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                 plan_sha256,
                 deploy_requested,
                 stages,
+                budget,
             },
         ) => Some(Run {
             id: run.clone(),
@@ -839,7 +907,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             stages: stages.clone(),
             evidence: Vec::new(),
             prs: Vec::new(),
-            budget: None,
+            budget: budget.clone(),
             created: ts,
             updated: ts,
         }),
@@ -1024,6 +1092,10 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                         existing.state = pr.state.clone();
                         existing.checks_summary = pr.checks_summary.clone();
                     }
+                    run.updated = ts;
+                }
+                EventData::BudgetChanged { new, .. } => {
+                    run.budget = Some(new.clone());
                     run.updated = ts;
                 }
                 _ => {}

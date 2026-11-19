@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::schema::{StageCondition, StageDef, StageRequirement, Workflow};
+use super::schema::{StageCondition, StageDef, StageRequirement, ToolClass, Workflow};
 use crate::factory::model::{Approval, ApprovalGate, FactorySettings, RunState, Stage, StageState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -22,6 +22,8 @@ pub struct RunFacts {
 pub struct SchedulerLimits {
     pub effective_max_parallel: usize,
     pub running_count: usize,
+    pub workspace_max_parallel: usize,
+    pub workspace_running_count: usize,
 }
 
 impl SchedulerLimits {
@@ -30,8 +32,8 @@ impl SchedulerLimits {
         settings: &FactorySettings,
         stages: &[Stage],
     ) -> Self {
-        let effective_max_parallel =
-            (workflow.policy.max_parallel_agents as usize).min(settings.max_parallel_agents);
+        let effective_policy = crate::factory::settings::effective(&workflow.policy, settings);
+        let effective_max_parallel = effective_policy.max_parallel_agents as usize;
         let running_count = stages
             .iter()
             .filter(|s| s.state == StageState::Running)
@@ -39,13 +41,32 @@ impl SchedulerLimits {
         Self {
             effective_max_parallel,
             running_count,
+            workspace_max_parallel: settings.max_parallel_agents,
+            workspace_running_count: running_count,
         }
     }
 
-    pub fn available_slots(&self) -> usize {
-        self.effective_max_parallel
-            .saturating_sub(self.running_count)
+    pub fn with_workspace_running(mut self, workspace_running_count: usize) -> Self {
+        self.workspace_running_count = workspace_running_count;
+        self
     }
+
+    pub fn available_slots(&self) -> usize {
+        let run_slots = self
+            .effective_max_parallel
+            .saturating_sub(self.running_count);
+        let workspace_slots = self
+            .workspace_max_parallel
+            .saturating_sub(self.workspace_running_count);
+        run_slots.min(workspace_slots)
+    }
+}
+
+pub fn stage_has_writer_tool(stage_def: &StageDef) -> bool {
+    stage_def
+        .tools
+        .iter()
+        .any(|tool| matches!(tool.class(), ToolClass::Write | ToolClass::Execute))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +160,10 @@ pub fn next(
         stages.iter().map(|s| (s.name.as_str(), s.state)).collect();
 
     let slots = limits.available_slots();
+    let mut writer_busy = workflow.stages.iter().any(|stage_def| {
+        state_by_name.get(stage_def.name.as_str()).copied() == Some(StageState::Running)
+            && stage_has_writer_tool(stage_def)
+    });
     let mut decision = Decision::default();
 
     for stage_def in &workflow.stages {
@@ -182,11 +207,24 @@ pub fn next(
                     }
                     ConditionEval::Met => {
                         if !has_required_approvals(stage_def, &facts.approvals) {
+                            let action = crate::factory::protected::action_for_stage(
+                                stage_def,
+                                &workflow.policy.require_human_approval,
+                            );
                             decision.blocked.push(BlockedStage {
                                 name: stage_def.name.clone(),
-                                reason: "requires human_approval".to_string(),
+                                reason: format!(
+                                    "needs your approval for {action} (tandem factory run approve <run> --action {action} --confirm <run>)"
+                                ),
                             });
                         } else if decision.start.len() < slots {
+                            let is_writer = stage_has_writer_tool(stage_def);
+                            if is_writer && writer_busy {
+                                continue;
+                            }
+                            if is_writer {
+                                writer_busy = true;
+                            }
                             decision.start.push(stage_def.name.clone());
                         }
                     }

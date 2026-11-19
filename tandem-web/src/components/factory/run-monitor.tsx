@@ -20,10 +20,12 @@ import {
   type ProviderStatusItem,
   type RunControlAction,
   type RunControlOptions,
+  type RunDataView,
   type RunSummary,
   type Stage,
   type StageState,
 } from "@/domain/models/factory";
+import { DataHandlingPanel } from "./data-handling";
 import { formatShortTime } from "./format";
 
 interface RunMonitorProps {
@@ -32,6 +34,9 @@ interface RunMonitorProps {
   logText: string | null;
   logLoading: boolean;
   logError: string | null;
+  dataView?: RunDataView | null;
+  dataLoading?: boolean;
+  dataError?: string | null;
   controlling: boolean;
   controlError: string | null;
   onControl: (action: RunControlAction, options?: RunControlOptions) => Promise<void>;
@@ -80,6 +85,9 @@ export function RunMonitor({
   logText,
   logLoading,
   logError,
+  dataView,
+  dataLoading,
+  dataError,
   controlling,
   controlError,
   onControl,
@@ -406,6 +414,13 @@ export function RunMonitor({
             )}
           </div>
         </div>
+        {(dataView !== undefined || dataLoading || dataError) && (
+          <DataHandlingPanel
+            data={dataView ?? null}
+            loading={Boolean(dataLoading)}
+            error={dataError ?? null}
+          />
+        )}
       </CardContent>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>

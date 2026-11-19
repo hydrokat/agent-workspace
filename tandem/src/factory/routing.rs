@@ -6,6 +6,7 @@ use crate::adapters::agy::AgyAdapter;
 use crate::adapters::base::{HeadlessAdapter, ToolFlag, validate_model_id};
 use crate::adapters::claude::ClaudeAdapter;
 use crate::factory::model::FactorySettings;
+use crate::factory::permissions::ToolGrant;
 use crate::factory::workflow::schema::{StageDef, Workflow, WorkflowAgent, WorkflowTool};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -106,6 +107,8 @@ pub enum Unroutable {
         model: String,
         reason: String,
     },
+    #[error("no allowed model left for provider {provider}")]
+    NoAllowedModel { provider: String },
 }
 
 pub fn map_agent_definition(agent: WorkflowAgent, is_ui_work: bool) -> &'static str {
@@ -227,8 +230,9 @@ fn map_tool_for_provider(
 
 pub fn route(
     stage: &StageDef,
+    grant: &ToolGrant,
     workflow: &Workflow,
-    _settings: &FactorySettings,
+    settings: &FactorySettings,
     open_providers: &[&str],
     attempt: u32,
     ctx: &RoutingContext,
@@ -256,9 +260,11 @@ pub fn route(
         }
     }
 
-    let tiers = default_model_tiers();
-    let provider_tiers = tiers
+    let default_tiers = default_model_tiers();
+    let provider_tiers = settings
+        .model_tiers
         .get(provider)
+        .or_else(|| default_tiers.get(provider))
         .ok_or_else(|| Unroutable::UnsupportedProvider {
             provider: provider.to_string(),
         })?;
@@ -268,6 +274,42 @@ pub fn route(
     {
         tier = next_tier;
     }
+
+    if let Some(allowed) = settings.allowed_models.get(provider) {
+        let tier_is_allowed = |t: ModelTier| {
+            let candidate = provider_tiers.for_tier(t);
+            allowed.iter().any(|m| m == candidate)
+        };
+        if !tier_is_allowed(tier) {
+            let candidates = [
+                tier.upgrade(),
+                Some(ModelTier::Standard),
+                Some(ModelTier::Premium),
+                Some(ModelTier::Economy),
+            ];
+            let found = candidates
+                .into_iter()
+                .flatten()
+                .find(|&t| {
+                    tier_is_allowed(t)
+                        && ctx.avoid_model.as_deref() != Some(provider_tiers.for_tier(t))
+                })
+                .or_else(|| {
+                    [ModelTier::Economy, ModelTier::Standard, ModelTier::Premium]
+                        .into_iter()
+                        .find(|&t| tier_is_allowed(t))
+                });
+            match found {
+                Some(t) => tier = t,
+                None => {
+                    return Err(Unroutable::NoAllowedModel {
+                        provider: provider.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
     let upgraded_from = if tier != base_tier {
         Some(base_tier)
     } else {
@@ -281,12 +323,13 @@ pub fn route(
     })?;
 
     let mut tool_flags = Vec::new();
-    for tool in &stage.tools {
+    for tool in &grant.tools {
         map_tool_for_provider(provider, *tool, &mut tool_flags)?;
     }
 
+    let eff = crate::factory::settings::effective(&workflow.policy, settings);
     let temperature = if caps.temperature {
-        TemperatureSupport::Supported(workflow.policy.default_temperature as f32)
+        TemperatureSupport::Supported(eff.default_temperature as f32)
     } else {
         TemperatureSupport::Unsupported
     };

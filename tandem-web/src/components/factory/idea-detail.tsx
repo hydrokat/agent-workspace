@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
+  AuditTimelinePayload,
   Idea,
   IdeaDetail,
   PrLink,
   ReadyResult,
+  RunDataView,
   RunEvidenceBundle,
   WorkflowListItem,
 } from "@/domain/models/factory";
@@ -21,6 +23,7 @@ import {
   formatIdeaState,
   formatShortTime,
 } from "./format";
+import { AuditTimeline } from "./audit-timeline";
 import { EvidencePanel } from "./evidence-panel";
 import { ReadyDialog } from "./ready-dialog";
 import { RunMonitor } from "./run-monitor";
@@ -156,6 +159,71 @@ export function IdeaDetailView({
   useEffect(() => {
     void loadEvidence();
   }, [loadEvidence]);
+
+  const [dataView, setDataView] = useState<RunDataView | null>(null);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  const loadRunData = useCallback(async () => {
+    if (!workspaceId || !activeRun?.id) return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/data`
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw new Error(err.error?.message || `Failed to load data view (${res.status})`);
+      }
+      const payload = (await res.json()) as { data?: RunDataView };
+      setDataView(payload.data ?? null);
+    } catch (err: unknown) {
+      setDataError(err instanceof Error ? err.message : "Failed to load data view.");
+    } finally {
+      setDataLoading(false);
+    }
+  }, [workspaceId, activeRun?.id]);
+
+  useEffect(() => {
+    void loadRunData();
+  }, [loadRunData]);
+
+  const [auditPayload, setAuditPayload] = useState<AuditTimelinePayload | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditKindFilter, setAuditKindFilter] = useState("all");
+  const [auditRunFilter, setAuditRunFilter] = useState("all");
+  const [auditActorFilter, setAuditActorFilter] = useState("all");
+
+  const loadAudit = useCallback(async () => {
+    if (!workspaceId || !detail?.idea.id) return;
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const params = new URLSearchParams();
+      if (auditKindFilter !== "all") params.set("kind", auditKindFilter);
+      if (auditRunFilter !== "all") params.set("run", auditRunFilter);
+      if (auditActorFilter !== "all") params.set("actor", auditActorFilter);
+      const qs = params.toString();
+      const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/ideas/${encodeURIComponent(detail.idea.id)}/audit${qs ? `?${qs}` : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw new Error(err.error?.message || `Failed to load audit (${res.status})`);
+      }
+      const data = (await res.json()) as AuditTimelinePayload;
+      setAuditPayload(data);
+    } catch (err: unknown) {
+      setAuditError(err instanceof Error ? err.message : "Failed to load audit.");
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [workspaceId, detail?.idea.id, auditKindFilter, auditRunFilter, auditActorFilter]);
+
+  useEffect(() => {
+    void loadAudit();
+  }, [loadAudit]);
 
   const handleRefreshPrs = async () => {
     if (!workspaceId || !activeRun?.id) return;
@@ -575,6 +643,9 @@ export function IdeaDetailView({
               logText={logText}
               logLoading={logLoading}
               logError={logError}
+              dataView={dataView}
+              dataLoading={dataLoading}
+              dataError={dataError}
               controlling={controlling}
               controlError={controlError}
               onControl={controlRun}
@@ -595,6 +666,21 @@ export function IdeaDetailView({
               onOpenItem={handleOpenEvidenceItem}
             />
           )}
+
+          <AuditTimeline
+            workspaceId={workspaceId}
+            ideaId={idea.id}
+            runs={idea.runs}
+            payload={auditPayload}
+            loading={auditLoading}
+            error={auditError}
+            kindFilter={auditKindFilter}
+            runFilter={auditRunFilter}
+            actorFilter={auditActorFilter}
+            onKindChange={setAuditKindFilter}
+            onRunChange={setAuditRunFilter}
+            onActorChange={setAuditActorFilter}
+          />
         </div>
       </div>
 

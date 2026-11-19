@@ -8,14 +8,17 @@ use serde::{Deserialize, Serialize};
 use crate::coordination::filelock::exclusive_lock;
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::broker::gh::{AllowedGhSubcommand, GhError, run_gh_bin};
 use super::broker::job::job_dir;
-use super::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
-use super::evidence::{self, EvidenceItem};
+use super::events::{
+    Event, append_locked, redact_events, reject_if_symlink, set_private_file_mode,
+};
+use super::evidence::{self, EvidenceContent, EvidenceItem};
 use super::ids::is_valid_run_id;
 use super::machine::{self, EventData};
 use super::model::{Actor, Idea, PrLink, Run};
+use super::redact::{RedactContext, Redacted, redact};
 use super::run::{RunError, get_run};
 use super::stages::plan::SlicesManifest;
 use super::stages::review::{ReviewRoundsReport, ReviewVerdict, load_findings_report};
@@ -317,7 +320,7 @@ pub fn build_handoff_markdown(
     _workspace: &Path,
     idea: &Idea,
     run: &Run,
-) -> String {
+) -> Redacted {
     let what_was_built = summarize_what_was_built(store, idea, run);
     let tests_section = summarize_tests_section(store, &run.evidence);
     let (review_section, review_follow_ups) = summarize_review_section(store, &run.id);
@@ -391,7 +394,7 @@ pub fn build_handoff_markdown(
     let owns_section =
         format!("- Review and merge of the pull request(s).\n- Deployment ({deploy_note})");
 
-    format!(
+    let raw = format!(
         "# Handoff Summary: {}\n\n\
          ## What was built\n{what_was_built}\n\n\
          ## Tests\n{tests_section}\n\n\
@@ -401,7 +404,15 @@ pub fn build_handoff_markdown(
          ## Where the work is\n{where_section}\n\n\
          ## What the user still owns\n{owns_section}\n",
         run.id
-    )
+    );
+    redact(&raw, &RedactContext::from_env())
+}
+
+pub fn write_handoff(handoff_path: &Path, markdown: &Redacted) -> Result<(), HandoffError> {
+    reject_if_symlink(handoff_path)?;
+    write_atomic(handoff_path, markdown.as_str().as_bytes())?;
+    set_private_file_mode(handoff_path)?;
+    Ok(())
 }
 
 pub fn write_and_record_handoff(
@@ -420,9 +431,7 @@ pub fn write_and_record_handoff(
 
     let markdown = build_handoff_markdown(store, workspace, &idea, &run);
     let handoff_path = store.run_dir(run_id).join("handoff.md");
-    reject_if_symlink(&handoff_path)?;
-    write_atomic(&handoff_path, markdown.as_bytes())?;
-    set_private_file_mode(&handoff_path)?;
+    write_handoff(&handoff_path, &markdown)?;
 
     if let Some(existing) = run
         .evidence
@@ -438,6 +447,10 @@ pub fn write_and_record_handoff(
     } else {
         run.prs.len()
     };
+    let summary = redact(
+        &format!("handoff summary for {} ({pr_count} PR(s))", idea.id),
+        &RedactContext::from_env(),
+    );
     let item = evidence::add(
         store,
         evidence::AddEvidenceInput {
@@ -447,8 +460,8 @@ pub fn write_and_record_handoff(
             stage: "deliver",
             attempt: 1,
             extension: "md",
-            content: markdown.as_bytes(),
-            summary: format!("handoff summary for {} ({pr_count} PR(s))", idea.id),
+            content: EvidenceContent::Text(markdown),
+            summary,
         },
         actor,
     )?;
@@ -604,7 +617,8 @@ pub fn refresh_run_prs_with_gh(
         ev_datas.push(ev_data);
     }
 
-    let appended = append_locked(&store.events_path(), &events)?;
+    let redacted_events = redact_events(&events, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &redacted_events)?;
     for (ev, ev_data) in appended.iter().zip(ev_datas.iter()) {
         if let Some(next) = machine::apply(Some(current_idea.clone()), ev_data, ev.ts) {
             current_idea = next;
@@ -741,9 +755,9 @@ pub fn export_specs(
     store: &FactoryStore,
     workspace: &Path,
     run_id: &str,
-    env_get: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ExportSpecsResult, HandoffError> {
-    ensure_user_caller(env_get)?;
+    require_user(caller)?;
     if !is_valid_run_id(run_id) {
         return Err(FactoryError::InvalidInput(format!("invalid run id: {run_id}")).into());
     }

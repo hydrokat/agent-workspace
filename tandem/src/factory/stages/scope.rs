@@ -7,6 +7,7 @@ use super::ContractFailure;
 use super::plan::{Slice, SlicesManifest};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::events::reject_if_symlink;
+use crate::factory::permissions::ToolGrant;
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -237,4 +238,16 @@ pub fn verify_scope(input: &ScopeCheckInput<'_>) -> Result<ScopeCheckResult, Con
     }
 
     Ok(ScopeCheckResult { changed_files })
+}
+
+pub fn verify_scope_with_grant(
+    worktree_path: &Path,
+    artifact_dir: &Path,
+    grant: &ToolGrant,
+) -> Result<ScopeCheckResult, ContractFailure> {
+    verify_scope(&ScopeCheckInput {
+        worktree_path,
+        artifact_dir,
+        has_repo_write: grant.has_repo_write,
+    })
 }

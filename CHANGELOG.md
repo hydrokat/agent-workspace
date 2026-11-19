@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-11-19
+
+### Added: Factory Mode governance (`p-018`)
+- **Settings, budgets & usage telemetry**: Added `tandem factory settings get|set` (with valid bounds and workflow tightening enforcement), `tandem factory run budget`, and `tandem factory run usage` (`actual`, `estimated`, `unknown` cost basis, rework signals, and explicit reporting when a cost cap is not enforceable for a provider).
+- **Secret redaction, permissions & Gate 3 approvals**: Added `tandem factory redact test` (masking secrets in exported artifacts and audit summaries while keeping screenshots and raw local logs local), `tandem factory permissions allow|deny|show`, and one-time Gate 3 approvals via `tandem factory run approve` with deploy preconditions.
+- **Audit timeline, data visibility & approval boundary**: Added `tandem factory audit` (including redacted `--markdown` and `--json` exports), `tandem factory audit verify` (SHA-256 `prev` hash-chain verification), and `tandem factory run data` (sent vs. readable scope and default exclusions). Hardened the user-only approval boundary with five defence-in-depth measures (terminal check, tmux `@tandem_role` pane check, derived surface, `approval_grace_secs` undo window, and audit log) and **removed `--via`** from the CLI.
+
 ## [1.18.0] — 2026-11-18
 
 ### Added: Factory Mode quality path (`p-017`)

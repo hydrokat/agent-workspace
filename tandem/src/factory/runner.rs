@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -7,23 +8,36 @@ use serde::Serialize;
 
 use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
-use crate::factory::approval::{ApprovalError, ensure_user_caller, verify_snapshot};
+use crate::factory::approval::{
+    ApprovalError, Caller, require_user, take_pending_run, verify_snapshot,
+};
 use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
-use crate::factory::broker::job::{JobState, jobs_dir, read_job_state, set_job_state};
-use crate::factory::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
+use crate::factory::broker::job::{JobState, job_dir, jobs_dir, read_job_state, set_job_state};
+use crate::factory::broker::result::JobResult;
+use crate::factory::budget::{
+    BudgetBreach, BudgetCapKind, BudgetCheck, RunBudget, check as check_budget,
+    effective_stage_budget, spent as compute_spent,
+};
+use crate::factory::events::{
+    Event, append_locked, read_all, redact_events, reject_if_symlink, set_private_file_mode,
+};
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
 use crate::factory::machine::{self, Command, EventData, Facts};
 use crate::factory::model::{
     Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
 };
+use crate::factory::redact::RedactContext;
 use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
+use crate::factory::telemetry::{RecordJobUsageInput, record_job_usage};
 use crate::factory::workflow::parse::load_workflow_file;
-use crate::factory::workflow::scheduler::{RunFacts, SchedulerLimits, TriState, next};
+use crate::factory::workflow::scheduler::{
+    RunFacts, SchedulerLimits, TriState, next, stage_has_writer_tool,
+};
 use crate::factory::workflow::validate::validate;
 use crate::factory::workspace::{WorkspaceError, prepare_worktree};
 
@@ -106,6 +120,25 @@ pub fn has_ui_slices(store: &FactoryStore, run_id: &str) -> bool {
         return false;
     };
     manifest.slices.iter().any(|s| s.ui)
+}
+
+fn check_run_slices_exclusions(
+    store: &FactoryStore,
+    run_id: &str,
+    settings: &FactorySettings,
+) -> Option<(String, String)> {
+    let slices_path = store.run_dir(run_id).join("artifacts/slices.json");
+    if !slices_path.exists() || reject_if_symlink(&slices_path).is_err() {
+        return None;
+    }
+    let raw = fs::read_to_string(&slices_path).ok()?;
+    let manifest: crate::factory::stages::plan::SlicesManifest = serde_json::from_str(&raw).ok()?;
+    let paths: Vec<String> = manifest
+        .slices
+        .iter()
+        .flat_map(|s| s.paths.iter().cloned())
+        .collect();
+    crate::factory::data_policy::check_slices_against_exclusions(&paths, settings)
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {
@@ -236,7 +269,7 @@ pub fn acquire_runner_lock(store: &FactoryStore) -> Result<File, RunnerError> {
     }
 }
 
-fn append_run_events(
+pub fn append_run_events(
     store: &FactoryStore,
     idea_id: &str,
     run_id: &str,
@@ -271,7 +304,8 @@ fn append_run_events(
     }
     let mut next_run = get_run(store, run_id)?.or(run_opt);
     let mut next_idea = store.get_idea(idea_id)?;
-    let appended = append_locked(&store.events_path(), &pending)?;
+    let redacted = redact_events(&pending, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &redacted)?;
     for (ev, ev_data) in appended.iter().zip(events.iter()) {
         next_run = machine::apply_run(next_run, ev_data, idea_id, ev.ts);
         next_idea = machine::apply(next_idea, ev_data, ev.ts);
@@ -308,9 +342,41 @@ fn pause_run(
             run: run_id.clone(),
             reason,
             commands,
+            cap: None,
+            spent: None,
+            limit: None,
         }],
         &sys,
     )?;
+    Ok(())
+}
+
+fn pause_run_budget_breach(
+    store: &FactoryStore,
+    run: Run,
+    breach: BudgetBreach,
+    stop_running: bool,
+) -> Result<(), RunnerError> {
+    let sys = Actor {
+        kind: ActorKind::System,
+        id: "runner".to_string(),
+    };
+    let mut evs = if stop_running {
+        interrupt_running_jobs(store, &run)?.1
+    } else {
+        Vec::new()
+    };
+    let idea_id = run.idea.clone();
+    let run_id = run.id.clone();
+    evs.push(EventData::RunPaused {
+        run: run_id.clone(),
+        reason: breach.message,
+        commands: vec![breach.action_command],
+        cap: Some(breach.cap_name),
+        spent: Some(breach.spent),
+        limit: Some(breach.limit),
+    });
+    append_run_events(store, &idea_id, &run_id, Some(run), evs, &sys)?;
     Ok(())
 }
 
@@ -390,9 +456,19 @@ pub fn drive_run_step(
     }
 
     let settings = store.settings()?;
+    if run.state == RunState::Queued
+        && let Ok(Some(idea)) = store.get_idea(&run.idea)
+        && idea_within_grace_period(&idea, settings.approval_grace_secs, current_time())
+    {
+        return Ok(());
+    }
     let wf_path = store.run_dir(run_id).join("workflow.yaml");
     let raw = load_workflow_file(&wf_path).map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
-    let mut wf = validate(&raw, &settings).map_err(|diags| {
+    let mut validation_settings = settings.clone();
+    validation_settings.max_parallel_agents = validation_settings
+        .max_parallel_agents
+        .max(crate::factory::settings::MAX_PARALLEL_AGENTS);
+    let mut wf = validate(&raw, &validation_settings).map_err(|diags| {
         let msg = diags
             .iter()
             .map(ToString::to_string)
@@ -476,12 +552,16 @@ pub fn drive_run_step(
 
     let ui_changed = compute_ui_changed(store, &run, &settings);
     let is_ui = matches!(ui_changed, TriState::Yes) || has_ui_slices(store, run_id);
+    let now = current_time();
+    let run_approvals = super::protected::load_run_approvals(store, run_id)?;
     let facts = RunFacts {
         ui_changed,
         deploy_requested: run.deploy_requested,
-        approvals: Vec::new(),
+        approvals: super::protected::to_scheduler_approvals(&run_approvals, &run, now),
     };
-    let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages);
+    let workspace_running = count_workspace_running_jobs(store);
+    let limits = SchedulerLimits::from_workflow_and_settings(&wf, &settings, &run.stages)
+        .with_workspace_running(workspace_running);
     let decision = next(&wf, &run.stages, &facts, &limits);
 
     if !decision.skip.is_empty() {
@@ -532,17 +612,47 @@ pub fn drive_run_step(
         return Ok(());
     }
 
+    let writer_busy = wf.stages.iter().any(|stage_def| {
+        run.stages
+            .iter()
+            .any(|s| s.name == stage_def.name && s.state == StageState::Running)
+            && stage_has_writer_tool(stage_def)
+    });
     let stage_to_run = decision.start.first().cloned().or_else(|| {
+        if limits.available_slots() == 0 {
+            return None;
+        }
         decision
             .failed
-            .first()
+            .iter()
             .filter(|f| !f.retries_exhausted)
+            .find(|f| {
+                let is_writer = wf
+                    .stages
+                    .iter()
+                    .find(|s| s.name == f.name)
+                    .is_some_and(stage_has_writer_tool);
+                !(is_writer && writer_busy)
+            })
             .map(|f| f.name.clone())
     });
 
     let Some(stage_name) = stage_to_run else {
         if let Some(blocked) = decision.blocked.first() {
-            return pause_run(store, run, blocked.reason.clone(), vec![]);
+            let reason = blocked.reason.replace("<run>", run_id);
+            let mut cmds = Vec::new();
+            if let Some(sdef) = wf.stages.iter().find(|s| s.name == blocked.name)
+                && sdef
+                    .requires
+                    .contains(&super::workflow::schema::StageRequirement::HumanApproval)
+            {
+                let action =
+                    super::protected::action_for_stage(sdef, &wf.policy.require_human_approval);
+                cmds.push(format!(
+                    "tandem factory run approve {run_id} --action {action} --confirm {run_id}"
+                ));
+            }
+            return pause_run(store, run, reason, cmds);
         }
         return Ok(());
     };
@@ -640,8 +750,57 @@ pub fn drive_run_step(
         avoid_model,
     };
 
+    let target_name = run
+        .target
+        .clone()
+        .unwrap_or_else(|| "workspace".to_string());
+    if stage_name == "deploy" {
+        if run.prs.is_empty() {
+            return pause_run(
+                store,
+                run,
+                "a pull request is required before deploy".to_string(),
+                vec![format!("tandem factory run prs {run_id} --refresh")],
+            );
+        }
+        if super::checks::require_confirmed_deploy(&settings, &target_name).is_err() {
+            return pause_run(
+                store,
+                run,
+                format!("no deploy command is confirmed for {target_name}"),
+                vec![format!(
+                    "tandem factory checks set --target {target_name} --deploy '[\"<cmd>\"]' --confirm {target_name}"
+                )],
+            );
+        }
+    }
+
+    let matching_approval = super::protected::find_matching_approval(
+        &run_approvals,
+        &run.id,
+        &stage_name,
+        &run.workflow_sha256,
+        now,
+    )
+    .cloned();
+    let tool_grant = match crate::factory::permissions::grant(
+        stage_def.agent,
+        stage_def,
+        &target_name,
+        &wf,
+        &settings,
+        matching_approval.is_some(),
+    ) {
+        Ok(g) => g,
+        Err(denied) => {
+            let cmds = denied.action_commands(&run.id);
+            return pause_run(store, run, denied.to_string(), cmds);
+        }
+    };
+
     let routed = match route(
         stage_def,
+        &tool_grant,
         &wf,
         &settings,
         &open_providers,
@@ -650,9 +809,61 @@ pub fn drive_run_step(
     ) {
         Ok(r) => r,
         Err(unroutable) => {
-            return pause_run(store, run, unroutable.to_string(), vec![]);
+            let reason = unroutable.to_string();
+            let sys = Actor {
+                kind: ActorKind::System,
+                id: "engine".to_string(),
+            };
+            let idea_id = run.idea.clone();
+            let r_id = run.id.clone();
+            let run_after_block = append_run_events(
+                store,
+                &idea_id,
+                &r_id,
+                Some(run),
+                vec![EventData::StageBlocked {
+                    run: r_id.clone(),
+                    stage: stage_name.clone(),
+                    reason: reason.clone(),
+                }],
+                &sys,
+            )?;
+            return pause_run(store, run_after_block, reason, vec![]);
         }
     };
+
+    if let Some((excluded_file, rule)) = check_run_slices_exclusions(store, &run.id, &settings) {
+        let reason = format!(
+            "slice requires excluded file '{excluded_file}' ({rule}); update data policy or slice paths"
+        );
+        let sys = Actor {
+            kind: ActorKind::System,
+            id: "engine".to_string(),
+        };
+        let idea_id = run.idea.clone();
+        let r_id = run.id.clone();
+        let run_after_block = append_run_events(
+            store,
+            &idea_id,
+            &r_id,
+            Some(run),
+            vec![EventData::StageBlocked {
+                run: r_id.clone(),
+                stage: stage_name.clone(),
+                reason: reason.clone(),
+            }],
+            &sys,
+        )?;
+        return pause_run(store, run_after_block, reason, vec![]);
+    }
+
+    let run_budget = RunBudget::from_run_or_settings(&run, &settings);
+    let pre_log = read_all(&store.events_path())?;
+    let pre_spent = compute_spent(&run, &pre_log.events, current_time());
+    if let BudgetCheck::Breach(breach) = check_budget(&run.id, &run_budget, &pre_spent, true) {
+        return pause_run_budget_breach(store, run, breach, false);
+    }
+    let _eff_stage_budget = effective_stage_budget(&stage_def.budget, &run_budget, &pre_spent);
 
     let mut pre_evs = Vec::new();
     let idea_is_queued = store
@@ -675,7 +886,16 @@ pub fn drive_run_step(
         run: run.id.clone(),
         stage: stage_name.clone(),
         attempt: next_attempt,
+        grant: Some(tool_grant),
     });
+    if let Some(approval) = matching_approval {
+        pre_evs.push(EventData::ApprovalConsumed {
+            run: run.id.clone(),
+            stage: stage_name.clone(),
+            action: approval.action,
+            approval_seq: approval.seq,
+        });
+    }
     run = append_run_events(
         store,
         &run.idea.clone(),
@@ -685,11 +905,35 @@ pub fn drive_run_step(
         &sys,
     )?;
 
+    let job_t0 = std::time::Instant::now();
     let outcome = executor.run(&StageJob {
         run: run.id.clone(),
         stage: stage_name.clone(),
         attempt: next_attempt,
     });
+    let job_duration_secs = job_t0.elapsed().as_secs_f64();
+
+    if !matches!(outcome, StageOutcome::Blocked { .. }) {
+        let result_path = job_dir(store, run_id, &stage_name, next_attempt).join("result.json");
+        let parsed_usage = fs::read_to_string(&result_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<JobResult>(&raw).ok())
+            .and_then(|r| r.usage);
+        record_job_usage(RecordJobUsageInput {
+            store,
+            idea_id: &run.idea,
+            run_id,
+            stage: &stage_name,
+            attempt: next_attempt,
+            provider: &routed.provider,
+            model: &routed.model,
+            tier: routed.tier,
+            duration_secs: job_duration_secs,
+            usage: parsed_usage.as_ref(),
+            price_table: &settings.price_table,
+            actor: &sys,
+        })?;
+    }
 
     let mut current_run = match get_run(store, run_id)? {
         Some(r) => r,
@@ -938,6 +1182,19 @@ pub fn drive_run_step(
         }
     }
 
+    if let Some(after_run) = get_run(store, run_id)?
+        && matches!(after_run.state, RunState::Queued | RunState::Running)
+    {
+        let post_log = read_all(&store.events_path())?;
+        let post_spent = compute_spent(&after_run, &post_log.events, current_time());
+        if let BudgetCheck::Breach(breach) =
+            check_budget(&after_run.id, &run_budget, &post_spent, false)
+        {
+            let stop_running = breach.cap == BudgetCapKind::Duration;
+            pause_run_budget_breach(store, after_run, breach, stop_running)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -984,9 +1241,9 @@ pub fn pause_run_by_user(
     run_id: &str,
     now: bool,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<PauseRunResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1018,6 +1275,9 @@ pub fn pause_run_by_user(
         run: run_id.to_string(),
         reason,
         commands: vec![format!("tandem factory run resume {run_id}")],
+        cap: None,
+        spent: None,
+        limit: None,
     });
 
     let updated = append_run_events(
@@ -1154,9 +1414,9 @@ pub fn cancel_run(
     run_id: &str,
     confirm: &str,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<CancelRunResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1210,9 +1470,9 @@ pub fn cancel_idea(
     idea_id: &str,
     confirm: &str,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<CancelIdeaResult, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1281,9 +1541,9 @@ pub fn retry_paused_stage(
     stage: &str,
     hypothesis: &str,
     actor: &Actor,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<Run, RunnerError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1333,20 +1593,171 @@ pub fn retry_paused_stage(
     )
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ChangeBudgetResult {
+    pub run: Run,
+    pub old: RunBudget,
+    pub new: RunBudget,
+}
+
+pub fn change_run_budget(
+    store: &FactoryStore,
+    run_id: &str,
+    max_cost_usd: Option<f64>,
+    max_duration_secs: Option<u64>,
+    max_retries: Option<u32>,
+    actor: &Actor,
+    caller: &Caller<'_>,
+) -> Result<ChangeBudgetResult, RunnerError> {
+    require_user(caller)?;
+    if actor.kind != ActorKind::User {
+        return Err(RunnerError::Approval(ApprovalError::AgentCaller));
+    }
+    if !is_valid_run_id(run_id) {
+        return Err(RunnerError::InvalidInput(format!(
+            "invalid run id: {run_id}"
+        )));
+    }
+    if max_cost_usd.is_none() && max_duration_secs.is_none() && max_retries.is_none() {
+        return Err(RunnerError::InvalidInput(
+            "pass at least one of --max-cost, --max-duration, or --max-retries".to_string(),
+        ));
+    }
+    let run = get_run(store, run_id)?
+        .ok_or_else(|| RunnerError::Run(RunError::NotFound(format!("run {run_id}"))))?;
+    let settings = store.settings()?;
+    let old = RunBudget::from_run_or_settings(&run, &settings);
+    let new = old.with_overrides(max_cost_usd, max_duration_secs, max_retries, &settings)?;
+
+    let updated = append_run_events(
+        store,
+        &run.idea.clone(),
+        &run.id.clone(),
+        Some(run),
+        vec![EventData::BudgetChanged {
+            run: run_id.to_string(),
+            old: old.clone().into(),
+            new: new.clone().into(),
+        }],
+        actor,
+    )?;
+
+    Ok(ChangeBudgetResult {
+        run: updated,
+        old,
+        new,
+    })
+}
+
+pub fn count_run_running_jobs(store: &FactoryStore, run: &Run) -> usize {
+    let jdir = jobs_dir(store, &run.id);
+    let mut job_running = 0usize;
+    let mut saw_job_dir = false;
+    if jdir.is_dir()
+        && let Ok(entries) = fs::read_dir(&jdir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            saw_job_dir = true;
+            if matches!(read_job_state(&path), Ok(JobState::Running)) {
+                job_running += 1;
+            }
+        }
+    }
+    let stage_running = run
+        .stages
+        .iter()
+        .filter(|s| s.state == StageState::Running)
+        .count();
+    if saw_job_dir {
+        job_running.max(stage_running)
+    } else {
+        stage_running
+    }
+}
+
+pub fn count_workspace_running_jobs(store: &FactoryStore) -> usize {
+    let Ok(runs) = list_runs(store, None) else {
+        return 0;
+    };
+    runs.iter()
+        .filter(|r| {
+            !matches!(
+                r.state,
+                RunState::Cancelled | RunState::Succeeded | RunState::Failed | RunState::Delivered
+            )
+        })
+        .map(|r| count_run_running_jobs(store, r))
+        .sum()
+}
+
+fn idea_within_grace_period(idea: &crate::factory::model::Idea, grace_secs: u64, now: f64) -> bool {
+    if grace_secs == 0 {
+        return false;
+    }
+    let ready_at = idea
+        .ready_at
+        .or_else(|| idea.plan_snapshot.as_ref().map(|s| s.created))
+        .unwrap_or(idea.updated);
+    now < ready_at + grace_secs as f64
+}
+
+pub fn drive_workspace_step(
+    store: &FactoryStore,
+    workspace: &Path,
+    executor: &mut dyn Executor,
+) -> Result<(), RunnerError> {
+    let settings = store.settings()?;
+    let now = current_time();
+    if let Ok(ideas) = store.list_ideas() {
+        let sys = Actor {
+            kind: ActorKind::System,
+            id: "engine".to_string(),
+        };
+        for idea in ideas {
+            if idea.state == crate::factory::model::IdeaState::ReadyForDevelopment
+                && !idea_within_grace_period(&idea, settings.approval_grace_secs, now)
+            {
+                let pending = take_pending_run(store, &idea.id);
+                let opts = match pending {
+                    Some(cfg) => super::run::CreateRunOptions {
+                        deploy_requested: cfg.deploy_requested,
+                        workflow: cfg.workflow,
+                        budget: cfg.budget,
+                    },
+                    None => super::run::CreateRunOptions::default(),
+                };
+                let _ = super::run::create_run(store, workspace, &idea.id, opts, &sys);
+            }
+        }
+    }
+
+    let mut runs = list_runs(store, None)?;
+    runs.sort_by(|a, b| {
+        a.created
+            .partial_cmp(&b.created)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    for r in runs {
+        if matches!(
+            r.state,
+            RunState::Queued | RunState::Running | RunState::Review
+        ) {
+            let _ = drive_run_step(store, workspace, &r.id, executor);
+        }
+    }
+    Ok(())
+}
+
 pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), RunnerError> {
     let store = FactoryStore::new(workspace);
     let _lock = acquire_runner_lock(&store)?;
     loop {
-        if let Ok(runs) = list_runs(&store, None) {
-            for r in runs {
-                if matches!(
-                    r.state,
-                    RunState::Queued | RunState::Running | RunState::Review
-                ) {
-                    let _ = drive_run_step(&store, workspace, &r.id, executor);
-                }
-            }
-        }
+        let _ = drive_workspace_step(&store, workspace, executor);
         thread::sleep(Duration::from_secs(2));
     }
 }

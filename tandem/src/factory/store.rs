@@ -7,12 +7,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use super::FactoryError;
 use super::events::{
-    self, Event, append_locked, read_all, reject_if_symlink, set_private_dir_mode,
+    self, Event, append_locked, read_all, redact_events, reject_if_symlink, set_private_dir_mode,
     set_private_file_mode,
 };
 use super::ids::{self, is_valid_idea_id, is_valid_run_id};
 use super::machine::{self, Command, EventData, Facts};
 use super::model::{Actor, FactorySettings, Idea, Run};
+use super::redact::RedactContext;
 use crate::coordination::filelock::exclusive_lock;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +67,11 @@ impl FactoryStore {
         self.root.join(".gitignore")
     }
 
-    fn settings_path(&self) -> PathBuf {
+    pub(super) fn root_dir(&self) -> &Path {
+        &self.root
+    }
+
+    pub(super) fn settings_path(&self) -> PathBuf {
         self.root.join("settings.json")
     }
 
@@ -174,7 +179,8 @@ impl FactoryStore {
             )?);
         }
 
-        let appended = append_locked(&self.events_path(), &pending)?;
+        let redacted = redact_events(&pending, &RedactContext::from_env());
+        let appended = append_locked(&self.events_path(), &redacted)?;
 
         let mut next = current;
         for (ev, ev_data) in appended.iter().zip(decided.iter()) {
@@ -352,27 +358,11 @@ impl FactoryStore {
     }
 
     pub fn settings(&self) -> Result<FactorySettings, FactoryError> {
-        reject_if_symlink(&self.root)?;
-        let path = self.settings_path();
-        reject_if_symlink(&path)?;
-
-        match fs::read_to_string(&path) {
-            Ok(content) => Ok(serde_json::from_str(&content)?),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(FactorySettings::default())
-            }
-            Err(err) => Err(FactoryError::Io(err)),
-        }
+        super::settings::load(self)
     }
 
     pub(super) fn save_settings(&self, settings: &FactorySettings) -> Result<(), FactoryError> {
-        self.ensure()?;
-        let path = self.settings_path();
-        reject_if_symlink(&path)?;
-        let bytes = serde_json::to_vec_pretty(settings)?;
-        write_atomic(&path, &bytes)?;
-        set_private_file_mode(&path)?;
-        Ok(())
+        super::settings::save(self, settings)
     }
 
     pub(super) fn load_idea_for_update(&self, idea_id: &str) -> Result<Option<Idea>, FactoryError> {
@@ -437,7 +427,11 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::RunBaseline { run, .. }
         | EventData::EvidenceAdded { run, .. }
         | EventData::PrCreated { run, .. }
-        | EventData::PrStatusRefreshed { run, .. } => Some(run.clone()),
+        | EventData::PrStatusRefreshed { run, .. }
+        | EventData::BudgetChanged { run, .. }
+        | EventData::JobUsage { run, .. }
+        | EventData::ApprovalGranted { run, .. }
+        | EventData::ApprovalConsumed { run, .. } => Some(run.clone()),
         _ => None,
     }
 }

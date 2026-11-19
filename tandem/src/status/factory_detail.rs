@@ -8,7 +8,7 @@ use ratatui::text::Line;
 use unicode_width::UnicodeWidthStr;
 
 use crate::factory::approval::{
-    SnapshotVerification, mark_ready_with_workflow, revoke_ready, verify_snapshot,
+    Caller, SnapshotVerification, mark_ready_with_workflow, revoke_ready, verify_snapshot,
 };
 use crate::factory::artifacts::{self, REQUIRED_PLAN_SECTIONS};
 use crate::factory::events::{self, Event};
@@ -77,6 +77,7 @@ pub enum DetailAction {
     OpenOrResumeOrchestrator { idea_id: String },
     OpenRunMonitor { run_id: String },
     OpenRunEvidence { run_id: String },
+    OpenAudit { idea_id: String },
     Refresh,
 }
 
@@ -261,16 +262,17 @@ impl FactoryDetail {
                     let store = FactoryStore::new(&self.workspace);
                     let owner = self.owner.clone();
                     let env_fn = |var: &str| std::env::var(var).ok();
+                    let no_pane = |_: &str| None;
+                    let caller = Caller::tui(&env_fn, &no_pane);
                     match mark_ready_with_workflow(
                         &store,
                         &self.workspace,
                         &self.idea_id,
                         &typed,
-                        "tui",
                         &owner,
                         wf_name,
                         deploy,
-                        &env_fn,
+                        &caller,
                     ) {
                         Ok(res) => {
                             self.notice = if let Some(ref run_err) = res.run_error {
@@ -333,7 +335,9 @@ impl FactoryDetail {
                     let store = FactoryStore::new(&self.workspace);
                     let owner = self.owner.clone();
                     let env_fn = |var: &str| std::env::var(var).ok();
-                    match revoke_ready(&store, &self.idea_id, &owner, &env_fn) {
+                    let no_pane = |_: &str| None;
+                    let caller = Caller::tui(&env_fn, &no_pane);
+                    match revoke_ready(&store, &self.idea_id, &owner, &caller) {
                         Ok(_) => {
                             self.notice = "Revoked ready for development.".to_string();
                             self.sub_view = DetailSubView::Main;
@@ -376,6 +380,9 @@ impl FactoryDetail {
                         self.open_assumptions();
                         DetailKeyOutcome::Consumed
                     }
+                    KeyCode::Char('u') => DetailKeyOutcome::Action(DetailAction::OpenAudit {
+                        idea_id: self.idea_id.clone(),
+                    }),
                     KeyCode::Char('h') => {
                         self.open_handoff();
                         DetailKeyOutcome::Consumed
@@ -1266,7 +1273,7 @@ impl FactoryDetail {
                 "resume"
             };
             let run_hint = if self.run.is_some() {
-                "Enter run   h handoff   e evidence   r refresh PR status   "
+                "Enter run   h handoff   e evidence   u audit   r refresh PR status   "
             } else {
                 ""
             };

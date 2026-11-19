@@ -8,9 +8,13 @@ import {
   FactoryGatewayError,
   isPngSignature,
   type ArtifactKind,
+  type AuditFilterOptions,
+  type AuditTimelinePayload,
   type EvidenceItemContent,
   type FactoryCli,
   type FactoryErrorCode,
+  type FactorySettings,
+  type FactorySettingsChangeResult,
   type Idea,
   type IdeaDetail,
   type PrLink,
@@ -288,7 +292,7 @@ export class CliTandemGateway implements ITandemGateway {
     ideaId: string,
     options?: { workflow?: string; deploy?: boolean }
   ): Promise<ReadyResult> {
-    const args = ["factory", "idea", "ready", ideaId, "--confirm", ideaId, "--via", "web"];
+    const args = ["factory", "idea", "ready", ideaId, "--confirm", ideaId];
     if (options?.workflow) {
       args.push("--workflow", options.workflow);
     }
@@ -403,6 +407,17 @@ export class CliTandemGateway implements ITandemGateway {
     return JSON.parse(stdout) as RunEvidenceBundle;
   }
 
+  async factoryRunData(workspacePath: string, runId: string): Promise<import("@/domain/models/factory").RunDataView> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "run",
+      "data",
+      runId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as import("@/domain/models/factory").RunDataView;
+  }
+
   async factoryEvidenceItem(
     workspacePath: string,
     runId: string,
@@ -472,5 +487,72 @@ export class CliTandemGateway implements ITandemGateway {
       "--json",
     ]);
     return JSON.parse(stdout) as PrLink[];
+  }
+
+  private buildAuditArgs(
+    ideaId: string,
+    formatFlag: "--json" | "--markdown",
+    options?: AuditFilterOptions
+  ): string[] {
+    const args = ["factory", "audit", ideaId, formatFlag];
+    if (options?.run) {
+      args.push("--run", options.run);
+    }
+    if (options?.kind) {
+      args.push("--kind", options.kind);
+    }
+    if (options?.actor) {
+      args.push("--actor", options.actor);
+    }
+    return args;
+  }
+
+  async factoryAuditIdea(
+    workspacePath: string,
+    ideaId: string,
+    options?: AuditFilterOptions
+  ): Promise<AuditTimelinePayload> {
+    const stdout = await this.runFactory(
+      workspacePath,
+      this.buildAuditArgs(ideaId, "--json", options)
+    );
+    return JSON.parse(stdout) as AuditTimelinePayload;
+  }
+
+  async factoryAuditMarkdown(
+    workspacePath: string,
+    ideaId: string,
+    options?: AuditFilterOptions
+  ): Promise<string> {
+    return this.runFactory(
+      workspacePath,
+      this.buildAuditArgs(ideaId, "--markdown", options)
+    );
+  }
+
+  async factoryGetSettings(workspacePath: string): Promise<FactorySettings> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "settings",
+      "get",
+      "--json",
+    ]);
+    return JSON.parse(stdout) as FactorySettings;
+  }
+
+  async factorySetSetting(
+    workspacePath: string,
+    key: string,
+    value: string
+  ): Promise<FactorySettingsChangeResult> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "settings",
+      "set",
+      key,
+      value,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as FactorySettingsChangeResult;
   }
 }

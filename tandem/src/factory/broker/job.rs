@@ -8,6 +8,7 @@ use super::result::{JobResult, parse_and_validate_result_strict};
 use crate::factory::FactoryError;
 use crate::factory::events::{reject_if_symlink, set_private_file_mode};
 use crate::factory::ids::is_valid_run_id;
+use crate::factory::redact::RedactContext;
 use crate::factory::store::{FactoryStore, create_private_dir, write_atomic};
 
 pub const MAX_INTERRUPTIONS_PER_STAGE: usize = 3;
@@ -78,6 +79,7 @@ pub struct PreparedJob {
     pub prompt_path: PathBuf,
     pub result_path: PathBuf,
     pub log_path: PathBuf,
+    pub redact_context: RedactContext,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -170,6 +172,7 @@ pub fn prepare_job(
         prompt_path,
         result_path,
         log_path,
+        redact_context: RedactContext::from_env(),
     })
 }
 

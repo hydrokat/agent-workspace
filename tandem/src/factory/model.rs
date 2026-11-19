@@ -251,6 +251,10 @@ pub struct Idea {
     #[serde(default)]
     pub plan_snapshot: Option<ArtifactRef>,
     #[serde(default)]
+    pub ready_via: Option<String>,
+    #[serde(default)]
+    pub ready_at: Option<f64>,
+    #[serde(default)]
     pub artifacts: Vec<ArtifactRef>,
     #[serde(default)]
     pub assumptions: Vec<String>,
@@ -289,6 +293,25 @@ fn default_max_parallel_agents() -> usize {
     3
 }
 
+fn default_settings_version() -> u32 {
+    super::settings::SETTINGS_VERSION
+}
+
+fn default_workflow() -> String {
+    "default-delivery".to_string()
+}
+
+fn default_approval_grace_secs() -> u64 {
+    30
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelPrice {
+    pub input: f64,
+    pub output: f64,
+    pub as_of: String,
+}
+
 fn default_temperature() -> f64 {
     0.4
 }
@@ -314,10 +337,14 @@ fn default_provider_gates() -> Vec<ProviderGate> {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FactorySettings {
+    #[serde(default = "default_settings_version")]
+    pub version: u32,
     #[serde(default = "default_max_parallel_agents")]
     pub max_parallel_agents: usize,
     #[serde(default = "default_temperature")]
     pub default_temperature: f64,
+    #[serde(default = "default_workflow")]
+    pub default_workflow: String,
     #[serde(default = "default_max_review_rounds")]
     pub max_review_rounds: u32,
     #[serde(default = "default_provider_gates")]
@@ -326,17 +353,49 @@ pub struct FactorySettings {
     pub default_budget: Budget,
     #[serde(default)]
     pub checks: BTreeMap<String, super::checks::ChecksConfig>,
+    #[serde(default)]
+    pub deploy_commands: BTreeMap<String, super::checks::DeployConfig>,
+    #[serde(default = "super::routing::default_model_tiers")]
+    pub model_tiers: BTreeMap<String, super::routing::ProviderModelTiers>,
+    #[serde(default)]
+    pub price_table: BTreeMap<String, ModelPrice>,
+    #[serde(default = "default_approval_grace_secs")]
+    pub approval_grace_secs: u64,
+    #[serde(default)]
+    pub allowed_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
+    #[serde(default)]
+    pub denied_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
+    #[serde(default)]
+    pub allowed_data_classes: BTreeMap<String, Vec<super::data_policy::DataClass>>,
+    #[serde(default)]
+    pub allowed_models: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub denied_path_patterns: Vec<String>,
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for FactorySettings {
     fn default() -> Self {
         Self {
+            version: default_settings_version(),
             max_parallel_agents: default_max_parallel_agents(),
             default_temperature: default_temperature(),
+            default_workflow: default_workflow(),
             max_review_rounds: default_max_review_rounds(),
             provider_gates: default_provider_gates(),
             default_budget: Budget::default(),
             checks: BTreeMap::new(),
+            deploy_commands: BTreeMap::new(),
+            model_tiers: super::routing::default_model_tiers(),
+            price_table: BTreeMap::new(),
+            approval_grace_secs: default_approval_grace_secs(),
+            allowed_tools: BTreeMap::new(),
+            denied_tools: BTreeMap::new(),
+            allowed_data_classes: BTreeMap::new(),
+            allowed_models: BTreeMap::new(),
+            denied_path_patterns: Vec::new(),
+            extra: BTreeMap::new(),
         }
     }
 }

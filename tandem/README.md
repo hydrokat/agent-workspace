@@ -192,7 +192,7 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory idea describe ID --title T --text-file F --json` | Set title and description (moves Inbox → Ideation) |
 | `tandem factory idea assume ID --text T --json` | Record an assumption (up to 30, 500 chars each) |
 | `tandem factory idea select-direction ID --json` | Advance Ideation → Planning (Gate 1: requires non-infeasible feasibility study) |
-| `tandem factory idea ready ID --confirm ID [--via tui\|web\|cli] --json` | Freeze `plan-snapshot.md` and mark `ready_for_development` (Gate 2, user-only) |
+| `tandem factory idea ready ID --confirm ID --json` | Freeze `plan-snapshot.md` and mark `ready_for_development` (Gate 2, user-only; `--via` removed) |
 | `tandem factory idea revoke-ready ID --json` | Revoke `ready_for_development` back to Planning before a run exists (user-only) |
 | `tandem factory idea list [--state S] --json` | List ideas sorted by `updated` descending |
 | `tandem factory idea show ID --json` | Show idea, events, `questions`, and `plan_snapshot` verification |
@@ -220,17 +220,29 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory run prs <RUN> [--refresh] [--json]` | List or refresh pull request status for a run |
 | `tandem factory run export-specs <RUN> [--json]` | Copy `plan` stage specs into workspace `specs/` under the next free phase |
 | `tandem factory checks discover [--target NAME] [--json]` | Propose `test` and `lint` commands by reading target project files |
-| `tandem factory checks set --target NAME [--test CMD] [--lint CMD] [--timeout-secs N] [--ui-paths GLOBS] --confirm NAME [--json]` | Confirm `test` and `lint` commands for a target (user-only) |
+| `tandem factory checks set --target NAME [--test CMD] [--lint CMD] [--deploy JSON_CMD] [--timeout-secs N] [--ui-paths GLOBS] --confirm NAME [--json]` | Confirm `test`, `lint`, or `deploy` commands for a target (user-only) |
 | `tandem factory checks show [--target NAME] [--json]` | Show confirmed check commands |
 | `tandem factory provider status [--json]` | Show provider terms verdicts, expiry, consent, and gate state |
-| `tandem factory provider consent <PROVIDER> --auth <TYPE> --confirm <PROVIDER> [--json]` | Record user consent to open a headless provider gate |
-| `tandem factory provider revoke <PROVIDER> [--json]` | Close a provider gate in factory settings |
+| `tandem factory provider consent <PROVIDER> --auth <TYPE> --confirm <PROVIDER> [--json]` | Record user consent to open a headless provider gate (user-only) |
+| `tandem factory provider revoke <PROVIDER> [--json]` | Close a provider gate in factory settings (user-only) |
+| `tandem factory settings get [--json]` | Show current factory settings |
+| `tandem factory settings set <KEY> <VALUE> [--json]` | Update a non-protected factory setting within valid bounds (user-only) |
+| `tandem factory run budget <RUN> [--max-cost USD] [--max-duration SECS] [--max-retries N] [--json]` | View or update budget caps for a run (mutating is user-only) |
+| `tandem factory run usage <RUN> [--json]` | Show usage, cost basis (`actual`/`estimated`/`unknown`), and rework signals for a run |
+| `tandem factory run approve <RUN> --action <ACTION> --confirm <RUN> [--stage STAGE] [--json]` | Grant a one-time Gate 3 approval (`production_deploy`, `secrets_access`, `production_access`; user-only) |
+| `tandem factory run data <RUN> [--json]` | Show what data each job sent vs. what it could read and default exclusions |
+| `tandem factory permissions allow <SUBJECT> <TOOL> [--target] [--agent] [--json]` | Allow a tool for an agent or un-deny it for `--target` (user-only) |
+| `tandem factory permissions deny <SUBJECT> <TOOL> [--target] [--agent] [--json]` | Deny a tool for a target repository or `--agent` (user-only) |
+| `tandem factory permissions show [--json]` | Show configured and default tool permissions |
+| `tandem factory redact test <FILE> [--json]` | Scan a file and report what secret redaction would mask |
+| `tandem factory audit [IDEA] [--run RUN] [--kind KIND] [--actor ACTOR] [--json\|--markdown]` | Inspect or export the audit timeline (JSON or redacted Markdown) |
+| `tandem factory audit verify [--json]` | Verify the SHA-256 `prev` hash chain of `events.jsonl` |
 
-Exit codes: `0` success, `1` not found, invalid input, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (including agent env on `ready`/`revoke-ready`/`checks set`), gate not met, checks not confirmed, or question ceiling reached.
+Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (agent caller/pane or non-terminal on user-only commands such as `ready`, `revoke-ready`, `checks set`, `settings set`, `permissions allow|deny`, `run budget` mutation, `run approve`, `provider consent|revoke`), gate not met, checks not confirmed, or question ceiling reached.
 
 - **Required plan sections (`##`)**: `Scope`, `Acceptance criteria`, `Risks`, `Estimates`, `Workflow recommendation`.
 - **Question tagging**: Questions asked with `task = "idea:<id>"` feed `blockers`, `needs_you`, and Gate 2.
-- **User-only rule**: `ready`, `revoke-ready`, `run create`, and `run withdraw` refuse when `TANDEM_ROLE`, `TANDEM_SESSION_ID`, or `TANDEM_FACTORY_IDEA` is set. This is a guard-rail and audit trail (`approved_by`, `via`), not an OS sandbox.
+- **User-only rule**: User-only commands route through one shared approval gate (`approval::require_user`) enforcing a terminal check (`IsTerminal`), tmux `@tandem_role` pane check, derived `via` surface (`--via` removed), `approval_grace_secs` undo window, and audit logging. See [Approval boundary](#approval-boundary-threat-model--five-measures) for what it stops and does not stop.
 - **Orchestrator recommendation**: The Orchestrator may recommend a workflow by name in the plan, but cannot edit workflow policy; the validator's upper bounds always apply to whatever the user selects.
 - **Factory tab & Web views**: TUI Factory tab (`Alt+f`) provides new idea (`Ctrl+Alt+n`), lifecycle filter, detail/artifact reader, mark ready (`Ctrl+Alt+y` with workflow selector & deploy toggle), run strip, withdraw (`x`), and revoke; `tandem-web` exposes `/api/workspaces/:id/factory/...` routes including `workflows` and `runs/:runId` with the workflow selector and run timeline.
 
@@ -350,6 +362,72 @@ tandem factory provider revoke claude --json
   - Never **approves** a pull request.
   - Never **force pushes**.
   - Never **pushes to a protected branch** (`main`, `master`, `trunk`).
+
+### Settings & workflow tightening (`settings get|set`)
+
+Inspect settings with `tandem factory settings get [--json]` and update non-protected keys with `tandem factory settings set <KEY> <VALUE> [--json]` (user-only).
+
+| Setting | Default | Valid range |
+|---|---|---|
+| `max_parallel_agents` | `2` | `1..=8` |
+| `default_temperature` | `0.2` | `0.0..=1.0` |
+| `max_review_rounds` | `2` | `0..=5` |
+| `approval_grace_secs` | `30` | `0..=600` |
+| `default_workflow` | `default-delivery` | `^[a-z][a-z0-9-]{0,47}$` |
+| `default_budget` (`max_cost_usd`, `max_duration_secs`, `max_retries`) | unset / optional | `max_cost_usd >= 0.0` |
+| `model_tiers`, `price_table` | per provider/model | valid model IDs & non-negative rates |
+
+- **Protected keys**: `provider_gates`, `providers`, `checks`, `deploy`, `deploy_command`, `version`, `allowed_tools`, and `denied_tools` cannot be changed with `settings set`; use their dedicated user-only commands (`provider`, `checks`, `permissions`).
+- **Workflows can only tighten**: A workflow's `policy` and stage budgets cannot relax `settings.json` bounds (`settings::effective` takes `min` for `max_parallel_agents`, `default_temperature`, and budget caps).
+
+### Budgets & telemetry (`run budget`, `run usage`)
+
+- **Run & stage budgets**: View or update run caps (`max_cost_usd`, `max_duration_secs`, `max_retries`) with `tandem factory run budget <RUN> [--max-cost USD] [--max-duration SECS] [--max-retries N]`. Mutating caps is user-only.
+- **Pre-run estimates & basis**: Before starting, `run simulate` and run creation compute an estimate from `price_table` using a typical stage baseline (`25,000` input tokens and `5,000` output tokens per stage) and report whether the estimate basis is `estimated` or `unknown`.
+- **Budget breach**: When `max_cost_usd`, `max_duration_secs`, or `max_retries` is reached, the runner pauses the run and records `action_commands` so the user can either raise the cap (`run budget`) and `run resume`, or `run cancel`.
+- **Unenforceable cost cap limit**: A `max_cost_usd` cap is **not enforceable** for a provider that reports no usage (displayed as `not enforceable for <provider>`). Duration and retry caps still apply.
+- **Telemetry (`run usage`)**: `tandem factory run usage <RUN>` reports per-stage tokens, cost, cost basis, and rework signals:
+  - `actual`: the provider reported `cost_usd` directly in `result.json`.
+  - `estimated`: computed from reported token counts (or the pre-run stage baseline) using `price_table`.
+  - `unknown`: the provider reported no usage or the model has no `price_table` entry.
+
+### Secret & log redaction (`redact test`)
+
+- **What is found**: `redact` scans exported text, audit entries, and job summaries for `PrivateKey`, `EnvSecret`, `Token`, `UrlCredential`, `KeyValue` (secret key names such as `token`, `password`, `api_key`, `credential`), and `HighEntropy` strings, replacing matches with `«redacted:<kind>»` while skipping known hash-context keys (`sha256`, `commit`, `digest`, `checksum`).
+- **What is not redacted**: `demo` **screenshots** (PNG images) and **raw local logs** (`log.txt` on disk) are not rewritten by redaction; they stay local to the machine.
+- **Test before sharing**: Run `tandem factory redact test <FILE> [--json]` to inspect every match and preview what would be redacted.
+
+### Permissions, Gate 3 & deploy preconditions (`permissions`, `run approve`)
+
+- **Tool permissions**: Manage per-agent allowlists and per-target denylists with `tandem factory permissions allow|deny <SUBJECT> <TOOL> [--target] [--agent]` (user-only) and inspect with `tandem factory permissions show`.
+- **Denials**: If a stage requests a tool that is not granted (`NotAllowedForAgent`), denied for the target (`DeniedForTarget`), or requires Gate 3 (`Gate3Required`), the runner pauses and surfaces exact `action_commands` to resolve it.
+- **Gate 3 (protected actions)**: Protected actions (`production_deploy`, `secrets_access`, `production_access`) require a one-time user-only approval via `tandem factory run approve <RUN> --action <ACTION> --confirm <RUN> [--stage STAGE]`. Approvals are bound to `run_id`, `stage`, and `workflow_sha256`, and expire after 1 hour (`3600` seconds).
+- **Deploy stage preconditions**: All four must hold before a `deploy` stage executes:
+  1. `--deploy` was requested when the idea was marked ready (`deploy_requested`).
+  2. At least one pull request exists on the run (`run prs`).
+  3. A deploy command is confirmed for the target (`tandem factory checks set --target <NAME> --deploy '["<cmd>"]' --confirm <NAME>`).
+  4. A matching, unexpired Gate 3 `production_deploy` approval exists (`tandem factory run approve <RUN> --action production_deploy --confirm <RUN>`).
+
+### Audit timeline, export & integrity (`audit`, `audit verify`)
+
+- **Timeline & export**: `tandem factory audit [IDEA] [--run RUN] [--kind KIND] [--actor ACTOR] [--json|--markdown]` renders the chronological decision, approval, lifecycle, and job timeline for an idea. `--markdown` exports a redacted Markdown report; `--json` exports structured entries plus verification status.
+- **Hash-chain verification**: `tandem factory audit verify [--json]` verifies the SHA-256 `prev` hash chain across `events.jsonl` and exits `1` if any entry is missing, malformed, or tampered with.
+
+### Data handling (`run data`)
+
+- **Inspect per-job data**: `tandem factory run data <RUN> [--json]` shows what tandem explicitly sent (`sent_files` in `context_manifest` and total bytes), what the job could read (target/worktree scope), and default exclusions.
+- **What tandem cannot see**: The provider CLI can read any file in the readable scope. tandem does not see which.
+- **Default exclusions**: `.env*`, `*.pem`, `*.key`, `id_rsa*`, `secrets/**`, and `.git/**` are excluded from `context_manifest` by default.
+
+### Approval boundary (threat model & five measures)
+
+- **Threat model**: Protects against an agent approving or mutating a user-only control by mistake or via untrusted text (such as prompt injection in an issue, PR, or log). It **does not stop** a deliberately hostile process running as the **same OS user** (preventing a same-user process from forging state requires OS isolation such as a separate OS user, container, or sandbox).
+- **Five defence-in-depth measures** (`approval::require_user`):
+  1. **Terminal required on CLI**: CLI user-only commands refuse when standard input is not a terminal (`std::io::IsTerminal`), returning `"this action needs a terminal"` (exit `3`).
+  2. **Not from an agent pane**: When `TMUX_PANE` is set, tandem queries the pane's `@tandem_role` tmux option and refuses if it names an agent role (cannot be bypassed by clearing shell env vars).
+  3. **Derived surface (`--via` removed)**: `--via` was removed from the CLI; CLI calls always record `cli`, Status window actions pass `tui` in-process, and `tandem-web` passes `web` through an authenticated internal gateway.
+  4. **Grace window (`approval_grace_secs`, default `30`)**: After an idea is marked ready, the runner waits `approval_grace_secs` seconds while Status (`Ctrl+Opt+u`) and `tandem-web` (`[Undo]`) show an undo banner.
+  5. **Prominent audit timeline**: Every approval and revocation is recorded in `events.jsonl` and surfaced in `tandem factory audit`.
 
 ## Development
 

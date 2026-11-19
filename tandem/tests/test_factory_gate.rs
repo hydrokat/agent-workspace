@@ -2,11 +2,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tandem::config::Config;
+use tandem::factory::approval::Caller;
 use tandem::factory::broker::gate::{
     AuthType, GateDenied, GatePass, check, consent_provider, revoke_provider,
 };
 use tandem::factory::broker::terms::{PROVIDER_TERMS, TermsVerdict, lookup};
-use tandem::factory::commands::run_with_io;
+use tandem::factory::commands::run_with_caller;
 use tandem::factory::events::read_all;
 use tandem::factory::model::{FactorySettings, ProviderGate, ProviderGateState};
 use tandem::factory::store::FactoryStore;
@@ -39,8 +40,8 @@ fn call_factory(
     let tandem::cli::Command::Factory(f_args) = cli.command.unwrap() else {
         panic!("expected factory command");
     };
-    let mut stdin = std::io::empty();
-    run_with_io(&f_args, ws, cfg, &mut stdin, stdout, stderr)
+    let caller = Caller::cli(true, &|_| None, &|_| None);
+    run_with_caller(&f_args, ws, cfg, &caller, stdout, stderr)
 }
 
 #[test]
@@ -123,6 +124,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
     store.ensure().unwrap();
 
     let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
     let agent_env = |k: &str| {
         if k == "TANDEM_ROLE" {
             Some("orchestrator".to_string())
@@ -130,6 +132,8 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
             None
         }
     };
+    let user_caller = Caller::cli(true, &no_env, &no_pane);
+    let agent_caller = Caller::cli(true, &agent_env, &no_pane);
 
     // Agent caller rejected
     assert!(
@@ -139,7 +143,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
             AuthType::ApiKey,
             "claude",
             "orch",
-            &agent_env
+            &agent_caller
         )
         .is_err()
     );
@@ -152,7 +156,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
             AuthType::Subscription,
             "claude",
             "alice",
-            &no_env
+            &user_caller
         )
         .is_err()
     );
@@ -163,7 +167,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
             AuthType::Subscription,
             "agy",
             "alice",
-            &no_env
+            &user_caller
         )
         .is_err()
     );
@@ -176,7 +180,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
             AuthType::ApiKey,
             "wrong",
             "alice",
-            &no_env
+            &user_caller
         )
         .is_err()
     );
@@ -188,7 +192,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
         AuthType::ApiKey,
         "claude",
         "alice",
-        &no_env,
+        &user_caller,
     )
     .unwrap();
     assert_eq!(gate.state, ProviderGateState::Open);
@@ -196,7 +200,7 @@ fn consent_and_revoke_are_user_only_record_events_and_enforce_terms() {
     assert!(check("claude", &settings, "2026-11-17").is_ok());
 
     // Revoke closes gate and writes event
-    let revoked = revoke_provider(&store, "claude", "alice", &no_env).unwrap();
+    let revoked = revoke_provider(&store, "claude", "alice", &user_caller).unwrap();
     assert_eq!(revoked.state, ProviderGateState::Closed);
     let settings2 = store.settings().unwrap();
     assert!(check("claude", &settings2, "2026-11-17").is_err());

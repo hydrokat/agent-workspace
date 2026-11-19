@@ -668,6 +668,120 @@ fn test_factory_spawn_sites() {
 }
 
 #[test]
+fn test_outbound_writers_require_redacted() {
+    let src = manifest_dir().join("src");
+    let violations = check_outbound_writers_require_redacted(&src);
+    assert_eq!(violations, Vec::<String>::new());
+}
+
+fn fn_sig_slice<'a>(content: &'a str, fn_name: &str) -> Option<&'a str> {
+    let pattern = format!("fn {fn_name}(");
+    let start = content.find(&pattern)?;
+    let rest = &content[start..];
+    let end = rest.find('{').unwrap_or(rest.len());
+    Some(&rest[..end])
+}
+
+fn check_outbound_writers_require_redacted(src_dir: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    let factory_dir = src_dir.join("factory");
+
+    for file in collect_rs_files(&factory_dir) {
+        let rel_path = file.strip_prefix(src_dir).unwrap_or(&file);
+        let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+        if rel_str != "factory/redact.rs" {
+            let content = fs::read_to_string(&file).unwrap_or_default();
+            for (line_no, line) in content.lines().enumerate() {
+                let trimmed = line.trim_end();
+                let check_slice = trimmed.strip_suffix("-> Redacted {").unwrap_or(line);
+                if check_slice.contains("Redacted {") || check_slice.contains("Redacted{") {
+                    violations.push(format!(
+                        "{}:{}: Redacted constructed outside redact.rs",
+                        rel_path.display(),
+                        line_no + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    let events_rs = factory_dir.join("events.rs");
+    if events_rs.exists() {
+        let content = fs::read_to_string(&events_rs).unwrap_or_default();
+        for fname in ["append", "append_locked"] {
+            let ok = fn_sig_slice(&content, fname).is_some_and(|sig| sig.contains("RedactedEvent"));
+            if !ok {
+                violations.push(format!(
+                    "factory/events.rs: {fname} must take RedactedEvent"
+                ));
+            }
+        }
+    }
+
+    let evidence_rs = factory_dir.join("evidence.rs");
+    if evidence_rs.exists() {
+        let content = fs::read_to_string(&evidence_rs).unwrap_or_default();
+        let has_redacted_summary = content
+            .find("struct AddEvidenceInput")
+            .is_some_and(|start| {
+                let rest = &content[start..];
+                let end = rest.find('}').unwrap_or(rest.len());
+                rest[..end].contains("summary: Redacted")
+            });
+        if !has_redacted_summary {
+            violations
+                .push("factory/evidence.rs: AddEvidenceInput.summary must be Redacted".to_string());
+        }
+    }
+
+    let handoff_rs = factory_dir.join("handoff.rs");
+    if handoff_rs.exists() {
+        let content = fs::read_to_string(&handoff_rs).unwrap_or_default();
+        let build_ok = fn_sig_slice(&content, "build_handoff_markdown")
+            .is_some_and(|sig| sig.contains("-> Redacted"));
+        if !build_ok {
+            violations.push(
+                "factory/handoff.rs: build_handoff_markdown must return Redacted".to_string(),
+            );
+        }
+        let write_ok =
+            fn_sig_slice(&content, "write_handoff").is_some_and(|sig| sig.contains("&Redacted"));
+        if !write_ok {
+            violations.push("factory/handoff.rs: write_handoff must take &Redacted".to_string());
+        }
+    }
+
+    let pr_rs = factory_dir.join("pr.rs");
+    if pr_rs.exists() {
+        let content = fs::read_to_string(&pr_rs).unwrap_or_default();
+        for fname in ["build_pr_body", "conventional_pr_title"] {
+            let ok = fn_sig_slice(&content, fname).is_some_and(|sig| sig.contains("-> Redacted"));
+            if !ok {
+                violations.push(format!("factory/pr.rs: {fname} must return Redacted"));
+            }
+        }
+        let write_ok =
+            fn_sig_slice(&content, "write_pr_body").is_some_and(|sig| sig.contains("&Redacted"));
+        if !write_ok {
+            violations.push("factory/pr.rs: write_pr_body must take &Redacted".to_string());
+        }
+    }
+
+    let artifacts_rs = factory_dir.join("artifacts.rs");
+    if artifacts_rs.exists() {
+        let content = fs::read_to_string(&artifacts_rs).unwrap_or_default();
+        for fname in ["put_redacted", "format_for_display"] {
+            let ok = fn_sig_slice(&content, fname).is_some_and(|sig| sig.contains("&Redacted"));
+            if !ok {
+                violations.push(format!("factory/artifacts.rs: {fname} must take &Redacted"));
+            }
+        }
+    }
+
+    violations
+}
+
+#[test]
 fn test_gh_broker_forbids_merge_and_auto_merge() {
     let factory_dir = manifest_dir().join("src").join("factory");
     for file in collect_rs_files(&factory_dir) {
@@ -831,6 +945,69 @@ fn test_negative_tos_violations_are_detected() {
         v6.iter()
             .any(|v| v.contains("browser.rs") && v.contains("may not spawn 'curl'")),
         "expected browser.rs allowlist violation, got {v6:?}"
+    );
+
+    fs::write(
+        tmp_factory.join("forged_redacted.rs"),
+        "pub fn forge() -> Redacted { Redacted { text: String::new(), replacements: 0 } }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("events.rs"),
+        "pub fn append(p: &Path, l: &Path, e: &[Event]) {}\npub fn append_locked(p: &Path, e: &[Event]) {}",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("evidence.rs"),
+        "pub struct AddEvidenceInput { pub summary: String }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("handoff.rs"),
+        "pub fn build_handoff_markdown() -> String { String::new() }\npub fn write_handoff(s: &str) {}",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("pr.rs"),
+        "pub fn build_pr_body() -> String { String::new() }\npub fn conventional_pr_title() -> String { String::new() }\npub fn write_pr_body(s: &str) {}",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("artifacts.rs"),
+        "pub fn put_redacted(s: &str) {}\npub fn format_for_display(s: &str) -> &str { s }",
+    )
+    .unwrap();
+
+    let v7 = check_outbound_writers_require_redacted(&tmp_src);
+    assert!(
+        v7.iter()
+            .any(|v| v.contains("forged_redacted.rs") && v.contains("outside redact.rs")),
+        "expected forged Redacted violation, got {v7:?}"
+    );
+    assert!(
+        v7.iter()
+            .any(|v| v.contains("events.rs") && v.contains("RedactedEvent")),
+        "expected events.rs violation, got {v7:?}"
+    );
+    assert!(
+        v7.iter()
+            .any(|v| v.contains("evidence.rs") && v.contains("AddEvidenceInput.summary")),
+        "expected evidence.rs violation, got {v7:?}"
+    );
+    assert!(
+        v7.iter()
+            .any(|v| v.contains("handoff.rs") && v.contains("build_handoff_markdown")),
+        "expected handoff.rs build violation, got {v7:?}"
+    );
+    assert!(
+        v7.iter()
+            .any(|v| v.contains("pr.rs") && v.contains("write_pr_body")),
+        "expected pr.rs write violation, got {v7:?}"
+    );
+    assert!(
+        v7.iter()
+            .any(|v| v.contains("artifacts.rs") && v.contains("put_redacted")),
+        "expected artifacts.rs violation, got {v7:?}"
     );
 
     let _ = fs::remove_dir_all(&tmp);

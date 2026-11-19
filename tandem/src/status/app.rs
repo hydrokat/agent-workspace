@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::coordination::store::CoordStore;
 use crate::notice::read_notice;
 use crate::snapshot::{StatusSnapshot, collect_with_factory};
-use crate::status::banners::{BannerAction, OfferBanner, UpdateBanner};
+use crate::status::banners::{BannerAction, OfferBanner, ReadyGraceBanner, UpdateBanner};
 use crate::status::notify::Notifier;
 use crate::status::queries_tab::QueriesTab;
 use crate::status::render;
@@ -24,8 +24,8 @@ use crate::status::sprint_tab;
 use crate::status::task_tab;
 use crate::tmux::client::TmuxClient;
 use crate::tmux::keys::{
-    FACTORY_TAB_KEY, GO_TO_AGENT, STATUS_REFRESH, crossterm_key, display_shortcut,
-    matches_crossterm_event,
+    FACTORY_TAB_KEY, FACTORY_UNDO_READY_KEY, GO_TO_AGENT, STATUS_REFRESH, crossterm_key,
+    display_shortcut, matches_crossterm_event,
 };
 use crate::ui::collapsible::Collapsible;
 use crate::ui::footer::{Footer, FooterItem};
@@ -201,6 +201,7 @@ pub struct StatusApp {
 
     pub update_banner: Option<UpdateBanner>,
     pub offer_banner: Option<OfferBanner>,
+    pub ready_grace_banner: Option<ReadyGraceBanner>,
 
     pub tab: StatusTab,
     pub tab_bar: TabBar,
@@ -275,6 +276,7 @@ impl StatusApp {
 
             update_banner,
             offer_banner: None,
+            ready_grace_banner: None,
 
             tab: StatusTab::Status,
             tab_bar,
@@ -435,9 +437,15 @@ impl StatusApp {
             }
         }
 
+        if !self.settings_tab.is_editing_or_modal() {
+            self.settings_tab
+                .configure_factory(self.is_factory(), Some(self.workspace.clone()));
+        }
+
         let pane_open = self.is_factory_pane_open();
         self.factory_tab.platform = self.platform.clone();
         self.factory_tab.sync_snapshot(&self.snapshot, pane_open);
+        self.refresh_ready_grace_banner();
 
         self.tab_bar = TabBar::from_tabs(
             StatusTab::visible(self.is_factory()),
@@ -447,6 +455,70 @@ impl StatusApp {
 
         self.notifier.notify(&self.snapshot.queries);
         self.dirty = true;
+    }
+
+    fn refresh_ready_grace_banner(&mut self) {
+        if !self.is_factory() {
+            self.ready_grace_banner = None;
+            return;
+        }
+        let store = crate::factory::store::FactoryStore::new(&self.workspace);
+        if !store.exists() {
+            self.ready_grace_banner = None;
+            return;
+        }
+        let grace_secs = store
+            .settings()
+            .map(|s| s.approval_grace_secs)
+            .unwrap_or(30);
+        if grace_secs == 0 {
+            self.ready_grace_banner = None;
+            return;
+        }
+        let now = self.now();
+        let undo_shortcut = display_shortcut(FACTORY_UNDO_READY_KEY, &self.platform)
+            .unwrap_or_else(|_| FACTORY_UNDO_READY_KEY.to_string());
+        let found = store.list_ideas().ok().and_then(|ideas| {
+            ideas
+                .into_iter()
+                .filter(|i| i.state == crate::factory::model::IdeaState::ReadyForDevelopment)
+                .filter_map(|i| {
+                    let ready_at = i
+                        .ready_at
+                        .or_else(|| i.plan_snapshot.as_ref().map(|s| s.created))
+                        .unwrap_or(i.updated);
+                    let deadline = ready_at + grace_secs as f64;
+                    if deadline > now {
+                        let remaining_secs = (deadline - now).ceil().max(1.0) as u64;
+                        let via = i.ready_via.unwrap_or_else(|| "cli".to_string());
+                        Some(ReadyGraceBanner {
+                            idea_id: i.id,
+                            via,
+                            remaining_secs,
+                            undo_shortcut: undo_shortcut.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .min_by_key(|b| b.remaining_secs)
+        });
+        self.ready_grace_banner = found;
+    }
+
+    fn undo_ready_from_banner(&mut self, idea_id: &str) {
+        let store = crate::factory::store::FactoryStore::new(&self.workspace);
+        let owner = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "user".to_string());
+        let env_fn = |k: &str| std::env::var(k).ok();
+        let no_pane = |_: &str| None;
+        let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
+        if crate::factory::approval::revoke_ready(&store, idea_id, &owner, &caller).is_ok() {
+            self.ready_grace_banner = None;
+            self.dirty = true;
+            self.action_refresh_now();
+        }
     }
 
     pub fn maybe_check_update(&mut self) {
@@ -859,6 +931,14 @@ impl StatusApp {
     }
 
     pub fn handle_key(&mut self, event: &KeyEvent) {
+        if let Some(ref banner) = self.ready_grace_banner
+            && matches_crossterm_event(FACTORY_UNDO_READY_KEY, event, &self.platform)
+        {
+            let idea_id = banner.idea_id.clone();
+            self.undo_ready_from_banner(&idea_id);
+            return;
+        }
+
         if let Ok(k_refresh) = crossterm_key(STATUS_REFRESH)
             && event.code == k_refresh.code
             && event.modifiers == k_refresh.modifiers
@@ -985,10 +1065,7 @@ impl StatusApp {
         }
 
         if self.tab == StatusTab::Settings {
-            if !self.settings_tab.confirm_reset
-                && self.settings_tab.editing_workspace_name.is_none()
-                && event.code == KeyCode::Tab
-            {
+            if !self.settings_tab.is_editing_or_modal() && event.code == KeyCode::Tab {
                 self.set_tab(self.tab.next_for(self.is_factory()));
                 return;
             }
@@ -1075,6 +1152,14 @@ impl StatusApp {
 
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(ref banner) = self.ready_grace_banner {
+                    let action = banner.click_at(col, row, self.banner_area);
+                    if let BannerAction::UndoReady(idea_id) = action {
+                        self.undo_ready_from_banner(&idea_id);
+                        return;
+                    }
+                }
+
                 if let Some(ref banner) = self.update_banner {
                     let action = banner.click_at(col, row, self.banner_area);
                     if action == BannerAction::DismissUpdate {
@@ -1224,9 +1309,10 @@ impl StatusApp {
 
         let compact = area.height < COMPACT_BELOW_ROWS;
 
+        let has_ready_banner = !compact && self.ready_grace_banner.is_some();
         let has_update_banner = !compact && self.update_banner.is_some();
         let has_offer_banner = !compact && self.offer_banner.is_some();
-        let banner_height = if has_update_banner || has_offer_banner {
+        let banner_height = if has_ready_banner || has_update_banner || has_offer_banner {
             1
         } else {
             0
@@ -1244,7 +1330,11 @@ impl StatusApp {
             .split(area);
 
         self.banner_area = chunks[0];
-        if has_update_banner {
+        if has_ready_banner {
+            if let Some(ref banner) = self.ready_grace_banner {
+                banner.render(chunks[0], buf);
+            }
+        } else if has_update_banner {
             if let Some(ref banner) = self.update_banner {
                 banner.render(chunks[0], buf);
             }

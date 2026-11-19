@@ -369,8 +369,6 @@ describe("CliTandemGateway Factory Methods", () => {
       "i-abcd1234",
       "--confirm",
       "i-abcd1234",
-      "--via",
-      "web",
       "--json",
     ]);
     expect(recorded[5].args).toEqual(["factory", "idea", "revoke-ready", "i-abcd1234", "--json"]);

@@ -57,6 +57,9 @@ fn full_plan_md() -> &'static str {
 fn setup_planning_idea(ws: &Path, complete_plan: bool) -> (FactoryStore, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = user_actor();
     let orch = orch_actor();
 

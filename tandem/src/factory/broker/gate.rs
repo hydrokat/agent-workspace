@@ -7,12 +7,13 @@ pub use super::terms::AuthType;
 use super::terms::{PROVIDER_TERMS, TermsVerdict, lookup};
 use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
-use crate::factory::approval::{ApprovalError, ensure_user_caller};
-use crate::factory::events::{Event, append_locked, set_private_file_mode};
+use crate::factory::approval::{ApprovalError, Caller, require_user};
+use crate::factory::events::{Event, append_locked, redact_event, set_private_file_mode};
 use crate::factory::machine::EventData;
 use crate::factory::model::{
     Actor, ActorKind, FactorySettings, KNOWN_PROVIDERS, ProviderGate, ProviderGateState,
 };
+use crate::factory::redact::RedactContext;
 use crate::factory::store::{FactoryStore, current_time};
 
 #[derive(Debug)]
@@ -147,9 +148,9 @@ pub fn consent_provider(
     auth_type: AuthType,
     confirm: &str,
     consented_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ProviderGate, ApprovalError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
 
     if confirm != provider {
         return Err(ApprovalError::InvalidInput(format!(
@@ -235,7 +236,10 @@ pub fn consent_provider(
             consented_by: consented_by.to_string(),
         },
     )?;
-    append_locked(&store.events_path(), &[ev])?;
+    append_locked(
+        &store.events_path(),
+        &[redact_event(ev, &RedactContext::from_env())],
+    )?;
     store.save_settings(&settings)?;
 
     Ok(gate)
@@ -245,9 +249,9 @@ pub fn revoke_provider(
     store: &FactoryStore,
     provider: &str,
     revoked_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ProviderGate, ApprovalError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
 
     if !KNOWN_PROVIDERS.contains(&provider) {
         return Err(ApprovalError::InvalidInput(format!(
@@ -303,7 +307,10 @@ pub fn revoke_provider(
             provider: provider.to_string(),
         },
     )?;
-    append_locked(&store.events_path(), &[ev])?;
+    append_locked(
+        &store.events_path(),
+        &[redact_event(ev, &RedactContext::from_env())],
+    )?;
     store.save_settings(&settings)?;
 
     Ok(updated_gate)

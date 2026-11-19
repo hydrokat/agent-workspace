@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
-use super::approval::{ApprovalError, ensure_user_caller};
+use super::approval::{ApprovalError, Caller, require_user};
 use super::events::set_private_file_mode;
 use super::model::FactorySettings;
 use super::store::{FactoryStore, current_time};
@@ -130,11 +130,78 @@ impl ConfirmedChecks {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeployConfig {
+    pub command: Vec<String>,
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+    #[serde(default)]
+    pub confirmed_by: Option<String>,
+    #[serde(default)]
+    pub confirmed_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmedDeploy {
+    target: String,
+    command: Vec<String>,
+    timeout_secs: u64,
+    confirmed_by: String,
+    confirmed_at: String,
+}
+
+impl ConfirmedDeploy {
+    pub fn from_config(target: &str, cfg: &DeployConfig) -> Result<Self, ChecksError> {
+        validate_target_name(target)?;
+        validate_deploy_config(cfg)?;
+        let confirmed_by = cfg
+            .confirmed_by
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ChecksError::DeployNotConfirmed(target.to_string()))?
+            .to_string();
+        let confirmed_at = cfg
+            .confirmed_at
+            .map(|ts| format!("{ts:.3}"))
+            .ok_or_else(|| ChecksError::DeployNotConfirmed(target.to_string()))?;
+
+        Ok(Self {
+            target: target.to_string(),
+            command: cfg.command.clone(),
+            timeout_secs: cfg.timeout_secs,
+            confirmed_by,
+            confirmed_at,
+        })
+    }
+
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    pub fn command(&self) -> &[String] {
+        &self.command
+    }
+
+    pub fn timeout_secs(&self) -> u64 {
+        self.timeout_secs
+    }
+
+    pub fn confirmed_by(&self) -> &str {
+        &self.confirmed_by
+    }
+
+    pub fn confirmed_at(&self) -> &str {
+        &self.confirmed_at
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckKind {
     Test,
     Lint,
+    Deploy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,8 +227,14 @@ pub struct DiscoverReport {
 pub enum ChecksError {
     #[error("only the user can confirm or change check commands")]
     AgentCaller,
+    #[error(
+        "Refused: this action needs a terminal. Use the Factory tab, the web UI, or run it in your own shell."
+    )]
+    TerminalRequired,
     #[error("test and lint commands are not confirmed")]
     NotConfirmed,
+    #[error("no deploy command is confirmed for {0}")]
+    DeployNotConfirmed(String),
     #[error("{0}")]
     InvalidInput(String),
     #[error(transparent)]
@@ -173,7 +246,10 @@ pub enum ChecksError {
 impl ChecksError {
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::AgentCaller | Self::NotConfirmed => 3,
+            Self::AgentCaller
+            | Self::TerminalRequired
+            | Self::NotConfirmed
+            | Self::DeployNotConfirmed(_) => 3,
             Self::InvalidInput(_) | Self::Factory(_) | Self::Io(_) => 1,
         }
     }
@@ -181,7 +257,9 @@ impl ChecksError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::AgentCaller => "agent_caller_forbidden",
+            Self::TerminalRequired => "terminal_required",
             Self::NotConfirmed => "checks_not_confirmed",
+            Self::DeployNotConfirmed(_) => "deploy_not_confirmed",
             Self::InvalidInput(_) => "invalid_input",
             Self::Factory(_) | Self::Io(_) => "internal_error",
         }
@@ -192,6 +270,7 @@ impl From<ApprovalError> for ChecksError {
     fn from(err: ApprovalError) -> Self {
         match err {
             ApprovalError::AgentCaller => Self::AgentCaller,
+            ApprovalError::TerminalRequired => Self::TerminalRequired,
             ApprovalError::InvalidInput(m) | ApprovalError::Gate(m) => Self::InvalidInput(m),
             ApprovalError::Factory(f) => Self::Factory(f),
             ApprovalError::Io(e) => Self::Io(e),
@@ -284,6 +363,93 @@ pub fn validate_checks_config(cfg: &ChecksConfig) -> Result<(), ChecksError> {
     Ok(())
 }
 
+pub fn validate_deploy_config(cfg: &DeployConfig) -> Result<(), ChecksError> {
+    if cfg.command.is_empty() {
+        return Err(ChecksError::InvalidInput(
+            "deploy command must be a non-empty argv list".to_string(),
+        ));
+    }
+    validate_command_list(std::slice::from_ref(&cfg.command), "deploy")?;
+    if cfg.timeout_secs == 0 {
+        return Err(ChecksError::InvalidInput(
+            "timeout_secs must be greater than 0".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn require_confirmed_deploy(
+    settings: &FactorySettings,
+    target: &str,
+) -> Result<ConfirmedDeploy, ChecksError> {
+    let cfg = settings
+        .deploy_commands
+        .get(target)
+        .ok_or_else(|| ChecksError::DeployNotConfirmed(target.to_string()))?;
+    ConfirmedDeploy::from_config(target, cfg)
+}
+
+pub fn set_deploy_command(
+    store: &FactoryStore,
+    target: &str,
+    command: Vec<String>,
+    confirm: &str,
+    confirmed_by: &str,
+    caller: &Caller<'_>,
+) -> Result<DeployConfig, ChecksError> {
+    set_deploy_command_with_timeout(store, target, command, None, confirm, confirmed_by, caller)
+}
+
+pub fn set_deploy_command_with_timeout(
+    store: &FactoryStore,
+    target: &str,
+    command: Vec<String>,
+    timeout_secs: Option<u64>,
+    confirm: &str,
+    confirmed_by: &str,
+    caller: &Caller<'_>,
+) -> Result<DeployConfig, ChecksError> {
+    require_user(caller)?;
+    validate_target_name(target)?;
+    if confirm != target {
+        return Err(ChecksError::InvalidInput(format!(
+            "confirmation mismatch: pass --confirm {target}"
+        )));
+    }
+    if confirmed_by.trim().is_empty() {
+        return Err(ChecksError::InvalidInput(
+            "confirmed_by must not be empty".to_string(),
+        ));
+    }
+
+    let cfg = DeployConfig {
+        command,
+        timeout_secs: timeout_secs.unwrap_or(DEFAULT_CHECK_TIMEOUT_SECS),
+        confirmed_by: Some(confirmed_by.to_string()),
+        confirmed_at: Some(current_time()),
+    };
+    validate_deploy_config(&cfg)?;
+
+    store.ensure()?;
+    let lock_path = store.lock_path();
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(FactoryError::from)?;
+    set_private_file_mode(&lock_path)?;
+    let _guard = exclusive_lock(&lock_file).map_err(FactoryError::from)?;
+
+    let mut settings = store.settings()?;
+    settings
+        .deploy_commands
+        .insert(target.to_string(), cfg.clone());
+    store.save_settings(&settings)?;
+    Ok(cfg)
+}
+
 pub fn require_confirmed_checks(
     settings: &FactorySettings,
     target: &str,
@@ -305,9 +471,9 @@ pub fn set_checks(
     ui_paths: Vec<String>,
     confirm: &str,
     confirmed_by: &str,
-    env: &dyn Fn(&str) -> Option<String>,
+    caller: &Caller<'_>,
 ) -> Result<ChecksConfig, ChecksError> {
-    ensure_user_caller(env)?;
+    require_user(caller)?;
     validate_target_name(target)?;
     if confirm != target {
         return Err(ChecksError::InvalidInput(format!(
@@ -388,6 +554,7 @@ pub fn discover_checks(
         let k = match p.kind {
             CheckKind::Test => 0,
             CheckKind::Lint => 1,
+            CheckKind::Deploy => 2,
         };
         if seen.insert((k, p.argv.clone())) {
             proposals.push(p);

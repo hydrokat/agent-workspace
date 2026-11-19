@@ -9,6 +9,11 @@ export function factoryErrorResponse(error: unknown): NextResponse {
           { error: { code: "BAD_REQUEST", message: error.message } },
           { status: 400 }
         );
+      case "forbidden":
+        return NextResponse.json(
+          { error: { code: "FORBIDDEN", message: error.message } },
+          { status: 403 }
+        );
       case "not_found":
         return NextResponse.json(
           { error: { code: "NOT_FOUND", message: error.message } },

@@ -1,7 +1,11 @@
 import type {
   ArtifactKind,
+  AuditFilterOptions,
+  AuditTimelinePayload,
   EvidenceItemContent,
   FactoryCli,
+  FactorySettings,
+  FactorySettingsChangeResult,
   Idea,
   IdeaDetail,
   PrLink,
@@ -9,6 +13,7 @@ import type {
   ReadyResult,
   RunControlAction,
   RunControlOptions,
+  RunDataView,
   RunEvidenceBundle,
   RunSummary,
   WorkflowListItem,
@@ -85,10 +90,27 @@ export interface ITandemGateway {
   ): Promise<RunSummary>;
   factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]>;
   factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle>;
+  factoryRunData(workspacePath: string, runId: string): Promise<RunDataView>;
   factoryEvidenceItem(
     workspacePath: string,
     runId: string,
     itemId: string
   ): Promise<EvidenceItemContent>;
   factoryRefreshRunPrs(workspacePath: string, runId: string): Promise<PrLink[]>;
+  factoryAuditIdea(
+    workspacePath: string,
+    ideaId: string,
+    options?: AuditFilterOptions
+  ): Promise<AuditTimelinePayload>;
+  factoryAuditMarkdown(
+    workspacePath: string,
+    ideaId: string,
+    options?: AuditFilterOptions
+  ): Promise<string>;
+  factoryGetSettings(workspacePath: string): Promise<FactorySettings>;
+  factorySetSetting(
+    workspacePath: string,
+    key: string,
+    value: string
+  ): Promise<FactorySettingsChangeResult>;
 }

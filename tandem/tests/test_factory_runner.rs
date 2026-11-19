@@ -134,16 +134,16 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
             &orch,
         )
         .unwrap();
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
+    let zero_grace = tandem::factory::model::FactorySettings {
+        approval_grace_secs: 0,
+        ..Default::default()
+    };
+    tandem::factory::settings::save(&store, &zero_grace).unwrap();
     let ready = mark_ready_with_workflow(
-        &store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     (store, idea.id, ready.run.unwrap().id)
@@ -194,13 +194,16 @@ fn runner_pauses_when_gate_closed_then_advances_retries_and_resumes_from_log() {
     assert!(exec.calls.is_empty());
 
     // 2. Open claude gate and resume/drive -> plan succeeds, idea moves to InDevelopment
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     let user = Actor {
@@ -259,13 +262,16 @@ fn runner_pauses_when_gate_closed_then_advances_retries_and_resumes_from_log() {
         kind: ActorKind::User,
         id: "alice".into(),
     };
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     retry_paused_stage(
         &store,
         &run_id,
         "develop",
         "try smaller slice",
         &user,
-        &|_| None,
+        &caller,
     )
     .unwrap();
     let resumed = get_run(&store, &run_id).unwrap().unwrap();
@@ -291,13 +297,25 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
     };
 
     // Agent caller rejected via env and via actor kind
-    let err_env = retry_paused_stage(&store, &run_id, "plan", "new hypothesis", &user, &|k| {
+    let agent_env = |k: &str| {
         if k == "TANDEM_ROLE" {
             Some("orchestrator".to_string())
         } else {
             None
         }
-    })
+    };
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &no_pane);
+    let user_caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
+    let err_env = retry_paused_stage(
+        &store,
+        &run_id,
+        "plan",
+        "new hypothesis",
+        &user,
+        &agent_caller,
+    )
     .unwrap_err();
     assert_eq!(err_env.code(), "agent_caller_forbidden");
 
@@ -305,23 +323,40 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
         kind: ActorKind::Orchestrator,
         id: "orch".into(),
     };
-    let err_actor = retry_paused_stage(&store, &run_id, "plan", "new hypothesis", &orch, &|_| None)
-        .unwrap_err();
+    let err_actor = retry_paused_stage(
+        &store,
+        &run_id,
+        "plan",
+        "new hypothesis",
+        &orch,
+        &user_caller,
+    )
+    .unwrap_err();
     assert_eq!(err_actor.code(), "agent_caller_forbidden");
 
     // Closed gate blocks retry
-    let err_gate = retry_paused_stage(&store, &run_id, "plan", "new hypothesis", &user, &|_| None)
-        .unwrap_err();
+    let err_gate = retry_paused_stage(
+        &store,
+        &run_id,
+        "plan",
+        "new hypothesis",
+        &user,
+        &user_caller,
+    )
+    .unwrap_err();
     assert_eq!(err_gate.code(), "gate_not_met");
 
     // Open gate, then tamper with plan snapshot -> hash mismatch blocks retry
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     let snap_path = store
@@ -332,8 +367,15 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
         .join("plan-snapshot.md");
     let orig_snap = fs::read_to_string(&snap_path).unwrap();
     fs::write(&snap_path, "# Tampered\n").unwrap();
-    let err_hash = retry_paused_stage(&store, &run_id, "plan", "new hypothesis", &user, &|_| None)
-        .unwrap_err();
+    let err_hash = retry_paused_stage(
+        &store,
+        &run_id,
+        "plan",
+        "new hypothesis",
+        &user,
+        &user_caller,
+    )
+    .unwrap_err();
     assert_eq!(err_hash.code(), "gate_not_met");
     fs::write(&snap_path, orig_snap).unwrap();
 
@@ -344,7 +386,7 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
         "plan",
         "  check edge case  ",
         &user,
-        &|_| None,
+        &user_caller,
     )
     .unwrap();
     assert_eq!(updated.state, RunState::Running);
@@ -378,13 +420,16 @@ fn broker_executor_handles_closed_gate_and_idempotent_result_and_ui_slices() {
     assert!(matches!(outcome, StageOutcome::Blocked { .. }));
 
     // Open gate and pre-populate valid job result + plan artifacts -> idempotent path verifies contract
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
     let art_dir = store.root.join("runs").join(&run_id).join("artifacts");
@@ -445,13 +490,16 @@ fn broker_executor_runs_end_to_end_with_fake_provider_script() {
     let state_dir = ws.join(".state");
     fs::create_dir_all(&state_dir).unwrap();
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
+    let no_env = |_: &str| None;
+    let no_pane = |_: &str| None;
+    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
     consent_provider(
         &store,
         "claude",
         AuthType::ApiKey,
         "claude",
         "alice",
-        &|_| None,
+        &caller,
     )
     .unwrap();
 

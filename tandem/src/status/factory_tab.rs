@@ -17,6 +17,7 @@ use crate::factory::model::{IdeaState, Risk};
 use crate::factory::questions;
 use crate::sanitize::clean;
 use crate::snapshot::{FactorySummary, IdeaCard, StatusSnapshot};
+use crate::status::factory_audit::{AuditKeyOutcome, FactoryAudit};
 use crate::status::factory_detail::{DetailAction, DetailKeyOutcome, FactoryDetail};
 use crate::status::factory_run::{FactoryRun, RunKeyOutcome};
 use crate::status::render::age;
@@ -36,6 +37,7 @@ pub enum FactoryView {
     NewIdea,
     Detail,
     RunMonitor,
+    Audit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -409,6 +411,7 @@ pub struct FactoryTab {
     pub filter: IdeaFilter,
     pub detail: Option<FactoryDetail>,
     pub run_monitor: Option<FactoryRun>,
+    pub audit: Option<FactoryAudit>,
     pub new_idea: Option<NewIdeaModal>,
     pub notice: String,
     pub platform: String,
@@ -448,6 +451,7 @@ impl FactoryTab {
             filter: IdeaFilter::All,
             detail: None,
             run_monitor: None,
+            audit: None,
             new_idea: None,
             notice: String::new(),
             platform: std::env::consts::OS.to_string(),
@@ -469,6 +473,7 @@ impl FactoryTab {
                 .run_monitor
                 .as_ref()
                 .is_some_and(|m| m.captures_input()),
+            FactoryView::Audit => false,
         }
     }
 
@@ -666,6 +671,13 @@ impl FactoryTab {
                         }
                         None
                     }
+                    DetailKeyOutcome::Action(DetailAction::OpenAudit { idea_id }) => {
+                        if let Some(ref ws) = self.workspace {
+                            self.audit = Some(FactoryAudit::load(ws, &idea_id));
+                            self.view = FactoryView::Audit;
+                        }
+                        None
+                    }
                     DetailKeyOutcome::Action(DetailAction::Refresh) => Some(FactoryAction::Refresh),
                     DetailKeyOutcome::Consumed | DetailKeyOutcome::Ignored => None,
                 }
@@ -690,6 +702,24 @@ impl FactoryTab {
                     }
                     RunKeyOutcome::Refresh => Some(FactoryAction::Refresh),
                     RunKeyOutcome::Consumed | RunKeyOutcome::Ignored => None,
+                }
+            }
+            FactoryView::Audit => {
+                let Some(ref mut audit) = self.audit else {
+                    self.view = FactoryView::Detail;
+                    return None;
+                };
+                match audit.handle_key(*event) {
+                    AuditKeyOutcome::BackToDetail => {
+                        self.audit = None;
+                        self.view = if self.detail.is_some() {
+                            FactoryView::Detail
+                        } else {
+                            FactoryView::Board
+                        };
+                        None
+                    }
+                    AuditKeyOutcome::Consumed | AuditKeyOutcome::Ignored => None,
                 }
             }
             FactoryView::Board => {
@@ -761,6 +791,12 @@ impl FactoryTab {
             FactoryView::RunMonitor => {
                 if let Some(ref mut monitor) = self.run_monitor {
                     monitor.render(snapshot.now, area, buf);
+                }
+                return;
+            }
+            FactoryView::Audit => {
+                if let Some(ref mut audit) = self.audit {
+                    audit.render(area, buf);
                 }
                 return;
             }

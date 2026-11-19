@@ -54,6 +54,12 @@ pub enum FactoryCommand {
     #[command(about = "discover, confirm, and inspect project test and lint commands")]
     Checks(FactoryChecksArgs),
 
+    #[command(about = "inspect and update factory settings")]
+    Settings(FactorySettingsArgs),
+
+    #[command(about = "manage agent and target tool permissions")]
+    Permissions(FactoryPermissionsArgs),
+
     #[command(about = "run the factory execution loop (factory sessions only)")]
     Runner,
 
@@ -62,6 +68,73 @@ pub enum FactoryCommand {
 
     #[command(about = "rebuild materialized idea files from the event log")]
     Rebuild(FactoryRebuildArgs),
+
+    #[command(about = "test and inspect secret redaction")]
+    Redact(FactoryRedactArgs),
+
+    #[command(about = "inspect the factory audit timeline or verify log integrity")]
+    Audit(FactoryAuditArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct FactoryAuditArgs {
+    #[command(subcommand)]
+    pub command: Option<FactoryAuditCommand>,
+
+    #[arg(value_name = "IDEA", help = "idea ID to inspect")]
+    pub idea: Option<String>,
+
+    #[arg(long, conflicts_with = "markdown", help = "output JSON")]
+    pub json: bool,
+
+    #[arg(long, conflicts_with = "json", help = "output redacted Markdown")]
+    pub markdown: bool,
+
+    #[arg(long, value_name = "RUN", help = "filter by run ID")]
+    pub run: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "KIND",
+        help = "filter by kind (job_start, job_end, approval, decision, lifecycle)"
+    )]
+    pub kind: Option<String>,
+
+    #[arg(long, value_name = "ACTOR", help = "filter by actor")]
+    pub actor: Option<String>,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryAuditCommand {
+    #[command(about = "verify the SHA-256 prev hash chain of the event log")]
+    Verify(FactoryAuditVerifyArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAuditVerifyArgs {
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRedactArgs {
+    #[command(subcommand)]
+    pub command: FactoryRedactCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryRedactCommand {
+    #[command(about = "scan a file and report what would be redacted")]
+    Test(FactoryRedactTestArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRedactTestArgs {
+    pub file: std::path::PathBuf,
+
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -117,12 +190,18 @@ pub struct FactoryIdeaReadyArgs {
     pub id: String,
     #[arg(long)]
     pub confirm: String,
-    #[arg(long, default_value = "cli")]
-    pub via: String,
     #[arg(long)]
     pub workflow: Option<String>,
     #[arg(long)]
     pub deploy: bool,
+    #[arg(long)]
+    pub max_cost: Option<String>,
+    #[arg(long)]
+    pub max_duration: Option<u64>,
+    #[arg(long)]
+    pub max_retries: Option<u32>,
+    #[arg(long)]
+    pub accept_estimate: bool,
     #[arg(long)]
     pub json: bool,
 }
@@ -288,6 +367,8 @@ pub enum FactoryRunCommand {
     Pause(FactoryRunPauseArgs),
     #[command(about = "resume a paused run from the last valid stage")]
     Resume(FactoryRunResumeArgs),
+    #[command(about = "view or update budget caps for a run")]
+    Budget(FactoryRunBudgetArgs),
     #[command(about = "cancel an active run while keeping its worktree and branch")]
     Cancel(FactoryRunCancelArgs),
     #[command(about = "tail a job log for a run")]
@@ -298,6 +379,32 @@ pub enum FactoryRunCommand {
     Prs(FactoryRunPrsArgs),
     #[command(about = "copy plan stage specs into workspace specs/ under next free phase")]
     ExportSpecs(FactoryRunExportSpecsArgs),
+    #[command(about = "show usage, cost basis, and rework signals for a run")]
+    Usage(FactoryRunUsageArgs),
+    #[command(about = "show what data was sent and readable for each job in a run")]
+    Data(FactoryRunDataArgs),
+    #[command(about = "grant a one-time Gate 3 approval for a protected action (user-only)")]
+    Approve(FactoryRunApproveArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunDataArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunApproveArgs {
+    pub run: String,
+    #[arg(long)]
+    pub action: String,
+    #[arg(long)]
+    pub confirm: String,
+    #[arg(long)]
+    pub stage: Option<String>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -403,6 +510,19 @@ pub struct FactoryRunResumeArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunBudgetArgs {
+    pub run: String,
+    #[arg(long)]
+    pub max_cost: Option<String>,
+    #[arg(long)]
+    pub max_duration: Option<u64>,
+    #[arg(long)]
+    pub max_retries: Option<u32>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryRunCancelArgs {
     pub run: String,
     #[arg(long)]
@@ -441,6 +561,13 @@ pub struct FactoryRunPrsArgs {
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryRunExportSpecsArgs {
+    pub run: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryRunUsageArgs {
     pub run: String,
     #[arg(long)]
     pub json: bool,
@@ -518,6 +645,8 @@ pub struct FactoryChecksSetArgs {
     pub test: Option<String>,
     #[arg(long)]
     pub lint: Option<String>,
+    #[arg(long)]
+    pub deploy: Option<String>,
     #[arg(long)]
     pub timeout_secs: Option<u64>,
     #[arg(long)]
@@ -614,6 +743,81 @@ pub struct FactoryEventsArgs {
     #[arg(long, help = "filter events by idea id")]
     pub idea: Option<String>,
 
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactorySettingsArgs {
+    #[command(subcommand)]
+    pub command: FactorySettingsCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactorySettingsCommand {
+    #[command(about = "show current factory settings")]
+    Get(FactorySettingsGetArgs),
+
+    #[command(about = "update a factory setting (user-only)")]
+    Set(FactorySettingsSetArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactorySettingsGetArgs {
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactorySettingsSetArgs {
+    #[arg(help = "setting key")]
+    pub key: String,
+
+    #[arg(help = "setting value (scalar or JSON)")]
+    pub value: String,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryPermissionsArgs {
+    #[command(subcommand)]
+    pub command: FactoryPermissionsCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryPermissionsCommand {
+    #[command(about = "allow a tool for an agent (or un-deny for --target) (user-only)")]
+    Allow(FactoryPermissionsMutateArgs),
+
+    #[command(about = "deny a tool for a target repository (or --agent) (user-only)")]
+    Deny(FactoryPermissionsMutateArgs),
+
+    #[command(about = "show configured and default tool permissions")]
+    Show(FactoryPermissionsShowArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryPermissionsMutateArgs {
+    #[arg(help = "agent name (for allow) or target name (for deny)")]
+    pub subject: String,
+
+    #[arg(help = "workflow tool name")]
+    pub tool: String,
+
+    #[arg(long, help = "apply to a target repository instead of an agent")]
+    pub target: bool,
+
+    #[arg(long, help = "apply to an agent instead of a target repository")]
+    pub agent: bool,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryPermissionsShowArgs {
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
 }
@@ -763,11 +967,15 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Retry(a) => a.json,
             FactoryRunCommand::Pause(a) => a.json,
             FactoryRunCommand::Resume(a) => a.json,
+            FactoryRunCommand::Budget(a) => a.json,
             FactoryRunCommand::Cancel(a) => a.json,
             FactoryRunCommand::Log(a) => a.json,
             FactoryRunCommand::Evidence(a) => a.json,
             FactoryRunCommand::Prs(a) => a.json,
             FactoryRunCommand::ExportSpecs(a) => a.json,
+            FactoryRunCommand::Usage(a) => a.json,
+            FactoryRunCommand::Data(a) => a.json,
+            FactoryRunCommand::Approve(a) => a.json,
         },
         FactoryCommand::Provider(p_args) => match &p_args.command {
             FactoryProviderCommand::Status(a) => a.json,
@@ -779,9 +987,24 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryChecksCommand::Set(a) => a.json,
             FactoryChecksCommand::Show(a) => a.json,
         },
+        FactoryCommand::Settings(s_args) => match &s_args.command {
+            FactorySettingsCommand::Get(a) => a.json,
+            FactorySettingsCommand::Set(a) => a.json,
+        },
+        FactoryCommand::Permissions(p_args) => match &p_args.command {
+            FactoryPermissionsCommand::Allow(a) | FactoryPermissionsCommand::Deny(a) => a.json,
+            FactoryPermissionsCommand::Show(a) => a.json,
+        },
         FactoryCommand::Runner => false,
         FactoryCommand::Events(a) => a.json,
         FactoryCommand::Rebuild(a) => a.json,
+        FactoryCommand::Redact(r_args) => match &r_args.command {
+            FactoryRedactCommand::Test(a) => a.json,
+        },
+        FactoryCommand::Audit(a) => match &a.command {
+            Some(FactoryAuditCommand::Verify(v)) => v.json,
+            None => a.json,
+        },
     }
 }
 
@@ -895,10 +1118,86 @@ fn run_simulate(
     }
 }
 
+fn lookup_tmux_pane_role(workspace: &Path, pane_id: &str) -> Option<String> {
+    let is_valid_pane =
+        pane_id.starts_with('%') && pane_id[1..].chars().all(|c| c.is_ascii_digit());
+    if !is_valid_pane {
+        return None;
+    }
+    let socket = std::env::var("TMUX")
+        .ok()
+        .and_then(|v| {
+            let sock_path = v.split(',').next()?;
+            Path::new(sock_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| crate::tmux::client::socket_for(workspace));
+    let client = crate::tmux::client::TmuxClient::new(socket, None);
+    let res = client
+        .run(&["display-message", "-p", "-t", pane_id, "#{@tandem_role}"])
+        .ok()?;
+    if res.code != 0 {
+        return None;
+    }
+    let role = res.out.trim().to_string();
+    if role.is_empty() { None } else { Some(role) }
+}
+
+fn is_authenticated_web_gateway(config: &Config) -> bool {
+    if std::env::var("TANDEM_INTERNAL_SURFACE").ok().as_deref() != Some("web") {
+        return false;
+    }
+    let Ok(token) = std::env::var("TANDEM_AUTH_TOKEN") else {
+        return false;
+    };
+    if token.trim().is_empty() {
+        return false;
+    }
+    let cfg_path = crate::web_manager::web_config_path(&config.state_dir);
+    let Ok(web_cfg) = crate::web_manager::load_web_config(&cfg_path) else {
+        return false;
+    };
+    !web_cfg.auth_token.is_empty() && web_cfg.auth_token == token
+}
+
 pub fn run_with_io(
     args: &FactoryArgs,
     workspace: &Path,
     config: &Config,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    use std::io::IsTerminal;
+    let env_fn = |k: &str| std::env::var(k).ok();
+    let pane_fn = |pane: &str| lookup_tmux_pane_role(workspace, pane);
+    let caller = if is_authenticated_web_gateway(config) {
+        super::approval::Caller::web(&env_fn)
+    } else {
+        super::approval::Caller::cli(std::io::stdin().is_terminal(), &env_fn, &pane_fn)
+    };
+    run_with_caller_io(args, workspace, config, &caller, stdin, stdout, stderr)
+}
+
+pub fn run_with_caller(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let mut empty = std::io::empty();
+    run_with_caller_io(args, workspace, config, caller, &mut empty, stdout, stderr)
+}
+
+pub fn run_with_caller_io(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -909,7 +1208,7 @@ pub fn run_with_io(
     {
         return run_simulate(sim_args, workspace, stdout, stderr);
     }
-    match execute(args, workspace, config, stdin) {
+    match execute(args, workspace, config, caller, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
             let _ = stdout.write_all(b"\n");
@@ -942,6 +1241,7 @@ fn execute(
     args: &FactoryArgs,
     workspace: &Path,
     config: &Config,
+    caller: &super::approval::Caller<'_>,
     stdin: &mut dyn Read,
 ) -> Result<String, CmdError> {
     let enabled = config.factory || registry::factory_enabled(&config.state_dir, workspace);
@@ -1099,37 +1399,53 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let approved_by = resolve_owner(None)?;
-                let res = super::approval::mark_ready_with_workflow(
+                let max_cost_usd = a
+                    .max_cost
+                    .as_deref()
+                    .map(|raw| {
+                        raw.trim().parse::<f64>().map_err(|_| {
+                            CmdError::invalid_input(format!("invalid --max-cost value: {raw}"))
+                        })
+                    })
+                    .transpose()?;
+                let res = super::approval::mark_ready_with_options(
                     &store,
                     workspace,
                     &a.id,
                     &a.confirm,
-                    &a.via,
                     &approved_by,
-                    a.workflow.as_deref(),
-                    a.deploy,
-                    &|k| std::env::var(k).ok(),
+                    super::approval::MarkReadyOptions {
+                        workflow_override: a.workflow.clone(),
+                        deploy_requested: a.deploy,
+                        max_cost_usd,
+                        max_duration_secs: a.max_duration,
+                        max_retries: a.max_retries,
+                        accept_estimate: a.accept_estimate,
+                    },
+                    caller,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
                     code: e.code(),
                     message: e.to_string(),
                 })?;
-                serialize_compact(&res)
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_ready_text(&res))
+                }
             }
             FactoryIdeaCommand::RevokeReady(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
                 let user_id = resolve_owner(None)?;
-                let updated = super::approval::revoke_ready(&store, &a.id, &user_id, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let updated = super::approval::revoke_ready(&store, &a.id, &user_id, caller)
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
                 serialize_compact(&updated)
             }
             FactoryIdeaCommand::Cancel(a) => {
@@ -1140,14 +1456,12 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let res = super::runner::cancel_idea(&store, &a.id, &a.confirm, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let res = super::runner::cancel_idea(&store, &a.id, &a.confirm, &actor, caller)
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
                 if a.json {
                     serialize_compact(&res)
                 } else {
@@ -1345,12 +1659,10 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1363,6 +1675,7 @@ fn execute(
                     super::run::CreateRunOptions {
                         deploy_requested: a.deploy,
                         workflow: a.workflow.clone(),
+                        budget: None,
                     },
                     &actor,
                 )
@@ -1402,12 +1715,10 @@ fn execute(
                         a.confirm, a.id
                     )));
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1429,17 +1740,15 @@ fn execute(
                     return Err(CmdError::factory_disabled());
                 }
                 let run =
-                    super::workspace::set_run_target(&store, workspace, &a.run, &a.name, &|k| {
-                        std::env::var(k).ok()
-                    })
-                    .map_err(|e| match e {
-                        super::workspace::WorkspaceError::Approval(ae) => CmdError {
-                            exit_code: ae.exit_code(),
-                            code: ae.code(),
-                            message: ae.to_string(),
-                        },
-                        other => CmdError::invalid_input(other.to_string()),
-                    })?;
+                    super::workspace::set_run_target(&store, workspace, &a.run, &a.name, caller)
+                        .map_err(|e| match e {
+                            super::workspace::WorkspaceError::Approval(ae) => CmdError {
+                                exit_code: ae.exit_code(),
+                                code: ae.code(),
+                                message: ae.to_string(),
+                            },
+                            other => CmdError::invalid_input(other.to_string()),
+                        })?;
                 serialize_compact(&run)
             }
             FactoryRunCommand::Cleanup(a) => {
@@ -1456,22 +1765,18 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                super::workspace::cleanup_worktree(&store, workspace, &a.run, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                super::workspace::cleanup_worktree(&store, workspace, &a.run, &actor, caller)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
                 serialize_compact(&serde_json::json!({ "cleaned": a.run }))
             }
             FactoryRunCommand::Retry(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1483,7 +1788,7 @@ fn execute(
                     &a.stage,
                     &a.hypothesis,
                     &actor,
-                    &|k| std::env::var(k).ok(),
+                    caller,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -1500,10 +1805,8 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let res = super::runner::pause_run_by_user(&store, &a.run, a.now, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
+                let res = super::runner::pause_run_by_user(&store, &a.run, a.now, &actor, caller)
+                    .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
                     code: e.code(),
                     message: e.to_string(),
@@ -1518,12 +1821,10 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                super::approval::ensure_user_caller(&|k| std::env::var(k).ok()).map_err(|e| {
-                    CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
                 })?;
                 let actor = Actor {
                     kind: ActorKind::User,
@@ -1543,6 +1844,43 @@ fn execute(
                     Ok(format!("Run {} resumed.", run.id))
                 }
             }
+            FactoryRunCommand::Budget(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let max_cost_usd = a
+                    .max_cost
+                    .as_deref()
+                    .map(|raw| {
+                        raw.trim().parse::<f64>().map_err(|_| {
+                            CmdError::invalid_input(format!("invalid --max-cost value: {raw}"))
+                        })
+                    })
+                    .transpose()?;
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: resolve_owner(None)?,
+                };
+                let res = super::runner::change_run_budget(
+                    &store,
+                    &a.run,
+                    max_cost_usd,
+                    a.max_duration,
+                    a.max_retries,
+                    &actor,
+                    caller,
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format_budget_change_text(&res))
+                }
+            }
             FactoryRunCommand::Cancel(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
@@ -1551,14 +1889,12 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let res = super::runner::cancel_run(&store, &a.run, &a.confirm, &actor, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let res = super::runner::cancel_run(&store, &a.run, &a.confirm, &actor, caller)
+                    .map_err(|e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?;
                 if a.json {
                     serialize_compact(&res)
                 } else {
@@ -1616,14 +1952,13 @@ fn execute(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                let res = super::handoff::export_specs(&store, workspace, &a.run, &|k| {
-                    std::env::var(k).ok()
-                })
-                .map_err(|e| CmdError {
-                    exit_code: e.exit_code(),
-                    code: e.code(),
-                    message: e.to_string(),
-                })?;
+                let res = super::handoff::export_specs(&store, workspace, &a.run, caller).map_err(
+                    |e| CmdError {
+                        exit_code: e.exit_code(),
+                        code: e.code(),
+                        message: e.to_string(),
+                    },
+                )?;
                 if a.json {
                     serialize_compact(&res)
                 } else {
@@ -1632,6 +1967,91 @@ fn execute(
                         res.files.len(),
                         res.destination.display()
                     ))
+                }
+            }
+            FactoryRunCommand::Usage(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let report = super::telemetry::run_usage(&store, &a.run)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                if a.json {
+                    serialize_compact(&report)
+                } else {
+                    Ok(format_run_usage_text(&report))
+                }
+            }
+            FactoryRunCommand::Data(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if !super::ids::is_valid_run_id(&a.run) {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid run id: {}",
+                        a.run
+                    )));
+                }
+                let run = super::run::get_run(&store, &a.run)
+                    .map_err(|e| CmdError {
+                        exit_code: 1,
+                        code: e.code(),
+                        message: e.to_string(),
+                    })?
+                    .ok_or_else(|| CmdError::not_found(format!("run {} not found", a.run)))?;
+                let view = super::data_policy::build_run_data(&store, &run)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                if a.json {
+                    serialize_compact(&view)
+                } else {
+                    Ok(super::data_policy::format_run_data_text(&view))
+                }
+            }
+            FactoryRunCommand::Approve(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let action = super::protected::ProtectedAction::parse(&a.action).ok_or_else(|| {
+                    CmdError::invalid_input(format!(
+                        "invalid --action '{}': expected production_deploy, secrets_access, or production_access",
+                        a.action
+                    ))
+                })?;
+                let approved_by = resolve_owner(None)?;
+                let outcome = super::protected::approve_with_details(
+                    &store,
+                    &a.run,
+                    action,
+                    &a.confirm,
+                    a.stage.as_deref(),
+                    &approved_by,
+                    caller,
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&outcome)
+                } else {
+                    let mut lines = Vec::new();
+                    if let Some(cmd) = &outcome.deploy_command {
+                        lines.push(format!(
+                            "This lets run {} execute the confirmed deploy command once:",
+                            outcome.approval.run
+                        ));
+                        lines.push(format!("  {}", cmd.join(" ")));
+                    } else {
+                        lines.push(format!(
+                            "Granted {} approval for run {} stage {}.",
+                            outcome.approval.action, outcome.approval.run, outcome.approval.stage
+                        ));
+                    }
+                    lines.push(format!(
+                        "Approval recorded. It expires in {} minutes.",
+                        outcome.expires_in_minutes
+                    ));
+                    Ok(lines.join("\n"))
                 }
             }
         },
@@ -1664,7 +2084,7 @@ fn execute(
                         auth_type,
                         &a.confirm,
                         &consented_by,
-                        &|k| std::env::var(k).ok(),
+                        caller,
                     )
                     .map_err(|e| CmdError {
                         exit_code: e.exit_code(),
@@ -1679,7 +2099,7 @@ fn execute(
                         &store,
                         &a.provider,
                         &revoked_by,
-                        &|k| std::env::var(k).ok(),
+                        caller,
                     )
                     .map_err(|e| CmdError {
                         exit_code: e.exit_code(),
@@ -1694,7 +2114,47 @@ fn execute(
             if !enabled {
                 return Err(CmdError::factory_disabled());
             }
-            handle_checks_command(&c_args.command, &store, workspace)
+            handle_checks_command(&c_args.command, &store, workspace, caller)
+        }
+        FactoryCommand::Settings(s_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            match &s_args.command {
+                FactorySettingsCommand::Get(a) => {
+                    let settings = if store.exists() {
+                        store.settings().map_err(map_factory_error)?
+                    } else {
+                        FactorySettings::default()
+                    };
+                    if a.json {
+                        serialize_compact(&settings)
+                    } else {
+                        serde_json::to_string_pretty(&settings)
+                            .map_err(|e| CmdError::invalid_input(e.to_string()))
+                    }
+                }
+                FactorySettingsCommand::Set(a) => {
+                    let actor = resolve_owner(None)?;
+                    let res = super::settings::set(&store, &a.key, &a.value, &actor, caller)
+                        .map_err(|e| CmdError {
+                            exit_code: e.exit_code(),
+                            code: e.code(),
+                            message: e.to_string(),
+                        })?;
+                    if a.json {
+                        serialize_compact(&res)
+                    } else {
+                        Ok(format!("{} = {}", res.key, res.new_value))
+                    }
+                }
+            }
+        }
+        FactoryCommand::Permissions(p_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            handle_permissions_command(&p_args.command, &store, caller)
         }
         FactoryCommand::Runner => {
             if !enabled {
@@ -1751,7 +2211,112 @@ fn execute(
                 truncated: report.truncated,
             })
         }
+        FactoryCommand::Redact(r_args) => match &r_args.command {
+            FactoryRedactCommand::Test(a) => run_redact_test(a),
+        },
+        FactoryCommand::Audit(a) => run_audit_command(a, &store, enabled),
     }
+}
+
+fn run_audit_command(
+    args: &FactoryAuditArgs,
+    store: &FactoryStore,
+    enabled: bool,
+) -> Result<String, CmdError> {
+    if !enabled {
+        return Err(CmdError::factory_disabled());
+    }
+    match &args.command {
+        Some(FactoryAuditCommand::Verify(v)) => {
+            let report = super::audit::verify(&store.events_path()).map_err(map_factory_error)?;
+            if v.json {
+                serialize_compact(&report)
+            } else {
+                Ok(super::audit::format_verify_summary(&report))
+            }
+        }
+        None => {
+            let Some(ref idea_id) = args.idea else {
+                return Err(CmdError::invalid_input(
+                    "missing IDEA id (or try `tandem factory audit verify`)",
+                ));
+            };
+            let kind = match &args.kind {
+                Some(raw) => Some(super::audit::AuditKind::parse(raw).ok_or_else(|| {
+                    CmdError::invalid_input(format!("invalid audit kind: {raw}"))
+                })?),
+                None => None,
+            };
+            let filter = super::audit::AuditFilter {
+                run: args.run.clone(),
+                kind,
+                actor: args.actor.clone(),
+            };
+            let entries =
+                super::audit::entries(store, idea_id, &filter).map_err(map_factory_error)?;
+            let verify_report =
+                super::audit::verify(&store.events_path()).map_err(map_factory_error)?;
+
+            if args.json {
+                return super::audit::export_json(&entries, Some(&verify_report))
+                    .map_err(map_factory_error);
+            }
+            if args.markdown {
+                return Ok(super::audit::export_markdown(
+                    idea_id,
+                    &entries,
+                    Some(&verify_report),
+                ));
+            }
+
+            let mut out = format!(
+                "Audit · {idea_id}\n{}\n\n",
+                super::audit::format_verify_summary(&verify_report)
+            );
+            if entries.is_empty() {
+                out.push_str("No audit entries match the current filter.");
+                return Ok(out);
+            }
+            for e in &entries {
+                out.push_str(&format!(
+                    "{}  {:<12}  {}\n",
+                    super::audit::format_time_short(e.ts),
+                    e.actor,
+                    e.summary
+                ));
+                for d in &e.details {
+                    out.push_str(&format!("  {:<10} {}\n", d.label, d.value));
+                }
+            }
+            Ok(out.trim_end().to_string())
+        }
+    }
+}
+
+fn run_redact_test(args: &FactoryRedactTestArgs) -> Result<String, CmdError> {
+    let content = fs::read_to_string(&args.file).map_err(|e| {
+        CmdError::invalid_input(format!("cannot read {}: {e}", args.file.display()))
+    })?;
+    let ctx = super::redact::RedactContext::from_env();
+    let (redacted, matches) = super::redact::inspect(&content, &ctx);
+
+    if args.json {
+        return serialize_compact(&serde_json::json!({
+            "file": args.file.display().to_string(),
+            "replacements": redacted.replacements(),
+            "matches": matches,
+        }));
+    }
+
+    if matches.is_empty() {
+        return Ok("No secrets detected (0 replacements).".to_string());
+    }
+    let mut lines: Vec<String> = matches
+        .iter()
+        .map(|m| format!("line {}: {}", m.line, m.kind.as_str()))
+        .collect();
+    lines.push(format!("Total replacements: {}", redacted.replacements()));
+    Ok(lines.join("\n"))
 }
 
 fn serialize_compact<T: Serialize>(value: &T) -> Result<String, CmdError> {
@@ -1991,6 +2556,138 @@ fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<I
     Ok(idea)
 }
 
+fn format_ready_text(res: &super::approval::ReadyResult) -> String {
+    let mut lines = vec![format!("{} ({})", res.message, res.idea.id)];
+    if let Some(budget) = &res.budget {
+        let cost = res.cost_cap_note.clone().unwrap_or_else(|| {
+            budget
+                .max_cost_usd
+                .map(|c| format!("${c:.2}"))
+                .unwrap_or_else(|| "unlimited".to_string())
+        });
+        let dur = budget
+            .max_duration_secs
+            .map(super::budget::format_duration_minutes_or_secs)
+            .unwrap_or_else(|| "unlimited".to_string());
+        let retries = budget
+            .max_retries
+            .map(|r| format!("{r} retries"))
+            .unwrap_or_else(|| "unlimited retries".to_string());
+        lines.push(format!("Budget: {cost} · {dur} · {retries}"));
+    }
+    if let Some(est) = &res.estimate {
+        let dur = match &est.duration_secs {
+            super::budget::EstimateRange::Known { min, max, .. } => {
+                format!("{min} to {max}s")
+            }
+            super::budget::EstimateRange::Unknown { reason } => {
+                format!("duration unknown ({reason})")
+            }
+        };
+        let cost = match &est.cost_usd {
+            super::budget::EstimateRange::Known { min, max, .. } => {
+                format!("${min:.2} to ${max:.2}")
+            }
+            super::budget::EstimateRange::Unknown { reason } => {
+                format!("cost unknown ({reason})")
+            }
+        };
+        lines.push(format!("Estimate: {dur} · {cost}"));
+    }
+    if let Some(run) = &res.run {
+        lines.push(format!("Run: {} ({})", run.id, run.workflow));
+    } else if let Some(err) = &res.run_error {
+        lines.push(format!("Run error: {err}"));
+    }
+    lines.join("\n")
+}
+
+fn format_budget_change_text(res: &super::runner::ChangeBudgetResult) -> String {
+    let mut lines = Vec::new();
+    if res.old.max_cost_usd != res.new.max_cost_usd {
+        let old_s = res
+            .old
+            .max_cost_usd
+            .map(|c| format!("${c:.2}"))
+            .unwrap_or_else(|| "unlimited".to_string());
+        let new_s = res
+            .new
+            .max_cost_usd
+            .map(|c| format!("${c:.2}"))
+            .unwrap_or_else(|| "unlimited".to_string());
+        lines.push(format!("Cost cap for {}: {old_s} -> {new_s}.", res.run.id));
+    }
+    if res.old.max_duration_secs != res.new.max_duration_secs {
+        let old_s = res
+            .old
+            .max_duration_secs
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        let new_s = res
+            .new
+            .max_duration_secs
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        lines.push(format!(
+            "Duration cap for {}: {old_s} -> {new_s} seconds.",
+            res.run.id
+        ));
+    }
+    if res.old.max_retries != res.new.max_retries {
+        let old_s = res
+            .old
+            .max_retries
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        let new_s = res
+            .new
+            .max_retries
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        lines.push(format!("Retry cap for {}: {old_s} -> {new_s}.", res.run.id));
+    }
+    if res.run.state == super::model::RunState::Paused {
+        lines.push(format!(
+            "Resume with: tandem factory run resume {}",
+            res.run.id
+        ));
+    }
+    lines.join(" ")
+}
+
+fn format_run_usage_text(report: &super::telemetry::RunUsageReport) -> String {
+    let mut lines = vec![
+        format!("Run: {}", report.run),
+        format!("Total duration: {:.1}s", report.total_duration_secs),
+        format!("Total cost: {}", report.total_cost_display),
+    ];
+    if let (Some(i), Some(o)) = (report.total_input_tokens, report.total_output_tokens) {
+        lines.push(format!("Tokens: {i} in / {o} out"));
+    }
+    if !report.stages.is_empty() {
+        lines.push("Stages:".to_string());
+        for st in &report.stages {
+            let model = st.model.as_deref().unwrap_or("-");
+            let tier = st.tier.as_deref().unwrap_or("-");
+            lines.push(format!(
+                "  {}  {} job(s)  {}/{}  {:.1}s  {}",
+                st.stage, st.jobs, model, tier, st.duration_secs, st.cost_display
+            ));
+        }
+    }
+    lines.push(format!(
+        "Rework: {} retries ({} repeated rationales), develop reopened {} by test / {} by review, {} review rounds, {} model upgrades, {} interrupted",
+        report.rework.total_retries,
+        report.rework.repeated_rationales,
+        report.rework.develop_reopened_by_test,
+        report.rework.develop_reopened_by_review,
+        report.rework.review_rounds,
+        report.rework.model_upgrades,
+        report.rework.interrupted_jobs,
+    ));
+    lines.join("\n")
+}
+
 fn format_stopped_jobs_line(jobs: &[super::runner::StoppedJobInfo]) -> Option<String> {
     if jobs.is_empty() {
         return None;
@@ -2158,7 +2855,8 @@ fn read_run_job_log(store: &FactoryStore, args: &FactoryRunLogArgs) -> Result<St
         } else {
             raw.as_ref()
         };
-        sanitize::clean(aligned)
+        let sanitized = sanitize::clean(aligned);
+        super::redact::redact(&sanitized, &super::redact::RedactContext::from_env()).into_string()
     };
 
     if args.json {
@@ -2315,6 +3013,7 @@ fn format_discover_text(report: &super::checks::DiscoverReport) -> String {
         let kind = match p.kind {
             super::checks::CheckKind::Test => "test",
             super::checks::CheckKind::Lint => "lint",
+            super::checks::CheckKind::Deploy => "deploy",
         };
         let note = p
             .note
@@ -2367,10 +3066,97 @@ fn format_show_checks_text(checks: &BTreeMap<String, super::checks::ChecksConfig
     lines.join("\n")
 }
 
+fn handle_permissions_command(
+    cmd: &FactoryPermissionsCommand,
+    store: &FactoryStore,
+    caller: &super::approval::Caller<'_>,
+) -> Result<String, CmdError> {
+    let map_approval_err = |e: super::approval::ApprovalError| CmdError {
+        exit_code: e.exit_code(),
+        code: e.code(),
+        message: e.to_string(),
+    };
+    match cmd {
+        FactoryPermissionsCommand::Show(a) => {
+            let settings = if store.exists() {
+                store.settings().map_err(map_factory_error)?
+            } else {
+                FactorySettings::default()
+            };
+            let view = super::permissions::show(&settings);
+            if a.json {
+                serialize_compact(&view)
+            } else {
+                serde_json::to_string_pretty(&view)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))
+            }
+        }
+        FactoryPermissionsCommand::Allow(a) => {
+            if a.agent && a.target {
+                return Err(CmdError::invalid_input(
+                    "pass at most one of --agent or --target".to_string(),
+                ));
+            }
+            let tool = super::workflow::schema::WorkflowTool::parse(&a.tool)
+                .ok_or_else(|| CmdError::invalid_input(format!("unknown tool: {}", a.tool)))?;
+            let actor = resolve_owner(None)?;
+            let res = if a.target {
+                super::permissions::allow_target_tool(store, &a.subject, tool, &actor, caller)
+                    .map_err(map_approval_err)?
+            } else {
+                let agent =
+                    super::workflow::schema::WorkflowAgent::parse(&a.subject).ok_or_else(|| {
+                        CmdError::invalid_input(format!("unknown agent: {}", a.subject))
+                    })?;
+                super::permissions::allow_agent_tool(store, agent, tool, &actor, caller)
+                    .map_err(map_approval_err)?
+            };
+            if a.json {
+                serialize_compact(&res)
+            } else {
+                Ok(format!(
+                    "allowed {} for {} {}",
+                    res.tool, res.scope, res.subject
+                ))
+            }
+        }
+        FactoryPermissionsCommand::Deny(a) => {
+            if a.agent && a.target {
+                return Err(CmdError::invalid_input(
+                    "pass at most one of --agent or --target".to_string(),
+                ));
+            }
+            let tool = super::workflow::schema::WorkflowTool::parse(&a.tool)
+                .ok_or_else(|| CmdError::invalid_input(format!("unknown tool: {}", a.tool)))?;
+            let actor = resolve_owner(None)?;
+            let res = if a.agent {
+                let agent =
+                    super::workflow::schema::WorkflowAgent::parse(&a.subject).ok_or_else(|| {
+                        CmdError::invalid_input(format!("unknown agent: {}", a.subject))
+                    })?;
+                super::permissions::deny_agent_tool(store, agent, tool, &actor, caller)
+                    .map_err(map_approval_err)?
+            } else {
+                super::permissions::deny_target_tool(store, &a.subject, tool, &actor, caller)
+                    .map_err(map_approval_err)?
+            };
+            if a.json {
+                serialize_compact(&res)
+            } else {
+                Ok(format!(
+                    "denied {} for {} {}",
+                    res.tool, res.scope, res.subject
+                ))
+            }
+        }
+    }
+}
+
 fn handle_checks_command(
     cmd: &FactoryChecksCommand,
     store: &FactoryStore,
     workspace: &Path,
+    caller: &super::approval::Caller<'_>,
 ) -> Result<String, CmdError> {
     match cmd {
         FactoryChecksCommand::Discover(a) => {
@@ -2390,43 +3176,79 @@ fn handle_checks_command(
             }
         }
         FactoryChecksCommand::Set(a) => {
-            let test_cmds: Vec<Vec<String>> = match a.test.as_deref() {
-                Some(raw) => serde_json::from_str(raw).map_err(|e| {
-                    CmdError::invalid_input(format!("invalid --test JSON argv list: {e}"))
-                })?,
-                None => Vec::new(),
-            };
-            let lint_cmds: Vec<Vec<String>> = match a.lint.as_deref() {
-                Some(raw) => serde_json::from_str(raw).map_err(|e| {
-                    CmdError::invalid_input(format!("invalid --lint JSON argv list: {e}"))
-                })?,
-                None => Vec::new(),
-            };
-            let ui_paths: Vec<String> = match a.ui_paths.as_deref() {
-                Some(raw) => serde_json::from_str(raw).map_err(|e| {
-                    CmdError::invalid_input(format!("invalid --ui-paths JSON list: {e}"))
-                })?,
-                None => Vec::new(),
-            };
             let confirmed_by = resolve_owner(None)?;
-            let cfg = super::checks::set_checks(
-                store,
-                &a.target,
-                test_cmds,
-                lint_cmds,
-                a.timeout_secs,
-                ui_paths,
-                &a.confirm,
-                &confirmed_by,
-                &|k| std::env::var(k).ok(),
-            )
-            .map_err(map_checks_error)?;
-            if a.json {
-                serialize_compact(&cfg)
+            let has_checks = a.test.is_some() || a.lint.is_some() || a.ui_paths.is_some();
+            let deploy_cmd: Option<Vec<String>> = match a.deploy.as_deref() {
+                Some(raw) => Some(serde_json::from_str(raw).map_err(|e| {
+                    CmdError::invalid_input(format!("invalid --deploy JSON argv list: {e}"))
+                })?),
+                None => None,
+            };
+
+            let mut deploy_cfg = None;
+            if let Some(cmd) = deploy_cmd {
+                let dcfg = super::checks::set_deploy_command_with_timeout(
+                    store,
+                    &a.target,
+                    cmd,
+                    a.timeout_secs,
+                    &a.confirm,
+                    &confirmed_by,
+                    caller,
+                )
+                .map_err(map_checks_error)?;
+                deploy_cfg = Some(dcfg);
+            }
+
+            if has_checks || deploy_cfg.is_none() {
+                let test_cmds: Vec<Vec<String>> = match a.test.as_deref() {
+                    Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                        CmdError::invalid_input(format!("invalid --test JSON argv list: {e}"))
+                    })?,
+                    None => Vec::new(),
+                };
+                let lint_cmds: Vec<Vec<String>> = match a.lint.as_deref() {
+                    Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                        CmdError::invalid_input(format!("invalid --lint JSON argv list: {e}"))
+                    })?,
+                    None => Vec::new(),
+                };
+                let ui_paths: Vec<String> = match a.ui_paths.as_deref() {
+                    Some(raw) => serde_json::from_str(raw).map_err(|e| {
+                        CmdError::invalid_input(format!("invalid --ui-paths JSON list: {e}"))
+                    })?,
+                    None => Vec::new(),
+                };
+                let cfg = super::checks::set_checks(
+                    store,
+                    &a.target,
+                    test_cmds,
+                    lint_cmds,
+                    a.timeout_secs,
+                    ui_paths,
+                    &a.confirm,
+                    &confirmed_by,
+                    caller,
+                )
+                .map_err(map_checks_error)?;
+                if a.json {
+                    serialize_compact(&cfg)
+                } else {
+                    let mut map = BTreeMap::new();
+                    map.insert(a.target.clone(), cfg);
+                    Ok(format_show_checks_text(&map))
+                }
+            } else if a.json {
+                serialize_compact(&deploy_cfg)
             } else {
-                let mut map = BTreeMap::new();
-                map.insert(a.target.clone(), cfg);
-                Ok(format_show_checks_text(&map))
+                let cmd_str = deploy_cfg
+                    .as_ref()
+                    .map(|d| d.command.join(" "))
+                    .unwrap_or_default();
+                Ok(format!(
+                    "target {}: deploy command confirmed: {}",
+                    a.target, cmd_str
+                ))
             }
         }
         FactoryChecksCommand::Show(a) => {

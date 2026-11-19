@@ -6,7 +6,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::broker::context::{
-    ContextInputs, ReviewContextExtras, assemble_context, assemble_review_context,
+    ContextError, ContextInputs, ReviewContextExtras, assemble_context_with_policy,
+    assemble_review_context_with_policy,
 };
 use super::broker::gate::{check, today_iso_date};
 use super::broker::git::{AllowedGitSubcommand, run_git};
@@ -15,6 +16,7 @@ use super::broker::job::{
 };
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
 use super::broker::spawn::{DEFAULT_STOP_GRACE, ProviderCommand, WaitOutcome, spawn_provider};
+use super::data_policy::{format_readable_scope, load_exclusions};
 use super::model::KNOWN_PROVIDERS;
 use super::routing::{RoutingContext, TemperatureSupport, route};
 use super::runner::{has_ui_slices, is_stop_requested};
@@ -310,6 +312,64 @@ impl BrokerExecutor {
             check_failures_summary = Some(report.failures_summary);
         }
 
+        if job.stage == "deploy" {
+            if !run.deploy_requested {
+                return StageOutcome::Blocked {
+                    reason: "deploy was not requested at mark-ready".to_string(),
+                    action_commands: vec![],
+                };
+            }
+            if run.prs.is_empty() {
+                return StageOutcome::Blocked {
+                    reason: "a pull request is required before deploy".to_string(),
+                    action_commands: vec![format!("tandem factory run prs {} --refresh", job.run)],
+                };
+            }
+            let target_name = run.target.as_deref().unwrap_or("workspace");
+            let confirmed = match super::checks::require_confirmed_deploy(&settings, target_name) {
+                Ok(c) => c,
+                Err(e) => {
+                    return StageOutcome::Blocked {
+                        reason: e.to_string(),
+                        action_commands: vec![format!(
+                            "tandem factory checks set --target {target_name} --deploy '[\"<cmd>\"]' --confirm {target_name}"
+                        )],
+                    };
+                }
+            };
+            let report = match super::stages::deploy::run_deploy_stage(
+                &confirmed,
+                &worktree_path,
+                &artifact_dir,
+                job.attempt,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    return StageOutcome::Failed {
+                        reason: e.to_string(),
+                    };
+                }
+            };
+            let sys_actor = super::model::Actor {
+                kind: super::model::ActorKind::System,
+                id: "executor".to_string(),
+            };
+            let _ = super::evidence::record_deploy_stage_evidence(
+                &store,
+                &run.idea,
+                &job.run,
+                job.attempt,
+                &report,
+                &sys_actor,
+            );
+            if report.passed {
+                return StageOutcome::Succeeded;
+            }
+            return StageOutcome::Failed {
+                reason: format!("deploy command failed: {}", report.summary),
+            };
+        }
+
         let today = today_iso_date();
         let open_providers: Vec<&str> = KNOWN_PROVIDERS
             .iter()
@@ -340,8 +400,27 @@ impl BrokerExecutor {
             avoid_provider,
             avoid_model,
         };
+        let target_name = run.target.as_deref().unwrap_or("workspace");
+        let tool_grant = match super::permissions::grant(
+            stage_def.agent,
+            stage_def,
+            target_name,
+            &wf,
+            &settings,
+            false,
+        ) {
+            Ok(g) => g,
+            Err(denied) => {
+                return StageOutcome::Blocked {
+                    reason: denied.to_string(),
+                    action_commands: denied.action_commands(&run.id),
+                };
+            }
+        };
+
         let routed = match route(
             stage_def,
+            &tool_grant,
             &wf,
             &settings,
             &open_providers,
@@ -452,21 +531,41 @@ impl BrokerExecutor {
                 dependency_summaries
             },
             retry_rationale,
+            tool_grant: Some(tool_grant.clone()),
         };
         let assembled_res = if job.stage == "review" {
             let extras = collect_review_extras(&store, &run, &worktree_path, &artifact_dir);
-            assemble_review_context(&context_inputs, &extras)
+            assemble_review_context_with_policy(
+                &context_inputs,
+                &extras,
+                &routed.provider,
+                &settings,
+            )
         } else {
-            assemble_context(&context_inputs)
+            assemble_context_with_policy(&context_inputs, &routed.provider, &settings)
         };
-        let assembled = match assembled_res {
+        let mut assembled = match assembled_res {
             Ok(c) => c,
+            Err(ContextError::PolicyDenied(denial)) => {
+                return StageOutcome::Blocked {
+                    reason: denial.to_string(),
+                    action_commands: vec![format!("tandem factory run resume {}", job.run)],
+                };
+            }
             Err(e) => {
                 return StageOutcome::Failed {
                     reason: e.to_string(),
                 };
             }
         };
+        assembled.manifest.excluded_paths = load_exclusions(&store, &job.run)
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assembled.manifest.readable_scope = Some(format_readable_scope(
+            run.worktree_path.as_deref(),
+            &worktree_path.to_string_lossy(),
+        ));
 
         let headless_req = HeadlessRequest {
             model: routed.model.clone(),
@@ -503,7 +602,11 @@ impl BrokerExecutor {
             agent: routed.agent_definition.to_string(),
             provider: routed.provider.clone(),
             model: routed.model.clone(),
-            tool_grants: stage_def.tools.iter().map(|t| format!("{t:?}")).collect(),
+            tool_grants: tool_grant
+                .tools
+                .iter()
+                .map(|t| t.as_str().to_string())
+                .collect(),
             cwd: worktree_path.to_string_lossy().to_string(),
             time_limit_secs: stage_def.budget.max_duration_secs.unwrap_or(1800),
         };
@@ -580,10 +683,7 @@ impl BrokerExecutor {
             return StageOutcome::Failed { reason: diagnosis };
         }
 
-        let has_repo_write = stage_def
-            .tools
-            .iter()
-            .any(|t| matches!(t, super::workflow::schema::WorkflowTool::RepoWrite));
+        let has_repo_write = tool_grant.has_repo_write;
 
         match parsed.status {
             JobResultStatus::Succeeded => {
@@ -668,12 +768,11 @@ impl BrokerExecutor {
                         }
                     }
                 } else if !has_repo_write
-                    && let Err(failure) =
-                        super::stages::scope::verify_scope(&super::stages::scope::ScopeCheckInput {
-                            worktree_path: &worktree_path,
-                            artifact_dir: &artifact_dir,
-                            has_repo_write: false,
-                        })
+                    && let Err(failure) = super::stages::scope::verify_scope_with_grant(
+                        &worktree_path,
+                        &artifact_dir,
+                        &tool_grant,
+                    )
                 {
                     return StageOutcome::Failed {
                         reason: failure.to_string(),

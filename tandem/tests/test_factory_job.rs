@@ -48,6 +48,7 @@ fn correlation_id_and_context_manifest_with_512kib_cap() {
         agent_def_path: agent.clone(),
         dependency_summaries: vec![("plan".into(), "Spec ready".into())],
         retry_rationale: Some("previous assertion failed".into()),
+        tool_grant: None,
     })
     .unwrap();
 
@@ -66,6 +67,7 @@ fn correlation_id_and_context_manifest_with_512kib_cap() {
         agent_def_path: agent,
         dependency_summaries: vec![],
         retry_rationale: None,
+        tool_grant: None,
     })
     .unwrap_err();
     assert!(matches!(err, ContextError::CapExceeded { .. }));
@@ -162,6 +164,7 @@ fn prepare_job_is_idempotent_and_handles_crashed_interruptions() {
         agent_def_path: agent,
         dependency_summaries: vec![],
         retry_rationale: None,
+        tool_grant: None,
     })
     .unwrap();
 

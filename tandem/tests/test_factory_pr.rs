@@ -195,7 +195,8 @@ fn setup_factory_run(ws: &Path, title: &str) -> (FactoryStore, String, String, P
         .execute(&idea.id, Command::SelectDirection, &user_actor())
         .unwrap();
 
-    mark_ready(&store, &idea.id, &idea.id, "cli", "user", &|_| None).unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    mark_ready(&store, &idea.id, &idea.id, "user", &caller).unwrap();
 
     let run = create_run(
         &store,
@@ -333,10 +334,12 @@ fn record_complete_evidence_and_approve(
         },
     )
     .unwrap();
+    let redacted_ev =
+        tandem::factory::events::redact_event(ev, &tandem::factory::redact::RedactContext::new());
     let _ = tandem::factory::events::append(
         &store.root.join("events.jsonl"),
         &store.root.join("lock"),
-        &[ev],
+        &[redacted_ev],
     );
 }
 

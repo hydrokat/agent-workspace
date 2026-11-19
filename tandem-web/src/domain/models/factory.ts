@@ -278,9 +278,64 @@ export interface ReadyResult {
 export type FactoryErrorCode =
   | "not_found"
   | "invalid_input"
+  | "forbidden"
   | "factory_disabled"
   | "gate_not_met"
   | "internal_error";
+
+export interface FactoryBudget {
+  max_cost_usd?: number | null;
+  max_duration_secs?: number | null;
+  max_retries?: number | null;
+}
+
+export interface ProviderModelTiers {
+  economy: string;
+  standard: string;
+  premium: string;
+}
+
+export interface FactoryProviderGate {
+  provider: string;
+  state: "open" | "closed";
+  auth_type?: string | null;
+  verified_on?: string | null;
+  terms_record?: string | null;
+  consented_at?: number | null;
+  consented_by?: string | null;
+}
+
+export interface FactorySettings {
+  version: number;
+  max_parallel_agents: number;
+  default_temperature: number;
+  default_workflow: string;
+  max_review_rounds: number;
+  approval_grace_secs: number;
+  default_budget: FactoryBudget;
+  model_tiers: Record<string, ProviderModelTiers>;
+  provider_gates: FactoryProviderGate[];
+  checks: Record<string, unknown>;
+  deploy_commands: Record<string, unknown>;
+}
+
+export interface FactorySettingsChangeResult {
+  key: string;
+  old_value: unknown;
+  new_value: unknown;
+  actor: string;
+  settings: FactorySettings;
+}
+
+export interface FactorySettingsPayload {
+  settings: FactorySettings;
+  providers: ProviderStatusItem[];
+  workflows: Array<{
+    name: string;
+    version: number;
+    valid: boolean;
+  }>;
+}
 
 export class FactoryGatewayError extends Error {
   constructor(
@@ -374,4 +429,100 @@ export function isValidHypothesis(text: string): boolean {
     return false;
   }
   return !/[\x00-\x1f\x7f]/.test(trimmed);
+}
+
+export type AuditKind = "job_start" | "job_end" | "approval" | "decision" | "lifecycle";
+
+export interface AuditDetailItem {
+  label: string;
+  value: string;
+}
+
+export interface AuditEntry {
+  seq: number;
+  ts: number;
+  actor: string;
+  actor_kind: ActorKind;
+  kind: AuditKind;
+  run?: string | null;
+  stage?: string | null;
+  attempt?: number | null;
+  correlation_id?: string | null;
+  summary: string;
+  details: AuditDetailItem[];
+}
+
+export interface AuditBreak {
+  seq: number;
+  reason: string;
+}
+
+export interface AuditVerifyReport {
+  total_events: number;
+  chain_start_seq?: number | null;
+  verified_events: number;
+  intact: boolean;
+  first_break?: AuditBreak | null;
+}
+
+export interface AuditTimelinePayload {
+  entries: AuditEntry[];
+  verify: AuditVerifyReport;
+}
+
+export interface AuditFilterOptions {
+  run?: string;
+  kind?: AuditKind;
+  actor?: string;
+}
+
+export function isValidAuditKind(kind: string): kind is AuditKind {
+  return (
+    kind === "job_start" ||
+    kind === "job_end" ||
+    kind === "approval" ||
+    kind === "decision" ||
+    kind === "lifecycle"
+  );
+}
+
+export function isValidAuditActor(actor: string): boolean {
+  const trimmed = actor.trim();
+  return trimmed.length > 0 && trimmed.length <= 64 && !/[\x00-\x1f\x7f]/.test(trimmed);
+}
+
+export interface ContextItem {
+  kind: string;
+  path: string;
+  bytes: number;
+  sha256: string;
+}
+
+export interface ExcludedPathEntry {
+  path: string;
+  rule: string;
+}
+
+export interface JobDataView {
+  correlation_id: string;
+  stage: string;
+  attempt: number;
+  provider: string;
+  model: string;
+  sent_files: ContextItem[];
+  total_bytes: number;
+  redactions: number;
+  readable_scope: string;
+  tool_grants: string[];
+  excluded_paths: string[];
+  limitation: string;
+}
+
+export interface RunDataView {
+  run: string;
+  worktree_path?: string | null;
+  limitation: string;
+  excluded_paths: string[];
+  exclusions: ExcludedPathEntry[];
+  jobs: JobDataView[];
 }

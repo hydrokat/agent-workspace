@@ -10,11 +10,12 @@ use crate::coordination::filelock::exclusive_lock;
 use super::FactoryError;
 use super::broker::gh::{AllowedGhSubcommand, GhError, run_gh_bin};
 use super::broker::git::{AllowedGitSubcommand, GitError, push_branch, run_git};
-use super::events::{Event, append_locked, reject_if_symlink, set_private_file_mode};
+use super::events::{Event, append_locked, redact_event, reject_if_symlink, set_private_file_mode};
 use super::evidence::{self, EvidenceItem};
 use super::ids::is_valid_run_id;
 use super::machine::{self, EventData};
 use super::model::{Actor, Idea, PrLink, Run};
+use super::redact::{RedactContext, Redacted, redact};
 use super::run::{RunError, get_run};
 use super::stages::review::{ReviewRoundsReport, ReviewVerdict, load_findings_report};
 use super::store::{FactoryStore, current_time, event_run_id, write_atomic};
@@ -72,6 +73,8 @@ struct GhRepoView {
 #[derive(Debug, Deserialize)]
 struct CheckReportRead {
     checks: Vec<CheckEntryRead>,
+    #[serde(default)]
+    failures_summary: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,44 +133,10 @@ fn sanitize_text(input: &str, workspace: &Path, worktree: &Path) -> String {
             out = out.replace(&p, "[local-path]");
         }
     }
-    for prefix in [
-        "/Users/",
-        "/home/",
-        "/tmp/",
-        "/var/",
-        "C:\\",
-        ".agent-workspace/",
-        "ghp_",
-        "gho_",
-        "github_pat_",
-        "sk-",
-        "AKIA",
-        "-----BEGIN ",
-    ] {
-        if out.contains(prefix) {
-            out = redact_tokens_with_prefix(&out, prefix);
-        }
-    }
-    out
+    redact(&out, &RedactContext::from_env()).into_string()
 }
 
-fn redact_tokens_with_prefix(input: &str, prefix: &str) -> String {
-    let mut result = String::with_capacity(input.len());
-    let mut rest = input;
-    while let Some(idx) = rest.find(prefix) {
-        result.push_str(&rest[..idx]);
-        result.push_str("[redacted]");
-        let after = &rest[idx + prefix.len()..];
-        let end = after
-            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | ']' | ','))
-            .unwrap_or(after.len());
-        rest = &after[end..];
-    }
-    result.push_str(rest);
-    result
-}
-
-pub fn conventional_pr_title(idea_title: &str) -> String {
+pub fn conventional_pr_title(idea_title: &str) -> Redacted {
     let trimmed = idea_title.trim();
     let known_prefixes = [
         "feat:",
@@ -190,19 +159,21 @@ pub fn conventional_pr_title(idea_title: &str) -> String {
         "build(",
     ];
     let lower = trimmed.to_ascii_lowercase();
-    if known_prefixes.iter().any(|p| lower.starts_with(p)) {
-        return trimmed.to_string();
-    }
-    let mut chars = trimmed.chars();
-    match chars.next() {
-        Some(first) => {
-            let mut s = String::from("feat: ");
-            s.extend(first.to_lowercase());
-            s.push_str(chars.as_str());
-            s
+    let raw = if known_prefixes.iter().any(|p| lower.starts_with(p)) {
+        trimmed.to_string()
+    } else {
+        let mut chars = trimmed.chars();
+        match chars.next() {
+            Some(first) => {
+                let mut s = String::from("feat: ");
+                s.extend(first.to_lowercase());
+                s.push_str(chars.as_str());
+                s
+            }
+            None => "feat: factory change".to_string(),
         }
-        None => "feat: factory change".to_string(),
-    }
+    };
+    redact(&raw, &RedactContext::from_env())
 }
 
 fn pause_run_for_pr(
@@ -228,6 +199,9 @@ fn pause_run_for_pr(
         run: run.id.clone(),
         reason: reason.clone(),
         commands: commands.clone(),
+        cap: None,
+        spent: None,
+        limit: None,
     };
     let ev = Event::from_data(
         ts,
@@ -236,7 +210,8 @@ fn pause_run_for_pr(
         Some(run.id.clone()),
         &ev_data,
     )?;
-    let appended = append_locked(&store.events_path(), &[ev])?;
+    let redacted_ev = redact_event(ev, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &[redacted_ev])?;
     let event_ts = appended.first().map(|e| e.ts).unwrap_or(ts);
     if let Some(updated_run) = machine::apply_run(Some(run), &ev_data, &appended[0].idea, event_ts)
     {
@@ -296,7 +271,8 @@ fn record_pr_link(
         event_run_id(&ev_data),
         &ev_data,
     )?;
-    let appended = append_locked(&store.events_path(), &[ev])?;
+    let redacted_ev = redact_event(ev, &RedactContext::from_env());
+    let appended = append_locked(&store.events_path(), &[redacted_ev])?;
     let event_ts = appended.first().map(|e| e.ts).unwrap_or(ts);
 
     if let Some(updated_idea) = machine::apply(Some(current_idea), &ev_data, event_ts) {
@@ -341,6 +317,24 @@ fn summarize_tests_section(
                         )
                     };
                     lines.push(format!("- `{cmd}`: {result}"));
+                }
+                if !parsed.failures_summary.trim().is_empty() {
+                    let excerpt: Vec<String> = parsed
+                        .failures_summary
+                        .lines()
+                        .take(15)
+                        .map(|l| sanitize_text(l, workspace, worktree))
+                        .collect();
+                    let mut joined = excerpt.join("\n");
+                    if joined.len() > 1000 {
+                        let mut end = 1000;
+                        while !joined.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        joined.truncate(end);
+                        joined.push_str("...");
+                    }
+                    lines.push(format!("- Failing-test excerpt:\n```text\n{joined}\n```"));
                 }
             }
             if !item.summary.trim().is_empty() {
@@ -437,13 +431,13 @@ fn summarize_exceptions_section(
     }
 }
 
-fn build_pr_body(
+pub fn build_pr_body(
     store: &FactoryStore,
     idea: &Idea,
     run: &Run,
     workspace: &Path,
     worktree: &Path,
-) -> String {
+) -> Redacted {
     let diff_summary = run
         .evidence
         .iter()
@@ -492,7 +486,15 @@ fn build_pr_body(
          Factory idea: {} {clean_title}\n",
         idea.id
     );
-    sanitize_text(&body, workspace, worktree)
+    let clean_body = sanitize_text(&body, workspace, worktree);
+    redact(&clean_body, &RedactContext::from_env())
+}
+
+pub fn write_pr_body(body_path: &Path, body: &Redacted) -> Result<(), PrError> {
+    reject_if_symlink(body_path)?;
+    write_atomic(body_path, body.as_str().as_bytes())?;
+    set_private_file_mode(body_path)?;
+    Ok(())
 }
 
 fn parse_pr_number_from_url(url: &str) -> Option<u64> {
@@ -745,9 +747,7 @@ pub fn open_pull_request_with_gh(
     let title = conventional_pr_title(&idea.title);
     let body = build_pr_body(store, &idea, &run, workspace, &worktree);
     let body_path = artifact_dir.join("pr-body.md");
-    reject_if_symlink(&body_path)?;
-    write_atomic(&body_path, body.as_bytes())?;
-    set_private_file_mode(&body_path)?;
+    write_pr_body(&body_path, &body)?;
     let body_path_str = body_path.to_string_lossy().into_owned();
 
     let create_out = run_gh_bin(
@@ -759,7 +759,7 @@ pub fn open_pull_request_with_gh(
             "--head",
             &branch,
             "--title",
-            &title,
+            title.as_str(),
             "--body-file",
             &body_path_str,
         ],

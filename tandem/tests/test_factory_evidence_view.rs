@@ -99,6 +99,9 @@ fn full_plan_md() -> &'static str {
 fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = user_actor();
     let orch = orch_actor();
     let sys = sys_actor();
@@ -174,20 +177,21 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             std::env::var(k).ok()
         }
     };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     let ready = mark_ready_with_workflow(
         &store,
         ws,
         &idea.id,
         &idea.id,
-        "tui",
         &user.id,
         Some("default-delivery"),
         false,
-        &env_fn,
+        &caller,
     )
     .unwrap();
     let run_id = ready.run.expect("run created").id;
 
+    let redact_ctx = tandem::factory::redact::RedactContext::new();
     evidence::add(
         &store,
         AddEvidenceInput {
@@ -197,8 +201,11 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             stage: "test",
             attempt: 2,
             extension: "json",
-            content: br#"{"attempt":2,"passed":true,"checks":[]}"#,
-            summary: "tests 48 passed, 0 failed".to_string(),
+            content: evidence::EvidenceContent::Text(tandem::factory::redact::redact(
+                r#"{"attempt":2,"passed":true,"checks":[]}"#,
+                &redact_ctx,
+            )),
+            summary: tandem::factory::redact::redact("tests 48 passed, 0 failed", &redact_ctx),
         },
         &sys,
     )
@@ -212,8 +219,11 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             stage: "test",
             attempt: 2,
             extension: "json",
-            content: br#"{"attempt":2,"passed":true,"checks":[]}"#,
-            summary: "lint clean".to_string(),
+            content: evidence::EvidenceContent::Text(tandem::factory::redact::redact(
+                r#"{"attempt":2,"passed":true,"checks":[]}"#,
+                &redact_ctx,
+            )),
+            summary: tandem::factory::redact::redact("lint clean", &redact_ctx),
         },
         &sys,
     )
@@ -227,8 +237,11 @@ fn setup_delivered_run(ws: &Path) -> (FactoryStore, String, String) {
             stage: "handoff",
             attempt: 1,
             extension: "md",
-            content: b"# Handoff\n\nAll 48 tests pass and PR #142 is ready.\n",
-            summary: "handoff ready".to_string(),
+            content: evidence::EvidenceContent::Text(tandem::factory::redact::redact(
+                "# Handoff\n\nAll 48 tests pass and PR #142 is ready.\n",
+                &redact_ctx,
+            )),
+            summary: tandem::factory::redact::redact("handoff ready", &redact_ctx),
         },
         &sys,
     )
@@ -408,19 +421,24 @@ fn factory_detail_mark_ready_text_states_full_authorization() {
     let ws = temp_workspace("ready-copy");
     let store = FactoryStore::new(&ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     tandem::factory::broker::gate::consent_provider(
         &store,
         "claude",
         tandem::factory::broker::gate::AuthType::ApiKey,
         "claude",
         "argie",
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     let user = user_actor();
@@ -563,19 +581,24 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
     .unwrap();
     let store = FactoryStore::new(&ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     tandem::factory::broker::gate::consent_provider(
         &store,
         "claude",
         tandem::factory::broker::gate::AuthType::ApiKey,
         "claude",
         "argie",
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     let user = user_actor();
@@ -632,22 +655,23 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
             &orch,
         )
         .unwrap();
+    let env_fn = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            None
+        } else {
+            std::env::var(k).ok()
+        }
+    };
+    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
     let ready = mark_ready_with_workflow(
         &store,
         &ws,
         &idea.id,
         &idea.id,
-        "tui",
         &user.id,
         Some("default-delivery"),
         false,
-        &|k| {
-            if k == "TANDEM_ROLE" {
-                None
-            } else {
-                std::env::var(k).ok()
-            }
-        },
+        &caller,
     )
     .unwrap();
     let run_id = ready.run.expect("run").id;
@@ -669,6 +693,9 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
             run: run_id.clone(),
             reason: "test and lint commands are not confirmed".to_string(),
             commands: vec!["tandem factory checks discover --target workspace".to_string()],
+            cap: None,
+            spent: None,
+            limit: None,
         },
         &sys,
     );

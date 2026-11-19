@@ -75,6 +75,9 @@ fn init_git_repo(dir: &Path, branch: &str) {
 fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.approval_grace_secs = 0;
+    tandem::factory::settings::save(&store, &settings).unwrap();
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".into(),
@@ -138,16 +141,9 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
             &orch,
         )
         .unwrap();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
     let ready = tandem::factory::approval::mark_ready_with_workflow(
-        &store,
-        ws,
-        &idea.id,
-        &idea.id,
-        "cli",
-        "alice",
-        None,
-        false,
-        &|_| None,
+        &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
     .unwrap();
     let run_id = ready.run.unwrap().id;
@@ -261,12 +257,13 @@ fn prepare_creates_idempotent_worktree_outside_artifact_channel_and_cleanup_resp
     let withdrawn = tandem::factory::run::withdraw_run(&store, &run_id, &user).unwrap();
     assert_eq!(withdrawn.state, RunState::Withdrawn);
 
-    let err = cleanup_worktree(&store, &ws, &run_id, &user, &|_| None).unwrap_err();
+    let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    let err = cleanup_worktree(&store, &ws, &run_id, &user, &caller).unwrap_err();
     assert!(matches!(err, WorkspaceError::DirtyWorktree(_)));
 
     // Clean dirty file -> cleanup succeeds and keeps the branch
     fs::remove_file(rw1.worktree_path.join("dirty.txt")).unwrap();
-    cleanup_worktree(&store, &ws, &run_id, &user, &|_| None).unwrap();
+    cleanup_worktree(&store, &ws, &run_id, &user, &caller).unwrap();
     assert!(!rw1.worktree_path.exists());
 
     let branches = run_git(
@@ -290,22 +287,30 @@ fn set_run_target_rejects_agent_caller_and_cleanup_rejects_escape() {
     init_git_repo(&ws, "trunk");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
 
-    let err_target =
-        tandem::factory::workspace::set_run_target(&store, &ws, &run_id, "workspace", &|k| {
-            if k == "TANDEM_ROLE" {
-                Some("orchestrator".to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_err();
+    let agent_env = |k: &str| {
+        if k == "TANDEM_ROLE" {
+            Some("orchestrator".to_string())
+        } else {
+            None
+        }
+    };
+    let agent_caller = tandem::factory::approval::Caller::cli(true, &agent_env, &|_| None);
+    let user_caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
+    let err_target = tandem::factory::workspace::set_run_target(
+        &store,
+        &ws,
+        &run_id,
+        "workspace",
+        &agent_caller,
+    )
+    .unwrap_err();
     assert!(matches!(err_target, WorkspaceError::Approval(_)));
 
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".into(),
     };
-    tandem::factory::workspace::set_run_target(&store, &ws, &run_id, "workspace", &|_| None)
+    tandem::factory::workspace::set_run_target(&store, &ws, &run_id, "workspace", &user_caller)
         .unwrap();
 
     // Tamper run.json worktree_path to point outside workspace/worktrees
@@ -320,7 +325,7 @@ fn set_run_target_rejects_agent_caller_and_cleanup_rejects_escape() {
     withdrawn.worktree_path = Some(outside.to_string_lossy().to_string());
     fs::write(&run_json, serde_json::to_vec_pretty(&withdrawn).unwrap()).unwrap();
 
-    let err_cleanup = cleanup_worktree(&store, &ws, &run_id, &user, &|_| None).unwrap_err();
+    let err_cleanup = cleanup_worktree(&store, &ws, &run_id, &user, &user_caller).unwrap_err();
     assert!(matches!(err_cleanup, WorkspaceError::Factory(_)));
 
     let _ = fs::remove_dir_all(&ws);
