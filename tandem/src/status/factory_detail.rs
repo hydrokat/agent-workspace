@@ -170,13 +170,9 @@ impl FactoryDetail {
 
         let log_path = store.root.join("events.jsonl");
         if log_path.exists()
-            && let Ok(res) = events::read_all(&log_path)
+            && let Ok(ev_list) = events::read_idea_events(&log_path, &self.idea_id)
         {
-            self.events = res
-                .events
-                .into_iter()
-                .filter(|ev| ev.idea == self.idea_id)
-                .collect();
+            self.events = ev_list;
         } else {
             self.events.clear();
         }

@@ -97,6 +97,8 @@ Commands:
   rebuild      rebuild materialized idea files from the event log
   redact       test and inspect secret redaction
   audit        inspect the factory audit timeline or verify log integrity
+  doctor       diagnose and safely repair Factory Mode state
+  report       summarize Factory Mode pilot metrics, rework, cost, and evidence
   help         Print this message or the help of the given subcommand(s)
 
 Options:

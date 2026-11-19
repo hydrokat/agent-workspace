@@ -1,0 +1,229 @@
+#!/bin/sh
+set -eu
+
+# Drain stdin so the broker's prompt writer never hits EPIPE.
+cat > /dev/null
+
+SCENARIO="${STUB_SCENARIO:-}"
+if [ -z "$SCENARIO" ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ -f "$CLAUDE_CONFIG_DIR/stub-scenario" ]; then
+  SCENARIO="$(cat "$CLAUDE_CONFIG_DIR/stub-scenario")"
+fi
+if [ -z "$SCENARIO" ] && [ -n "${HOME:-}" ] && [ -f "$HOME/.stub-scenario" ]; then
+  SCENARIO="$(cat "$HOME/.stub-scenario")"
+fi
+if [ -z "$SCENARIO" ]; then
+  SCENARIO="happy"
+fi
+
+STAGE="${TANDEM_STAGE:-unknown}"
+ATTEMPT="${TANDEM_ATTEMPT:-1}"
+JOB_DIR="${TANDEM_JOB_DIR:-.}"
+ARTIFACT_DIR="$JOB_DIR/../../artifacts"
+mkdir -p "$ARTIFACT_DIR"
+
+if [ "$SCENARIO" = "crash-mid-stage" ]; then
+  echo "stub provider simulated crash" >&2
+  exit 1
+fi
+
+if [ "$SCENARIO" = "hang" ]; then
+  exec sleep 60
+fi
+
+HYPOTHESIS_JSON=""
+if [ "$ATTEMPT" -gt 1 ]; then
+  HYPOTHESIS_JSON='"hypothesis": "retry after addressing previous stage feedback",'
+fi
+
+USAGE_JSON='"usage": {"input_tokens": 1200, "output_tokens": 400, "cost_usd": 0.012}'
+if [ "$SCENARIO" = "budget-breach" ]; then
+  USAGE_JSON='"usage": {"input_tokens": 2000000, "output_tokens": 500000, "cost_usd": 999.0}'
+fi
+
+case "$STAGE" in
+  plan)
+    mkdir -p "$ARTIFACT_DIR/specs"
+    cat <<'EOF' > "$ARTIFACT_DIR/specs/t-001.md"
+# t-001: Team activity export
+
+## Scope
+Export team activity as CSV with date range filtering.
+EOF
+
+    SLICE_PATHS='["src/export.sh", "test/export_test.sh"]'
+    if [ "$SCENARIO" = "policy-denial" ]; then
+      SLICE_PATHS='[".env", "secrets/api-key.txt"]'
+    fi
+
+    cat <<EOF > "$ARTIFACT_DIR/slices.json"
+{
+  "phase": "p-001-activity-export",
+  "slices": [
+    {
+      "id": "s-001",
+      "title": "Team activity CSV export",
+      "type": "New Feature",
+      "paths": $SLICE_PATHS,
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Export team activity to CSV",
+        "Filter exported activity by date range"
+      ],
+      "ui": false
+    }
+  ]
+}
+EOF
+
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Planned team activity export specs and slices",
+  "files_changed": [],
+  "artifacts": ["specs/t-001.md"],
+  $HYPOTHESIS_JSON
+  $USAGE_JSON,
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+
+  create-tests)
+    mkdir -p test
+    cat <<'EOF' > test/export_test.sh
+#!/bin/sh
+set -eu
+out="$(sh src/export.sh --from 2026-01-01 --to 2026-01-31)"
+printf '%s\n' "$out" | grep -q "member,action,date"
+printf '%s\n' "$out" | grep -q "alice,commit,2026-01-15"
+EOF
+    chmod +x test/export_test.sh
+
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Added failing test for team activity export",
+  "files_changed": ["test/export_test.sh"],
+  "artifacts": [],
+  $HYPOTHESIS_JSON
+  $USAGE_JSON,
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+
+  develop)
+    mkdir -p src
+    if [ "$SCENARIO" = "retries-exhausted" ] || { [ "$SCENARIO" = "test-fails-once" ] && [ "$ATTEMPT" -eq 1 ]; }; then
+      cat <<'EOF' > src/export.sh
+#!/bin/sh
+exit 1
+EOF
+    else
+      cat <<'EOF' > src/export.sh
+#!/bin/sh
+set -eu
+cat <<'CSV'
+member,action,date
+alice,commit,2026-01-15
+CSV
+EOF
+      if [ "$ATTEMPT" -gt 1 ]; then
+        printf '# validated --from and --to date filter arguments\n' >> src/export.sh
+      fi
+    fi
+    chmod +x src/export.sh
+
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Implemented team activity CSV export",
+  "files_changed": ["src/export.sh"],
+  "artifacts": [],
+  $HYPOTHESIS_JSON
+  $USAGE_JSON,
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+
+  test)
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Verified tests and checks passed",
+  "files_changed": [],
+  "artifacts": [],
+  $HYPOTHESIS_JSON
+  $USAGE_JSON,
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+
+  review)
+    if [ "$SCENARIO" = "review-changes-once" ] && [ "$ATTEMPT" -eq 1 ]; then
+      cat <<'EOF' > "$ARTIFACT_DIR/findings.json"
+{
+  "verdict": "changes_requested",
+  "findings": [
+    {
+      "id": "F-MAJOR-1",
+      "severity": "major",
+      "file": "src/export.sh",
+      "line": 1,
+      "title": "Validate date filter arguments",
+      "detail": "Ensure --from and --to flags are validated.",
+      "suggestion": "Add argument check in src/export.sh."
+    }
+  ]
+}
+EOF
+    else
+      cat <<'EOF' > "$ARTIFACT_DIR/findings.json"
+{
+  "verdict": "approve",
+  "findings": [
+    {
+      "id": "F-1",
+      "severity": "nit",
+      "file": "src/export.sh",
+      "line": 1,
+      "title": "Export script is concise",
+      "detail": "CSV header and sample row match acceptance criteria.",
+      "suggestion": "No action required."
+    }
+  ]
+}
+EOF
+    fi
+
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Completed code review",
+  "files_changed": [],
+  "artifacts": [],
+  $HYPOTHESIS_JSON
+  $USAGE_JSON,
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+
+  *)
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "failed",
+  "summary": "Unknown stub stage: $STAGE",
+  "files_changed": [],
+  "artifacts": [],
+  "rationale": "unsupported stage $STAGE in stub provider",
+  $HYPOTHESIS_JSON
+  $USAGE_JSON,
+  "no_behaviour_change": false
+}
+EOF
+    exit 1
+    ;;
+esac

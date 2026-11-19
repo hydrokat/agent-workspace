@@ -134,6 +134,7 @@ fn test_all_model_types_round_trip_json() {
         evidence: Vec::new(),
         prs: Vec::new(),
         budget: Some(budget.clone()),
+        cost: None,
         created: 1700000015.0,
         updated: 1700000080.0,
     };

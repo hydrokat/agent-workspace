@@ -9,13 +9,14 @@ use super::broker::context::{
     ContextError, ContextInputs, ReviewContextExtras, assemble_context_with_policy,
     assemble_review_context_with_policy,
 };
-use super::broker::gate::{check, today_iso_date};
+use super::broker::gate::{ProviderTermsRow, check_with_terms, today_iso_date};
 use super::broker::git::{AllowedGitSubcommand, run_git};
 use super::broker::job::{
     JobError, JobInput, JobSpec, JobState, job_dir, run_job_idempotent, set_job_state,
 };
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
 use super::broker::spawn::{DEFAULT_STOP_GRACE, ProviderCommand, WaitOutcome, spawn_provider};
+use super::broker::terms::PROVIDER_TERMS;
 use super::data_policy::{format_readable_scope, load_exclusions};
 use super::model::KNOWN_PROVIDERS;
 use super::routing::{RoutingContext, TemperatureSupport, route};
@@ -186,6 +187,16 @@ impl BrokerExecutor {
         &self,
         job: &StageJob,
         parent_env: BTreeMap<String, String>,
+    ) -> StageOutcome {
+        self.run_with_env_and_gate(job, parent_env, PROVIDER_TERMS, &today_iso_date())
+    }
+
+    pub fn run_with_env_and_gate(
+        &self,
+        job: &StageJob,
+        parent_env: BTreeMap<String, String>,
+        terms: &[ProviderTermsRow],
+        today: &str,
     ) -> StageOutcome {
         let store = FactoryStore::new(&self.workspace);
         let run = match super::run::get_run(&store, &job.run) {
@@ -370,11 +381,10 @@ impl BrokerExecutor {
             };
         }
 
-        let today = today_iso_date();
         let open_providers: Vec<&str> = KNOWN_PROVIDERS
             .iter()
             .copied()
-            .filter(|p| check(p, &settings, &today).is_ok())
+            .filter(|p| check_with_terms(p, &settings, today, terms).is_ok())
             .collect();
         if open_providers.is_empty() {
             return StageOutcome::Blocked {
@@ -436,7 +446,7 @@ impl BrokerExecutor {
             }
         };
 
-        let pass = match check(&routed.provider, &settings, &today) {
+        let pass = match check_with_terms(&routed.provider, &settings, today, terms) {
             Ok(p) => p,
             Err(e) => {
                 return StageOutcome::Blocked {

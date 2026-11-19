@@ -1,6 +1,8 @@
-use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
-use std::path::Path;
+use std::cell::Cell;
+use std::collections::BTreeMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,6 +16,26 @@ use crate::coordination::filelock::exclusive_lock;
 
 pub const EVENT_VERSION: u32 = 1;
 pub const MAX_EVENT_BYTES: usize = 64 * 1024;
+pub const DEFAULT_SEGMENT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+const EVENT_INDEX_VERSION: u32 = 1;
+
+thread_local! {
+    static FULL_LOG_READ_COUNT: Cell<usize> = const { Cell::new(0) };
+    static INDEXED_READ_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+pub fn reset_event_log_read_counters() {
+    FULL_LOG_READ_COUNT.with(|c| c.set(0));
+    INDEXED_READ_COUNT.with(|c| c.set(0));
+}
+
+pub fn full_log_read_count() -> usize {
+    FULL_LOG_READ_COUNT.with(|c| c.get())
+}
+
+pub fn indexed_read_count() -> usize {
+    INDEXED_READ_COUNT.with(|c| c.get())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
@@ -184,31 +206,83 @@ fn parse_complete_lines(bytes: &[u8]) -> (Vec<Event>, usize) {
     (events, skipped)
 }
 
-pub fn read_all(log_path: &Path) -> Result<ReadResult, FactoryError> {
-    reject_if_symlink(log_path)?;
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventIndex {
+    pub version: u32,
+    pub segments: Vec<String>,
+    pub segment_sizes: BTreeMap<String, u64>,
+    pub ideas: BTreeMap<String, Vec<(u16, u64, u32, u64)>>,
+    pub runs: BTreeMap<String, Vec<(u16, u64, u32, u64)>>,
+}
 
-    let bytes = match fs::read(log_path) {
-        Ok(b) => b,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(ReadResult {
-                events: Vec::new(),
-                truncated: false,
-                skipped: 0,
-            });
-        }
-        Err(err) => return Err(FactoryError::Io(err)),
+fn parse_segment_number(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix("events-")?.strip_suffix(".jsonl")?;
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse::<u32>().ok()
+}
+
+pub fn segment_paths(log_path: &Path) -> Result<Vec<PathBuf>, FactoryError> {
+    reject_if_symlink(log_path)?;
+    let Some(dir) = log_path.parent() else {
+        return Ok(if log_path.exists() {
+            vec![log_path.to_path_buf()]
+        } else {
+            Vec::new()
+        });
     };
 
-    if bytes.is_empty() {
-        return Ok(ReadResult {
-            events: Vec::new(),
-            truncated: false,
-            skipped: 0,
-        });
+    let mut numbered: Vec<(u32, PathBuf)> = Vec::new();
+    match fs::read_dir(dir) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|s| s.to_str())
+                    && let Some(num) = parse_segment_number(name)
+                {
+                    reject_if_symlink(&path)?;
+                    if path.is_file() {
+                        numbered.push((num, path));
+                    }
+                }
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(FactoryError::Io(err)),
     }
 
-    let (valid_bytes, truncated) = if bytes.ends_with(b"\n") {
-        (bytes.as_slice(), false)
+    numbered.sort_by_key(|(num, _)| *num);
+    let mut out: Vec<PathBuf> = numbered.into_iter().map(|(_, p)| p).collect();
+    if log_path.exists() {
+        out.push(log_path.to_path_buf());
+    }
+    Ok(out)
+}
+
+fn index_path_for(log_path: &Path) -> PathBuf {
+    log_path.with_file_name("events.index")
+}
+
+fn next_segment_path(log_path: &Path) -> Result<PathBuf, FactoryError> {
+    let dir = log_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut max_num = 0u32;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str()
+                && let Some(num) = parse_segment_number(name)
+            {
+                max_num = max_num.max(num);
+            }
+        }
+    }
+    Ok(dir.join(format!("events-{:04}.jsonl", max_num + 1)))
+}
+
+fn valid_line_slice(bytes: &[u8]) -> (&[u8], bool) {
+    if bytes.is_empty() || bytes.ends_with(b"\n") {
+        (bytes, false)
     } else {
         let cut = bytes
             .iter()
@@ -216,13 +290,46 @@ pub fn read_all(log_path: &Path) -> Result<ReadResult, FactoryError> {
             .map(|idx| idx + 1)
             .unwrap_or(0);
         (&bytes[..cut], true)
-    };
+    }
+}
 
-    let (events, skipped) = parse_complete_lines(valid_bytes);
+pub fn read_all(log_path: &Path) -> Result<ReadResult, FactoryError> {
+    FULL_LOG_READ_COUNT.with(|c| c.set(c.get() + 1));
+    let segments = segment_paths(log_path)?;
+    if segments.is_empty() {
+        return Ok(ReadResult {
+            events: Vec::new(),
+            truncated: false,
+            skipped: 0,
+        });
+    }
+
+    let mut all_events = Vec::new();
+    let mut total_skipped = 0usize;
+    let mut last_truncated = false;
+
+    for (idx, seg_path) in segments.iter().enumerate() {
+        let bytes = match fs::read(seg_path) {
+            Ok(b) => b,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(FactoryError::Io(err)),
+        };
+        if bytes.is_empty() {
+            continue;
+        }
+        let (valid_bytes, truncated) = valid_line_slice(&bytes);
+        let (events, skipped) = parse_complete_lines(valid_bytes);
+        all_events.extend(events);
+        total_skipped += skipped;
+        if idx + 1 == segments.len() {
+            last_truncated = truncated;
+        }
+    }
+
     Ok(ReadResult {
-        events,
-        truncated,
-        skipped,
+        events: all_events,
+        truncated: last_truncated,
+        skipped: total_skipped,
     })
 }
 
@@ -230,6 +337,150 @@ pub fn read_since(log_path: &Path, seq: u64) -> Result<ReadResult, FactoryError>
     let mut res = read_all(log_path)?;
     res.events.retain(|ev| ev.seq > seq);
     Ok(res)
+}
+
+fn write_index_atomic(idx_path: &Path, index: &EventIndex) -> Result<(), FactoryError> {
+    reject_if_symlink(idx_path)?;
+    let tmp = idx_path.with_extension("index.tmp");
+    reject_if_symlink(&tmp)?;
+    let bytes = serde_json::to_vec(index)?;
+    let mut f = File::create(&tmp)?;
+    set_private_file_mode(&tmp)?;
+    f.write_all(&bytes)?;
+    f.flush()?;
+    f.sync_all()?;
+    fs::rename(&tmp, idx_path)?;
+    Ok(())
+}
+
+pub fn rebuild_index(log_path: &Path) -> Result<EventIndex, FactoryError> {
+    let segments = segment_paths(log_path)?;
+    let mut index = EventIndex {
+        version: EVENT_INDEX_VERSION,
+        ..Default::default()
+    };
+
+    for seg_path in segments {
+        let Some(seg_name) = seg_path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let bytes = match fs::read(&seg_path) {
+            Ok(b) => b,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(FactoryError::Io(err)),
+        };
+        let seg_idx = index.segments.len() as u16;
+        index.segments.push(seg_name.to_string());
+        index
+            .segment_sizes
+            .insert(seg_name.to_string(), bytes.len() as u64);
+
+        let (valid_bytes, _) = valid_line_slice(&bytes);
+        let mut pos = 0usize;
+        for raw_line in valid_bytes.split(|&b| b == b'\n') {
+            let line_start = pos;
+            pos += raw_line.len() + 1;
+            let trimmed = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+            if trimmed.iter().all(|b| b.is_ascii_whitespace()) {
+                continue;
+            }
+            if let Ok(ev) = serde_json::from_slice::<Event>(trimmed) {
+                let entry = (seg_idx, line_start as u64, trimmed.len() as u32, ev.seq);
+                index.ideas.entry(ev.idea).or_default().push(entry);
+                if let Some(run_id) = ev.run {
+                    index.runs.entry(run_id).or_default().push(entry);
+                }
+            }
+        }
+    }
+
+    write_index_atomic(&index_path_for(log_path), &index)?;
+    Ok(index)
+}
+
+fn load_or_rebuild_index(log_path: &Path) -> Result<EventIndex, FactoryError> {
+    let idx_path = index_path_for(log_path);
+    reject_if_symlink(&idx_path)?;
+
+    if let Ok(raw) = fs::read(&idx_path)
+        && let Ok(index) = serde_json::from_slice::<EventIndex>(&raw)
+        && index.version == EVENT_INDEX_VERSION
+    {
+        let segments = segment_paths(log_path)?;
+        let mut matches = segments.len() == index.segment_sizes.len();
+        if matches {
+            for seg in &segments {
+                let Some(name) = seg.file_name().and_then(|s| s.to_str()) else {
+                    matches = false;
+                    break;
+                };
+                let disk_len = fs::metadata(seg).map(|m| m.len()).unwrap_or(0);
+                if index.segment_sizes.get(name).copied() != Some(disk_len) {
+                    matches = false;
+                    break;
+                }
+            }
+        }
+        if matches {
+            return Ok(index);
+        }
+    }
+
+    rebuild_index(log_path)
+}
+
+fn read_indexed_entries(
+    log_path: &Path,
+    index: &EventIndex,
+    entries: &[(u16, u64, u32, u64)],
+) -> Result<Vec<Event>, FactoryError> {
+    INDEXED_READ_COUNT.with(|c| c.set(c.get() + 1));
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dir = log_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut open_files: BTreeMap<u16, File> = BTreeMap::new();
+    let mut out = Vec::with_capacity(entries.len());
+
+    for &(seg_idx, offset, len, _) in entries {
+        let Some(seg_name) = index.segments.get(seg_idx as usize) else {
+            continue;
+        };
+        let file = match open_files.entry(seg_idx) {
+            std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::btree_map::Entry::Vacant(e) => {
+                let seg_path = dir.join(seg_name);
+                reject_if_symlink(&seg_path)?;
+                e.insert(File::open(&seg_path)?)
+            }
+        };
+        file.seek(SeekFrom::Start(offset))?;
+        let mut buf = vec![0u8; len as usize];
+        file.read_exact(&mut buf)?;
+        if let Ok(ev) = serde_json::from_slice::<Event>(&buf) {
+            out.push(ev);
+        }
+    }
+
+    Ok(out)
+}
+
+pub fn read_idea_events(log_path: &Path, idea_id: &str) -> Result<Vec<Event>, FactoryError> {
+    let index = load_or_rebuild_index(log_path)?;
+    let Some(entries) = index.ideas.get(idea_id) else {
+        INDEXED_READ_COUNT.with(|c| c.set(c.get() + 1));
+        return Ok(Vec::new());
+    };
+    read_indexed_entries(log_path, &index, entries)
+}
+
+pub fn read_run_events(log_path: &Path, run_id: &str) -> Result<Vec<Event>, FactoryError> {
+    let index = load_or_rebuild_index(log_path)?;
+    let Some(entries) = index.runs.get(run_id) else {
+        INDEXED_READ_COUNT.with(|c| c.set(c.get() + 1));
+        return Ok(Vec::new());
+    };
+    read_indexed_entries(log_path, &index, entries)
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -249,37 +500,92 @@ fn last_non_empty_line_hash(bytes: &[u8]) -> Option<String> {
     last_line.map(sha256_hex)
 }
 
+fn tail_seq_and_hash_from_bytes(bytes: &[u8]) -> (usize, u64, Option<String>) {
+    let (valid_bytes, _) = valid_line_slice(bytes);
+    let (existing_events, _) = parse_complete_lines(valid_bytes);
+    let last_seq = existing_events.iter().map(|ev| ev.seq).max().unwrap_or(0);
+    let prev_hash = last_non_empty_line_hash(valid_bytes);
+    (valid_bytes.len(), last_seq, prev_hash)
+}
+
+fn tail_seq_and_hash_across_segments(
+    log_path: &Path,
+) -> Result<(u64, Option<String>), FactoryError> {
+    let segments = segment_paths(log_path)?;
+    for seg in segments.into_iter().rev() {
+        let bytes = match fs::read(&seg) {
+            Ok(b) => b,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(FactoryError::Io(err)),
+        };
+        let (_, seq, hash) = tail_seq_and_hash_from_bytes(&bytes);
+        if seq > 0 || hash.is_some() {
+            return Ok((seq, hash));
+        }
+    }
+    Ok((0, None))
+}
+
+fn rotate_active_segment(log_path: &Path) -> Result<PathBuf, FactoryError> {
+    let archived = next_segment_path(log_path)?;
+    reject_if_symlink(&archived)?;
+    fs::rename(log_path, &archived)?;
+    let mut fresh = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(log_path)?;
+    set_private_file_mode(log_path)?;
+    fresh.flush()?;
+    fresh.sync_all()?;
+    Ok(archived)
+}
+
 pub(crate) fn append_locked(
     log_path: &Path,
     events: &[RedactedEvent],
+) -> Result<Vec<Event>, FactoryError> {
+    append_locked_with_max_bytes(log_path, events, DEFAULT_SEGMENT_MAX_BYTES)
+}
+
+pub(crate) fn append_locked_with_max_bytes(
+    log_path: &Path,
+    events: &[RedactedEvent],
+    max_bytes: u64,
 ) -> Result<Vec<Event>, FactoryError> {
     reject_if_symlink(log_path)?;
     if events.is_empty() {
         return Ok(Vec::new());
     }
 
+    if let Ok(meta) = fs::metadata(log_path)
+        && meta.len() >= max_bytes
+        && meta.len() > 0
+    {
+        rotate_active_segment(log_path)?;
+    }
+
     let (existing_len, valid_end, last_seq, mut prev_hash) = match fs::read(log_path) {
         Ok(bytes) => {
-            let valid_end = if bytes.is_empty() || bytes.ends_with(b"\n") {
-                bytes.len()
+            let (valid_end, last_seq, prev_hash) = tail_seq_and_hash_from_bytes(&bytes);
+            if last_seq == 0 && prev_hash.is_none() {
+                let (seg_seq, seg_hash) = tail_seq_and_hash_across_segments(log_path)?;
+                (bytes.len(), valid_end, seg_seq, seg_hash)
             } else {
-                bytes
-                    .iter()
-                    .rposition(|&b| b == b'\n')
-                    .map(|idx| idx + 1)
-                    .unwrap_or(0)
-            };
-            let (existing_events, _) = parse_complete_lines(&bytes[..valid_end]);
-            let last_seq = existing_events.iter().map(|ev| ev.seq).max().unwrap_or(0);
-            let prev_hash = last_non_empty_line_hash(&bytes[..valid_end]);
-            (bytes.len(), valid_end, last_seq, prev_hash)
+                (bytes.len(), valid_end, last_seq, prev_hash)
+            }
         }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (0, 0, 0, None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let (seg_seq, seg_hash) = tail_seq_and_hash_across_segments(log_path)?;
+            (0, 0, seg_seq, seg_hash)
+        }
         Err(err) => return Err(FactoryError::Io(err)),
     };
 
     let mut assigned = Vec::with_capacity(events.len());
     let mut buf = String::new();
+    let mut pending_offsets: Vec<(u64, u32, u64, String, Option<String>)> =
+        Vec::with_capacity(events.len());
 
     for (idx, redacted) in events.iter().enumerate() {
         let mut ev = redacted.0.clone();
@@ -295,6 +601,14 @@ pub(crate) fn append_locked(
                 max: MAX_EVENT_BYTES,
             });
         }
+        let offset = (valid_end + buf.len()) as u64;
+        pending_offsets.push((
+            offset,
+            line.len() as u32,
+            ev.seq,
+            ev.idea.clone(),
+            ev.run.clone(),
+        ));
         prev_hash = Some(sha256_hex(line.as_bytes()));
         buf.push_str(&line);
         buf.push('\n');
@@ -315,14 +629,86 @@ pub(crate) fn append_locked(
     file.write_all(buf.as_bytes())?;
     file.flush()?;
     file.sync_all()?;
+    drop(file);
+
+    let new_len = (valid_end + buf.len()) as u64;
+    let rotated_to = if new_len >= max_bytes {
+        Some(rotate_active_segment(log_path)?)
+    } else {
+        None
+    };
+
+    update_index_after_append(log_path, new_len, rotated_to.as_deref(), &pending_offsets)?;
 
     Ok(assigned)
+}
+
+fn update_index_after_append(
+    log_path: &Path,
+    written_seg_len: u64,
+    rotated_to: Option<&Path>,
+    offsets: &[(u64, u32, u64, String, Option<String>)],
+) -> Result<(), FactoryError> {
+    let idx_path = index_path_for(log_path);
+    let active_name = log_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("events.jsonl")
+        .to_string();
+
+    if let Ok(raw) = fs::read(&idx_path)
+        && let Ok(mut index) = serde_json::from_slice::<EventIndex>(&raw)
+        && index.version == EVENT_INDEX_VERSION
+    {
+        let seg_idx = if let Some(pos) = index.segments.iter().position(|s| s == &active_name) {
+            pos as u16
+        } else {
+            let pos = index.segments.len() as u16;
+            index.segments.push(active_name.clone());
+            pos
+        };
+        for &(offset, len, seq, ref idea_id, ref run_id) in offsets {
+            let entry = (seg_idx, offset, len, seq);
+            index.ideas.entry(idea_id.clone()).or_default().push(entry);
+            if let Some(rid) = run_id {
+                index.runs.entry(rid.clone()).or_default().push(entry);
+            }
+        }
+        if let Some(archived_path) = rotated_to
+            && let Some(arch_name) = archived_path.file_name().and_then(|s| s.to_str())
+        {
+            if let Some(slot) = index.segments.get_mut(seg_idx as usize) {
+                *slot = arch_name.to_string();
+            }
+            index.segment_sizes.remove(&active_name);
+            index
+                .segment_sizes
+                .insert(arch_name.to_string(), written_seg_len);
+            index.segment_sizes.insert(active_name, 0);
+        } else {
+            index.segment_sizes.insert(active_name, written_seg_len);
+        }
+        write_index_atomic(&idx_path, &index)?;
+        return Ok(());
+    }
+
+    let _ = rebuild_index(log_path)?;
+    Ok(())
 }
 
 pub fn append(
     log_path: &Path,
     lock_path: &Path,
     events: &[RedactedEvent],
+) -> Result<Vec<Event>, FactoryError> {
+    append_with_max_bytes(log_path, lock_path, events, DEFAULT_SEGMENT_MAX_BYTES)
+}
+
+pub fn append_with_max_bytes(
+    log_path: &Path,
+    lock_path: &Path,
+    events: &[RedactedEvent],
+    max_bytes: u64,
 ) -> Result<Vec<Event>, FactoryError> {
     reject_if_symlink(lock_path)?;
     let lock_file = OpenOptions::new()
@@ -333,5 +719,5 @@ pub fn append(
         .open(lock_path)?;
     set_private_file_mode(lock_path)?;
     let _guard = exclusive_lock(&lock_file)?;
-    append_locked(log_path, events)
+    append_locked_with_max_bytes(log_path, events, max_bytes)
 }

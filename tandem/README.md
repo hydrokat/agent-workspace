@@ -237,6 +237,7 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory redact test <FILE> [--json]` | Scan a file and report what secret redaction would mask |
 | `tandem factory audit [IDEA] [--run RUN] [--kind KIND] [--actor ACTOR] [--json\|--markdown]` | Inspect or export the audit timeline (JSON or redacted Markdown) |
 | `tandem factory audit verify [--json]` | Verify the SHA-256 `prev` hash chain of `events.jsonl` |
+| `tandem factory doctor [--fix] [--json]` | Diagnose and optionally repair interrupted Factory Mode runs, locks, or workspace state |
 
 Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or simulation stopped/blocked, `2` Factory Mode is off, `3` actor not allowed (agent caller/pane or non-terminal on user-only commands such as `ready`, `revoke-ready`, `checks set`, `settings set`, `permissions allow|deny`, `run budget` mutation, `run approve`, `provider consent|revoke`), gate not met, checks not confirmed, or question ceiling reached.
 

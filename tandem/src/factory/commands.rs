@@ -74,6 +74,33 @@ pub enum FactoryCommand {
 
     #[command(about = "inspect the factory audit timeline or verify log integrity")]
     Audit(FactoryAuditArgs),
+
+    #[command(about = "diagnose and safely repair Factory Mode state")]
+    Doctor(FactoryDoctorArgs),
+
+    #[command(about = "summarize Factory Mode pilot metrics, rework, cost, and evidence")]
+    Report(FactoryReportArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryReportArgs {
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+
+    #[arg(long, help = "output Markdown")]
+    pub markdown: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryDoctorArgs {
+    #[arg(
+        long,
+        help = "apply safe repairs and interactively remove clean orphan worktrees"
+    )]
+    pub fix: bool,
+
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -1005,6 +1032,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
             Some(FactoryAuditCommand::Verify(v)) => v.json,
             None => a.json,
         },
+        FactoryCommand::Doctor(a) => a.json,
+        FactoryCommand::Report(a) => a.json,
     }
 }
 
@@ -1208,6 +1237,9 @@ pub fn run_with_caller_io(
     {
         return run_simulate(sim_args, workspace, stdout, stderr);
     }
+    if let FactoryCommand::Doctor(doc_args) = &args.command {
+        return run_doctor_command(doc_args, workspace, caller, stdin, stdout, stderr);
+    }
     match execute(args, workspace, config, caller, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
@@ -1315,14 +1347,12 @@ fn execute(
                     .get_idea(&a.id)
                     .map_err(map_factory_error)?
                     .ok_or_else(|| CmdError::not_found(format!("idea not found: {}", a.id)))?;
-                let mut idea_events = if store.exists() {
-                    events::read_all(&store.root.join("events.jsonl"))
+                let idea_events = if store.exists() {
+                    events::read_idea_events(&store.root.join("events.jsonl"), &a.id)
                         .map_err(map_factory_error)?
-                        .events
                 } else {
                     Vec::new()
                 };
-                idea_events.retain(|ev| ev.idea == a.id);
                 let coord_dir = crate::commands::coord_dir_for(workspace, config);
                 let coord_queries =
                     crate::coordination::store::CoordStore::new(coord_dir).queries();
@@ -2215,6 +2245,82 @@ fn execute(
             FactoryRedactCommand::Test(a) => run_redact_test(a),
         },
         FactoryCommand::Audit(a) => run_audit_command(a, &store, enabled),
+        FactoryCommand::Doctor(_) => unreachable!("handled in run_with_caller_io"),
+        FactoryCommand::Report(a) => {
+            let now = super::store::current_time();
+            let report = super::telemetry::pilot_report(&store, now).map_err(map_factory_error)?;
+            if a.json {
+                serialize_compact(&report)
+            } else if a.markdown {
+                Ok(super::telemetry::format_pilot_report_markdown(&report))
+            } else {
+                Ok(super::telemetry::format_pilot_report_text(&report))
+            }
+        }
+    }
+}
+
+fn run_doctor_command(
+    args: &FactoryDoctorArgs,
+    workspace: &Path,
+    caller: &super::approval::Caller<'_>,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let store = FactoryStore::new(workspace);
+    let result = if args.fix {
+        let mut sink = io::sink();
+        let prompt_out: &mut dyn Write = if args.json { &mut sink } else { stdout };
+        super::recovery::doctor_fix(&store, workspace, caller, stdin, prompt_out)
+    } else {
+        super::recovery::diagnose(&store, workspace)
+    };
+
+    match result {
+        Ok(report) => {
+            let output = if args.json {
+                match serialize_compact(&report) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        let _ = writeln!(stderr, "{}", err.message);
+                        let _ = stderr.flush();
+                        return err.exit_code;
+                    }
+                }
+            } else {
+                super::recovery::format_doctor_report(&report)
+            };
+            if !output.is_empty() {
+                let _ = writeln!(stdout, "{output}");
+            }
+            let _ = stdout.flush();
+            0
+        }
+        Err(err) => {
+            let (exit_code, code, message) = match &err {
+                super::recovery::RecoveryError::Approval(e) => {
+                    (e.exit_code(), e.code(), e.to_string())
+                }
+                _ => (1, "recovery_error", err.to_string()),
+            };
+            let clean_msg = sanitize::clean(&message).replace('\n', " ");
+            let _ = writeln!(stderr, "{clean_msg}");
+            let _ = stderr.flush();
+            if args.json {
+                let envelope = ErrorEnvelope {
+                    error: ErrorBody {
+                        code,
+                        message: &clean_msg,
+                    },
+                };
+                if let Ok(line) = serde_json::to_string(&envelope) {
+                    let _ = writeln!(stdout, "{line}");
+                    let _ = stdout.flush();
+                }
+            }
+            exit_code
+        }
     }
 }
 

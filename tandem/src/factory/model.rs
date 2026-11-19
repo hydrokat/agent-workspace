@@ -213,6 +213,8 @@ pub struct Run {
     pub prs: Vec<PrLink>,
     #[serde(default)]
     pub budget: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<super::telemetry::Cost>,
     pub created: f64,
     pub updated: f64,
 }

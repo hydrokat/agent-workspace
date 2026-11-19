@@ -120,11 +120,6 @@ impl FactoryAudit {
                 self.filtered_entries.clear();
             }
         }
-        if let Ok(rep) =
-            audit::verify(&self.workspace.join(".agent-workspace/factory/events.jsonl"))
-        {
-            self.verify_report = Some(rep);
-        }
     }
 
     fn apply_filters(&mut self) {

@@ -483,3 +483,216 @@ pub fn cleanup_worktree(
     )?;
     Ok(())
 }
+
+fn run_state_label(state: RunState) -> &'static str {
+    match state {
+        RunState::Pending => "pending",
+        RunState::Queued => "queued",
+        RunState::Running => "running",
+        RunState::Paused => "paused",
+        RunState::Review => "review",
+        RunState::Succeeded => "succeeded",
+        RunState::Delivered => "delivered",
+        RunState::Failed => "failed",
+        RunState::Cancelled => "cancelled",
+        RunState::Withdrawn => "withdrawn",
+    }
+}
+
+fn is_finished_run_state(state: RunState) -> bool {
+    matches!(
+        state,
+        RunState::Delivered
+            | RunState::Cancelled
+            | RunState::Withdrawn
+            | RunState::Failed
+            | RunState::Succeeded
+    )
+}
+
+pub fn find_orphan_worktrees(
+    store: &FactoryStore,
+    workspace: &Path,
+) -> Result<Vec<super::recovery::OrphanWorktreeInfo>, WorkspaceError> {
+    let wt_root = workspace.join("worktrees");
+    if !wt_root.is_dir() {
+        return Ok(Vec::new());
+    }
+    reject_if_symlink(&wt_root)?;
+
+    let mut entries: Vec<PathBuf> = fs::read_dir(&wt_root)?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .collect();
+    entries.sort();
+
+    let mut out = Vec::new();
+    for path in entries {
+        if path.is_symlink() || !path.is_dir() {
+            continue;
+        }
+        let Some(dir_name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(run_id) = dir_name.strip_prefix("factory-") else {
+            continue;
+        };
+        let run = if is_valid_run_id(run_id) {
+            get_run(store, run_id)?
+        } else {
+            None
+        };
+        let is_orphan = match &run {
+            None => true,
+            Some(r) => is_finished_run_state(r.state),
+        };
+        if !is_orphan {
+            continue;
+        }
+
+        let uncommitted_files = match run_git(
+            AllowedGitSubcommand::Status,
+            &["--porcelain"],
+            &path,
+            GIT_TIMEOUT,
+        ) {
+            Ok(status) => status.lines().filter(|l| !l.trim().is_empty()).count(),
+            Err(_) => 1,
+        };
+        let branch = run.as_ref().and_then(|r| r.branch.clone()).or_else(|| {
+            run_git(
+                AllowedGitSubcommand::SymbolicRef,
+                &["--short", "HEAD"],
+                &path,
+                GIT_TIMEOUT,
+            )
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        });
+        let target_repo = run
+            .as_ref()
+            .and_then(|r| r.target.clone())
+            .unwrap_or_else(|| "workspace".to_string());
+        let rel_path = format!("worktrees/{dir_name}");
+        out.push(super::recovery::OrphanWorktreeInfo {
+            run_id: run_id.to_string(),
+            path: rel_path,
+            run_state: run.map(|r| run_state_label(r.state).to_string()),
+            uncommitted_files,
+            clean: uncommitted_files == 0,
+            branch,
+            target_repo,
+            removed: false,
+        });
+    }
+    Ok(out)
+}
+
+pub fn remove_orphan_worktree(
+    workspace: &Path,
+    info: &super::recovery::OrphanWorktreeInfo,
+) -> Result<(), WorkspaceError> {
+    let wt_root = workspace.join("worktrees");
+    reject_if_symlink(&wt_root)?;
+    let wt_path = workspace.join(&info.path);
+    reject_if_symlink(&wt_path)?;
+    if !wt_path.exists() {
+        return Ok(());
+    }
+    let canon_root = wt_root.canonicalize()?;
+    let canon_wt = wt_path.canonicalize()?;
+    if !canon_wt.starts_with(&canon_root) || canon_wt == canon_root {
+        return Err(FactoryError::InvalidInput(format!(
+            "worktree path {} escapes {}",
+            wt_path.display(),
+            wt_root.display()
+        ))
+        .into());
+    }
+
+    let status = run_git(
+        AllowedGitSubcommand::Status,
+        &["--porcelain"],
+        &wt_path,
+        GIT_TIMEOUT,
+    )?;
+    if !status.trim().is_empty() {
+        return Err(WorkspaceError::DirtyWorktree(wt_path.display().to_string()));
+    }
+
+    let target_path = target_path_for_name(workspace, &info.target_repo)?;
+    let wt_str = wt_path.to_string_lossy().to_string();
+    if run_git(
+        AllowedGitSubcommand::Worktree,
+        &["remove", &wt_str],
+        &target_path,
+        GIT_TIMEOUT,
+    )
+    .is_err()
+        && wt_path.exists()
+    {
+        fs::remove_dir_all(&wt_path)?;
+    }
+    Ok(())
+}
+
+pub fn find_orphan_branches(
+    store: &FactoryStore,
+    workspace: &Path,
+) -> Result<Vec<super::recovery::OrphanBranchInfo>, WorkspaceError> {
+    let runs = super::run::list_runs(store, None)?;
+    let mut by_branch: std::collections::BTreeMap<String, (String, RunState)> =
+        std::collections::BTreeMap::new();
+    for r in runs {
+        if let Some(branch) = r.branch {
+            by_branch.insert(branch, (r.id, r.state));
+        }
+    }
+
+    let mut repos: Vec<(String, PathBuf)> = Vec::new();
+    if workspace.join(".git").exists() {
+        repos.push(("workspace".to_string(), workspace.to_path_buf()));
+    }
+    for cb in list_codebases(workspace) {
+        if cb.exists && cb.is_git {
+            repos.push((cb.name, cb.path));
+        }
+    }
+
+    let mut out = Vec::new();
+    for (repo_name, repo_path) in repos {
+        let Ok(raw) = run_git(
+            AllowedGitSubcommand::Branch,
+            &["--format=%(refname:short)"],
+            &repo_path,
+            GIT_TIMEOUT,
+        ) else {
+            continue;
+        };
+        for line in raw.lines() {
+            let branch = line.trim();
+            if branch.is_empty() || is_protected_branch(branch) {
+                continue;
+            }
+            if let Some((run_id, state)) = by_branch.get(branch) {
+                if is_finished_run_state(*state) {
+                    out.push(super::recovery::OrphanBranchInfo {
+                        branch: branch.to_string(),
+                        run_id: Some(run_id.clone()),
+                        run_state: Some(run_state_label(*state).to_string()),
+                        target_repo: repo_name.clone(),
+                    });
+                }
+            } else if branch.starts_with("feat/i-") {
+                out.push(super::recovery::OrphanBranchInfo {
+                    branch: branch.to_string(),
+                    run_id: None,
+                    run_state: None,
+                    target_repo: repo_name.clone(),
+                });
+            }
+        }
+    }
+    Ok(out)
+}

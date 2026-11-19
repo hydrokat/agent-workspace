@@ -1,3 +1,4 @@
+pub mod factory_fixture;
 pub mod golden;
 pub mod parity;
 pub mod ready_deps;

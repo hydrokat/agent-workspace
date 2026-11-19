@@ -625,6 +625,7 @@ fn stage_reopened_for_develop_resets_test_review_and_demo() {
         evidence: vec![],
         prs: vec![],
         budget: None,
+        cost: None,
     };
 
     let updated = apply_run(
