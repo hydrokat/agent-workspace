@@ -244,7 +244,6 @@ fn summarize_run(
     r: crate::factory::model::Run,
     workspace_running_jobs: usize,
     job_limit: usize,
-    events: &[crate::factory::events::Event],
     now: f64,
 ) -> RunSummary {
     use crate::factory::broker::job::{JobInput, job_dir, jobs_dir};
@@ -282,15 +281,8 @@ fn summarize_run(
         });
     }
 
-    let has_usage_events = events.iter().any(|ev| {
-        ev.run.as_deref() == Some(r.id.as_str())
-            && matches!(
-                ev.r#type.as_str(),
-                "job.usage" | "telemetry.usage" | "stage.usage"
-            )
-    });
-    let cost = if has_usage_events {
-        crate::factory::telemetry::total_cost_from_events(&r.id, events)
+    let cost = if let Some(ref c) = r.cost {
+        c.clone()
     } else {
         let jdir = jobs_dir(fstore, &r.id);
         let mut total_cost: Option<f64> = None;
@@ -427,9 +419,6 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> Fac
             let mut needs_you = 0usize;
             let mut job_limit_cache: Option<usize> = None;
             let mut workspace_running_cache: Option<usize> = None;
-            let events_cache = crate::factory::events::read_all(&fstore.root.join("events.jsonl"))
-                .map(|r| r.events)
-                .unwrap_or_default();
             for idea in ideas {
                 *by_state
                     .entry(state_key(idea.state).to_string())
@@ -448,9 +437,7 @@ fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) -> Fac
                     crate::factory::run::get_run(&fstore, run_id)
                         .ok()
                         .flatten()
-                        .map(|r| {
-                            summarize_run(&fstore, r, workspace_running, limit, &events_cache, now)
-                        })
+                        .map(|r| summarize_run(&fstore, r, workspace_running, limit, now))
                 });
                 let run_paused = run
                     .as_ref()

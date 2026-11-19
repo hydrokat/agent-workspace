@@ -387,6 +387,8 @@ impl FactoryStore {
             write_atomic(&self.run_json_path(&run_id), &serialized)?;
         }
 
+        let _ = events::rebuild_index(&self.events_path());
+
         Ok(RebuildReport {
             ideas: rebuilt,
             truncated: log.truncated,

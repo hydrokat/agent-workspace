@@ -258,12 +258,9 @@ impl FactoryRun {
             Err(err) => self.error = Some(clean(&err.to_string())),
         }
 
-        if let Ok(res) = events::read_all(&store.root.join("events.jsonl")) {
-            let mut filtered: Vec<Event> = res
-                .events
-                .into_iter()
-                .filter(|ev| ev.run.as_deref() == Some(self.run_id.as_str()))
-                .collect();
+        if let Ok(mut filtered) =
+            events::read_run_events(&store.root.join("events.jsonl"), &self.run_id)
+        {
             let has_usage_events = filtered.iter().any(|ev| {
                 matches!(
                     ev.r#type.as_str(),

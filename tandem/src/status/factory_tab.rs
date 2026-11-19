@@ -29,6 +29,14 @@ use crate::wizard::app::ModelLoader;
 use crate::wizard::runner::{installed_clis, load_models};
 
 const ORCHESTRATOR_CLIS: [&str; 2] = ["claude", "agy"];
+pub const BOARD_PAGE_SIZE: usize = 200;
+pub const ARCHIVE_AFTER_SECS: f64 = 30.0 * 86_400.0;
+
+pub fn is_archived(idea: &IdeaCard, now: f64) -> bool {
+    now > 0.0
+        && matches!(idea.state, IdeaState::Delivered | IdeaState::Cancelled)
+        && (now - idea.updated) > ARCHIVE_AFTER_SECS
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FactoryView {
@@ -46,6 +54,7 @@ pub enum IdeaFilter {
     All,
     NeedsYou,
     State(IdeaState),
+    Archived,
 }
 
 impl IdeaFilter {
@@ -61,7 +70,8 @@ impl IdeaFilter {
             Self::State(IdeaState::InDevelopment) => Self::State(IdeaState::Review),
             Self::State(IdeaState::Review) => Self::State(IdeaState::Delivered),
             Self::State(IdeaState::Delivered) => Self::State(IdeaState::Cancelled),
-            Self::State(IdeaState::Cancelled) => Self::All,
+            Self::State(IdeaState::Cancelled) => Self::Archived,
+            Self::Archived => Self::All,
         };
     }
 
@@ -70,21 +80,28 @@ impl IdeaFilter {
             Self::All => "All",
             Self::NeedsYou => "Needs you",
             Self::State(s) => s.label(),
+            Self::Archived => "Archived",
         }
     }
 
     pub fn matches(&self, idea: &IdeaCard, queries: &[Query]) -> bool {
+        self.matches_at(idea, queries, 0.0)
+    }
+
+    pub fn matches_at(&self, idea: &IdeaCard, queries: &[Query], now: f64) -> bool {
         match self {
-            Self::All => true,
+            Self::All => !is_archived(idea, now),
             Self::NeedsYou => {
-                idea.blockers > 0
-                    || questions::for_idea(queries, &idea.id).open > 0
-                    || idea
-                        .run
-                        .as_ref()
-                        .is_some_and(|r| r.state == crate::factory::model::RunState::Paused)
+                !is_archived(idea, now)
+                    && (idea.blockers > 0
+                        || questions::for_idea(queries, &idea.id).open > 0
+                        || idea
+                            .run
+                            .as_ref()
+                            .is_some_and(|r| r.state == crate::factory::model::RunState::Paused))
             }
             Self::State(s) => idea.state == *s,
+            Self::Archived => is_archived(idea, now),
         }
     }
 }
@@ -407,6 +424,7 @@ pub struct FactoryTab {
     pub selected: Option<usize>,
     pub selected_id: Option<String>,
     pub scroll_offset: usize,
+    pub page: usize,
     pub view: FactoryView,
     pub filter: IdeaFilter,
     pub detail: Option<FactoryDetail>,
@@ -447,6 +465,7 @@ impl FactoryTab {
             selected: None,
             selected_id: None,
             scroll_offset: 0,
+            page: 0,
             view: FactoryView::Board,
             filter: IdeaFilter::All,
             detail: None,
@@ -500,16 +519,39 @@ impl FactoryTab {
         summary
             .ideas
             .iter()
-            .filter(|idea| self.filter.matches(idea, &snapshot.queries))
+            .filter(|idea| {
+                self.filter
+                    .matches_at(idea, &snapshot.queries, snapshot.now)
+            })
             .collect()
     }
 
+    pub fn current_page(&self) -> usize {
+        self.page
+    }
+
+    pub fn page_count(&self, snapshot: &StatusSnapshot) -> usize {
+        self.filtered_ideas(snapshot)
+            .len()
+            .div_ceil(BOARD_PAGE_SIZE)
+            .max(1)
+    }
+
+    pub fn paged_ideas<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
+        let filtered = self.filtered_ideas(snapshot);
+        let total_pages = filtered.len().div_ceil(BOARD_PAGE_SIZE).max(1);
+        let page = self.page.min(total_pages - 1);
+        let start = page * BOARD_PAGE_SIZE;
+        let end = (start + BOARD_PAGE_SIZE).min(filtered.len());
+        filtered[start..end].to_vec()
+    }
+
     pub fn sync(&mut self, summary: Option<&FactorySummary>) {
-        self.sync_list(summary, &[]);
+        self.sync_list_at(summary, &[], 0.0);
     }
 
     pub fn sync_snapshot(&mut self, snapshot: &StatusSnapshot, pane_open: bool) {
-        self.sync_list(snapshot.factory.as_ref(), &snapshot.queries);
+        self.sync_list_at(snapshot.factory.as_ref(), &snapshot.queries, snapshot.now);
         if self.view == FactoryView::Detail
             && let Some(ref mut detail) = self.detail
         {
@@ -531,38 +573,43 @@ impl FactoryTab {
         }
     }
 
-    fn sync_list(&mut self, summary: Option<&FactorySummary>, queries: &[Query]) {
+    fn sync_list_at(&mut self, summary: Option<&FactorySummary>, queries: &[Query], now: f64) {
         let Some(summary) = summary else {
             self.selected = None;
             self.selected_id = None;
             self.scroll_offset = 0;
+            self.page = 0;
             return;
         };
         if summary.error.is_some() {
             self.selected = None;
             self.selected_id = None;
             self.scroll_offset = 0;
+            self.page = 0;
             return;
         }
         let filtered: Vec<&IdeaCard> = summary
             .ideas
             .iter()
-            .filter(|idea| self.filter.matches(idea, queries))
+            .filter(|idea| self.filter.matches_at(idea, queries, now))
             .collect();
         if filtered.is_empty() {
             self.selected = None;
             self.selected_id = None;
             self.scroll_offset = 0;
+            self.page = 0;
             return;
         }
         if let Some(ref target_id) = self.selected_id
             && let Some(pos) = filtered.iter().position(|idea| &idea.id == target_id)
         {
             self.selected = Some(pos);
+            self.page = pos / BOARD_PAGE_SIZE;
             return;
         }
         self.selected = Some(0);
         self.selected_id = Some(filtered[0].id.clone());
+        self.page = 0;
     }
 
     pub fn select_next(&mut self, ideas: &[IdeaCard]) {
@@ -599,6 +646,7 @@ impl FactoryTab {
         };
         self.selected = Some(next);
         self.selected_id = Some(ideas[next].id.clone());
+        self.page = next / BOARD_PAGE_SIZE;
     }
 
     fn select_prev_refs(&mut self, ideas: &[&IdeaCard]) {
@@ -611,6 +659,7 @@ impl FactoryTab {
         };
         self.selected = Some(prev);
         self.selected_id = Some(ideas[prev].id.clone());
+        self.page = prev / BOARD_PAGE_SIZE;
     }
 
     pub fn handle_key(
@@ -739,9 +788,38 @@ impl FactoryTab {
                         self.select_next_refs(&filtered);
                         None
                     }
+                    KeyCode::PageDown => {
+                        let total_pages = filtered.len().div_ceil(BOARD_PAGE_SIZE).max(1);
+                        if self.page + 1 < total_pages {
+                            self.page += 1;
+                            let start = self.page * BOARD_PAGE_SIZE;
+                            if start < filtered.len() {
+                                self.selected = Some(start);
+                                self.selected_id = Some(filtered[start].id.clone());
+                                self.scroll_offset = 0;
+                            }
+                        }
+                        None
+                    }
+                    KeyCode::PageUp => {
+                        if self.page > 0 {
+                            self.page -= 1;
+                            let start = self.page * BOARD_PAGE_SIZE;
+                            if start < filtered.len() {
+                                self.selected = Some(start);
+                                self.selected_id = Some(filtered[start].id.clone());
+                                self.scroll_offset = 0;
+                            }
+                        }
+                        None
+                    }
                     KeyCode::Char('f') => {
                         self.filter.cycle_next();
-                        self.sync_list(snapshot.factory.as_ref(), &snapshot.queries);
+                        self.sync_list_at(
+                            snapshot.factory.as_ref(),
+                            &snapshot.queries,
+                            snapshot.now,
+                        );
                         None
                     }
                     KeyCode::Char('n') => {
@@ -861,18 +939,39 @@ impl FactoryTab {
         }
 
         let filtered = self.filtered_ideas(snapshot);
+        let archived_count = summary
+            .ideas
+            .iter()
+            .filter(|i| is_archived(i, snapshot.now))
+            .count();
+        let active_count = summary.ideas.len().saturating_sub(archived_count);
+        let total_pages = filtered.len().div_ceil(BOARD_PAGE_SIZE).max(1);
+        if self.page >= total_pages {
+            self.page = total_pages - 1;
+        }
+        let page_start = self.page * BOARD_PAGE_SIZE;
+        let page_end = (page_start + BOARD_PAGE_SIZE).min(filtered.len());
+        let page_slice = &filtered[page_start..page_end];
+
+        let ideas_label = if archived_count > 0 {
+            format!("ideas {active_count} ({archived_count} archived)")
+        } else {
+            format!("ideas {}", summary.ideas.len())
+        };
+        let page_label = if total_pages > 1 {
+            format!("   page {}/{}", self.page + 1, total_pages)
+        } else {
+            String::new()
+        };
         let header = if area.width >= 100 {
             format!(
-                "FACTORY   ideas {}   needs you {}   filter: {} ▾   {} new idea   Enter open",
-                summary.ideas.len(),
+                "FACTORY   {ideas_label}   needs you {}   filter: {} ▾{page_label}   {new_key} new idea   Enter open",
                 summary.needs_you,
                 self.filter.label(),
-                new_key,
             )
         } else {
             format!(
-                "FACTORY   ideas {}   needs you {}   filter: {} ▾",
-                summary.ideas.len(),
+                "FACTORY   {ideas_label}   needs you {}   filter: {} ▾{page_label}",
                 summary.needs_you,
                 self.filter.label(),
             )
@@ -930,22 +1029,26 @@ impl FactoryTab {
         let lines_per_idea = if narrow { 2 } else { 1 };
         let visible_ideas = (rows_avail / lines_per_idea).max(usize::from(rows_avail > 0));
 
-        if let Some(sel) = self.selected {
+        let page_selected = self
+            .selected
+            .and_then(|sel| sel.checked_sub(page_start))
+            .filter(|&rel| rel < page_slice.len());
+        if let Some(sel) = page_selected {
             if sel < self.scroll_offset {
                 self.scroll_offset = sel;
             } else if visible_ideas > 0 && sel >= self.scroll_offset + visible_ideas {
                 self.scroll_offset = sel + 1 - visible_ideas;
             }
         }
-        if self.scroll_offset >= filtered.len() {
-            self.scroll_offset = filtered.len().saturating_sub(1);
+        if self.scroll_offset >= page_slice.len() {
+            self.scroll_offset = page_slice.len().saturating_sub(1);
         }
 
-        for (idx, idea) in filtered.iter().enumerate().skip(self.scroll_offset) {
+        for (idx, idea) in page_slice.iter().enumerate().skip(self.scroll_offset) {
             if y >= bottom {
                 break;
             }
-            let is_sel = self.selected == Some(idx);
+            let is_sel = page_selected == Some(idx);
             let marker = if is_sel { "▶" } else { " " };
             let style = if is_sel {
                 Style::default()

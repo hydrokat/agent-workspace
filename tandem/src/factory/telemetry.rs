@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
 use super::broker::result::JobUsage;
-use super::events::{Event, append, read_all, redact_event};
-use super::machine::EventData;
-use super::model::{Actor, ModelPrice, Run};
+use super::events::{Event, append, read_all, read_run_events, redact_event};
+use super::machine::{self, EventData};
+use super::model::{Actor, IdeaState, ModelPrice, PrLink, Run};
 use super::redact::RedactContext;
 use super::routing::ModelTier;
 use super::run::get_run;
-use super::store::{FactoryStore, current_time};
+use super::store::{FactoryStore, current_time, write_atomic};
 
 pub const TYPICAL_INPUT_TOKENS: u64 = 25_000;
 pub const TYPICAL_OUTPUT_TOKENS: u64 = 5_000;
@@ -179,7 +179,15 @@ pub fn record_job_usage(input: RecordJobUsageInput<'_>) -> Result<Event, Factory
         &input.store.lock_path(),
         &[redacted],
     )?;
-    Ok(appended.into_iter().next().unwrap())
+    let recorded = appended.into_iter().next().unwrap();
+    if let Ok(Some(run)) = get_run(input.store, input.run_id)
+        && let Some(updated_run) =
+            machine::apply_run(Some(run), &ev_data, input.idea_id, recorded.ts)
+        && let Ok(bytes) = serde_json::to_vec_pretty(&updated_run)
+    {
+        let _ = write_atomic(&input.store.run_json_path(input.run_id), &bytes);
+    }
+    Ok(recorded)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -520,6 +528,444 @@ pub fn run_usage(store: &FactoryStore, run_id: &str) -> Result<RunUsageReport, F
     let run = get_run(store, run_id)
         .map_err(|e| FactoryError::InvalidInput(e.to_string()))?
         .ok_or_else(|| FactoryError::InvalidInput(format!("run {run_id} not found")))?;
-    let log = read_all(&store.events_path())?;
-    Ok(run_usage_from_events(&run, &log.events))
+    let events = read_run_events(&store.events_path(), run_id)?;
+    Ok(run_usage_from_events(&run, &events))
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdeaReport {
+    pub id: String,
+    pub title: String,
+    pub state: IdeaState,
+    pub state_times_secs: BTreeMap<String, f64>,
+    pub stage_durations_secs: BTreeMap<String, f64>,
+    pub rework: ReworkSignals,
+    pub cost: Cost,
+    pub cost_display: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_complete: Option<bool>,
+    #[serde(default)]
+    pub evidence_missing: Vec<String>,
+    #[serde(default)]
+    pub prs: Vec<PrLink>,
+    pub recoveries: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PilotReportTotals {
+    pub total_ideas: usize,
+    pub delivered_ideas: usize,
+    pub cancelled_ideas: usize,
+    pub by_state: BTreeMap<String, usize>,
+    pub median_state_times_secs: BTreeMap<String, f64>,
+    pub stage_durations_secs: BTreeMap<String, f64>,
+    pub rework: ReworkSignals,
+    pub cost: Cost,
+    pub cost_display: String,
+    pub unknown_cost_runs: usize,
+    pub evidence_complete_count: usize,
+    pub evidence_checked_count: usize,
+    pub pr_counts: BTreeMap<String, usize>,
+    pub recoveries_performed: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PilotReport {
+    pub ideas: Vec<IdeaReport>,
+    pub totals: PilotReportTotals,
+}
+
+fn state_key(state: IdeaState) -> &'static str {
+    match state {
+        IdeaState::Inbox => "inbox",
+        IdeaState::Ideation => "ideation",
+        IdeaState::Planning => "planning",
+        IdeaState::ReadyForDevelopment => "ready_for_development",
+        IdeaState::Queued => "queued",
+        IdeaState::InDevelopment => "in_development",
+        IdeaState::Review => "review",
+        IdeaState::Delivered => "delivered",
+        IdeaState::Cancelled => "cancelled",
+    }
+}
+
+fn state_label(key: &str) -> &str {
+    match key {
+        "inbox" => "inbox",
+        "ideation" => "ideation",
+        "planning" => "planning",
+        "ready_for_development" => "ready",
+        "queued" => "queued",
+        "in_development" => "in development",
+        "review" => "review",
+        "delivered" => "delivered",
+        "cancelled" => "cancelled",
+        other => other,
+    }
+}
+
+fn median(values: &mut [f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mid = values.len() / 2;
+    if values.len() % 2 == 1 {
+        values[mid]
+    } else {
+        (values[mid - 1] + values[mid]) / 2.0
+    }
+}
+
+fn merge_rework(dst: &mut ReworkSignals, src: &ReworkSignals) {
+    for (stage, sr) in &src.retries_by_stage {
+        let entry = dst.retries_by_stage.entry(stage.clone()).or_default();
+        entry.retries += sr.retries;
+        entry.repeated_rationales += sr.repeated_rationales;
+    }
+    dst.total_retries += src.total_retries;
+    dst.repeated_rationales += src.repeated_rationales;
+    dst.develop_reopened_by_test += src.develop_reopened_by_test;
+    dst.develop_reopened_by_review += src.develop_reopened_by_review;
+    dst.review_rounds += src.review_rounds;
+    dst.model_upgrades += src.model_upgrades;
+    dst.interrupted_jobs += src.interrupted_jobs;
+}
+
+pub fn pilot_report(store: &FactoryStore, now: f64) -> Result<PilotReport, FactoryError> {
+    let ideas = store.list_ideas()?;
+    let log = if store.exists() {
+        read_all(&store.events_path())?.events
+    } else {
+        Vec::new()
+    };
+
+    let mut events_by_idea: BTreeMap<String, Vec<&Event>> = BTreeMap::new();
+    for ev in &log {
+        events_by_idea.entry(ev.idea.clone()).or_default().push(ev);
+    }
+
+    let settings = store.settings().unwrap_or_default();
+    let default_wf = store
+        .root
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|ws| super::workflow::load_default_workflow(ws).ok())
+        .map(|(wf, _)| wf);
+
+    let mut by_state: BTreeMap<String, usize> = BTreeMap::new();
+    let mut state_samples: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut total_stage_durations: BTreeMap<String, f64> = BTreeMap::new();
+    let mut total_rework = ReworkSignals::default();
+    let mut total_cost: Option<Cost> = None;
+    let mut unknown_cost_runs = 0usize;
+    let mut evidence_complete_count = 0usize;
+    let mut evidence_checked_count = 0usize;
+    let mut pr_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut total_recoveries = 0u32;
+    let mut delivered_ideas = 0usize;
+    let mut cancelled_ideas = 0usize;
+
+    let mut idea_reports = Vec::with_capacity(ideas.len());
+
+    for idea in ideas {
+        *by_state
+            .entry(state_key(idea.state).to_string())
+            .or_insert(0) += 1;
+        if idea.state == IdeaState::Delivered {
+            delivered_ideas += 1;
+        } else if idea.state == IdeaState::Cancelled {
+            cancelled_ideas += 1;
+        }
+
+        let idea_events: Vec<Event> = events_by_idea
+            .get(&idea.id)
+            .map(|list| list.iter().map(|e| (*e).clone()).collect())
+            .unwrap_or_default();
+
+        let mut state_times_secs: BTreeMap<String, f64> = BTreeMap::new();
+        let mut acc_idea = None;
+        let mut cur_state: Option<IdeaState> = None;
+        let mut entered_ts: Option<f64> = None;
+        for ev in &idea_events {
+            if let Ok(ev_data) = ev.to_event_data() {
+                acc_idea = machine::apply(acc_idea, &ev_data, ev.ts);
+                if let Some(ref next_idea) = acc_idea {
+                    match cur_state {
+                        None => {
+                            cur_state = Some(next_idea.state);
+                            entered_ts = Some(ev.ts);
+                        }
+                        Some(prev) if prev != next_idea.state => {
+                            if let Some(start) = entered_ts {
+                                let dt = (ev.ts - start).max(0.0);
+                                *state_times_secs
+                                    .entry(state_key(prev).to_string())
+                                    .or_insert(0.0) += dt;
+                            }
+                            cur_state = Some(next_idea.state);
+                            entered_ts = Some(ev.ts);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if let (Some(st), Some(start)) = (cur_state, entered_ts)
+            && !st.is_terminal()
+            && now > start
+        {
+            *state_times_secs
+                .entry(state_key(st).to_string())
+                .or_insert(0.0) += now - start;
+        }
+        for (k, &v) in &state_times_secs {
+            state_samples.entry(k.clone()).or_default().push(v);
+        }
+
+        let mut stage_durations_secs: BTreeMap<String, f64> = BTreeMap::new();
+        let mut idea_rework = ReworkSignals::default();
+        let mut idea_cost: Option<Cost> = None;
+        let mut evidence_complete: Option<bool> = None;
+        let mut evidence_missing = Vec::new();
+        let mut prs = idea.prs.clone();
+
+        for run_id in &idea.runs {
+            let rw = compute_rework_signals(run_id, &idea_events);
+            merge_rework(&mut idea_rework, &rw);
+
+            let run_cost = total_cost_from_events(run_id, &idea_events);
+            if run_cost.basis == CostBasis::Unknown {
+                unknown_cost_runs += 1;
+            } else {
+                total_cost = Some(match total_cost {
+                    Some(prev) => prev.combine(&run_cost),
+                    None => run_cost.clone(),
+                });
+            }
+            idea_cost = Some(match idea_cost {
+                Some(prev) => prev.combine(&run_cost),
+                None => run_cost,
+            });
+
+            if let Ok(Some(run)) = get_run(store, run_id) {
+                let usage = run_usage_from_events(&run, &idea_events);
+                for st in usage.stages {
+                    *stage_durations_secs.entry(st.stage.clone()).or_insert(0.0) +=
+                        st.duration_secs;
+                    *total_stage_durations.entry(st.stage).or_insert(0.0) += st.duration_secs;
+                }
+                for pr in &run.prs {
+                    if !prs
+                        .iter()
+                        .any(|p| p.url == pr.url || (p.repo == pr.repo && p.number == pr.number))
+                    {
+                        prs.push(pr.clone());
+                    }
+                }
+                let run_wf_path = store.run_dir(run_id).join("workflow.yaml");
+                let raw_wf = if run_wf_path.exists() {
+                    super::workflow::parse::load_workflow_file(&run_wf_path)
+                        .ok()
+                        .or_else(|| default_wf.clone())
+                } else {
+                    default_wf.clone()
+                };
+                if let Some(raw) = raw_wf
+                    && let Ok(wf) = super::workflow::validate::validate(&raw, &settings)
+                {
+                    let missing = super::evidence::missing(&run, &wf);
+                    let complete = missing.is_empty();
+                    evidence_complete = Some(match evidence_complete {
+                        Some(prev) => prev && complete,
+                        None => complete,
+                    });
+                    for m in missing {
+                        let s = m.as_str().to_string();
+                        if !evidence_missing.contains(&s) {
+                            evidence_missing.push(s);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(complete) = evidence_complete {
+            evidence_checked_count += 1;
+            if complete {
+                evidence_complete_count += 1;
+            }
+        }
+
+        for pr in &prs {
+            let key = pr
+                .state
+                .as_deref()
+                .map(|s| s.trim().to_ascii_lowercase())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "unknown".to_string());
+            *pr_counts.entry(key).or_insert(0) += 1;
+        }
+
+        let recoveries = idea_rework.interrupted_jobs;
+        total_recoveries += recoveries;
+        merge_rework(&mut total_rework, &idea_rework);
+
+        let cost = idea_cost.unwrap_or_else(Cost::unknown);
+        let cost_display = cost.format();
+
+        idea_reports.push(IdeaReport {
+            id: idea.id,
+            title: idea.title,
+            state: idea.state,
+            state_times_secs,
+            stage_durations_secs,
+            rework: idea_rework,
+            cost,
+            cost_display,
+            evidence_complete,
+            evidence_missing,
+            prs,
+            recoveries,
+        });
+    }
+
+    let mut median_state_times_secs = BTreeMap::new();
+    for (k, mut samples) in state_samples {
+        median_state_times_secs.insert(k, median(&mut samples));
+    }
+
+    let totals_cost = total_cost.unwrap_or_else(Cost::unknown);
+    let cost_display = if unknown_cost_runs > 0 && totals_cost.value.is_some() {
+        format!(
+            "{} ({unknown_cost_runs} run{} unknown)",
+            totals_cost.format(),
+            if unknown_cost_runs == 1 { "" } else { "s" }
+        )
+    } else {
+        totals_cost.format()
+    };
+
+    Ok(PilotReport {
+        ideas: idea_reports,
+        totals: PilotReportTotals {
+            total_ideas: ideas_count(&by_state),
+            delivered_ideas,
+            cancelled_ideas,
+            by_state,
+            median_state_times_secs,
+            stage_durations_secs: total_stage_durations,
+            rework: total_rework,
+            cost: totals_cost,
+            cost_display,
+            unknown_cost_runs,
+            evidence_complete_count,
+            evidence_checked_count,
+            pr_counts,
+            recoveries_performed: total_recoveries,
+        },
+    })
+}
+
+fn ideas_count(by_state: &BTreeMap<String, usize>) -> usize {
+    by_state.values().sum()
+}
+
+fn format_mins_secs(secs: f64) -> String {
+    let total = secs.max(0.0).round() as u64;
+    if total >= 60 {
+        format!("{}m", total / 60)
+    } else {
+        format!("{total}s")
+    }
+}
+
+pub fn format_pilot_report_text(report: &PilotReport) -> String {
+    let t = &report.totals;
+    let pr_summary = if t.pr_counts.is_empty() {
+        "none".to_string()
+    } else {
+        t.pr_counts
+            .iter()
+            .map(|(k, v)| format!("{v} {k}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let mut out = format!(
+        "ideas delivered {} of {}      evidence complete {} of {}      PRs: {}\n",
+        t.delivered_ideas,
+        t.total_ideas,
+        t.evidence_complete_count,
+        t.evidence_checked_count,
+        pr_summary,
+    );
+
+    if !t.median_state_times_secs.is_empty() {
+        let states = ["ideation", "planning", "queued", "in_development", "review"];
+        let parts: Vec<String> = states
+            .iter()
+            .filter_map(|k| {
+                t.median_state_times_secs
+                    .get(*k)
+                    .map(|v| format!("{} {}", state_label(k), format_mins_secs(*v)))
+            })
+            .collect();
+        if !parts.is_empty() {
+            out.push_str(&format!("median time  {}\n", parts.join(" · ")));
+        }
+    }
+
+    let reopened = t.rework.develop_reopened_by_test + t.rework.develop_reopened_by_review;
+    out.push_str(&format!(
+        "rework       retries {} ({} repeated the same failure) · develop reopened {} · review rounds {} · model upgrades {}\n",
+        t.rework.total_retries,
+        t.rework.repeated_rationales,
+        reopened,
+        t.rework.review_rounds,
+        t.rework.model_upgrades,
+    ));
+    out.push_str(&format!("cost         {}\n", t.cost_display));
+    out.push_str(&format!(
+        "recovery     {} interrupted job{} resumed\n",
+        t.recoveries_performed,
+        if t.recoveries_performed == 1 { "" } else { "s" }
+    ));
+
+    out
+}
+
+pub fn format_pilot_report_markdown(report: &PilotReport) -> String {
+    let mut out = String::from("# Factory Pilot Report\n\n");
+    out.push_str("## Totals\n\n");
+    out.push_str("```text\n");
+    out.push_str(&format_pilot_report_text(report));
+    out.push_str("```\n\n");
+    out.push_str("## Ideas\n\n");
+    if report.ideas.is_empty() {
+        out.push_str("No ideas recorded.\n");
+        return out;
+    }
+    out.push_str("| ID | Title | State | Retries | Review Rounds | Upgrades | Cost | Evidence | Recoveries |\n");
+    out.push_str("| --- | --- | --- | ---: | ---: | ---: | --- | --- | ---: |\n");
+    for idea in &report.ideas {
+        let ev = match idea.evidence_complete {
+            Some(true) => "complete",
+            Some(false) => "incomplete",
+            None => "n/a",
+        };
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            idea.id,
+            idea.title.replace('|', "\\|"),
+            idea.state.label(),
+            idea.rework.total_retries,
+            idea.rework.review_rounds,
+            idea.rework.model_upgrades,
+            idea.cost_display,
+            ev,
+            idea.recoveries,
+        ));
+    }
+    out
 }

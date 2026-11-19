@@ -462,6 +462,7 @@ fn mark_half_created_run_failed(
             evidence: Vec::new(),
             prs: Vec::new(),
             budget: None,
+            cost: None,
             created: now,
             updated: now,
         },

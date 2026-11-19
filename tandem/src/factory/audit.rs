@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
 use super::broker::job::{JobInput, job_dir};
-use super::events::{Event, read_all, reject_if_symlink, sha256_hex};
+use super::events::{Event, read_idea_events, reject_if_symlink, segment_paths, sha256_hex};
 use super::ids::is_valid_idea_id;
 use super::machine::EventData;
 use super::model::{ActorKind, Budget};
@@ -114,23 +114,8 @@ pub struct AuditPayload {
 }
 
 pub fn verify(events_path: &Path) -> Result<AuditVerifyReport, FactoryError> {
-    reject_if_symlink(events_path)?;
-
-    let bytes = match fs::read(events_path) {
-        Ok(b) => b,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(AuditVerifyReport {
-                total_events: 0,
-                chain_start_seq: None,
-                verified_events: 0,
-                intact: true,
-                first_break: None,
-            });
-        }
-        Err(err) => return Err(FactoryError::Io(err)),
-    };
-
-    if bytes.is_empty() {
+    let segments = segment_paths(events_path)?;
+    if segments.is_empty() {
         return Ok(AuditVerifyReport {
             total_events: 0,
             chain_start_seq: None,
@@ -140,77 +125,89 @@ pub fn verify(events_path: &Path) -> Result<AuditVerifyReport, FactoryError> {
         });
     }
 
-    let valid_bytes = if bytes.ends_with(b"\n") {
-        bytes.as_slice()
-    } else {
-        let cut = bytes
-            .iter()
-            .rposition(|&b| b == b'\n')
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
-        &bytes[..cut]
-    };
-
     let mut total_events = 0usize;
     let mut chain_start_seq: Option<u64> = None;
     let mut verified_events = 0usize;
     let mut first_break: Option<AuditBreak> = None;
     let mut prev_line_hash: Option<String> = None;
 
-    for raw_line in valid_bytes.split(|&b| b == b'\n') {
-        let trimmed = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
-        if trimmed.iter().all(|b| b.is_ascii_whitespace()) {
+    for seg_path in &segments {
+        reject_if_symlink(seg_path)?;
+        let bytes = match fs::read(seg_path) {
+            Ok(b) => b,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(FactoryError::Io(err)),
+        };
+        if bytes.is_empty() {
             continue;
         }
 
-        let current_hash = sha256_hex(trimmed);
-        match serde_json::from_slice::<Event>(trimmed) {
-            Ok(ev) => {
-                total_events += 1;
-                if let Some(ref prev) = ev.prev {
-                    if chain_start_seq.is_none() {
-                        chain_start_seq = Some(ev.seq);
+        let valid_bytes = if bytes.ends_with(b"\n") {
+            bytes.as_slice()
+        } else {
+            let cut = bytes
+                .iter()
+                .rposition(|&b| b == b'\n')
+                .map(|idx| idx + 1)
+                .unwrap_or(0);
+            &bytes[..cut]
+        };
+
+        for raw_line in valid_bytes.split(|&b| b == b'\n') {
+            let trimmed = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+            if trimmed.iter().all(|b| b.is_ascii_whitespace()) {
+                continue;
+            }
+
+            let current_hash = sha256_hex(trimmed);
+            match serde_json::from_slice::<Event>(trimmed) {
+                Ok(ev) => {
+                    total_events += 1;
+                    if let Some(ref prev) = ev.prev {
+                        if chain_start_seq.is_none() {
+                            chain_start_seq = Some(ev.seq);
+                        }
+                        match prev_line_hash.as_deref() {
+                            Some(expected) if expected == prev => {
+                                if first_break.is_none() {
+                                    verified_events += 1;
+                                }
+                            }
+                            Some(_) => {
+                                if first_break.is_none() {
+                                    first_break = Some(AuditBreak {
+                                        seq: ev.seq,
+                                        reason: "prev hash mismatch".to_string(),
+                                    });
+                                }
+                            }
+                            None => {
+                                if first_break.is_none() {
+                                    first_break = Some(AuditBreak {
+                                        seq: ev.seq,
+                                        reason: "prev hash present on first event".to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    } else if chain_start_seq.is_some() && first_break.is_none() {
+                        first_break = Some(AuditBreak {
+                            seq: ev.seq,
+                            reason: "missing prev hash after chain start".to_string(),
+                        });
                     }
-                    match prev_line_hash.as_deref() {
-                        Some(expected) if expected == prev => {
-                            if first_break.is_none() {
-                                verified_events += 1;
-                            }
-                        }
-                        Some(_) => {
-                            if first_break.is_none() {
-                                first_break = Some(AuditBreak {
-                                    seq: ev.seq,
-                                    reason: "prev hash mismatch".to_string(),
-                                });
-                            }
-                        }
-                        None => {
-                            if first_break.is_none() {
-                                first_break = Some(AuditBreak {
-                                    seq: ev.seq,
-                                    reason: "prev hash present on first event".to_string(),
-                                });
-                            }
-                        }
+                }
+                Err(_) => {
+                    if chain_start_seq.is_some() && first_break.is_none() {
+                        first_break = Some(AuditBreak {
+                            seq: total_events as u64 + 1,
+                            reason: "corrupt event line".to_string(),
+                        });
                     }
-                } else if chain_start_seq.is_some() && first_break.is_none() {
-                    first_break = Some(AuditBreak {
-                        seq: ev.seq,
-                        reason: "missing prev hash after chain start".to_string(),
-                    });
                 }
             }
-            Err(_) => {
-                if chain_start_seq.is_some() && first_break.is_none() {
-                    first_break = Some(AuditBreak {
-                        seq: total_events as u64 + 1,
-                        reason: "corrupt event line".to_string(),
-                    });
-                }
-            }
+            prev_line_hash = Some(current_hash);
         }
-        prev_line_hash = Some(current_hash);
     }
 
     Ok(AuditVerifyReport {
@@ -363,7 +360,15 @@ pub fn entries(
         )));
     }
 
-    let read = read_all(&store.events_path())?;
+    let events_path = store.events_path();
+    let mut events = read_idea_events(&events_path, idea_id)?;
+    if idea_id != "settings" {
+        events.extend(read_idea_events(&events_path, "settings")?);
+    }
+    if idea_id != "provider" {
+        events.extend(read_idea_events(&events_path, "provider")?);
+    }
+    events.sort_by_key(|ev| ev.seq);
     let ctx = RedactContext::from_env();
 
     let mut run_workflows: HashMap<String, String> = HashMap::new();
@@ -371,7 +376,7 @@ pub fn entries(
     let mut job_usages: HashMap<(String, String, u32), UsageMeta> = HashMap::new();
     let mut plan_versions: HashMap<String, u32> = HashMap::new();
 
-    for ev in &read.events {
+    for ev in &events {
         if ev.idea != idea_id {
             continue;
         }
@@ -423,7 +428,7 @@ pub fn entries(
     }
 
     let mut out = Vec::new();
-    for ev in &read.events {
+    for ev in &events {
         let is_idea_event = ev.idea == idea_id;
         let is_workspace_decision = matches!(ev.idea.as_str(), "settings" | "provider");
         if !is_idea_event && !is_workspace_decision {

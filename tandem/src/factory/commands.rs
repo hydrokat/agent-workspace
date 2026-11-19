@@ -77,6 +77,18 @@ pub enum FactoryCommand {
 
     #[command(about = "diagnose and safely repair Factory Mode state")]
     Doctor(FactoryDoctorArgs),
+
+    #[command(about = "summarize Factory Mode pilot metrics, rework, cost, and evidence")]
+    Report(FactoryReportArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryReportArgs {
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+
+    #[arg(long, help = "output Markdown")]
+    pub markdown: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -1021,6 +1033,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             None => a.json,
         },
         FactoryCommand::Doctor(a) => a.json,
+        FactoryCommand::Report(a) => a.json,
     }
 }
 
@@ -1334,14 +1347,12 @@ fn execute(
                     .get_idea(&a.id)
                     .map_err(map_factory_error)?
                     .ok_or_else(|| CmdError::not_found(format!("idea not found: {}", a.id)))?;
-                let mut idea_events = if store.exists() {
-                    events::read_all(&store.root.join("events.jsonl"))
+                let idea_events = if store.exists() {
+                    events::read_idea_events(&store.root.join("events.jsonl"), &a.id)
                         .map_err(map_factory_error)?
-                        .events
                 } else {
                     Vec::new()
                 };
-                idea_events.retain(|ev| ev.idea == a.id);
                 let coord_dir = crate::commands::coord_dir_for(workspace, config);
                 let coord_queries =
                     crate::coordination::store::CoordStore::new(coord_dir).queries();
@@ -2235,6 +2246,17 @@ fn execute(
         },
         FactoryCommand::Audit(a) => run_audit_command(a, &store, enabled),
         FactoryCommand::Doctor(_) => unreachable!("handled in run_with_caller_io"),
+        FactoryCommand::Report(a) => {
+            let now = super::store::current_time();
+            let report = super::telemetry::pilot_report(&store, now).map_err(map_factory_error)?;
+            if a.json {
+                serialize_compact(&report)
+            } else if a.markdown {
+                Ok(super::telemetry::format_pilot_report_markdown(&report))
+            } else {
+                Ok(super::telemetry::format_pilot_report_text(&report))
+            }
+        }
     }
 }
 

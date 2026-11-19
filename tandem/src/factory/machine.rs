@@ -908,6 +908,7 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
             evidence: Vec::new(),
             prs: Vec::new(),
             budget: budget.clone(),
+            cost: None,
             created: ts,
             updated: ts,
         }),
@@ -1096,6 +1097,13 @@ pub fn apply_run(run: Option<Run>, event: &EventData, idea_id: &str, ts: f64) ->
                 }
                 EventData::BudgetChanged { new, .. } => {
                     run.budget = Some(new.clone());
+                    run.updated = ts;
+                }
+                EventData::JobUsage { cost, .. } => {
+                    run.cost = Some(match run.cost.take() {
+                        Some(prev) => prev.combine(cost),
+                        None => cost.clone(),
+                    });
                     run.updated = ts;
                 }
                 _ => {}
