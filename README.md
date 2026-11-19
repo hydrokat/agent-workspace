@@ -348,39 +348,111 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 ### Factory Mode (experimental)
 
-Factory Mode is an opt-in operating mode where an Orchestrator prepares an idea with you and, once you mark it ready, freezes the plan for development. Start it with `./run.sh --factory` (or `tandem --factory`).
+Factory Mode is an opt-in operating mode that takes a feature or fix **from idea to pull request, with a human at the right gate**. An Orchestrator works with you to scope the idea, check feasibility, and draft a plan before any code is written. Once you approve the plan and open the required gates, tandem runs the delivery stages in an isolated git worktree and hands back a GitHub pull request with test and review evidence.
 
-**Ideation walkthrough (e.g. *"Export team activity as CSV for the last 90 days"*):**
-1. **Start an idea**: Open the **Factory** tab (`Alt+f` / `Opt+f`, or in `tandem-web`) and create an idea, picking the Orchestrator CLI (`claude` or `agy`) and model, or run `tandem factory idea start --cli claude --model opus --title "Export team activity as CSV for the last 90 days"`.
-2. **Talk to the Orchestrator**: Describe the idea directly in the Orchestrator pane. The Orchestrator uses `factory-orchestrator` (and `/idea` for feasibility + planning) to record a feasibility study (`artifact put --kind feasibility`), assumptions (`idea assume`), and advance past Gate 1 (`idea select-direction`).
-3. **Answer decision-relevant questions**: Open questions tagged `idea:<id>` surface on the ideas board (`Needs you` / `Blockers`) and are answered in the **Queries** tab or `tandem-web` Queries inbox.
-4. **Review and mark `ready-for-development`**: Inspect the feasibility study, versioned plan, and assumptions in the **Factory** detail view (TUI or `tandem-web`). Only the user can mark an idea ready (`tandem factory idea ready <id> --confirm <id> [--workflow NAME] [--deploy]` or the UI confirmation dialog), which freezes `plan-snapshot.md` with its SHA-256 hash and creates a **queued** run (`runs/<run-id>/workflow.yaml` + `run.json`). You can withdraw a queued run (`tandem factory run withdraw <run-id> --confirm <run-id>`) and revoke `ready-for-development` before any stage starts.
-5. **Dry-run a workflow**: Preview what a workflow would do without writing files or spawning processes: `tandem factory run simulate --workflow default-delivery` (or `tandem factory run simulate <idea-id>`).
-6. **Consent a headless provider and confirm check commands**: Before any headless stage runs, review the provider terms and open the gate (`tandem factory provider status --json`, then `tandem factory provider consent <provider> --auth <type> --confirm <provider>`). Inspect proposed test and lint commands with `tandem factory checks discover` and confirm them as the user with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>` (only the user can set check commands).
+#### Before you start
+
+Make sure these four prerequisites are in place before starting a run:
+
+1. **A Factory Mode session**: Launch with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share the same workspace at the same time.
+2. **An open provider gate**: Review provider terms and record consent for at least one headless provider (`tandem factory provider status --json`, then `tandem factory provider consent <provider> --auth <type> --confirm <provider>`).
+3. **`gh` authenticated by you**: Run `gh auth login` on your machine so tandem can open a pull request on GitHub using your existing CLI session.
+4. **Confirmed check commands**: Inspect proposed `test` and `lint` commands with `tandem factory checks discover` and confirm them as the user with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`.
+
+#### Walkthrough: from idea to pull request
+
+Using the example idea *"Export team activity as CSV for the last 90 days"*:
+
+1. **Start an idea**: Open the **Factory** tab (`Alt+f` / `Opt+f`, or in `tandem-web`) and create an idea, picking the Orchestrator CLI (`claude` or `agy`) and model, or run `tandem factory idea start --cli claude --model opus --title "Export team activity as CSV for the last 90 days"`. You see a bound Orchestrator pane open for the idea.
+2. **Talk to the Orchestrator**: Describe the idea directly in the Orchestrator pane. The Orchestrator uses `factory-orchestrator` (and `/idea` for feasibility + planning) to record a feasibility study (`artifact put --kind feasibility`), log assumptions (`idea assume`), and advance past Gate 1 (`idea select-direction`) once feasibility is non-infeasible.
+3. **Answer decision-relevant questions**: Open questions tagged `idea:<id>` surface on the ideas board (`Needs you` / `Blockers`) and are answered in the **Queries** tab or `tandem-web` Queries inbox. You decide any scope or product trade-offs before planning finishes.
+4. **Review and mark `ready-for-development` (Gate 2)**: Inspect the feasibility study, versioned plan, and assumptions in the **Factory** detail view (TUI or `tandem-web`). Only the user can mark an idea ready (`tandem factory idea ready <id> --confirm <id> [--workflow NAME] [--deploy]` or the UI confirmation dialog), which freezes `plan-snapshot.md` with its SHA-256 hash and creates a **queued** run (`runs/<run-id>/workflow.yaml` + `run.json`). During the `approval_grace_secs` undo window, you can undo via the banner, or withdraw a queued run (`tandem factory run withdraw <run-id> --confirm <run-id>`) and revoke `ready-for-development` (`tandem factory idea revoke-ready <id>`) before any stage starts.
+5. **Dry-run a workflow (optional)**: Preview what a workflow would do without writing files or spawning processes: `tandem factory run simulate --workflow default-delivery` (or `tandem factory run simulate <idea-id>`).
+6. **Consent a headless provider and confirm check commands**: Before any headless stage runs, open the provider gate (`tandem factory provider consent <provider> --auth <type> --confirm <provider>`) and confirm `test` / `lint` commands (`tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`).
 7. **Run through the quality path to a pull request and handoff (`p-017`)**: When the run starts, tandem prepares an isolated git worktree (`worktrees/factory-<run-id>` on `feat/<idea-id>-<slug>` — use `tandem factory run target <run-id> <repo>` if multiple repos exist), runs `plan` (`slices.json`), and steps through:
    - `create-tests`: writes failing tests for the CSV export acceptance criteria inside the slice paths.
    - `develop`: implements the CSV export while preserving the tests from `create-tests`.
    - `test`: tandem itself executes your confirmed test and lint commands directly (not an agent) and records pass/fail evidence.
    - `review`: reviews the diff against the plan and runs bounded fix rounds (up to `max_review_rounds`) if blocker/major findings are raised.
    - `demo` (conditional): runs when `ui_changed` is set, capturing local PNG screenshots for UI acceptance criteria.
-   - **Pull request & handoff**: once review approves and required evidence is complete, tandem pushes the feature branch and opens one GitHub pull request per run via `gh`, then hands off the PR link, evidence summary (`tandem factory run evidence <run-id>`), and `tandem factory run prs <run-id>` status to you for review and merge. Clean up the worktree afterward with `tandem factory run cleanup <run-id> --confirm <run-id>`.
+   - **Pull request & handoff**: once review approves and required evidence is complete, tandem pushes the feature branch and opens **one pull request per run** on GitHub via `gh`, then hands off the PR link, evidence summary (`tandem factory run evidence <run-id>`), and `tandem factory run prs <run-id>` status to you for review and merge. Clean up the worktree afterward with `tandem factory run cleanup <run-id> --confirm <run-id>`.
 
-**Governance (`p-018`):**
-- **Settings, budgets & telemetry:** Configure workspace bounds with `tandem factory settings get|set`, inspect/update run caps with `tandem factory run budget`, and review `actual` / `estimated` / `unknown` usage with `tandem factory run usage`. Workflows can only tighten workspace settings.
-- **Redaction, permissions & audit:** Redaction masks secrets in exported artifacts and audit summaries (`tandem factory redact test <file>`), tool permissions are enforced per agent and target (`tandem factory permissions allow|deny|show`), and `tandem factory audit` / `audit verify` provide a hash-chained timeline and redacted Markdown/JSON export.
-- **Data handling & approval boundary:** Inspect what each job sends vs. can read with `tandem factory run data <run>`. User-only actions use five defence-in-depth checks (terminal check, `@tandem_role` pane check, derived surface with `--via` removed, `approval_grace_secs` undo window, and audit log).
+#### The three gates
+
+| Gate | What it authorizes | Who can pass it | How to undo |
+|---|---|---|---|
+| **Gate 1** | Ideation → Planning (after a non-infeasible `feasibility` artifact is recorded). | Orchestrator or user (`tandem factory idea select-direction <id>`). | Record updated feasibility/plan artifacts or close/re-describe the idea before Gate 2. |
+| **Gate 2** | Planning → `ready-for-development`; freezes `plan-snapshot.md` (SHA-256) and queues a run. | **User-only** (`tandem factory idea ready <id> --confirm <id>`, TUI, or `tandem-web`). | Undo during the `approval_grace_secs` window (TUI `Ctrl+Opt+u` / Web `[Undo]`), or run `tandem factory run withdraw <run-id> --confirm <run-id>` and `tandem factory idea revoke-ready <id>` before any stage starts. |
+| **Gate 3** | Protected actions (`production_deploy`, `secrets_access`, `production_access`); 1-hour TTL bound to run, stage, and `workflow_sha256`. | **User-only** (`tandem factory run approve <run-id> --action <ACTION> --confirm <run-id> [--stage <STAGE>]`). | Do not approve, or pause/cancel the run (`tandem factory run pause <run-id> --now` / `tandem factory run cancel <run-id> --confirm <run-id>`); deploy also requires `--deploy`, a PR, and a confirmed deploy command. |
+
+#### When a run pauses
+
+| Pause reason | Command or screen that resolves it |
+|---|---|
+| Multiple target repositories found | `tandem factory run target <run-id> <repo>` (then `tandem factory run resume <run-id>`) |
+| Gate closed (no provider consented and allowed) | `tandem factory provider consent <provider> --auth <type> --confirm <provider>`, then `tandem factory run resume <run-id>` |
+| Test and lint commands not confirmed | `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`, then `tandem factory run resume <run-id>` |
+| Checks fail on the base branch | Fix the base branch checks outside the run (or update check commands), then `tandem factory run resume <run-id>` |
+| Stage failed without a new hypothesis, or retries exhausted | `tandem factory run retry <run-id> <stage> --hypothesis "<what changed>"` (or `tandem factory run cancel <run-id> --confirm <run-id>`) |
+| Budget cap reached (`max_cost_usd`, `max_duration_secs`, `max_retries`) | Raise the cap with `tandem factory run budget <run-id> ...` and `tandem factory run resume <run-id>`, or `tandem factory run cancel <run-id> --confirm <run-id>` |
+| Tool permission denied or Gate 3 approval required | `tandem factory permissions allow ...` or `tandem factory run approve <run-id> --action <ACTION> --confirm <run-id>`, then `tandem factory run resume <run-id>` |
+| Review loop exhausted (`max_review_rounds`) | Inspect findings (`tandem factory run show <run-id> --json`), resolve manually or raise `max_review_rounds`, then resume or cancel |
+| PR creation or deploy precondition failed (`gh` auth, clean worktree, remote, or missing PR/deploy cmd) | Resolve the precondition shown in `action_commands` (`gh auth login`, `checks set --deploy`, `run prs --refresh`), then `tandem factory run resume <run-id>` |
+| User-requested pause or interrupted job after restart | `tandem factory run resume <run-id>` (or run `tandem factory doctor --fix` if state needs recovery) |
+
+#### Settings and workflows
+
+- **Where they live**: Workspace settings live in `.agent-workspace/factory/settings.json` (managed via `tandem factory settings get|set`, `provider`, `checks`, and `permissions`). Workflows live in `<workspace>/workflows/*.yaml` (`init` installs `default-delivery.yaml`, which is user-owned; if deleted, tandem falls back to the embedded default).
+- **What you can change**: Non-protected settings (`max_parallel_agents`, `default_temperature`, `max_review_rounds`, `approval_grace_secs`, `default_workflow`, `default_budget`, `model_tiers`, `price_table`) can be changed by the user via `tandem factory settings set <KEY> <VALUE>`. Protected keys (`provider_gates`, `providers`, `checks`, `deploy`, `deploy_command`, `allowed_tools`, `denied_tools`) require their dedicated user-only commands.
+- **Workflows can only tighten**: A workflow's `policy` and stage budgets cannot relax `settings.json` bounds—tandem enforces the stricter (`min`) of workflow policy and workspace settings.
+
+#### Troubleshooting
+
+- **Mode mismatch (`exit 2`)**: Normal and Factory Mode cannot run in the same workspace simultaneously. Quit the active session (`Settings → Quit`) before switching between `./run.sh` and `./run.sh --factory`.
+- **Gate closed**: Run `tandem factory provider status --json` to see which condition failed (terms unverified, expired, no consent, terms changed, or revoked), then run `tandem factory provider consent <provider> --auth <type> --confirm <provider>`.
+- **`gh` not authenticated**: Run `gh auth login` in your terminal and verify `gh auth status` succeeds before resuming the run.
+- **Check commands missing**: Run `tandem factory checks discover` to inspect detected commands, then confirm them with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`.
+- **Checks failing on the base branch**: The `test` stage checks the base branch before running work so pre-existing failures are not blamed on the run. Fix the base branch first, then `tandem factory run resume <run-id>`.
+- **Budget pause**: Run `tandem factory run usage <run-id>` to see what hit the limit, then either raise caps with `tandem factory run budget <run-id>` and `run resume`, or `run cancel`.
+- **Policy denial**: Check `tandem factory permissions show` and the run's `action_commands` (`tandem factory run show <run-id> --json`) to see whether a tool is denied for the target/agent or needs Gate 3 `run approve`.
+- **Unsupported host**: Check `tandem/README.md` for supported platforms (`linux-x86_64`, `linux-arm64`, `darwin-arm64`, `darwin-x86_64`, and experimental `windows-x86_64` under MSYS2/WSL); on unsupported hosts, use `TANDEM_RUNTIME=source` with Rust/Cargo installed.
+- **Screenshot tool missing (`demo` stage)**: If `ui_changed` is set and the `demo` stage cannot capture PNG screenshots (e.g. Playwright/browser not installed), install the project's screenshot tool or review the `demo` stage log (`tandem factory run log <run-id> <job>`) before resuming.
+- **Recovery with `factory doctor`**: If a run or session was interrupted mid-flight (stale runner lock, interrupted job state, or workspace mismatch), run `tandem factory doctor` to diagnose and `tandem factory doctor --fix` to repair safely.
 
 #### Governance
 
+##### What stays yours
+
 > **Governance stance:** Factory Mode accelerates execution; it does not transfer accountability. Teams keep approval, merge, deployment, and compliance responsibility.
 
-| Gate | Transition / Action | Requirement |
-|---|---|---|
-| **Gate 1** | Ideation → Planning | Non-infeasible `feasibility` artifact recorded before `idea select-direction`. |
-| **Gate 2** | Planning → `ready-for-development` | User-only approval (`idea ready`) freezing `plan-snapshot.md` (SHA-256), followed by `approval_grace_secs` undo window before execution starts. |
-| **Gate 3** | Protected actions (`production_deploy`, `secrets_access`, `production_access`) | One-time user-only approval (`run approve`) bound to run, stage, and `workflow_sha256` (1-hour TTL); deploy also requires `--deploy`, a PR, and a confirmed deploy command. |
+Review, merge, deployment, and compliance remain yours: tandem never approves or merges pull requests, never force pushes or pushes to protected branches, and never deploys without explicit Gate 3 approval.
 
-> **User-only rule (known limit):** The approval boundary is a guard-rail and audit trail against accidental or prompt-injected agent actions, not a sandbox—it does not stop a deliberately hostile process running as the same OS user (which requires OS isolation). See `tandem/README.md` for all five measures, limits, and exit codes.
+##### What Factory Mode does not do
+
+The six non-goals from the Factory Mode proposal:
+
+1. **No autonomous production deployment by default** (`deploy` is gated behind `--deploy`, a PR, a confirmed deploy command, and Gate 3 `run approve`).
+2. **No unrestricted provider execution** (headless stages require an open, consented provider gate and tool allowlists).
+3. **No cross-project portfolio optimization** (each Factory Mode run is scoped to one workspace and one target repository).
+4. **No self-modifying workflows** (agents cannot edit `workflows/*.yaml`, `.github/workflows/`, `.agent-workspace/`, or `settings.json`).
+5. **No fully automatic merge** (tandem opens a PR and hands it off; humans review and merge).
+6. **No IDE replacement** (tandem orchestrates CLIs, worktrees, and checks alongside your editor).
+
+##### Known limits
+
+- **Approval boundary & threat model**: The user-only approval boundary (`approval::require_user`: terminal `IsTerminal` check, tmux `@tandem_role` check, derived surface with `--via` removed, `approval_grace_secs` undo window, and audit log) is a guard-rail and audit trail against accidental or prompt-injected agent actions, not a sandbox—it does not stop a deliberately hostile process running as the **same OS user** (which requires OS isolation). See `tandem/README.md` for all five measures, limits, and exit codes.
+- **Process termination**: Jobs are stopped with a kill after a grace period and their own child processes may survive.
+- **Cost visibility**: Cost is `unknown` unless the provider reports usage or a `price_table` entry exists; `max_cost_usd` is not enforceable for providers that report no usage.
+- **Local-only artifacts**: `demo` screenshots and raw local logs (`log.txt`) stay local on the machine and are not uploaded or rewritten by redaction.
+- **PR scope & host**: Factory Mode opens at most **one pull request per run** and supports **GitHub only** (`gh`).
+
+##### Your data
+
+- **What tandem sends**: Inspect what each job explicitly sent (`sent_files` in `context_manifest` and byte counts) with `tandem factory run data <run-id>`.
+- **What a job can read**: A provider CLI running in the worktree can read any file in the readable target/worktree scope; tandem does not see which files the provider CLI read beyond `context_manifest`.
+- **Default exclusions**: `.env*`, `*.pem`, `*.key`, `id_rsa*`, `secrets/**`, and `.git/**` are excluded from `context_manifest` by default. Redaction (`tandem factory redact test <file>`) masks secrets in exported artifacts and audit summaries.
+
+**Governance (`p-018`) & Quality Path (`p-017`) reference:** See `tandem/README.md` for the full CLI reference (`settings get|set`, `run budget`, `run usage`, `run approve`, `run data`, `redact test`, `permissions allow|deny|show`, `audit`, `audit verify`, `checks discover|set|show`, `run evidence`, `run prs`, `run export-specs`, `factory doctor`), stage contracts, and exit codes.
 
 **Auto-update on launch.** Before checking dependencies, `run.sh` checks whether a newer agent-workspace release exists. When one is found, it applies the update (`npx --yes hydrokat/agent-workspace update --yes --no-link --no-update-clis --no-commit`), prints the old → new version and what changed, then re-execs the updated `run.sh`. If the workspace has no `manifest.json` (a dev checkout), if `npx` is not on `PATH`, or if the update fails, launch continues with the installed version.
 
