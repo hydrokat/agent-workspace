@@ -50,6 +50,7 @@
   ".agent-workspace/tandem/src/factory/pr.rs",
   ".agent-workspace/tandem/src/factory/protected.rs",
   ".agent-workspace/tandem/src/factory/questions.rs",
+  ".agent-workspace/tandem/src/factory/recovery.rs",
   ".agent-workspace/tandem/src/factory/redact.rs",
   ".agent-workspace/tandem/src/factory/routing.rs",
   ".agent-workspace/tandem/src/factory/run.rs",

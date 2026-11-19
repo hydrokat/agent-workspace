@@ -257,6 +257,7 @@
   "tandem/src/factory/pr.rs",
   "tandem/src/factory/protected.rs",
   "tandem/src/factory/questions.rs",
+  "tandem/src/factory/recovery.rs",
   "tandem/src/factory/redact.rs",
   "tandem/src/factory/routing.rs",
   "tandem/src/factory/run.rs",
