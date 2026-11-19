@@ -19,6 +19,7 @@ pub mod permissions;
 pub mod pr;
 pub mod protected;
 pub mod questions;
+pub mod recovery;
 pub mod redact;
 pub mod routing;
 pub mod run;

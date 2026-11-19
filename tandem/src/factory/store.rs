@@ -16,6 +16,13 @@ use super::model::{Actor, FactorySettings, Idea, Run};
 use super::redact::RedactContext;
 use crate::coordination::filelock::exclusive_lock;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplayedStore {
+    pub ideas: BTreeMap<String, Idea>,
+    pub runs: BTreeMap<String, Run>,
+    pub log: events::ReadResult,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RebuildReport {
     pub ideas: usize,
@@ -294,19 +301,33 @@ impl FactoryStore {
         Ok(ideas)
     }
 
-    pub fn rebuild(&self) -> Result<RebuildReport, FactoryError> {
-        self.ensure()?;
+    pub fn materialized_differs_from_log(&self) -> Result<bool, FactoryError> {
+        if !self.exists() {
+            return Ok(false);
+        }
+        let replayed = self.replay_all()?;
+        for (id, idea) in &replayed.ideas {
+            let path = self.idea_path(id);
+            let disk = fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Idea>(&s).ok());
+            if disk.as_ref() != Some(idea) {
+                return Ok(true);
+            }
+        }
+        for (run_id, run) in &replayed.runs {
+            let path = self.run_json_path(run_id);
+            let disk = fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Run>(&s).ok());
+            if disk.as_ref() != Some(run) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 
-        let lock_path = self.lock_path();
-        let lock_file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(&lock_path)?;
-        set_private_file_mode(&lock_path)?;
-        let _guard = exclusive_lock(&lock_file)?;
-
+    pub fn replay_all(&self) -> Result<ReplayedStore, FactoryError> {
         let log = read_all(&self.events_path())?;
         let mut by_id: BTreeMap<String, Option<Idea>> = BTreeMap::new();
         let mut runs_by_id: BTreeMap<String, Option<Run>> = BTreeMap::new();
@@ -324,30 +345,46 @@ impl FactoryStore {
             }
         }
 
+        let ideas = by_id
+            .into_iter()
+            .filter_map(|(id, opt)| opt.filter(|_| is_valid_idea_id(&id)).map(|v| (id, v)))
+            .collect();
+        let runs = runs_by_id
+            .into_iter()
+            .filter_map(|(id, opt)| opt.filter(|_| is_valid_run_id(&id)).map(|v| (id, v)))
+            .collect();
+        Ok(ReplayedStore { ideas, runs, log })
+    }
+
+    pub fn rebuild(&self) -> Result<RebuildReport, FactoryError> {
+        self.ensure()?;
+
+        let lock_path = self.lock_path();
+        let lock_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)?;
+        set_private_file_mode(&lock_path)?;
+        let _guard = exclusive_lock(&lock_file)?;
+
+        let ReplayedStore { ideas, runs, log } = self.replay_all()?;
+
         let mut rebuilt = 0usize;
-        for (id, idea_opt) in by_id {
-            if let Some(idea) = idea_opt {
-                if !is_valid_idea_id(&id) {
-                    continue;
-                }
-                let serialized = serde_json::to_vec_pretty(&idea)?;
-                write_atomic(&self.idea_path(&id), &serialized)?;
-                rebuilt += 1;
-            }
+        for (id, idea) in ideas {
+            let serialized = serde_json::to_vec_pretty(&idea)?;
+            write_atomic(&self.idea_path(&id), &serialized)?;
+            rebuilt += 1;
         }
 
-        for (run_id, run_opt) in runs_by_id {
-            if let Some(run) = run_opt {
-                if !is_valid_run_id(&run_id) {
-                    continue;
-                }
-                let dir = self.run_dir(&run_id);
-                if !dir.exists() {
-                    create_private_dir(&dir)?;
-                }
-                let serialized = serde_json::to_vec_pretty(&run)?;
-                write_atomic(&self.run_json_path(&run_id), &serialized)?;
+        for (run_id, run) in runs {
+            let dir = self.run_dir(&run_id);
+            if !dir.exists() {
+                create_private_dir(&dir)?;
             }
+            let serialized = serde_json::to_vec_pretty(&run)?;
+            write_atomic(&self.run_json_path(&run_id), &serialized)?;
         }
 
         Ok(RebuildReport {

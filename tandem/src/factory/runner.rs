@@ -255,7 +255,7 @@ pub fn is_stop_requested(store: &FactoryStore, run_id: &str) -> bool {
 pub fn acquire_runner_lock(store: &FactoryStore) -> Result<File, RunnerError> {
     store.ensure()?;
     let path = store.root.join(".runner.lock");
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .create(true)
         .read(true)
         .write(true)
@@ -263,7 +263,14 @@ pub fn acquire_runner_lock(store: &FactoryStore) -> Result<File, RunnerError> {
         .open(&path)?;
     set_private_file_mode(&path)?;
     match file.try_lock() {
-        Ok(()) => Ok(file),
+        Ok(()) => {
+            use std::io::{Seek, SeekFrom, Write};
+            file.set_len(0)?;
+            file.seek(SeekFrom::Start(0))?;
+            writeln!(file, "{}", std::process::id())?;
+            file.sync_all()?;
+            Ok(file)
+        }
         Err(TryLockError::WouldBlock) => Err(RunnerError::AlreadyRunning),
         Err(TryLockError::Error(e)) => Err(RunnerError::Io(e)),
     }
@@ -648,24 +655,48 @@ pub fn drive_run_step_with_gh(
             .map(|f| f.name.clone())
     });
 
-    let Some(stage_name) = stage_to_run else {
-        if let Some(blocked) = decision.blocked.first() {
-            let reason = blocked.reason.replace("<run>", run_id);
-            let mut cmds = Vec::new();
-            if let Some(sdef) = wf.stages.iter().find(|s| s.name == blocked.name)
-                && sdef
-                    .requires
-                    .contains(&super::workflow::schema::StageRequirement::HumanApproval)
-            {
-                let action =
-                    super::protected::action_for_stage(sdef, &wf.policy.require_human_approval);
-                cmds.push(format!(
-                    "tandem factory run approve {run_id} --action {action} --confirm {run_id}"
-                ));
-            }
-            return pause_run(store, run, reason, cmds);
+    let resumed_finished = run.stages.iter().find_map(|s| {
+        if s.state == StageState::Running
+            && s.attempts > 0
+            && matches!(
+                read_job_state(&job_dir(store, run_id, &s.name, s.attempts)),
+                Ok(JobState::Finished)
+            )
+            && super::broker::result::parse_and_validate_result_strict(
+                &job_dir(store, run_id, &s.name, s.attempts).join("result.json"),
+                s.attempts > 1,
+            )
+            .is_ok()
+        {
+            Some((s.name.clone(), s.attempts))
+        } else {
+            None
         }
-        return Ok(());
+    });
+
+    let (stage_name, resumed_attempt) = if let Some((name, attempt)) = resumed_finished {
+        (name, Some(attempt))
+    } else {
+        let Some(stage_name) = stage_to_run else {
+            if let Some(blocked) = decision.blocked.first() {
+                let reason = blocked.reason.replace("<run>", run_id);
+                let mut cmds = Vec::new();
+                if let Some(sdef) = wf.stages.iter().find(|s| s.name == blocked.name)
+                    && sdef
+                        .requires
+                        .contains(&super::workflow::schema::StageRequirement::HumanApproval)
+                {
+                    let action =
+                        super::protected::action_for_stage(sdef, &wf.policy.require_human_approval);
+                    cmds.push(format!(
+                        "tandem factory run approve {run_id} --action {action} --confirm {run_id}"
+                    ));
+                }
+                return pause_run(store, run, reason, cmds);
+            }
+            return Ok(());
+        };
+        (stage_name, None)
     };
 
     if stage_name == "demo" {
@@ -743,7 +774,7 @@ pub fn drive_run_step_with_gh(
         .find(|s| s.name == stage_name)
         .map(|s| s.attempts)
         .unwrap_or(0);
-    let next_attempt = current_attempts + 1;
+    let next_attempt = resumed_attempt.unwrap_or(current_attempts + 1);
 
     let preferred_provider = store
         .get_idea(&run.idea)?
@@ -876,45 +907,47 @@ pub fn drive_run_step_with_gh(
     }
     let _eff_stage_budget = effective_stage_budget(&stage_def.budget, &run_budget, &pre_spent);
 
-    let mut pre_evs = Vec::new();
-    let idea_is_queued = store
-        .get_idea(&run.idea)?
-        .is_some_and(|i| i.state == crate::factory::model::IdeaState::Queued);
-    if run.state == RunState::Queued || idea_is_queued {
-        pre_evs.push(EventData::RunStarted {
-            run: run.id.clone(),
-        });
-    }
-    if let Some(from_tier) = routed.upgraded_from {
-        pre_evs.push(EventData::StageModelUpgraded {
-            run: run.id.clone(),
-            stage: stage_name.clone(),
-            from: format!("{from_tier:?}").to_lowercase(),
-            to: format!("{:?}", routed.tier).to_lowercase(),
-        });
-    }
-    pre_evs.push(EventData::StageStarted {
-        run: run.id.clone(),
-        stage: stage_name.clone(),
-        attempt: next_attempt,
-        grant: Some(tool_grant),
-    });
-    if let Some(approval) = matching_approval {
-        pre_evs.push(EventData::ApprovalConsumed {
+    if resumed_attempt.is_none() {
+        let mut pre_evs = Vec::new();
+        let idea_is_queued = store
+            .get_idea(&run.idea)?
+            .is_some_and(|i| i.state == crate::factory::model::IdeaState::Queued);
+        if run.state == RunState::Queued || idea_is_queued {
+            pre_evs.push(EventData::RunStarted {
+                run: run.id.clone(),
+            });
+        }
+        if let Some(from_tier) = routed.upgraded_from {
+            pre_evs.push(EventData::StageModelUpgraded {
+                run: run.id.clone(),
+                stage: stage_name.clone(),
+                from: format!("{from_tier:?}").to_lowercase(),
+                to: format!("{:?}", routed.tier).to_lowercase(),
+            });
+        }
+        pre_evs.push(EventData::StageStarted {
             run: run.id.clone(),
             stage: stage_name.clone(),
-            action: approval.action,
-            approval_seq: approval.seq,
+            attempt: next_attempt,
+            grant: Some(tool_grant),
         });
+        if let Some(approval) = matching_approval {
+            pre_evs.push(EventData::ApprovalConsumed {
+                run: run.id.clone(),
+                stage: stage_name.clone(),
+                action: approval.action,
+                approval_seq: approval.seq,
+            });
+        }
+        run = append_run_events(
+            store,
+            &run.idea.clone(),
+            &run.id.clone(),
+            Some(run),
+            pre_evs,
+            &sys,
+        )?;
     }
-    run = append_run_events(
-        store,
-        &run.idea.clone(),
-        &run.id.clone(),
-        Some(run),
-        pre_evs,
-        &sys,
-    )?;
 
     let job_t0 = std::time::Instant::now();
     let outcome = executor.run(&StageJob {
@@ -924,7 +957,19 @@ pub fn drive_run_step_with_gh(
     });
     let job_duration_secs = job_t0.elapsed().as_secs_f64();
 
-    if !matches!(outcome, StageOutcome::Blocked { .. }) {
+    let usage_already_recorded = pre_log.events.iter().any(|ev| {
+        matches!(
+            ev.to_event_data(),
+            Ok(EventData::JobUsage {
+                ref run,
+                ref stage,
+                attempt,
+                ..
+            }) if run == run_id && stage == &stage_name && attempt == next_attempt
+        )
+    });
+
+    if !matches!(outcome, StageOutcome::Blocked { .. }) && !usage_already_recorded {
         let result_path = job_dir(store, run_id, &stage_name, next_attempt).join("result.json");
         let parsed_usage = fs::read_to_string(&result_path)
             .ok()
@@ -1766,6 +1811,11 @@ pub fn drive_workspace_step(
 
 pub fn run_loop(workspace: &Path, executor: &mut dyn Executor) -> Result<(), RunnerError> {
     let store = FactoryStore::new(workspace);
+    if let Ok(lines) = super::recovery::run_startup_repairs(&store, workspace) {
+        for line in lines {
+            println!("{line}");
+        }
+    }
     let _lock = acquire_runner_lock(&store)?;
     loop {
         let _ = drive_workspace_step(&store, workspace, executor);
