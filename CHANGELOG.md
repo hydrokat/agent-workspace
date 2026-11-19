@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.20.0] — 2026-11-19
+
+### Added: Factory Mode pilot hardening (`p-019`)
+- **Automated acceptance & E2E verification**: Added deterministic stub provider fixtures (`test/fixtures/factory/stub-provider/`) and end-to-end / acceptance test suites (`test_factory_e2e`, `test_factory_acceptance`) proving the 7-step idea-to-PR workflow and all five acceptance criteria.
+- **Crash recovery & `tandem factory doctor`**: Added `tandem factory doctor [--fix] [--json]` with safe startup auto-repairs (stale `.runner.lock`, materialized drift rebuild, interrupted jobs with `result.json` reuse) and guarded `--fix` cleanup for clean orphan worktrees (requiring typed `<run-id>` confirmation; orphan branches are never deleted).
+- **Log segmentation, budgets & `tandem factory report`**: Added 16 MiB segmented event logs (`events-NNNN.jsonl`) with rebuildable `events.index` O(1) lookups, materialized-only snapshot refresh, 30-day `Archived` filter + 200-card paging in the Factory tab, and `tandem factory report [--json | --markdown]`.
+- **User guide, governance stance & non-goals**: Added the complete Factory Mode (experimental) guide, pause-reason resolution table, troubleshooting, 6 non-goals, known limits, and data-handling summary in `README.md` and `tandem/README.md`.
+
 ## [1.19.0] — 2026-11-19
 
 ### Added: Factory Mode governance (`p-018`)
