@@ -80,6 +80,18 @@ pub enum FactoryCommand {
 
     #[command(about = "summarize Factory Mode pilot metrics, rework, cost, and evidence")]
     Report(FactoryReportArgs),
+
+    #[command(about = "list the models available to an orchestrator CLI")]
+    Models(FactoryModelsArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryModelsArgs {
+    #[arg(long, help = "CLI provider (claude, agy, or opencode)")]
+    pub cli: String,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -694,7 +706,7 @@ pub struct FactoryChecksShowArgs {
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryIdeaStartArgs {
-    #[arg(long, help = "CLI provider (claude or agy)")]
+    #[arg(long, help = "CLI provider (claude, agy, or opencode)")]
     pub cli: String,
 
     #[arg(long, help = "model id")]
@@ -1034,6 +1046,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
         },
         FactoryCommand::Doctor(a) => a.json,
         FactoryCommand::Report(a) => a.json,
+        FactoryCommand::Models(a) => a.json,
     }
 }
 
@@ -2246,6 +2259,30 @@ fn execute(
         },
         FactoryCommand::Audit(a) => run_audit_command(a, &store, enabled),
         FactoryCommand::Doctor(_) => unreachable!("handled in run_with_caller_io"),
+        FactoryCommand::Models(a) => {
+            if !crate::state::CLIS.contains(&a.cli.as_str()) {
+                return Err(CmdError::invalid_input(format!(
+                    "unsupported orchestrator cli: {} (expected claude, agy, or opencode)",
+                    a.cli
+                )));
+            }
+            let adapter = crate::adapters::adapter_for(&a.cli)
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+            let models = adapter.list_models().map_err(|e| CmdError {
+                exit_code: 1,
+                code: "models_unavailable",
+                message: format!("could not list models for {}: {e}", a.cli),
+            })?;
+            if a.json {
+                serialize_compact(&models)
+            } else {
+                Ok(models
+                    .iter()
+                    .map(|m| format!("{}\t{}", m.id, m.label))
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
         FactoryCommand::Report(a) => {
             let now = super::store::current_time();
             let report = super::telemetry::pilot_report(&store, now).map_err(map_factory_error)?;
@@ -2580,12 +2617,12 @@ fn start_idea_cmd(
     model: &str,
     title: Option<&str>,
 ) -> Result<Idea, CmdError> {
-    if !matches!(cli, "claude" | "agy") {
+    if !crate::state::CLIS.contains(&cli) {
         return Err(CmdError::invalid_input(format!(
-            "unsupported orchestrator cli: {cli} (expected claude or agy)"
+            "unsupported orchestrator cli: {cli} (expected claude, agy, or opencode)"
         )));
     }
-    let validated_model = crate::adapters::base::validate_model_id(model)
+    let validated_model = crate::adapters::base::validate_model_for_cli(cli, model)
         .map_err(|e| CmdError::invalid_input(e.to_string()))?;
     let raw_title = title.unwrap_or("New idea");
     let validated_title = validate_title(raw_title).map_err(|e| CmdError::invalid_input(e.0))?;

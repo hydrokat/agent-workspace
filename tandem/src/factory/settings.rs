@@ -111,7 +111,7 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
         validate_provider_tiers(provider, tiers)?;
     }
     for (model, price) in &settings.price_table {
-        validate_model_id(model).map_err(|reason| {
+        validate_any_model_id(model).map_err(|reason| {
             FactoryError::InvalidInput(format!("price_table model \"{model}\" invalid: {reason}"))
         })?;
         validate_model_price(model, price)?;
@@ -155,7 +155,7 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
             ));
         }
         for model in models {
-            validate_model_id(model).map_err(|reason| {
+            validate_provider_model_id(provider, model).map_err(|reason| {
                 FactoryError::InvalidInput(format!(
                     "allowed_models.{provider} \"{model}\" invalid: {reason}"
                 ))
@@ -172,13 +172,25 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
     Ok(())
 }
 
+fn validate_provider_model_id(provider: &str, model: &str) -> Result<(), String> {
+    crate::adapters::base::validate_model_for_cli(provider, model)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+fn validate_any_model_id(model: &str) -> Result<(), String> {
+    validate_model_id(model)
+        .map(|_| ())
+        .or_else(|_| validate_provider_model_id("opencode", model))
+}
+
 fn validate_provider_tiers(provider: &str, tiers: &ProviderModelTiers) -> Result<(), FactoryError> {
     for (tier_name, model_id) in [
         ("economy", &tiers.economy),
         ("standard", &tiers.standard),
         ("premium", &tiers.premium),
     ] {
-        validate_model_id(model_id).map_err(|reason| {
+        validate_provider_model_id(provider, model_id).map_err(|reason| {
             FactoryError::InvalidInput(format!(
                 "model_tiers.{provider}.{tier_name} \"{model_id}\" invalid: {reason}"
             ))

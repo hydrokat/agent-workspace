@@ -11,6 +11,7 @@ import {
   type FactoryCli,
   type Idea,
   type IdeaDetail,
+  type ModelOption,
   type ReadyResult,
 } from "../src/domain/models/factory";
 import type { WorkspaceSnapshotPayload } from "../src/domain/models/snapshot";
@@ -136,6 +137,11 @@ class MockFactoryGateway implements ITandemGateway {
     return SAMPLE_IDEA;
   }
 
+  async factoryListModels(workspacePath: string, cli: FactoryCli): Promise<ModelOption[]> {
+    this.calls.push({ method: "factoryListModels", args: [workspacePath, cli] });
+    return [{ id: "opencode/big-pickle", label: "Big Pickle" }];
+  }
+
   async factoryMarkReady(workspacePath: string, ideaId: string): Promise<ReadyResult> {
     this.calls.push({ method: "factoryMarkReady", args: [workspacePath, ideaId] });
     return SAMPLE_READY;
@@ -160,7 +166,7 @@ describe("Factory Domain Validators", () => {
   it("validates CLI providers", () => {
     expect(isValidCli("claude")).toBe(true);
     expect(isValidCli("agy")).toBe(true);
-    expect(isValidCli("opencode")).toBe(false);
+    expect(isValidCli("opencode")).toBe(true);
     expect(isValidCli("bash")).toBe(false);
   });
 
@@ -258,8 +264,16 @@ describe("Factory Use Cases", () => {
     });
 
     await expect(
-      uc.execute(workspace.id, { cli: "opencode", model: "claude-sonnet-4-6" })
+      uc.execute(workspace.id, { cli: "bash", model: "claude-sonnet-4-6" })
     ).rejects.toThrow("Invalid CLI");
+    await expect(
+      uc.execute(workspace.id, { cli: "opencode", model: "claude-sonnet-4-6" })
+    ).rejects.toThrow("Invalid model");
+    await uc.execute(workspace.id, { cli: "opencode", model: "opencode/big-pickle#high" });
+    expect(gateway.calls.at(-1)).toEqual({
+      method: "factoryStartIdea",
+      args: [workspace.path, "opencode", "opencode/big-pickle#high", undefined],
+    });
     await expect(
       uc.execute(workspace.id, { cli: "claude", model: "-bad-model" })
     ).rejects.toThrow("Invalid model");

@@ -29,7 +29,7 @@ use crate::ui::text::truncate_to_width;
 use crate::wizard::app::ModelLoader;
 use crate::wizard::runner::{installed_clis, load_models};
 
-const ORCHESTRATOR_CLIS: [&str; 2] = ["claude", "agy"];
+pub const ORCHESTRATOR_CLIS: [&str; 3] = ["claude", "agy", "opencode"];
 pub const BOARD_PAGE_SIZE: usize = 200;
 pub const ARCHIVE_AFTER_SECS: f64 = 30.0 * 86_400.0;
 
@@ -254,7 +254,8 @@ impl NewIdeaModal {
                 }
                 KeyCode::Enter => {
                     let Some(idx) = self.cli_state.selected else {
-                        self.message = "No supported CLI is installed (claude or agy).".to_string();
+                        self.message =
+                            "No supported CLI is installed (claude, agy, or opencode).".to_string();
                         return ModalKeyOutcome::Consumed;
                     };
                     let item = &self.cli_items[idx];

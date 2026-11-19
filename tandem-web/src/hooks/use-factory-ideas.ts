@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   FactoryCli,
+  ModelOption,
   Idea,
   IdeaCard,
   IdeaDetail,
@@ -145,6 +146,24 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
     [workspaceId]
   );
 
+  const listModels = useCallback(
+    async (cli: FactoryCli): Promise<ModelOption[]> => {
+      if (!workspaceId) {
+        throw new Error("No active workspace selected.");
+      }
+      const res = await fetch(
+        `/api/workspaces/${workspaceId}/factory/models?cli=${encodeURIComponent(cli)}`,
+        { cache: "no-store" }
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Failed to list models (${res.status})`);
+      }
+      return (body?.models ?? []) as ModelOption[];
+    },
+    [workspaceId]
+  );
+
   const markReady = useCallback(
     async (ideaId: string, confirm: string): Promise<ReadyResult> => {
       if (!workspaceId) {
@@ -194,6 +213,7 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
     artifactsLoading,
     refreshDetail,
     startIdea,
+    listModels,
     markReady,
     revokeReady,
   };

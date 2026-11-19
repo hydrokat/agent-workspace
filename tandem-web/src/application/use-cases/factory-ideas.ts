@@ -5,10 +5,11 @@ import {
   isValidCli,
   isValidIdeaId,
   isValidIdeaTitle,
-  isValidModelId,
+  isValidModelIdForCli,
   isValidWorkflowName,
   type Idea,
   type IdeaDetail,
+  type ModelOption,
   type ReadyResult,
 } from "../../domain/models/factory";
 import { isValidWorkspaceId, type WorkspaceEntry } from "../../domain/models/workspace";
@@ -100,7 +101,7 @@ export class StartFactoryIdeaUseCase {
     if (!isValidCli(input.cli)) {
       throw new FactoryGatewayError("invalid_input", `Invalid CLI provider: '${input.cli}'`);
     }
-    if (!isValidModelId(input.model)) {
+    if (!isValidModelIdForCli(input.cli, input.model)) {
       throw new FactoryGatewayError("invalid_input", `Invalid model ID: '${input.model}'`);
     }
     let normalizedTitle: string | undefined;
@@ -112,6 +113,21 @@ export class StartFactoryIdeaUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     return this.gateway.factoryStartIdea(workspace.path, input.cli, input.model, normalizedTitle);
+  }
+}
+
+export class ListFactoryModelsUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(workspaceId: string, cli: string): Promise<ModelOption[]> {
+    if (!isValidCli(cli)) {
+      throw new FactoryGatewayError("invalid_input", `Invalid CLI provider: '${cli}'`);
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    return this.gateway.factoryListModels(workspace.path, cli);
   }
 }
 
