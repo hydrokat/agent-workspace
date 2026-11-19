@@ -435,6 +435,11 @@ impl StatusApp {
             }
         }
 
+        if !self.settings_tab.is_editing_or_modal() {
+            self.settings_tab
+                .configure_factory(self.is_factory(), Some(self.workspace.clone()));
+        }
+
         let pane_open = self.is_factory_pane_open();
         self.factory_tab.platform = self.platform.clone();
         self.factory_tab.sync_snapshot(&self.snapshot, pane_open);
@@ -985,10 +990,7 @@ impl StatusApp {
         }
 
         if self.tab == StatusTab::Settings {
-            if !self.settings_tab.confirm_reset
-                && self.settings_tab.editing_workspace_name.is_none()
-                && event.code == KeyCode::Tab
-            {
+            if !self.settings_tab.is_editing_or_modal() && event.code == KeyCode::Tab {
                 self.set_tab(self.tab.next_for(self.is_factory()));
                 return;
             }

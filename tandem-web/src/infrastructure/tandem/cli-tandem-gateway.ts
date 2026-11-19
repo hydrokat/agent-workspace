@@ -13,6 +13,8 @@ import {
   type EvidenceItemContent,
   type FactoryCli,
   type FactoryErrorCode,
+  type FactorySettings,
+  type FactorySettingsChangeResult,
   type Idea,
   type IdeaDetail,
   type PrLink,
@@ -526,5 +528,31 @@ export class CliTandemGateway implements ITandemGateway {
       workspacePath,
       this.buildAuditArgs(ideaId, "--markdown", options)
     );
+  }
+
+  async factoryGetSettings(workspacePath: string): Promise<FactorySettings> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "settings",
+      "get",
+      "--json",
+    ]);
+    return JSON.parse(stdout) as FactorySettings;
+  }
+
+  async factorySetSetting(
+    workspacePath: string,
+    key: string,
+    value: string
+  ): Promise<FactorySettingsChangeResult> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "settings",
+      "set",
+      key,
+      value,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as FactorySettingsChangeResult;
   }
 }

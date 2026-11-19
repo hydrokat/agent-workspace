@@ -278,9 +278,64 @@ export interface ReadyResult {
 export type FactoryErrorCode =
   | "not_found"
   | "invalid_input"
+  | "forbidden"
   | "factory_disabled"
   | "gate_not_met"
   | "internal_error";
+
+export interface FactoryBudget {
+  max_cost_usd?: number | null;
+  max_duration_secs?: number | null;
+  max_retries?: number | null;
+}
+
+export interface ProviderModelTiers {
+  economy: string;
+  standard: string;
+  premium: string;
+}
+
+export interface FactoryProviderGate {
+  provider: string;
+  state: "open" | "closed";
+  auth_type?: string | null;
+  verified_on?: string | null;
+  terms_record?: string | null;
+  consented_at?: number | null;
+  consented_by?: string | null;
+}
+
+export interface FactorySettings {
+  version: number;
+  max_parallel_agents: number;
+  default_temperature: number;
+  default_workflow: string;
+  max_review_rounds: number;
+  approval_grace_secs: number;
+  default_budget: FactoryBudget;
+  model_tiers: Record<string, ProviderModelTiers>;
+  provider_gates: FactoryProviderGate[];
+  checks: Record<string, unknown>;
+  deploy_commands: Record<string, unknown>;
+}
+
+export interface FactorySettingsChangeResult {
+  key: string;
+  old_value: unknown;
+  new_value: unknown;
+  actor: string;
+  settings: FactorySettings;
+}
+
+export interface FactorySettingsPayload {
+  settings: FactorySettings;
+  providers: ProviderStatusItem[];
+  workflows: Array<{
+    name: string;
+    version: number;
+    valid: boolean;
+  }>;
+}
 
 export class FactoryGatewayError extends Error {
   constructor(

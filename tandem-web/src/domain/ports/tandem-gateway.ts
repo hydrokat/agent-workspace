@@ -4,6 +4,8 @@ import type {
   AuditTimelinePayload,
   EvidenceItemContent,
   FactoryCli,
+  FactorySettings,
+  FactorySettingsChangeResult,
   Idea,
   IdeaDetail,
   PrLink,
@@ -105,4 +107,10 @@ export interface ITandemGateway {
     ideaId: string,
     options?: AuditFilterOptions
   ): Promise<string>;
+  factoryGetSettings(workspacePath: string): Promise<FactorySettings>;
+  factorySetSetting(
+    workspacePath: string,
+    key: string,
+    value: string
+  ): Promise<FactorySettingsChangeResult>;
 }

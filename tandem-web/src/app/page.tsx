@@ -619,6 +619,7 @@ export default function DashboardPage() {
             candidates={candidates}
             activeWorkspace={activeWorkspace}
             agents={agentPanes}
+            factoryEnabled={factoryEnabled}
             onUpdateSettings={handleUpdateSettings}
             onResetUI={handleResetUI}
             onRenameWorkspace={handleRenameWorkspace}

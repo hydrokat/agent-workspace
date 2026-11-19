@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { IpSourceSelect } from "./ip-source-select";
 import { DependencyConsentDialog } from "./dependency-consent-dialog";
 import { LabelsCard } from "./labels-card";
+import { FactorySettingsCard } from "../factory/factory-settings";
 import { RotateCcw, Save, Globe } from "lucide-react";
 import type { WebSettings } from "@/domain/models/settings";
 import type { IpCandidate, NetworkSource } from "@/domain/models/network";
@@ -19,6 +20,7 @@ interface WebSettingsPanelProps {
   candidates: IpCandidate[];
   activeWorkspace?: WorkspaceEntry | null;
   agents?: PaneInfo[];
+  factoryEnabled?: boolean;
   onUpdateSettings: (updated: WebSettings) => Promise<void>;
   onResetUI: () => Promise<void>;
   onRenameWorkspace?: (label: string | null) => Promise<void>;
@@ -30,6 +32,7 @@ export function WebSettingsPanel({
   candidates,
   activeWorkspace,
   agents = [],
+  factoryEnabled = false,
   onUpdateSettings,
   onResetUI,
   onRenameWorkspace,
@@ -90,6 +93,10 @@ export function WebSettingsPanel({
 
   return (
     <div className="flex flex-col gap-6">
+      {factoryEnabled && activeWorkspace && (
+        <FactorySettingsCard workspaceId={activeWorkspace.id} />
+      )}
+
       {activeWorkspace && onRenameWorkspace && (
         <LabelsCard
           workspace={activeWorkspace}
