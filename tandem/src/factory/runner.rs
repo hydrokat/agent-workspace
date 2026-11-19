@@ -433,6 +433,16 @@ pub fn drive_run_step(
     run_id: &str,
     executor: &mut dyn Executor,
 ) -> Result<(), RunnerError> {
+    drive_run_step_with_gh(store, workspace, run_id, executor, Path::new("gh"))
+}
+
+pub fn drive_run_step_with_gh(
+    store: &FactoryStore,
+    workspace: &Path,
+    run_id: &str,
+    executor: &mut dyn Executor,
+    gh_binary: &Path,
+) -> Result<(), RunnerError> {
     let Some(mut run) = get_run(store, run_id)? else {
         return Ok(());
     };
@@ -442,8 +452,9 @@ pub fn drive_run_step(
             id: "runner".to_string(),
         };
         if run.prs.is_empty() {
-            let outcome = super::pr::open_pull_request(store, workspace, run_id, &sys)
-                .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
+            let outcome =
+                super::pr::open_pull_request_with_gh(store, workspace, run_id, &sys, gh_binary)
+                    .map_err(|e| RunnerError::InvalidInput(e.to_string()))?;
             if matches!(outcome, super::pr::PrOutcome::Paused { .. }) {
                 return Ok(());
             }

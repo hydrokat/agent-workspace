@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-pub use super::terms::AuthType;
+pub use super::terms::{AuthType, ProviderTermsRow};
 use super::terms::{PROVIDER_TERMS, TermsVerdict, lookup};
 use crate::coordination::filelock::exclusive_lock;
 use crate::factory::FactoryError;
@@ -69,6 +69,15 @@ pub fn check(
     settings: &FactorySettings,
     today: &str,
 ) -> Result<GatePass, GateDenied> {
+    check_with_terms(provider, settings, today, PROVIDER_TERMS)
+}
+
+pub fn check_with_terms(
+    provider: &str,
+    settings: &FactorySettings,
+    today: &str,
+    terms: &[ProviderTermsRow],
+) -> Result<GatePass, GateDenied> {
     let gate = settings
         .provider_gates
         .iter()
@@ -90,12 +99,15 @@ pub fn check(
         reason: "unknown authentication type".to_string(),
     })?;
 
-    let row = lookup(provider, auth_type).ok_or_else(|| GateDenied::TermsDisallowed {
-        provider: provider.to_string(),
-        auth_type: auth_type.as_str().to_string(),
-        verdict: "unclear".to_string(),
-        reason: "no verified terms row for provider and auth type".to_string(),
-    })?;
+    let row = terms
+        .iter()
+        .find(|r| r.provider == provider && r.auth_type == auth_type)
+        .ok_or_else(|| GateDenied::TermsDisallowed {
+            provider: provider.to_string(),
+            auth_type: auth_type.as_str().to_string(),
+            verdict: "unclear".to_string(),
+            reason: "no verified terms row for provider and auth type".to_string(),
+        })?;
 
     if !row.verdict.allows_headless() {
         return Err(GateDenied::TermsDisallowed {
@@ -150,6 +162,29 @@ pub fn consent_provider(
     consented_by: &str,
     caller: &Caller<'_>,
 ) -> Result<ProviderGate, ApprovalError> {
+    consent_provider_with_terms(
+        store,
+        provider,
+        auth_type,
+        confirm,
+        consented_by,
+        caller,
+        &today_iso_date(),
+        PROVIDER_TERMS,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn consent_provider_with_terms(
+    store: &FactoryStore,
+    provider: &str,
+    auth_type: AuthType,
+    confirm: &str,
+    consented_by: &str,
+    caller: &Caller<'_>,
+    today: &str,
+    terms: &[ProviderTermsRow],
+) -> Result<ProviderGate, ApprovalError> {
     require_user(caller)?;
 
     if confirm != provider {
@@ -163,12 +198,15 @@ pub fn consent_provider(
         )));
     }
 
-    let row = lookup(provider, auth_type).ok_or_else(|| {
-        ApprovalError::Gate(format!(
-            "Cannot open the {provider} gate: no verified terms row for {}.",
-            auth_type.as_str()
-        ))
-    })?;
+    let row = terms
+        .iter()
+        .find(|r| r.provider == provider && r.auth_type == auth_type)
+        .ok_or_else(|| {
+            ApprovalError::Gate(format!(
+                "Cannot open the {provider} gate: no verified terms row for {}.",
+                auth_type.as_str()
+            ))
+        })?;
 
     if !row.verdict.allows_headless() {
         return Err(ApprovalError::Gate(format!(
@@ -177,8 +215,7 @@ pub fn consent_provider(
         )));
     }
 
-    let today = today_iso_date();
-    if today.as_str() > row.reverify_by {
+    if today > row.reverify_by {
         return Err(ApprovalError::Gate(format!(
             "Cannot open the {provider} gate: terms expired on {}; re-verify first.",
             row.reverify_by
