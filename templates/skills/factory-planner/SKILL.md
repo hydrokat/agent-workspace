@@ -40,7 +40,9 @@ The `plan` stage runs in an interactive worker pane with only `repo_read` and `i
          "paths": ["src/example.rs"],
          "dependencies": [],
          "acceptance_criteria": ["<exact criterion from plan-snapshot.md>"],
-         "ui": false
+         "ui": false,
+         "complexity": "low",
+         "model_rationale": "<one line: why this complexity>"
        }
      ]
    }
@@ -49,4 +51,5 @@ The `plan` stage runs in an interactive worker pane with only `repo_read` and `i
    - Every acceptance criterion in `plan-snapshot.md` appears in `acceptance_criteria` of at least one slice.
    - Every path in `paths` is relative to and inside the target repository (no `..` or absolute paths).
    - `ui` is `true` if the slice includes UI/frontend changes, otherwise `false`.
+   - `complexity` (optional) is `low`, `medium`, or `high`, and drives which model tier works the slice. Prefer the lowest tier that can do the job: `low` for mechanical or well-specified changes, `medium` for ordinary feature work, and `high` only for security-sensitive, cross-cutting, or ambiguous work. Add `model_rationale` whenever you choose `high`. Optionally set `required_tier` (`economy`, `standard`, or `premium`) to pin a minimum tier. Omitting these fields is valid.
 5. **Write `result.json`.** Write the job's `result.json` with `status: "succeeded"`, `files_changed: []`, a concise `summary`, and `artifacts` listing every generated spec file (`specs/<phase>/impl.md`, `specs/<phase>/t-001.md`, ...) plus `slices.json`.

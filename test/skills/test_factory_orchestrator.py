@@ -209,3 +209,29 @@ def test_no_ready_or_revoke_ready_subcommand(tmp_path: Path) -> None:
     for forbidden in ("ready", "revoke-ready"):
         proc = run_factory(forbidden, env=env)
         assert proc.returncode == 2
+
+
+def test_recommend_builds_models_recommend_argv(tmp_path: Path) -> None:
+    stub = make_stub_tandem(tmp_path / "bin")
+    env = {"TANDEM_SELF": str(stub), "TANDEM_FACTORY_IDEA": "i-12345678"}
+    proc = run_factory(
+        "recommend", "--run", "r-7k2m9x4q", "--stage", "develop",
+        "--complexity", "high", "--required-tier", "standard", env=env,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    argv = json.loads(proc.stdout)["argv"]
+    assert argv == [
+        "factory", "models", "recommend", "--run", "r-7k2m9x4q", "--stage", "develop",
+        "--complexity", "high", "--required-tier", "standard", "--json",
+    ]
+
+
+def test_recommend_minimal_and_validates_choices(tmp_path: Path) -> None:
+    stub = make_stub_tandem(tmp_path / "bin")
+    env = {"TANDEM_SELF": str(stub), "TANDEM_FACTORY_IDEA": "i-12345678"}
+    ok = run_factory("recommend", "--run", "r-7k2m9x4q", "--stage", "review", env=env)
+    assert json.loads(ok.stdout)["argv"] == [
+        "factory", "models", "recommend", "--run", "r-7k2m9x4q", "--stage", "review", "--json",
+    ]
+    bad = run_factory("recommend", "--run", "r-7k2m9x4q", "--stage", "review", "--complexity", "huge", env=env)
+    assert bad.returncode == 2

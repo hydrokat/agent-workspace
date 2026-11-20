@@ -145,6 +145,20 @@ fn fallback(cli: &str, settings: &FactorySettings) -> Vec<CatalogModel> {
     result
 }
 
+pub fn with_pinned(
+    cli: &str,
+    mut models: Vec<CatalogModel>,
+    settings: &FactorySettings,
+) -> Vec<CatalogModel> {
+    for pinned in fallback(cli, settings) {
+        if !models.iter().any(|m| m.id == pinned.id) {
+            models.push(pinned);
+        }
+    }
+    sort_by_cost(&mut models);
+    models
+}
+
 fn sort_by_cost(models: &mut [CatalogModel]) {
     models.sort_by(|a, b| a.cost_rank.total_cmp(&b.cost_rank));
 }

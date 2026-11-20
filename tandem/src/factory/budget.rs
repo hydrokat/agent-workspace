@@ -573,6 +573,7 @@ pub fn routes_for_workflow(
         is_ui_work: false,
         avoid_provider: None,
         avoid_model: None,
+        ..RoutingContext::default()
     };
     for stage in &workflow.stages {
         let grant =
