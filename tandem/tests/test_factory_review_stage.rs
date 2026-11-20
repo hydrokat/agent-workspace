@@ -363,6 +363,7 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         is_ui_work: false,
         avoid_provider: Some("claude".into()),
         avoid_model: Some("claude-sonnet-4-6".into()),
+        ..RoutingContext::default()
     };
     let stage_grant = tandem::factory::permissions::ToolGrant::from_tools(
         stage.agent,
@@ -388,6 +389,7 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         is_ui_work: false,
         avoid_provider: Some("claude".into()),
         avoid_model: Some("claude-haiku-4-5".into()),
+        ..RoutingContext::default()
     };
     let routed_single = route(
         stage,

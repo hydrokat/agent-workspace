@@ -24,7 +24,10 @@ use super::model::{Actor, ActorKind};
 use super::routing::RoutingContext;
 use super::runner::{has_ui_slices, is_stop_requested};
 use super::store::{FactoryStore, create_private_dir, write_atomic};
-use super::team::{record_job_started, resolve_stage_assignment};
+use super::team::{
+    adapter_model_runner, discover_catalogs, record_default_selection,
+    record_job_started_with_selection, resolve_stage_assignment, slice_hints,
+};
 use super::worker::{
     WorkerAssignment, WorkerLaunchSpec, WorkerWatchOutcome, finish, launch, watch,
 };
@@ -65,10 +68,17 @@ pub trait Executor {
     }
 }
 
+pub type SharedModelRunner = Arc<
+    dyn Fn(&str) -> Result<Vec<crate::adapters::base::Model>, crate::adapters::base::AdapterError>
+        + Send
+        + Sync,
+>;
+
 pub struct BrokerExecutor {
     pub workspace: PathBuf,
     pub tmux: TmuxClient,
     pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
+    model_runner: SharedModelRunner,
     readiness_cache: Mutex<Option<(Instant, Vec<&'static str>)>>,
 }
 
@@ -87,8 +97,14 @@ impl BrokerExecutor {
             workspace,
             tmux: TmuxClient::new(socket, None),
             login_probe: Arc::new(HostLoginProbe),
+            model_runner: Arc::new(adapter_model_runner),
             readiness_cache: Mutex::new(None),
         }
+    }
+
+    pub fn with_model_runner(mut self, runner: SharedModelRunner) -> Self {
+        self.model_runner = runner;
+        self
     }
 
     pub fn with_tmux(mut self, tmux: TmuxClient) -> Self {
@@ -467,18 +483,17 @@ impl BrokerExecutor {
         } else {
             (None, None)
         };
-        let preferred_provider = if settings.default_worker_cli != "auto" {
-            Some(settings.default_worker_cli.clone())
-        } else {
-            idea.as_ref()
-                .and_then(|i| i.orchestrator.as_ref())
-                .map(|o| o.cli.clone())
-        };
+        let preferred_provider =
+            (settings.default_worker_cli != "auto").then(|| settings.default_worker_cli.clone());
+        let (complexity, required_tier) = slice_hints(&store, &job.run);
         let r_ctx = RoutingContext {
             preferred_provider,
             is_ui_work: has_ui_slices(&store, &job.run),
             avoid_provider,
             avoid_model,
+            complexity,
+            required_tier,
+            catalog: discover_catalogs(&store, &settings, &ready_clis, &*self.model_runner),
         };
         let target_name = run.target.as_deref().unwrap_or("workspace");
         let tool_grant = match super::permissions::grant(
@@ -530,6 +545,20 @@ impl BrokerExecutor {
         let routed = resolved.route;
         let assigned_role = resolved.role;
         let assignment_source = resolved.source;
+        let selection = resolved.selection;
+        if assignment_source == super::team::AssignmentSource::Default
+            && let Some(sel) = &selection
+        {
+            let _ = record_default_selection(
+                &store,
+                &job.run,
+                &job.stage,
+                &routed.provider,
+                &routed.model,
+                &assigned_role,
+                sel,
+            );
+        }
         let _ = (terms, today);
 
         let plan_snapshot_path = store
@@ -690,7 +719,7 @@ impl BrokerExecutor {
             };
             let launched = launch(&self.tmux, &worker_spec)
                 .map_err(|e| JobError::Io(std::io::Error::other(e.to_string())))?;
-            let _ = record_job_started(
+            let _ = record_job_started_with_selection(
                 &store,
                 &run.idea,
                 &job.run,
@@ -706,6 +735,7 @@ impl BrokerExecutor {
                     kind: ActorKind::System,
                     id: "executor".to_string(),
                 },
+                selection.clone(),
             );
             let watch_outcome = watch(&self.tmux, &launched, &|| {
                 is_stop_requested(&store, &job.run)

@@ -810,6 +810,7 @@ pub fn drive_run_step_with_gh(
         is_ui_work: is_ui,
         avoid_provider,
         avoid_model,
+        ..RoutingContext::default()
     };
 
     let target_name = run

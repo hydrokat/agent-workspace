@@ -573,6 +573,19 @@ export interface LoginPaneResult {
 
 export type AssignmentSource = "user" | "orchestrator" | "default";
 
+export type ModelTierName = "economy" | "standard" | "premium";
+export type CostBasisName = "price_table" | "free_tier" | "heuristic";
+export type CatalogSourceName = "live" | "cache" | "fallback";
+
+export interface ModelSelection {
+  required_tier: ModelTierName;
+  selected_tier: ModelTierName;
+  cost_basis: CostBasisName;
+  candidates: number;
+  rationale: string;
+  source: CatalogSourceName;
+}
+
 export interface StageAssignment {
   stage: string;
   cli: string;
@@ -581,6 +594,7 @@ export interface StageAssignment {
   source: AssignmentSource;
   updated: number;
   updated_by: string;
+  selection?: ModelSelection | null;
 }
 
 export interface WorkerActivity {
@@ -599,6 +613,7 @@ export interface AgentSummary {
   model: string;
   role: string;
   source: AssignmentSource;
+  selection?: ModelSelection | null;
   job_state: string;
   pane_id?: string | null;
   pane_alive: boolean;

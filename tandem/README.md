@@ -224,6 +224,8 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory checks show [--target NAME] [--json]` | Show confirmed check commands |
 | `tandem factory login status [--json]` | Check installed/signed-in status for `claude`, `agy`, and `opencode` |
 | `tandem factory login open <CLI> [--json]` | Open an isolated tmux login pane (`@tandem_role=login`) using the CLI's own login command |
+| `tandem factory models --cli <CLI> [--refresh] [--json]` | List the models a CLI offers with `tier` (economy/standard/premium), `cost_rank`, `cost_basis` (`price_table`, `free_tier`, `heuristic`), `allowed`, and `source` (`live`, `cache`, `fallback`); cached 10 minutes in `.agent-workspace/factory/model-cache-<cli>.json` |
+| `tandem factory models recommend --run <RUN> --stage <STAGE> [--complexity low\|medium\|high] [--required-tier economy\|standard\|premium] [--json]` | Recommend the cheapest capable CLI and model for a stage from signed-in CLIs (stage floor, slice complexity, and `required_tier`; review avoids the develop model) |
 | `tandem factory agent assign --run <RUN> --stage <STAGE> --cli <CLI> --model <MODEL> [--by user\|orchestrator] [--json]` | Assign or override the interactive CLI/model for a stage (`user` always overrides `orchestrator`) |
 | `tandem factory agent list --run <RUN> [--json]` | List recorded worker jobs, pane liveness, assignment source, and activity status |
 | `tandem factory agent send --run <RUN> --job <JOB> --file <PATH> [--json]` | Deliver a file-backed message to an owned worker pane via guarded `paste-buffer` |

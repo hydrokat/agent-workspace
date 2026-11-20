@@ -16,8 +16,8 @@ use super::model::{Actor, ActorKind, FactorySettings, KNOWN_PROVIDERS, Run};
 use super::permissions::ToolGrant;
 use super::redact::RedactContext;
 use super::routing::{
-    ModelTier, Route, RoutingContext, Unroutable, interactive_map_tool, map_agent_definition,
-    route_interactive,
+    CliCatalog, Complexity, ModelTier, Route, RoutingContext, Selection, Unroutable, escalate,
+    interactive_map_tool, map_agent_definition, route_interactive_selected,
 };
 use super::run::{RunError, get_run};
 use super::store::{FactoryStore, current_time, write_atomic};
@@ -58,6 +58,8 @@ pub struct StageAssignment {
     pub source: AssignmentSource,
     pub updated: f64,
     pub updated_by: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<Selection>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -82,6 +84,7 @@ pub struct ResolvedStageAssignment {
     pub route: Route,
     pub role: String,
     pub source: AssignmentSource,
+    pub selection: Option<Selection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -106,6 +109,8 @@ pub struct AgentSummary {
     pub model: String,
     pub role: String,
     pub source: AssignmentSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<Selection>,
     pub job_state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
@@ -139,6 +144,19 @@ pub enum TeamError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+}
+
+fn open_assignments_lock(store: &FactoryStore, run_id: &str) -> Result<fs::File, TeamError> {
+    let path = store.run_dir(run_id).join("assignments.lock");
+    reject_if_symlink(&path)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)?;
+    set_private_file_mode(&path)?;
+    Ok(file)
 }
 
 pub fn assignments_path(store: &FactoryStore, run_id: &str) -> PathBuf {
@@ -212,6 +230,8 @@ pub fn assign_stage(
         ));
     }
 
+    let lock = open_assignments_lock(store, input.run_id)?;
+    let _guard = crate::coordination::exclusive_lock(&lock)?;
     let mut file = load_assignments(store, input.run_id)?;
     if let Some(existing) = file.stages.get(input.stage)
         && existing.source == AssignmentSource::User
@@ -246,6 +266,7 @@ pub fn assign_stage(
         source: input.by,
         updated: current_time(),
         updated_by: input.actor_id.to_string(),
+        selection: None,
     };
     file.stages
         .insert(input.stage.to_string(), assignment.clone());
@@ -303,6 +324,7 @@ pub fn resolve_stage_assignment(
                 route,
                 role: assigned.role.clone(),
                 source: assigned.source,
+                selection: assigned.selection.clone(),
             });
         }
     }
@@ -323,7 +345,7 @@ pub fn resolve_stage_assignment(
             settings.default_worker_cli
         )));
     }
-    let route = route_interactive(
+    let (route, selection) = route_interactive_selected(
         stage,
         grant,
         workflow,
@@ -337,6 +359,7 @@ pub fn resolve_stage_assignment(
         route,
         role,
         source: AssignmentSource::Default,
+        selection,
     })
 }
 
@@ -355,6 +378,28 @@ pub fn record_job_started(
     pane_id: &str,
     actor: &Actor,
 ) -> Result<(), FactoryError> {
+    record_job_started_with_selection(
+        store, idea_id, run_id, job_id, stage, attempt, cli, model, role, source, pane_id, actor,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn record_job_started_with_selection(
+    store: &FactoryStore,
+    idea_id: &str,
+    run_id: &str,
+    job_id: &str,
+    stage: &str,
+    attempt: u32,
+    cli: &str,
+    model: &str,
+    role: &str,
+    source: AssignmentSource,
+    pane_id: &str,
+    actor: &Actor,
+    selection: Option<Selection>,
+) -> Result<(), FactoryError> {
     store.ensure()?;
     let ev_data = EventData::JobStarted {
         run: run_id.to_string(),
@@ -366,6 +411,7 @@ pub fn record_job_started(
         role: role.to_string(),
         source,
         pane_id: pane_id.to_string(),
+        selection,
     };
     let ev = super::events::Event::from_data(
         current_time(),
@@ -377,6 +423,250 @@ pub fn record_job_started(
     let redacted = redact_event(ev, &RedactContext::from_env());
     append(&store.events_path(), &store.lock_path(), &[redacted])?;
     Ok(())
+}
+
+pub type ModelRunner<'a> =
+    &'a dyn Fn(
+        &str,
+    )
+        -> Result<Vec<crate::adapters::base::Model>, crate::adapters::base::AdapterError>;
+
+pub fn adapter_model_runner(
+    cli: &str,
+) -> Result<Vec<crate::adapters::base::Model>, crate::adapters::base::AdapterError> {
+    crate::adapters::adapter_for(cli)
+        .map_err(|e| crate::adapters::base::AdapterError::UnknownCli(e.to_string()))?
+        .list_models()
+}
+
+pub fn discover_catalogs(
+    store: &FactoryStore,
+    settings: &FactorySettings,
+    clis: &[&str],
+    runner: ModelRunner<'_>,
+) -> Vec<CliCatalog> {
+    clis.iter()
+        .map(|&cli| CliCatalog {
+            cli: cli.to_string(),
+            models: catalog_models(store, settings, cli, runner),
+        })
+        .collect()
+}
+
+fn catalog_models(
+    store: &FactoryStore,
+    settings: &FactorySettings,
+    cli: &str,
+    runner: ModelRunner<'_>,
+) -> Vec<super::model_catalog::CatalogModel> {
+    let live = super::model_catalog::discover(cli, settings, store.root_dir(), false, runner);
+    super::model_catalog::with_pinned(cli, live, settings)
+}
+
+pub fn slice_hints(store: &FactoryStore, run_id: &str) -> (Option<Complexity>, Option<ModelTier>) {
+    let path = store.run_dir(run_id).join("artifacts/slices.json");
+    if reject_if_symlink(&path).is_err() || !path.is_file() {
+        return (None, None);
+    }
+    let Some(manifest) = fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<super::stages::plan::SlicesManifest>(&raw).ok())
+    else {
+        return (None, None);
+    };
+    let complexity = manifest.slices.iter().filter_map(|s| s.complexity).max();
+    let required = manifest.slices.iter().filter_map(|s| s.required_tier).max();
+    (complexity, required)
+}
+
+pub fn record_default_selection(
+    store: &FactoryStore,
+    run_id: &str,
+    stage: &str,
+    cli: &str,
+    model: &str,
+    role: &str,
+    selection: &Selection,
+) -> Result<(), TeamError> {
+    let lock = open_assignments_lock(store, run_id)?;
+    let _guard = crate::coordination::exclusive_lock(&lock)?;
+    let mut file = load_assignments(store, run_id)?;
+    if file
+        .stages
+        .get(stage)
+        .is_some_and(|a| a.source != AssignmentSource::Default)
+    {
+        return Ok(());
+    }
+    file.stages.insert(
+        stage.to_string(),
+        StageAssignment {
+            stage: stage.to_string(),
+            cli: cli.to_string(),
+            model: model.to_string(),
+            role: role.to_string(),
+            source: AssignmentSource::Default,
+            updated: current_time(),
+            updated_by: "default".to_string(),
+            selection: Some(selection.clone()),
+        },
+    );
+    save_assignments(store, run_id, &file)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StageRecommendation {
+    pub run: String,
+    pub stage: String,
+    pub cli: String,
+    pub model: String,
+    pub role: String,
+    pub tier: ModelTier,
+    pub selection: Option<Selection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<StageAssignment>,
+}
+
+pub struct RecommendInput<'a> {
+    pub run_id: &'a str,
+    pub stage: &'a str,
+    pub complexity: Option<Complexity>,
+    pub required_tier: Option<ModelTier>,
+    pub ready_clis: &'a [&'a str],
+}
+
+pub fn recommend_stage(
+    store: &FactoryStore,
+    input: RecommendInput<'_>,
+    runner: ModelRunner<'_>,
+) -> Result<StageRecommendation, TeamError> {
+    if !is_valid_run_id(input.run_id) {
+        return Err(TeamError::InvalidInput(format!(
+            "invalid run id: {}",
+            input.run_id
+        )));
+    }
+    let run = get_run(store, input.run_id)?
+        .ok_or_else(|| TeamError::NotFound(format!("run {} not found", input.run_id)))?;
+    let settings = store.settings()?;
+    let wf_path = store.run_dir(input.run_id).join("workflow.yaml");
+    reject_if_symlink(&wf_path)?;
+    let raw_wf = load_workflow_file(&wf_path)
+        .map_err(|e| TeamError::InvalidInput(format!("workflow invalid: {e}")))?;
+    let wf = validate(&raw_wf, &settings).map_err(|diags| {
+        let msgs: Vec<String> = diags.iter().map(ToString::to_string).collect();
+        TeamError::InvalidInput(format!("workflow invalid: {}", msgs.join("; ")))
+    })?;
+    let stage_def = wf
+        .stages
+        .iter()
+        .find(|s| s.name == input.stage)
+        .ok_or_else(|| TeamError::InvalidInput(format!("stage '{}' not found", input.stage)))?;
+    let approvals = super::protected::load_run_approvals(store, input.run_id)?;
+    let matching_approval = super::protected::find_matching_approval(
+        &approvals,
+        input.run_id,
+        input.stage,
+        &run.workflow_sha256,
+        current_time(),
+    )
+    .is_some();
+    let grant = super::permissions::grant(
+        stage_def.agent,
+        stage_def,
+        run.target.as_deref().unwrap_or("workspace"),
+        &wf,
+        &settings,
+        matching_approval,
+    )
+    .map_err(|e| TeamError::Forbidden(e.to_string()))?;
+
+    let (slice_complexity, slice_tier) = slice_hints(store, input.run_id);
+    let (avoid_provider, avoid_model) = if input.stage == "review" {
+        super::executor::last_stage_provider_model(store, &run, "develop")
+    } else {
+        (None, None)
+    };
+    let ctx = RoutingContext {
+        preferred_provider: (settings.default_worker_cli != "auto")
+            .then(|| settings.default_worker_cli.clone()),
+        is_ui_work: super::runner::has_ui_slices(store, input.run_id),
+        avoid_provider,
+        avoid_model,
+        complexity: input.complexity.or(slice_complexity),
+        required_tier: input.required_tier.or(slice_tier),
+        catalog: discover_catalogs(store, &settings, input.ready_clis, runner),
+    };
+    let (route, selection) =
+        route_interactive_selected(stage_def, &grant, &wf, &settings, input.ready_clis, 1, &ctx)?;
+    let current = load_assignments(store, input.run_id)?
+        .stages
+        .get(input.stage)
+        .cloned();
+    Ok(StageRecommendation {
+        run: input.run_id.to_string(),
+        stage: input.stage.to_string(),
+        cli: route.provider.clone(),
+        model: route.model.clone(),
+        role: route.agent_definition.to_string(),
+        tier: route.tier,
+        selection,
+        current,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EscalationSuggestion {
+    pub cli: String,
+    pub model: String,
+    pub selection: Selection,
+    pub applies_automatically: bool,
+}
+
+pub fn suggest_escalation(
+    store: &FactoryStore,
+    run_id: &str,
+    job_id: &str,
+    runner: ModelRunner<'_>,
+) -> Result<Option<EscalationSuggestion>, TeamError> {
+    let (stage, attempt) = parse_job_id(run_id, job_id)?;
+    let jdir = job_dir(store, run_id, &stage, attempt);
+    let result_path = jdir.join("result.json");
+    reject_if_symlink(&result_path)?;
+    let failed = fs::read_to_string(&result_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<JobResult>(&raw).ok())
+        .is_some_and(|r| r.status == JobResultStatus::Failed);
+    if !failed {
+        return Ok(None);
+    }
+    let input_path = jdir.join("input.json");
+    reject_if_symlink(&input_path)?;
+    let modified = |path: &Path| fs::metadata(path).and_then(|m| m.modified()).ok();
+    if let (Some(result_at), Some(input_at)) = (modified(&result_path), modified(&input_path))
+        && result_at < input_at
+    {
+        return Ok(None);
+    }
+    let input: JobInput = serde_json::from_str(&fs::read_to_string(&input_path)?)?;
+    let settings = store.settings()?;
+    let models =
+        super::model_catalog::discover(&input.provider, &settings, store.root_dir(), false, runner);
+    let Some((next, selection)) = escalate(&models, &input.model) else {
+        return Ok(None);
+    };
+    let assignments = load_assignments(store, run_id)?;
+    let applies_automatically = match assignments.stages.get(&stage) {
+        Some(a) if a.source == AssignmentSource::User => false,
+        Some(a) if a.source == AssignmentSource::Orchestrator => !settings.orchestrator_may_choose,
+        _ => true,
+    };
+    Ok(Some(EscalationSuggestion {
+        cli: input.provider,
+        model: next.id,
+        selection,
+        applies_automatically,
+    }))
 }
 
 fn parse_job_id(run_id: &str, job_id: &str) -> Result<(String, u32), TeamError> {
@@ -493,6 +783,10 @@ pub fn list_agents(
                 .get(&stage)
                 .map(|a| a.source)
                 .unwrap_or(AssignmentSource::Default);
+            let selection = assignments
+                .stages
+                .get(&stage)
+                .and_then(|a| a.selection.clone());
             let job_state = read_job_state(&dir)
                 .map(|s| s.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
@@ -537,6 +831,7 @@ pub fn list_agents(
                 model,
                 role,
                 source,
+                selection,
                 job_state,
                 pane_id,
                 pane_alive,
@@ -639,6 +934,17 @@ pub fn relaunch_agent_with_env(
     job_id: &str,
     env: BTreeMap<String, String>,
 ) -> Result<LaunchedWorker, TeamError> {
+    relaunch_agent_with_runner(store, tmux, run_id, job_id, env, &adapter_model_runner)
+}
+
+pub fn relaunch_agent_with_runner(
+    store: &FactoryStore,
+    tmux: &TmuxClient,
+    run_id: &str,
+    job_id: &str,
+    env: BTreeMap<String, String>,
+    runner: ModelRunner<'_>,
+) -> Result<LaunchedWorker, TeamError> {
     if !is_valid_run_id(run_id) {
         return Err(TeamError::InvalidInput(format!("invalid run id: {run_id}")));
     }
@@ -689,6 +995,20 @@ pub fn relaunch_agent_with_env(
             input.agent.clone(),
             AssignmentSource::Default,
         ),
+    };
+    let mut escalation: Option<Selection> = None;
+    let (cli, model) = if source == AssignmentSource::Default {
+        match suggest_escalation(store, run_id, job_id, runner)? {
+            Some(s)
+                if s.applies_automatically && validate_model_for_cli(&s.cli, &s.model).is_ok() =>
+            {
+                escalation = Some(s.selection.clone());
+                (s.cli, s.model)
+            }
+            _ => (cli, model),
+        }
+    } else {
+        (cli, model)
     };
 
     let wf_path = store.run_dir(run_id).join("workflow.yaml");
@@ -771,7 +1091,7 @@ pub fn relaunch_agent_with_env(
         kind: ActorKind::Orchestrator,
         id: "team".to_string(),
     };
-    record_job_started(
+    record_job_started_with_selection(
         store,
         &run.idea,
         run_id,
@@ -784,6 +1104,10 @@ pub fn relaunch_agent_with_env(
         source,
         &launched.pane_id,
         &actor,
+        escalation.clone(),
     )?;
+    if let Some(selection) = &escalation {
+        record_default_selection(store, run_id, &stage, &cli, &model, &role, selection)?;
+    }
     Ok(launched)
 }
