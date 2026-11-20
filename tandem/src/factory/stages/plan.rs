@@ -33,6 +33,12 @@ pub struct Slice {
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
     pub ui: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<crate::factory::routing::Complexity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_tier: Option<crate::factory::routing::ModelTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_rationale: Option<String>,
 }
 
 pub struct PlanStageContract;

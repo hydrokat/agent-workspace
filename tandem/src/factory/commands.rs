@@ -215,12 +215,44 @@ pub struct FactoryLoginOpenArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
 pub struct FactoryModelsArgs {
-    #[arg(long, help = "CLI provider (claude, agy, or opencode)")]
-    pub cli: String,
+    #[command(subcommand)]
+    pub command: Option<FactoryModelsCommand>,
+
+    #[arg(
+        long,
+        required = true,
+        help = "CLI provider (claude, agy, or opencode)"
+    )]
+    pub cli: Option<String>,
 
     #[arg(long, help = "bypass cache and re-discover models from the CLI")]
     pub refresh: bool,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryModelsCommand {
+    #[command(about = "recommend the least-cost capable CLI and model for a run stage")]
+    Recommend(FactoryModelsRecommendArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryModelsRecommendArgs {
+    #[arg(long, help = "run ID (r-...)")]
+    pub run: String,
+
+    #[arg(long, help = "stage name")]
+    pub stage: String,
+
+    #[arg(long, help = "task complexity hint: low, medium, or high")]
+    pub complexity: Option<String>,
+
+    #[arg(long, help = "minimum tier: economy, standard, or premium")]
+    pub required_tier: Option<String>,
 
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
@@ -1178,7 +1210,10 @@ fn json_flag(args: &FactoryArgs) -> bool {
         },
         FactoryCommand::Doctor(a) => a.json,
         FactoryCommand::Report(a) => a.json,
-        FactoryCommand::Models(a) => a.json,
+        FactoryCommand::Models(a) => match &a.command {
+            Some(FactoryModelsCommand::Recommend(r)) => r.json,
+            None => a.json,
+        },
         FactoryCommand::Login(l_args) => match &l_args.command {
             FactoryLoginCommand::Status(a) => a.json,
             FactoryLoginCommand::Open(a) => a.json,
@@ -2448,10 +2483,13 @@ fn execute_with_probe(
         FactoryCommand::Audit(a) => run_audit_command(a, &store, enabled),
         FactoryCommand::Doctor(_) => unreachable!("handled in run_with_caller_io"),
         FactoryCommand::Models(a) => {
-            if !crate::state::CLIS.contains(&a.cli.as_str()) {
+            if let Some(FactoryModelsCommand::Recommend(r)) = &a.command {
+                return run_models_recommend(r, &store);
+            }
+            let cli = a.cli.clone().unwrap_or_default();
+            if !crate::state::CLIS.contains(&cli.as_str()) {
                 return Err(CmdError::invalid_input(format!(
-                    "unsupported orchestrator cli: {} (expected claude, agy, or opencode)",
-                    a.cli
+                    "unsupported orchestrator cli: {cli} (expected claude, agy, or opencode)"
                 )));
             }
             let settings = store.settings().map_err(map_factory_error)?;
@@ -2464,7 +2502,7 @@ fn execute_with_probe(
                 adapter.list_models()
             };
             let catalog = super::model_catalog::discover(
-                &a.cli,
+                &cli,
                 &settings,
                 store.root_dir(),
                 a.refresh,
@@ -2771,6 +2809,69 @@ fn handle_agent_command(
             }
         }
     }
+}
+
+fn run_models_recommend(
+    args: &FactoryModelsRecommendArgs,
+    store: &FactoryStore,
+) -> Result<String, CmdError> {
+    let complexity = match args.complexity.as_deref() {
+        None => None,
+        Some(raw) => Some(super::routing::Complexity::parse(raw).ok_or_else(|| {
+            CmdError::invalid_input(format!(
+                "invalid complexity '{raw}' (expected low, medium, or high)"
+            ))
+        })?),
+    };
+    let required_tier = match args.required_tier.as_deref() {
+        None => None,
+        Some("economy") => Some(super::routing::ModelTier::Economy),
+        Some("standard") => Some(super::routing::ModelTier::Standard),
+        Some("premium") => Some(super::routing::ModelTier::Premium),
+        Some(other) => {
+            return Err(CmdError::invalid_input(format!(
+                "invalid required tier '{other}' (expected economy, standard, or premium)"
+            )));
+        }
+    };
+    let probe = super::login::HostLoginProbe;
+    let ready: Vec<&str> = super::login::LOGIN_SPECS
+        .iter()
+        .map(|spec| spec.cli)
+        .filter(|cli| super::broker::gate::interactive_ready(cli, &probe).ready)
+        .collect();
+    if ready.is_empty() {
+        return Err(CmdError {
+            exit_code: 1,
+            code: "no_cli_ready",
+            message: "no CLI is installed and signed in (run: tandem factory login status)"
+                .to_string(),
+        });
+    }
+    let recommendation = super::team::recommend_stage(
+        store,
+        super::team::RecommendInput {
+            run_id: &args.run,
+            stage: &args.stage,
+            complexity,
+            required_tier,
+            ready_clis: &ready,
+        },
+        &super::team::adapter_model_runner,
+    )
+    .map_err(map_team_error)?;
+    if args.json {
+        return serialize_compact(&recommendation);
+    }
+    let detail = recommendation
+        .selection
+        .as_ref()
+        .map(|s| s.rationale.clone())
+        .unwrap_or_else(|| "static tier (live catalog unavailable)".to_string());
+    Ok(format!(
+        "{}\t{}/{}\t{:?}\t{}",
+        recommendation.stage, recommendation.cli, recommendation.model, recommendation.tier, detail
+    ))
 }
 
 fn run_doctor_command(

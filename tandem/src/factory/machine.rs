@@ -172,6 +172,8 @@ pub enum EventData {
         role: String,
         source: super::team::AssignmentSource,
         pane_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selection: Option<super::routing::Selection>,
     },
     #[serde(rename = "stage.succeeded")]
     StageSucceeded { run: String, stage: String },
