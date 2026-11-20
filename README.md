@@ -350,12 +350,22 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 Factory Mode is an opt-in operating mode that takes a feature or fix **from idea to pull request, with a human at the right gate**. An Orchestrator works with you to scope the idea, check feasibility, and draft a plan before any code is written. Once you approve the plan and open the required gates, tandem runs the delivery stages in an isolated git worktree and hands back a GitHub pull request with test and review evidence.
 
+#### Login choice & provider terms
+
+Factory Mode workers run interactively in tmux panes (`claude`, `agy`, `opencode`) using **whatever login each CLI already holds on your machine** (`tandem` reads no secrets and handles no credentials). Before choosing how to sign in:
+
+- **Subscription vs. API key**: Using a consumer subscription in an orchestrator-driven workflow may conflict with provider terms of service. Review the 2026-11-20 terms verdicts in [`factory-provider-terms.md`](../../knowledgebase/architecture-decisions/factory-provider-terms.md):
+  - `claude`: API key / Claude Console commercial terms are `allowed-with-conditions`; consumer subscription automation is `not-allowed` (gray area for local end-user workflows).
+  - `agy`: Google AI Studio API key / Vertex AI / Gemini Enterprise are `allowed-with-conditions`; consumer OAuth wrapping is `unclear` and excluded from headless automation.
+  - `opencode`: uses whichever provider/API-key configuration you set inside opencode.
+- **API-key sign-in**: To sign in with an API key instead, open **Settings → Agents & sign-in** (in TUI or `tandem-web`) or run `tandem factory login open <cli>`, which opens the CLI's own sign-in screen in an isolated tmux pane.
+
 #### Before you start
 
 Make sure these four prerequisites are in place before starting a run:
 
 1. **A Factory Mode session**: Launch with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share the same workspace at the same time.
-2. **An open provider gate**: Review provider terms and record consent for at least one headless provider (`tandem factory provider status --json`, then `tandem factory provider consent <provider> --auth <type> --confirm <provider>`).
+2. **At least one signed-in AI CLI**: Verify `claude`, `agy`, or `opencode` is installed and signed in via **Settings → Agents & sign-in** or `tandem factory login status --json` (and `tandem factory login open <cli>`).
 3. **`gh` authenticated by you**: Run `gh auth login` on your machine so tandem can open a pull request on GitHub using your existing CLI session.
 4. **Confirmed check commands**: Inspect proposed `test` and `lint` commands with `tandem factory checks discover` and confirm them as the user with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`.
 
@@ -363,13 +373,14 @@ Make sure these four prerequisites are in place before starting a run:
 
 Using the example idea *"Export team activity as CSV for the last 90 days"*:
 
-1. **Start an idea**: Open the **Factory** tab (`Alt+f` / `Opt+f`, or in `tandem-web`) and create an idea, picking the Orchestrator CLI (`claude` or `agy`) and model, or run `tandem factory idea start --cli claude --model opus --title "Export team activity as CSV for the last 90 days"`. You see a bound Orchestrator pane open for the idea.
+1. **Start an idea**: Open the **Factory** tab (`Alt+f` / `Opt+f`, or in `tandem-web`) and create an idea, picking the Orchestrator CLI (`claude`, `agy`, or `opencode`) and model, or run `tandem factory idea start --cli claude --model opus --title "Export team activity as CSV for the last 90 days"`. You see a bound Orchestrator pane open for the idea.
 2. **Talk to the Orchestrator**: Describe the idea directly in the Orchestrator pane. The Orchestrator uses `factory-orchestrator` (and `/idea` for feasibility + planning) to record a feasibility study (`artifact put --kind feasibility`), log assumptions (`idea assume`), and advance past Gate 1 (`idea select-direction`) once feasibility is non-infeasible.
 3. **Answer decision-relevant questions**: Open questions tagged `idea:<id>` surface on the ideas board (`Needs you` / `Blockers`) and are answered in the **Queries** tab or `tandem-web` Queries inbox. You decide any scope or product trade-offs before planning finishes.
 4. **Review and mark `ready-for-development` (Gate 2)**: Inspect the feasibility study, versioned plan, and assumptions in the **Factory** detail view (TUI or `tandem-web`). Only the user can mark an idea ready (`tandem factory idea ready <id> --confirm <id> [--workflow NAME] [--deploy]` or the UI confirmation dialog), which freezes `plan-snapshot.md` with its SHA-256 hash and creates a **queued** run (`runs/<run-id>/workflow.yaml` + `run.json`). During the `approval_grace_secs` undo window, you can undo via the banner, or withdraw a queued run (`tandem factory run withdraw <run-id> --confirm <run-id>`) and revoke `ready-for-development` (`tandem factory idea revoke-ready <id>`) before any stage starts.
-5. **Dry-run a workflow (optional)**: Preview what a workflow would do without writing files or spawning processes: `tandem factory run simulate --workflow default-delivery` (or `tandem factory run simulate <idea-id>`).
-6. **Consent a headless provider and confirm check commands**: Before any headless stage runs, open the provider gate (`tandem factory provider consent <provider> --auth <type> --confirm <provider>`) and confirm `test` / `lint` commands (`tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`).
-7. **Run through the quality path to a pull request and handoff (`p-017`)**: When the run starts, tandem prepares an isolated git worktree (`worktrees/factory-<run-id>` on `feat/<idea-id>-<slug>` — use `tandem factory run target <run-id> <repo>` if multiple repos exist), runs `plan` (`slices.json`), and steps through:
+5. **Dry-run a workflow & assign stage models (optional)**: Preview what a workflow would do with `tandem factory run simulate --workflow default-delivery`. Optionally override any stage's CLI or model in **Run Monitor → Assignments** (`a` in TUI or Assignment Editor in `tandem-web`) or via `tandem factory agent assign --run <run-id> --stage <stage> --cli <cli> --model <model> --by user`; user assignments always override the Orchestrator's choices.
+6. **Confirm check commands**: Before `create-tests`/`develop`/`test` run, confirm `test` / `lint` commands (`tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`).
+7. **Run through the interactive team & quality path to PR**: When the run starts, tandem prepares an isolated git worktree (`worktrees/factory-<run-id>` on `feat/<idea-id>-<slug>` — use `tandem factory run target <run-id> <repo>` if multiple repos exist) and launches an interactive tmux worker pane per stage. Monitor workers in the **Run Monitor Team** panel (`[v]iew`, `[m]essage`, `[s]top`, `[relaunch]`; interactive cost displays `cost: not tracked`):
+   - `plan`: decomposes work into `slices.json` and slice task files.
    - `create-tests`: writes failing tests for the CSV export acceptance criteria inside the slice paths.
    - `develop`: implements the CSV export while preserving the tests from `create-tests`.
    - `test`: tandem itself executes your confirmed test and lint commands directly (not an agent) and records pass/fail evidence.
@@ -390,7 +401,7 @@ Using the example idea *"Export team activity as CSV for the last 90 days"*:
 | Pause reason | Command or screen that resolves it |
 |---|---|
 | Multiple target repositories found | `tandem factory run target <run-id> <repo>` (then `tandem factory run resume <run-id>`) |
-| Gate closed (no provider consented and allowed) | `tandem factory provider consent <provider> --auth <type> --confirm <provider>`, then `tandem factory run resume <run-id>` |
+| CLI not signed in or missing | Open **Settings → Agents & sign-in** (or run `tandem factory login open <cli>`), sign in, then `tandem factory run resume <run-id>` |
 | Test and lint commands not confirmed | `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`, then `tandem factory run resume <run-id>` |
 | Checks fail on the base branch | Fix the base branch checks outside the run (or update check commands), then `tandem factory run resume <run-id>` |
 | Stage failed without a new hypothesis, or retries exhausted | `tandem factory run retry <run-id> <stage> --hypothesis "<what changed>"` (or `tandem factory run cancel <run-id> --confirm <run-id>`) |
@@ -409,7 +420,7 @@ Using the example idea *"Export team activity as CSV for the last 90 days"*:
 #### Troubleshooting
 
 - **Mode mismatch (`exit 2`)**: Normal and Factory Mode cannot run in the same workspace simultaneously. Quit the active session (`Settings → Quit`) before switching between `./run.sh` and `./run.sh --factory`.
-- **Gate closed**: Run `tandem factory provider status --json` to see which condition failed (terms unverified, expired, no consent, terms changed, or revoked), then run `tandem factory provider consent <provider> --auth <type> --confirm <provider>`.
+- **CLI not signed in**: Run `tandem factory login status --json` or open **Settings → Agents & sign-in** to launch the CLI's native sign-in pane (`claude auth login`, `opencode auth login`, or sign in from `agy`'s own TUI), then resume the run.
 - **`gh` not authenticated**: Run `gh auth login` in your terminal and verify `gh auth status` succeeds before resuming the run.
 - **Check commands missing**: Run `tandem factory checks discover` to inspect detected commands, then confirm them with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`.
 - **Checks failing on the base branch**: The `test` stage checks the base branch before running work so pre-existing failures are not blamed on the run. Fix the base branch first, then `tandem factory run resume <run-id>`.

@@ -1,0 +1,94 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+  echo "agy 1.0.0-stub"
+  exit 0
+fi
+
+if [ "${1:-}" = "models" ]; then
+  echo "gemini-2.5-pro"
+  exit 0
+fi
+
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  echo '{"signedIn":true}'
+  exit 0
+fi
+
+if [ "${1:-}" = "login" ]; then
+  echo "Antigravity CLI login screen"
+  exec sleep 30
+fi
+
+if [ -n "${TANDEM_TEST_SECRET:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
+  echo "SECRET_LEAKED_TO_WORKER_ENV" >&2
+  exit 99
+fi
+
+STAGE="${TANDEM_STAGE:-}"
+JOB_DIR="${TANDEM_JOB_DIR:-.}"
+ARTIFACT_DIR="$JOB_DIR/../../artifacts"
+mkdir -p "$ARTIFACT_DIR"
+
+if [ ! -f "$JOB_DIR/prompt.md" ]; then
+  echo "missing prompt.md in $JOB_DIR" >&2
+  exit 2
+fi
+
+if grep -q "top-secret-should-not-leak" "$JOB_DIR/prompt.md" 2>/dev/null; then
+  echo "SECRET_LEAKED_TO_PROMPT" >&2
+  exit 98
+fi
+
+echo "stub-agy executed stage=$STAGE" > "$JOB_DIR/log.txt"
+
+case "$STAGE" in
+  plan)
+    mkdir -p "$ARTIFACT_DIR/specs"
+    cat <<'EOF' > "$ARTIFACT_DIR/specs/t-001.md"
+# t-001: Team activity CSV export
+
+## Scope
+Export team activity as CSV.
+EOF
+    cat <<'EOF' > "$ARTIFACT_DIR/slices.json"
+{
+  "phase": "p-001-activity-export",
+  "slices": [
+    {
+      "id": "s-001",
+      "title": "Team activity CSV export",
+      "type": "New Feature",
+      "paths": ["src/export.sh", "test/export_test.sh"],
+      "dependencies": [],
+      "acceptance_criteria": ["Export team activity to CSV"],
+      "ui": false
+    }
+  ]
+}
+EOF
+    cat <<'EOF' > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Planned team activity CSV export via interactive agy pane",
+  "files_changed": [],
+  "artifacts": ["specs/t-001.md"],
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+  *)
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "failed",
+  "summary": "Unexpected stage for agy stub: $STAGE",
+  "files_changed": [],
+  "artifacts": [],
+  "rationale": "unexpected stage $STAGE",
+  "no_behaviour_change": false
+}
+EOF
+    exit 1
+    ;;
+esac

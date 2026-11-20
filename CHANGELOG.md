@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-11-20
+
+### Added & Changed: Factory Mode Interactive Team (`p-024` / `s-017`)
+- **CLI-native sign-in UI**: Added `factory/login.rs` (`tandem factory login status|open`), Settings **Agents & sign-in** views in TUI and `tandem-web`, and isolated `@tandem_role=login` tmux panes with `interactive_ready` checks replacing headless consent UI.
+- **Guarded tmux worker & interactive execution**: Added `factory/worker/` (`launch`, `watch`, `finish`, `find_orphaned_worker_panes`) and strict `PaneKind::FactoryWorker` guards failing closed on non-worker/login panes; swapped `BrokerExecutor` agent execution to interactive tmux panes (`claude`, `agy`, `opencode`), recording `"cost: not tracked"` while preserving duration and retry budget enforcement.
+- **Orchestrator team control & assignment precedence**: Added `factory/team.rs` (`tandem factory agent assign|list|send|capture|terminate|relaunch`) enforcing `user > orchestrator > default` in `assignments.json`, Claude worktree `Stop` hooks (`activity.json`), `team_watch.py`, and updated `factory-*` interactive playbooks.
+- **Team UI & documentation**: Added Run Monitor **Team** view and **Stage Assignments** modal/editor in TUI and `tandem-web` (`TeamPanel`, `AssignmentEditor`, `IdeaCard` team/sign-in badges), added the README login-choice notice and provider-terms links, and added the real-tmux E2E test (`test_factory_interactive_team_e2e.rs`).
+
 ## [1.21.0] — 2026-11-20
 
 ### Added & Fixed: Dedicated Factory TUI, Full Mouse Support, and 3-CLI Orchestrator Selection (`p-023` / `s-016`)
