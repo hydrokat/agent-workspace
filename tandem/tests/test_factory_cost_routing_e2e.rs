@@ -492,6 +492,20 @@ fn defaults_pick_the_cheapest_capable_model_and_record_provenance() {
             .unwrap()
             .contains("escalated")
     );
+    relaunch_agent_with_runner(
+        &team.fixture.store,
+        &tmux,
+        &run.id,
+        &job,
+        team.env.clone(),
+        &*team.runner,
+    )
+    .unwrap();
+    assert_eq!(
+        team.job_model(&settled, &job, "develop", 98),
+        pair_of("agy", "gemini-2.5-pro"),
+        "a second relaunch must not escalate again"
+    );
     let after = load_assignments(&team.fixture.store, &run.id).unwrap();
     assert_eq!(after.stages["develop"].model, "gemini-2.5-pro");
     assert_eq!(after.stages["develop"].source, AssignmentSource::Default);

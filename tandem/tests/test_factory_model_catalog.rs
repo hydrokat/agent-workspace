@@ -634,3 +634,57 @@ fn symlinked_cache_is_never_read_or_written() {
     assert!(models.iter().all(|m| m.source == ModelSource::Live));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "untouched");
 }
+
+#[test]
+fn a_failing_cli_is_not_retried_within_the_failure_ttl() {
+    let settings = FactorySettings::default();
+    let dir = TempDir::new();
+    let calls = Arc::new(Mutex::new(0u32));
+    let calls_ref = Arc::clone(&calls);
+    let failing = move |_: &str| -> Result<Vec<Model>, AdapterError> {
+        *calls_ref.lock().unwrap() += 1;
+        Err(AdapterError::ModelList("agy models failed".to_string()))
+    };
+    let first = discover("claude", &settings, dir.path(), false, &failing);
+    let second = discover("claude", &settings, dir.path(), false, &failing);
+    assert_eq!(*calls.lock().unwrap(), 1, "the failure is cached briefly");
+    assert!(first.iter().all(|m| m.source == ModelSource::Fallback));
+    assert!(second.iter().all(|m| m.source == ModelSource::Fallback));
+    assert_eq!(first.len(), second.len());
+}
+
+#[test]
+fn a_cached_failure_expires_and_refresh_bypasses_it() {
+    let settings = FactorySettings::default();
+    let dir = TempDir::new();
+    let _ = discover("claude", &settings, dir.path(), false, &offline_runner);
+    let path = cache_file(&dir, "claude");
+    let mut entry: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(entry["failed"], true);
+    let live = discover("claude", &settings, dir.path(), true, &claude_runner);
+    assert!(
+        live.iter().all(|m| m.source == ModelSource::Live),
+        "refresh bypasses the marker"
+    );
+
+    let _ = discover("claude", &settings, dir.path(), false, &offline_runner);
+    entry["ts"] = serde_json::json!(1.0);
+    entry["failed"] = serde_json::json!(true);
+    std::fs::write(&path, entry.to_string()).unwrap();
+    let again = discover("claude", &settings, dir.path(), false, &claude_runner);
+    assert!(
+        again.iter().all(|m| m.source == ModelSource::Live),
+        "an expired marker re-discovers"
+    );
+}
+
+#[test]
+fn a_failed_refresh_keeps_the_last_good_cache() {
+    let settings = FactorySettings::default();
+    let dir = TempDir::new();
+    let _ = discover("claude", &settings, dir.path(), false, &claude_runner);
+    let _ = discover("claude", &settings, dir.path(), true, &offline_runner);
+    let cached = discover("claude", &settings, dir.path(), false, &offline_runner);
+    assert!(cached.iter().all(|m| m.source == ModelSource::Cache));
+}

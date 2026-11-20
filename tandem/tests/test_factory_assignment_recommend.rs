@@ -333,6 +333,72 @@ mod team_provenance {
     }
 
     #[test]
+    fn a_relaunch_after_the_failure_does_not_escalate_again() {
+        let ws = TempDir::new();
+        let (store, job) = store_with_job(&ws, "claude-haiku-4-5", "failed");
+        assert!(
+            suggest_escalation(&store, RUN, &job, &runner)
+                .unwrap()
+                .is_some()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let input =
+            tandem::factory::broker::job::job_dir(&store, RUN, "develop", 1).join("input.json");
+        let raw = fs::read_to_string(&input).unwrap();
+        fs::write(&input, raw).unwrap();
+        assert!(
+            suggest_escalation(&store, RUN, &job, &runner)
+                .unwrap()
+                .is_none(),
+            "the failed result predates the relaunch, so it must not escalate again"
+        );
+    }
+
+    #[test]
+    fn concurrent_default_selections_never_lose_updates() {
+        let ws = TempDir::new();
+        let store = std::sync::Arc::new(FactoryStore::new(ws.path()));
+        store.ensure().unwrap();
+        fs::create_dir_all(store.run_dir(RUN)).unwrap();
+        let sel = Selection {
+            required_tier: ModelTier::Standard,
+            selected_tier: ModelTier::Standard,
+            cost_basis: CostBasis::Heuristic,
+            candidates: 1,
+            rationale: "cheapest".into(),
+            source: ModelSource::Live,
+        };
+        let stages: Vec<String> = (0..12).map(|i| format!("stage-{i}")).collect();
+        let handles: Vec<_> = stages
+            .iter()
+            .cloned()
+            .map(|stage| {
+                let store = std::sync::Arc::clone(&store);
+                let sel = sel.clone();
+                std::thread::spawn(move || {
+                    record_default_selection(
+                        &store,
+                        RUN,
+                        &stage,
+                        "claude",
+                        "claude-sonnet-4-6",
+                        "x",
+                        &sel,
+                    )
+                    .unwrap();
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let saved = load_assignments(&store, RUN).unwrap();
+        for stage in &stages {
+            assert!(saved.stages.contains_key(stage), "{stage} was lost");
+        }
+    }
+
+    #[test]
     fn a_succeeded_job_has_no_escalation() {
         let ws = TempDir::new();
         let (store, job) = store_with_job(&ws, "claude-haiku-4-5", "succeeded");

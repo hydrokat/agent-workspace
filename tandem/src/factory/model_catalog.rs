@@ -10,6 +10,7 @@ use crate::factory::routing::{ModelTier, default_model_tiers};
 use crate::factory::store::{current_time, write_atomic};
 
 const CACHE_TTL_SECS: f64 = 600.0;
+const FAILURE_TTL_SECS: f64 = 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,7 +44,14 @@ pub struct CatalogModel {
 #[derive(Serialize, Deserialize)]
 struct CacheEntry {
     ts: f64,
+    #[serde(default)]
+    failed: bool,
     models: Vec<CachedModel>,
+}
+
+enum Cached {
+    Models(Vec<Model>),
+    Failed,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,10 +67,16 @@ pub fn discover(
     refresh: bool,
     runner: &dyn Fn(&str) -> Result<Vec<Model>, AdapterError>,
 ) -> Vec<CatalogModel> {
-    if !refresh && let Some(cached) = load_cache(cache_dir, cli) {
-        let mut result = enrich(cli, &cached, settings, ModelSource::Cache);
-        sort_by_cost(&mut result);
-        return result;
+    if !refresh {
+        match load_cache(cache_dir, cli) {
+            Some(Cached::Models(cached)) => {
+                let mut result = enrich(cli, &cached, settings, ModelSource::Cache);
+                sort_by_cost(&mut result);
+                return result;
+            }
+            Some(Cached::Failed) => return fallback(cli, settings),
+            None => {}
+        }
     }
 
     match runner(cli) {
@@ -73,10 +87,15 @@ pub fn discover(
                 .collect();
             let mut result = enrich(cli, &valid, settings, ModelSource::Live);
             sort_by_cost(&mut result);
-            save_cache(cache_dir, cli, &valid);
+            save_cache(cache_dir, cli, &valid, false);
             result
         }
-        Err(_) => fallback(cli, settings),
+        Err(_) => {
+            if !refresh {
+                save_cache(cache_dir, cli, &[], true);
+            }
+            fallback(cli, settings)
+        }
     }
 }
 
@@ -251,7 +270,7 @@ fn cache_path(cache_dir: &Path, cli: &str) -> std::path::PathBuf {
     cache_dir.join(format!("model-cache-{cli}.json"))
 }
 
-fn load_cache(cache_dir: &Path, cli: &str) -> Option<Vec<Model>> {
+fn load_cache(cache_dir: &Path, cli: &str) -> Option<Cached> {
     let path = cache_path(cache_dir, cli);
     if path.is_symlink() {
         return None;
@@ -259,10 +278,15 @@ fn load_cache(cache_dir: &Path, cli: &str) -> Option<Vec<Model>> {
     let content = fs::read_to_string(&path).ok()?;
     let entry: CacheEntry = serde_json::from_str(&content).ok()?;
     let age = current_time() - entry.ts;
+    if entry.failed {
+        return (0.0..=FAILURE_TTL_SECS)
+            .contains(&age)
+            .then_some(Cached::Failed);
+    }
     if !(0.0..=CACHE_TTL_SECS).contains(&age) {
         return None;
     }
-    Some(
+    Some(Cached::Models(
         entry
             .models
             .into_iter()
@@ -272,16 +296,17 @@ fn load_cache(cache_dir: &Path, cli: &str) -> Option<Vec<Model>> {
             })
             .filter(|m| validate_model_for_cli(cli, &m.id).is_ok())
             .collect(),
-    )
+    ))
 }
 
-fn save_cache(cache_dir: &Path, cli: &str, models: &[Model]) {
+fn save_cache(cache_dir: &Path, cli: &str, models: &[Model], failed: bool) {
     let path = cache_path(cache_dir, cli);
     if reject_if_symlink(&path).is_err() {
         return;
     }
     let entry = CacheEntry {
         ts: current_time(),
+        failed,
         models: models
             .iter()
             .map(|m| CachedModel {

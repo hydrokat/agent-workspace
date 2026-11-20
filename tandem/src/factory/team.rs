@@ -146,6 +146,19 @@ pub enum TeamError {
     Json(#[from] serde_json::Error),
 }
 
+fn open_assignments_lock(store: &FactoryStore, run_id: &str) -> Result<fs::File, TeamError> {
+    let path = store.run_dir(run_id).join("assignments.lock");
+    reject_if_symlink(&path)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)?;
+    set_private_file_mode(&path)?;
+    Ok(file)
+}
+
 pub fn assignments_path(store: &FactoryStore, run_id: &str) -> PathBuf {
     store.run_dir(run_id).join("assignments.json")
 }
@@ -217,6 +230,8 @@ pub fn assign_stage(
         ));
     }
 
+    let lock = open_assignments_lock(store, input.run_id)?;
+    let _guard = crate::coordination::exclusive_lock(&lock)?;
     let mut file = load_assignments(store, input.run_id)?;
     if let Some(existing) = file.stages.get(input.stage)
         && existing.source == AssignmentSource::User
@@ -473,6 +488,8 @@ pub fn record_default_selection(
     role: &str,
     selection: &Selection,
 ) -> Result<(), TeamError> {
+    let lock = open_assignments_lock(store, run_id)?;
+    let _guard = crate::coordination::exclusive_lock(&lock)?;
     let mut file = load_assignments(store, run_id)?;
     if file
         .stages
@@ -625,6 +642,12 @@ pub fn suggest_escalation(
     }
     let input_path = jdir.join("input.json");
     reject_if_symlink(&input_path)?;
+    let modified = |path: &Path| fs::metadata(path).and_then(|m| m.modified()).ok();
+    if let (Some(result_at), Some(input_at)) = (modified(&result_path), modified(&input_path))
+        && result_at < input_at
+    {
+        return Ok(None);
+    }
     let input: JobInput = serde_json::from_str(&fs::read_to_string(&input_path)?)?;
     let settings = store.settings()?;
     let models =
