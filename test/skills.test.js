@@ -147,6 +147,17 @@ describe('script-first skills ship their scripts and templates', () => {
     const task = run('spec-planner/scripts/specs.py', 'new-task', 'p-001', '--title', 'Do it', '--type', 'Enhancement', '--paths', 'a.js');
     assert.deepEqual([task.task, task.delivery], ['t-001', 't-002']);
     assert.deepEqual(run('spec-planner/scripts/specs.py', 'waves', 'p-001').waves, [['t-001'], ['t-002']]);
+    const deliveryText = readFile(dir, 'specs/p-001-demo/t-002.md');
+    assert.match(deliveryText, /\/cleanup-tests`? on the tests added or changed in this phase \(`git diff trunk`\)/, 'delivery task renders /cleanup-tests with the merge target');
+    assert.ok(deliveryText.indexOf('/code-cleanup --diff trunk') < deliveryText.indexOf('/cleanup-tests'), '/cleanup-tests runs after /code-cleanup');
+    assert.ok(!deliveryText.includes('{{target}}'), 'no unrendered target placeholder');
+    let lint;
+    try {
+      lint = run('spec-planner/scripts/specs.py', 'lint', 'p-001');
+    } catch (error) {
+      lint = JSON.parse(error.stdout);
+    }
+    assert.deepEqual(lint.problems.filter((problem) => problem.file === 't-002.md'), [], 'rendered delivery task has no lint problems');
     assert.equal(run('workspace-cleanup/scripts/scan_workspace.py').root.length > 0, true);
     assert.ok(Array.isArray(run('symlink/scripts/symlink.py', '--siblings').siblings));
     assert.equal(run('pm-new-sprint/scripts/sprints.py', 'next-sprint').next, '001');
