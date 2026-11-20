@@ -14,6 +14,7 @@ Finalize the phase by committing the completed work, creating a pull request, re
 - [ ] Confirm code structure diagrams and existing codebase guide notes are current.
 - [ ] Confirm regression tests or validation cover affected existing behavior, and no regression has been introduced.
 - [ ] Run a final cleanup pass before code review with `/code-cleanup --diff {{target}}` (list, ask, then delete): remove unnecessary comments, keep code self-documenting where practical, and preserve only useful documentation-generator comments such as JSDoc, PHPDoc, Swagger/OpenAPI, or equivalent.
+- [ ] Run `/cleanup-tests` on the tests added or changed in this phase (`git diff {{target}}`), apply its cleanup and missing coverage, and keep relevant suites green before committing.
 - [ ] Commit changes using the `commit` skill.
 - [ ] Create a pull request targeting the merge branch using the `pull-request` skill.
 - [ ] Run `code-review`, including regression risk and cleanup/self-documenting-code checks.

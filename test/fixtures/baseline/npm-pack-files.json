@@ -426,6 +426,8 @@
   "templates/skills/agent-coordination/agents/openai.yaml",
   "templates/skills/agent-coordination/references/protocol.md",
   "templates/skills/agent-coordination/scripts/coord.py",
+  "templates/skills/cleanup-tests/SKILL.md",
+  "templates/skills/cleanup-tests/agents/openai.yaml",
   "templates/skills/code-cleanup/SKILL.md",
   "templates/skills/code-cleanup/agents/openai.yaml",
   "templates/skills/code-cleanup/assets/candidates.md",
