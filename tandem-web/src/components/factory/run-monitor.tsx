@@ -147,7 +147,10 @@ export function RunMonitor({
   const signInCli = pauseNeedsSignIn
     ? (["claude", "agy", "opencode"].find((cli) => pauseLower.includes(cli)) ?? null)
     : null;
-  const costLabel = run.cost_usd == null ? "cost: not tracked" : `$${run.cost_usd.toFixed(2)}`;
+  const resolvedCost = run.cost_usd ?? run.cost?.value ?? null;
+  const costLabel =
+    run.cost_display ??
+    (resolvedCost == null ? "cost: not tracked" : `$${resolvedCost.toFixed(2)}`);
 
   const canPause = run.state === "running" || run.state === "queued";
   const canResume = run.state === "paused";

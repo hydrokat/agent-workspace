@@ -1289,15 +1289,62 @@ fn remediation_regression_checks_cover_socket_env_i_hooks_auth_watch_layout_and_
     tab.ensure_logins_probed_with(&probe);
     assert_eq!(*count.lock().unwrap(), first_count);
 
-    // #6 & #11: watch_with_interval survives transient list-panes error and follows updated pane_id
+    // #6 & #11: watch_with_interval survives transient list-panes error and follows updated pane_id;
+    // finish() kills the updated pane_id rather than only stale initial pane_id, and malformed
+    // .claude/settings.local.json fails closed without overwriting.
+    let bad_repo = tmp.path.join("repo-bad-hook");
+    fs::create_dir_all(bad_repo.join(".claude")).unwrap();
+    init_repo(&bad_repo);
+    fs::write(
+        bad_repo.join(".claude/settings.local.json"),
+        "{ not valid json",
+    )
+    .unwrap();
+    assert!(
+        launch(
+            &tmux,
+            &WorkerLaunchSpec {
+                run_id: run_id.clone(),
+                stage: "develop".to_string(),
+                attempt: 3,
+                job_dir: jdir.clone(),
+                prompt_file,
+                result_path: jdir.join("result.json"),
+                worktree_path: bad_repo.clone(),
+                assignment: WorkerAssignment {
+                    cli: "claude".to_string(),
+                    model: "claude-sonnet-4-6".to_string(),
+                    read_only: false,
+                    tools: vec![],
+                    agent: "senior-backend-dev".to_string(),
+                    role: "factory-worker".to_string(),
+                },
+                env: BTreeMap::new(),
+                time_limit_secs: 30,
+            },
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read_to_string(bad_repo.join(".claude/settings.local.json")).unwrap(),
+        "{ not valid json"
+    );
+
     #[derive(Default)]
     struct WatchRunner {
         step: Mutex<usize>,
+        kills: Mutex<Vec<String>>,
         job_dir: PathBuf,
         result_path: PathBuf,
     }
     impl TmuxRunner for WatchRunner {
         fn run(&self, argv: &[String]) -> TmuxCmdResult {
+            if let Some(pos) = argv.iter().position(|a| a == "kill-pane")
+                && let Some(target_idx) = argv[pos..].iter().position(|a| a == "-t")
+                && let Some(pane) = argv.get(pos + target_idx + 1)
+            {
+                self.kills.lock().unwrap().push(pane.clone());
+            }
             if argv.iter().any(|a| a == "list-panes") {
                 let mut s = self.step.lock().unwrap();
                 *s += 1;
@@ -1339,31 +1386,37 @@ fn remediation_regression_checks_cover_socket_env_i_hooks_auth_watch_layout_and_
     let watch_jdir = tmp.path.join("watch-job");
     fs::create_dir_all(&watch_jdir).unwrap();
     let watch_res = watch_jdir.join("result.json");
-    let watch_tmux = TmuxClient::with_runner(
-        SESSION,
-        None,
-        Arc::new(WatchRunner {
-            step: Mutex::new(0),
-            job_dir: watch_jdir.clone(),
-            result_path: watch_res.clone(),
-        }),
-    );
+    let watch_runner = Arc::new(WatchRunner {
+        step: Mutex::new(0),
+        kills: Mutex::new(Vec::new()),
+        job_dir: watch_jdir.clone(),
+        result_path: watch_res.clone(),
+    });
+    let watch_tmux = TmuxClient::with_runner(SESSION, None, watch_runner.clone());
+    let launched_worker = LaunchedWorker {
+        pane_id: "%55".to_string(),
+        run_id,
+        stage: "develop".to_string(),
+        attempt: 1,
+        cli: "claude".to_string(),
+        model: "claude-sonnet-4-6".to_string(),
+        job_dir: watch_jdir,
+        result_path: watch_res,
+        time_limit_secs: 5,
+    };
     let outcome = watch_with_interval(
         &watch_tmux,
-        &LaunchedWorker {
-            pane_id: "%55".to_string(),
-            run_id,
-            stage: "develop".to_string(),
-            attempt: 1,
-            cli: "claude".to_string(),
-            model: "claude-sonnet-4-6".to_string(),
-            job_dir: watch_jdir,
-            result_path: watch_res,
-            time_limit_secs: 5,
-        },
+        &launched_worker,
         &|| false,
         std::time::Duration::from_millis(1),
     )
     .unwrap();
     assert!(matches!(outcome, WorkerWatchOutcome::Completed(_)));
+    let finished = tandem::factory::worker::finish(&watch_tmux, &launched_worker, outcome).unwrap();
+    assert_eq!(finished.summary, "ok");
+    let kills = watch_runner.kills.lock().unwrap().clone();
+    assert!(
+        kills.contains(&"%56".to_string()),
+        "expected finish to kill relaunched pane %56: {kills:?}"
+    );
 }

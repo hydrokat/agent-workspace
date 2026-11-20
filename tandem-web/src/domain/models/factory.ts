@@ -231,7 +231,7 @@ export interface RunSummary {
   cost_usd?: number | null;
   cost?: {
     basis: string;
-    amount_usd?: number | null;
+    value?: number | null;
   } | null;
   cost_display?: string | null;
   state: RunState;

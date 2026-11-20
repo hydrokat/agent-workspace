@@ -743,14 +743,17 @@ impl StatusApp {
             }
             FactoryAction::OpenWorkerPane { pane_id } => {
                 if let Some(ref tmux) = self.tmux {
-                    let _ = tmux.run_batch_checked(&[
+                    if let Err(err) = tmux.run_batch_checked(&[
                         vec![
                             "select-window".to_string(),
                             "-t".to_string(),
                             pane_id.clone(),
                         ],
                         vec!["select-pane".to_string(), "-t".to_string(), pane_id.clone()],
-                    ]);
+                    ]) && let Some(ref mut mon) = self.factory_tab.run_monitor
+                    {
+                        mon.notice = format!("Could not focus worker pane {pane_id}: {err}");
+                    }
                 } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
                     mon.notice = format!("Tmux client unavailable for pane {pane_id}.");
                 }

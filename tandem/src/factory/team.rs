@@ -737,11 +737,7 @@ pub fn relaunch_agent_with_env(
     let updated_input_bytes = serde_json::to_vec_pretty(&updated_input)?;
     write_atomic(&input_path, &updated_input_bytes)?;
 
-    if let Ok(old_pane) = resolve_job_pane_id(store, tmux, run_id, job_id, &stage, attempt)
-        && tmux.capture_worker(run_id, &old_pane, 1).is_ok()
-    {
-        let _ = tmux.kill_pane(&old_pane);
-    }
+    let old_pane = resolve_job_pane_id(store, tmux, run_id, job_id, &stage, attempt).ok();
 
     set_job_state(&jdir, JobState::Running).map_err(|e| TeamError::InvalidInput(e.to_string()))?;
 
@@ -765,6 +761,12 @@ pub fn relaunch_agent_with_env(
         time_limit_secs: input.time_limit_secs,
     };
     let launched = launch(tmux, &spec)?;
+    if let Some(old) = old_pane
+        && old != launched.pane_id
+        && tmux.capture_worker(run_id, &old, 1).is_ok()
+    {
+        let _ = tmux.kill_pane(&old);
+    }
     let actor = Actor {
         kind: ActorKind::Orchestrator,
         id: "team".to_string(),

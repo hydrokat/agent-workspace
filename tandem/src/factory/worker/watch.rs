@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::factory::broker::result::{JobResult, parse_and_validate_result_strict};
@@ -10,6 +11,23 @@ use super::{LaunchedWorker, WorkerError, WorkerWatchOutcome};
 
 pub const DEFAULT_WATCH_INTERVAL: Duration = Duration::from_millis(200);
 const MAX_CONSECUTIVE_POLL_ERRORS: u8 = 3;
+
+pub(crate) fn read_pane_id_file(job_dir: &Path) -> Option<String> {
+    let pane_path = job_dir.join("pane_id");
+    if reject_if_symlink(&pane_path).is_err() || !pane_path.is_file() {
+        return None;
+    }
+    let raw = fs::read_to_string(pane_path).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.starts_with('%')
+        && trimmed.len() > 1
+        && trimmed[1..].bytes().all(|b| b.is_ascii_digit())
+    {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
 
 fn is_pane_alive(tmux: &TmuxClient, pane_id: &str) -> Result<bool, WorkerError> {
     let args = ["list-panes", "-a", "-F", crate::tmux::tabs::FORMAT];
@@ -26,21 +44,7 @@ fn is_pane_alive(tmux: &TmuxClient, pane_id: &str) -> Result<bool, WorkerError> 
 }
 
 fn read_relaunched_pane_id(worker: &LaunchedWorker, current: &str) -> Option<String> {
-    let pane_path = worker.job_dir.join("pane_id");
-    if reject_if_symlink(&pane_path).is_err() || !pane_path.is_file() {
-        return None;
-    }
-    let raw = fs::read_to_string(pane_path).ok()?;
-    let trimmed = raw.trim();
-    if trimmed.starts_with('%')
-        && trimmed.len() > 1
-        && trimmed[1..].bytes().all(|b| b.is_ascii_digit())
-        && trimmed != current
-    {
-        Some(trimmed.to_string())
-    } else {
-        None
-    }
+    read_pane_id_file(&worker.job_dir).filter(|id| id != current)
 }
 
 fn check_valid_result(worker: &LaunchedWorker) -> Option<JobResult> {

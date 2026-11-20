@@ -146,16 +146,24 @@ fn ensure_claude_stop_hook(worktree: &Path) -> Result<(), std::io::Error> {
     reject_symlink_io(&settings_path)?;
     let hook_cmd = r#"sh -c 'if [ -n "${TANDEM_JOB_DIR:-}" ] && [ -d "$TANDEM_JOB_DIR" ]; then if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi; ts=$(date +%s); stage=${TANDEM_STAGE:-unknown}; printf "{\"last_stop_at\":%s,\"state\":\"idle\",\"cli\":\"claude\",\"stage\":\"%s\"}\n" "$ts" "$stage" > "$TANDEM_JOB_DIR/activity.json.tmp" && mv "$TANDEM_JOB_DIR/activity.json.tmp" "$TANDEM_JOB_DIR/activity.json"; fi'"#;
     let mut root: serde_json::Value = if settings_path.is_file() {
-        fs::read_to_string(&settings_path)
-            .ok()
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_else(|| serde_json::json!({}))
+        let raw = fs::read_to_string(&settings_path)?;
+        if raw.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+                std::io::Error::other(format!("malformed {}: {e}", settings_path.display()))
+            })?;
+            if !parsed.is_object() {
+                return Err(std::io::Error::other(format!(
+                    "expected JSON object in {}",
+                    settings_path.display()
+                )));
+            }
+            parsed
+        }
     } else {
         serde_json::json!({})
     };
-    if !root.is_object() {
-        root = serde_json::json!({});
-    }
     let hooks_obj = root
         .as_object_mut()
         .unwrap()
@@ -319,7 +327,8 @@ pub fn launch(tmux: &TmuxClient, spec: &WorkerLaunchSpec) -> Result<LaunchedWork
 
     fs::create_dir_all(&spec.job_dir)?;
     let pane_file = spec.job_dir.join("pane_id");
-    let _ = write_atomic(&pane_file, format!("{pane_id}\n").as_bytes());
+    write_atomic(&pane_file, format!("{pane_id}\n").as_bytes())
+        .map_err(|e| WorkerError::Io(std::io::Error::other(e.to_string())))?;
     let _ = set_private_file_mode(&pane_file);
 
     Ok(LaunchedWorker {
@@ -348,7 +357,12 @@ pub fn finish(
     worker: &LaunchedWorker,
     outcome: WorkerWatchOutcome,
 ) -> Result<JobResult, WorkerError> {
-    let _ = tmux.kill_pane(&worker.pane_id);
+    let latest_pane =
+        watch::read_pane_id_file(&worker.job_dir).unwrap_or_else(|| worker.pane_id.clone());
+    let _ = tmux.kill_pane(&latest_pane);
+    if latest_pane != worker.pane_id {
+        let _ = tmux.kill_pane(&worker.pane_id);
+    }
     match outcome {
         WorkerWatchOutcome::Completed(result) => Ok(result),
         WorkerWatchOutcome::ExitedWithoutResult { detail } => Err(WorkerError::Invalid(detail)),
