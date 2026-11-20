@@ -48,12 +48,21 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.ok(readFile(dir, '.agents/skills/spec-planner/assets/delivery-task.md').includes('/code-cleanup --diff {{target}}'));
   });
 
+  it('cleanup-tests is wired into the delivery task and spec-planner mandates', () => {
+    const deliveryTask = readFile(dir, '.agents/skills/spec-planner/assets/delivery-task.md');
+    assert.ok(deliveryTask.includes('/cleanup-tests'), 'delivery-task.md references /cleanup-tests');
+    const plannerText = skill('spec-planner');
+    assert.ok(plannerText.includes('/cleanup-tests'), 'spec-planner SKILL.md references /cleanup-tests');
+    assert.ok(plannerText.includes('Test Cleanup'), 'spec-planner SKILL.md has Test Cleanup mandate');
+  });
+
   const NEW_SKILLS = {
     'spec-explain': { command: '/spec-explain', files: ['assets/explanation.md'] },
     explain: { command: '/explain', files: ['scripts/locate.py', 'assets/technical.md', 'assets/non-technical.md'] },
     feasibility: { command: '/feasibility', files: ['assets/report.md'] },
     idea: { command: '/idea', files: ['scripts/idea.py', 'assets/result.md'] },
     'code-cleanup': { command: '/code-cleanup', files: ['scripts/comments.py', 'assets/candidates.md'] },
+    'cleanup-tests': { command: '/cleanup-tests', files: [] },
     symlink: { command: '/symlink', files: ['scripts/symlink.py'] },
   };
 

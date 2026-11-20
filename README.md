@@ -320,6 +320,7 @@ Skills in `.agents/skills/` are triggered by name in Claude Code, Antigravity, C
 | `/feasibility <feature>` | Decide whether a feature can be built here and how: verdict, effort, options, risks, unknowns |
 | `/idea <idea> [--auto]` | Assess feasibility with `/feasibility --save`, gate on the verdict, and plan a phase with `/spec-planner` |
 | `/code-cleanup [paths] [--diff <base>]` | List unnecessary comments, ask which to delete, then delete only those |
+| `/cleanup-tests [paths]` | Audit, clean up, and strengthen tests: remove dead or redundant tests, fill missing coverage, verify security and data-isolation paths, run the suite |
 | `/workspace-cleanup` | List files that may not belong in the workspace and delete the ones you approve |
 | `/symlink [path] [--name <name>]` | Link a directory into `codebase-symlinks/` and refresh the codebase map; with no path, lists sibling directories to choose from |
 | `test-failures` (used automatically) | Agents run tests through `run_tests.py`, so only the failing tests reach their context; the full log is saved under `.agent-workspace/test-runs/` |

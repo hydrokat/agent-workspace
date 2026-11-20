@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cleanup Tests"
+  short_description: "Audit, clean up, and strengthen automated tests"
+  default_prompt: "/cleanup-tests"

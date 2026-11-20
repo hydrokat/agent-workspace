@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added: `cleanup-tests` skill (`p-025` / `s-018`)
+- **`cleanup-tests` skill**: Added `templates/skills/cleanup-tests/` with `SKILL.md` (verbatim user text) and `agents/openai.yaml`. Invocable as `/cleanup-tests [paths]` in Claude, Antigravity, Codex, and opencode. The skill audits, cleans up, and strengthens automated tests across seven coverage categories (happy paths, sad paths, edge cases, security/malicious paths, error handling, data-leakage prevention, input validation, authorization/data isolation, and regression coverage) with a seven-step execution workflow and a mandatory test-integrity rule set.
+- **Delivery-task integration**: `templates/skills/spec-planner/assets/delivery-task.md` now includes a `/cleanup-tests` objective immediately after `/code-cleanup --diff {{target}}`, so every phase planned after this release runs test cleanup before committing. `templates/skills/spec-planner/SKILL.md` adds a matching **Test Cleanup** mandate beside **Review Cleanup**.
+
 ## [1.22.0] — 2026-11-20
 
 ### Added & Changed: Factory Mode Interactive Team (`p-024` / `s-017`)
