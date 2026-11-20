@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FACTORY_CLIS, type StageAssignment } from "@/domain/models/factory";
+import { describeSelection } from "./format";
 
 interface AssignmentEditorProps {
   stages: string[];
@@ -55,6 +56,8 @@ export function AssignmentEditor({
   };
 
   const entries = Object.values(assignments);
+  const recommended = assignments[stage]?.selection ? assignments[stage] : null;
+  const recommendedText = recommended ? describeSelection(recommended.selection) : null;
 
   return (
     <div className="rounded-md border p-3">
@@ -87,6 +90,30 @@ export function AssignmentEditor({
           {error}
         </div>
       )}
+
+      <div aria-live="polite" className="mb-2 text-[11px] text-muted-foreground">
+        {recommended && recommendedText ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span data-testid="recommendation">
+              Recommended: {recommended.cli} / {recommended.model} · {recommendedText}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-9"
+              onClick={() => {
+                setCli(recommended.cli);
+                setModel(recommended.model);
+              }}
+            >
+              Use recommendation
+            </Button>
+          </div>
+        ) : (
+          <span data-testid="recommendation">No recommendation recorded for {stage} yet.</span>
+        )}
+      </div>
 
       <form onSubmit={(e) => void handleSubmit(e)} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <div className="flex flex-col gap-1">

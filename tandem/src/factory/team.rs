@@ -109,6 +109,8 @@ pub struct AgentSummary {
     pub model: String,
     pub role: String,
     pub source: AssignmentSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<Selection>,
     pub job_state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
@@ -758,6 +760,10 @@ pub fn list_agents(
                 .get(&stage)
                 .map(|a| a.source)
                 .unwrap_or(AssignmentSource::Default);
+            let selection = assignments
+                .stages
+                .get(&stage)
+                .and_then(|a| a.selection.clone());
             let job_state = read_job_state(&dir)
                 .map(|s| s.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
@@ -802,6 +808,7 @@ pub fn list_agents(
                 model,
                 role,
                 source,
+                selection,
                 job_state,
                 pane_id,
                 pane_alive,

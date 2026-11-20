@@ -1,4 +1,12 @@
-import type { FeasibilityVerdict, IdeaState, Risk } from "@/domain/models/factory";
+import type {
+  CatalogSourceName,
+  CostBasisName,
+  FeasibilityVerdict,
+  IdeaState,
+  ModelSelection,
+  ModelTierName,
+  Risk,
+} from "@/domain/models/factory";
 import { formatRelativeTime } from "@/components/files/format";
 
 export const IDEA_STATE_LABELS: Record<IdeaState, string> = {
@@ -53,4 +61,31 @@ export function formatShortTime(ts: number): string {
   const d = new Date(toMillis(ts));
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+const TIER_LABELS: Record<ModelTierName, string> = {
+  economy: "Economy",
+  standard: "Standard",
+  premium: "Premium",
+};
+
+const COST_BASIS_LABELS: Record<CostBasisName, string> = {
+  price_table: "price table",
+  free_tier: "free tier",
+  heuristic: "heuristic",
+};
+
+const CATALOG_SOURCE_LABELS: Record<CatalogSourceName, string> = {
+  live: "live list",
+  cache: "cached list",
+  fallback: "offline list",
+};
+
+export function describeSelection(selection: ModelSelection | null | undefined): string | null {
+  if (!selection) return null;
+  const selected = TIER_LABELS[selection.selected_tier] ?? selection.selected_tier;
+  const required = TIER_LABELS[selection.required_tier] ?? selection.required_tier;
+  const basis = COST_BASIS_LABELS[selection.cost_basis] ?? selection.cost_basis;
+  const source = CATALOG_SOURCE_LABELS[selection.source] ?? selection.source;
+  return `${selected} tier (required ${required}) · cost: ${basis} · ${selection.candidates} candidates · ${source}`;
 }

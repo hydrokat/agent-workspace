@@ -2314,6 +2314,42 @@ fn sync_assign_stage_inputs(
     }
 }
 
+fn tier_label(tier: crate::factory::routing::ModelTier) -> &'static str {
+    match tier {
+        crate::factory::routing::ModelTier::Economy => "Economy",
+        crate::factory::routing::ModelTier::Standard => "Standard",
+        crate::factory::routing::ModelTier::Premium => "Premium",
+    }
+}
+
+fn cost_basis_label(basis: crate::factory::model_catalog::CostBasis) -> &'static str {
+    match basis {
+        crate::factory::model_catalog::CostBasis::PriceTable => "price table",
+        crate::factory::model_catalog::CostBasis::FreeTier => "free tier",
+        crate::factory::model_catalog::CostBasis::Heuristic => "heuristic",
+    }
+}
+
+fn selection_source_label(source: crate::factory::model_catalog::ModelSource) -> &'static str {
+    match source {
+        crate::factory::model_catalog::ModelSource::Live => "live list",
+        crate::factory::model_catalog::ModelSource::Cache => "cached list",
+        crate::factory::model_catalog::ModelSource::Fallback => "offline list",
+    }
+}
+
+fn selection_detail(selection: Option<&crate::factory::routing::Selection>) -> Option<String> {
+    let s = selection?;
+    Some(format!(
+        "{} tier (required {}) · cost: {} · {} candidates · {}",
+        tier_label(s.selected_tier),
+        tier_label(s.required_tier),
+        cost_basis_label(s.cost_basis),
+        s.candidates,
+        selection_source_label(s.source),
+    ))
+}
+
 fn assignment_source_badge(source: AssignmentSource) -> &'static str {
     match source {
         AssignmentSource::User => "you",
@@ -2409,6 +2445,14 @@ impl FactoryRun {
                 Rect::new(area.x, *y, area.width, 1),
                 Hit::Cmd(CMD_TEAM_ROW_BASE + idx as u8),
             );
+            *y += 1;
+        }
+
+        if *y < bottom
+            && let Some(agent) = self.team.get(self.selected_agent)
+            && let Some(detail) = selection_detail(agent.selection.as_ref())
+        {
+            write_clipped(buf, area.x, *y, max_w, &format!("    {detail}"), dim_style);
             *y += 1;
         }
 
@@ -2524,6 +2568,24 @@ fn render_assignments_modal(
             &format!("Model   {}_", clean(&model_input.value)),
             text_style,
         );
+        y += 1;
+    }
+
+    if y < bottom.saturating_sub(1) {
+        let recommended = stages
+            .get(stage_idx)
+            .and_then(|st| assignments.stages.get(st))
+            .and_then(|a| {
+                selection_detail(a.selection.as_ref()).map(|detail| {
+                    format!(
+                        "Recommended {}/{} · {detail}",
+                        clean(&a.cli),
+                        clean(&a.model)
+                    )
+                })
+            })
+            .unwrap_or_else(|| "Recommended (none recorded for this stage yet)".to_string());
+        write_clipped(buf, area.x, y, max_w, &recommended, dim_style);
         y += 1;
     }
 
@@ -3183,4 +3245,29 @@ fn stage_word(state: StageState) -> &'static str {
 fn write_clipped(buf: &mut Buffer, x: u16, y: u16, max_w: usize, text: &str, style: Style) {
     let clipped = truncate_to_width(text, max_w);
     buf.set_stringn(x, y, clipped, max_w, style);
+}
+
+#[cfg(test)]
+mod selection_detail_tests {
+    use super::selection_detail;
+    use crate::factory::model_catalog::{CostBasis, ModelSource};
+    use crate::factory::routing::{ModelTier, Selection};
+
+    #[test]
+    fn spells_out_tier_cost_basis_candidates_and_list_source() {
+        let sel = Selection {
+            required_tier: ModelTier::Standard,
+            selected_tier: ModelTier::Premium,
+            cost_basis: CostBasis::PriceTable,
+            candidates: 3,
+            rationale: "cheapest".to_string(),
+            source: ModelSource::Fallback,
+        };
+        let text = selection_detail(Some(&sel)).unwrap();
+        assert_eq!(
+            text,
+            "Premium tier (required Standard) · cost: price table · 3 candidates · offline list"
+        );
+        assert!(selection_detail(None).is_none());
+    }
 }

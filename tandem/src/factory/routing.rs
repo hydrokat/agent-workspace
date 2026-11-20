@@ -225,7 +225,7 @@ fn cheapest_order(a: &CatalogModel, b: &CatalogModel) -> std::cmp::Ordering {
         .then_with(|| a.id.cmp(&b.id))
 }
 
-fn capable<'a>(models: &'a [CatalogModel], required: ModelTier) -> Vec<&'a CatalogModel> {
+fn capable(models: &[CatalogModel], required: ModelTier) -> Vec<&CatalogModel> {
     models
         .iter()
         .filter(|m| m.allowed && m.tier >= required)

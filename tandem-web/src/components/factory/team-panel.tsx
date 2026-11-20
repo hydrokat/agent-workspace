@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { AgentSummary, AssignmentSource } from "@/domain/models/factory";
-import { formatShortTime } from "./format";
+import { describeSelection, formatShortTime } from "./format";
 
 interface TeamPanelProps {
   agents: AgentSummary[];
@@ -105,6 +105,16 @@ export function TeamPanel({
                     <span className="text-muted-foreground">{formatShortTime(lastStop)}</span>
                   )}
                 </div>
+
+                <p
+                  aria-live="polite"
+                  data-testid={`selection-${agent.job_id}`}
+                  className="text-[11px] text-muted-foreground"
+                >
+                  {describeSelection(agent.selection)
+                    ? `Chosen: ${describeSelection(agent.selection)}`
+                    : null}
+                </p>
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   {agent.pane_id && agent.pane_alive && onViewPane && (

@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_assign.add_argument("--model", required=True, help="Model ID.")
     p_assign.add_argument("--role", help="Optional worker role label.")
 
+    p_rec = sub.add_parser("recommend", help="Recommend the least-cost capable CLI and model for a run stage.")
+    p_rec.add_argument("--run", required=True, help="Run ID (r-...).")
+    p_rec.add_argument("--stage", required=True, help="Workflow stage name.")
+    p_rec.add_argument("--complexity", choices=("low", "medium", "high"), help="Task complexity hint.")
+    p_rec.add_argument("--required-tier", choices=("economy", "standard", "premium"), help="Minimum model tier.")
+
     p_agents = sub.add_parser("agents", help="List worker agents for a run.")
     p_agents.add_argument("--run", required=True, help="Run ID (r-...).")
 
@@ -107,6 +113,14 @@ def build_argv(tandem_bin: str, idea_id: str, args: argparse.Namespace) -> list[
         ]
         if args.role:
             argv.extend(["--role", args.role])
+        return argv
+    if cmd == "recommend":
+        argv = [tandem_bin, "factory", "models", "recommend", "--run", args.run, "--stage", args.stage]
+        if args.complexity:
+            argv.extend(["--complexity", args.complexity])
+        if args.required_tier:
+            argv.extend(["--required-tier", args.required_tier])
+        argv.append("--json")
         return argv
     if cmd == "agents":
         return [tandem_bin, "factory", "agent", "list", args.run, "--json"]

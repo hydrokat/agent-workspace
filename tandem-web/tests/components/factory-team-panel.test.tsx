@@ -163,3 +163,88 @@ describe("TeamPanel & AssignmentEditor & IdeaCard badges", () => {
     expect(getByText(/sign in/i)).toBeTruthy();
   });
 });
+
+const SELECTION = {
+  required_tier: "standard",
+  selected_tier: "standard",
+  cost_basis: "price_table",
+  candidates: 3,
+  rationale: "cheapest Standard-or-higher model (agy/gemini-2.0-flash) of 3 candidates",
+  source: "live",
+} as const;
+
+describe("cost-aware recommendation display", () => {
+  test("TeamPanel spells out the tier, cost basis, candidates, and list source", () => {
+    const agents: AgentSummary[] = [{ ...AGENTS[0], source: "default", selection: SELECTION }];
+    const { getByTestId, getByText } = render(
+      <TeamPanel
+        agents={agents}
+        busy={false}
+        error={null}
+        onSendMessage={async () => {}}
+        onTerminate={async () => {}}
+        onRelaunch={async () => {}}
+      />
+    );
+    const line = getByTestId(`selection-${agents[0].job_id}`);
+    expect(line.getAttribute("aria-live")).toBe("polite");
+    expect(line.textContent).toContain(
+      "Chosen: Standard tier (required Standard) · cost: price table · 3 candidates · live list"
+    );
+    expect(getByText("default")).toBeTruthy();
+  });
+
+  test("TeamPanel shows no selection line for legacy agents", () => {
+    const { getByTestId } = render(
+      <TeamPanel
+        agents={AGENTS}
+        busy={false}
+        error={null}
+        onSendMessage={async () => {}}
+        onTerminate={async () => {}}
+        onRelaunch={async () => {}}
+      />
+    );
+    expect(getByTestId(`selection-${AGENTS[0].job_id}`).textContent).toBe("");
+  });
+
+  test("AssignmentEditor offers Use recommendation, which fills the CLI and model and saves as the user", async () => {
+    const saved: Array<{ stage: string; cli: string; model: string }> = [];
+    const assignments: Record<string, StageAssignment> = {
+      develop: {
+        stage: "develop",
+        cli: "agy",
+        model: "gemini-2.0-flash",
+        role: "senior-backend-dev",
+        source: "default",
+        updated: 1,
+        updated_by: "default",
+        selection: SELECTION,
+      },
+    };
+    const { getByRole, getByTestId, getByLabelText } = render(
+      <AssignmentEditor
+        stages={["develop", "review"]}
+        assignments={assignments}
+        saving={false}
+        error={null}
+        onAssign={async (payload) => {
+          saved.push(payload);
+        }}
+      />
+    );
+    expect(getByTestId("recommendation").textContent).toContain(
+      "Recommended: agy / gemini-2.0-flash · Standard tier (required Standard)"
+    );
+    setInputValue(getByLabelText(/model/i) as HTMLInputElement, "something-else");
+    fireEvent.click(getByRole("button", { name: /use recommendation/i }));
+    expect((getByLabelText(/model/i) as HTMLInputElement).value).toBe("gemini-2.0-flash");
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: /save assignment/i }));
+    });
+    expect(saved).toEqual([{ stage: "develop", cli: "agy", model: "gemini-2.0-flash" }]);
+
+    fireEvent.change(getByLabelText(/stage/i), { target: { value: "review" } });
+    expect(getByTestId("recommendation").textContent).toContain("No recommendation recorded for review");
+  });
+});
