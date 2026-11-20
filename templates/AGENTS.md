@@ -69,7 +69,7 @@ Compatibility sync rules:
 - **Surgical Updates:** Minimize noise; change only what is necessary to fulfill the objective.
 - **Type Safety:** All implementation must prioritize strict typing and clear interfaces.
 - **Validation:** No task is complete without verified automated tests or documented manual validation when tests are unavailable.
-- **Test Output:** Run tests through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` and read only the failures it reports. Open the saved log or run `... show <test name>` only when a failure block is not enough. Never paste a full passing log into the conversation.
+- **Test Output:** While developing, keep one background watcher per suite (`python3 .agents/skills/test-failures/scripts/watch.py start`), then `watch.py wait` and `watch.py results` after each edit instead of re-invoking the runner (see `knowledgebase/guidelines/watch-mode-testing.md`). At gates (done, commit, CI) run the full suite through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>`. Read only the failures either one reports. Open the saved log or run `run_tests.py show <test name>` only when a failure block is not enough. Stop watchers with `watch.py stop --all` when finished. Never paste a full passing log into the conversation.
 
 ### 6. Script-First Execution
 For repetitive or complex technical tasks:

@@ -557,6 +557,7 @@
   "templates/skills/test-failures/SKILL.md",
   "templates/skills/test-failures/agents/openai.yaml",
   "templates/skills/test-failures/scripts/run_tests.py",
+  "templates/skills/test-failures/scripts/watch.py",
   "templates/skills/ui-ux-pro-max/SKILL.md",
   "templates/skills/ui-ux-pro-max/agents/openai.yaml",
   "templates/skills/ui-ux-pro-max/assets/design-system-brief.md",

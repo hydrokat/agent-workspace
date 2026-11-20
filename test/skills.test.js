@@ -125,6 +125,21 @@ describe('script-first skills ship their scripts and templates', () => {
     has('test-failures/SKILL.md');
     has('test-failures/agents/openai.yaml');
     has('test-failures/scripts/run_tests.py');
+    has('test-failures/scripts/watch.py');
+  });
+
+  it('points agent rules and implementation skills at the watcher for development feedback', () => {
+    const watcher = 'test-failures/scripts/watch.py';
+    for (const name of ['spec-implement', 'pm-sprint-implement', 'factory-implementer', 'factory-test-engineer']) {
+      assert.ok(skill(name).includes(watcher), `${name} mentions the watcher`);
+      assert.ok(skill(name).includes('test-failures/scripts/run_tests.py'), `${name} keeps the gate runner`);
+    }
+    for (const doc of ['AGENTS.md', 'WORKFLOW.md']) {
+      const text = readFile(dir, doc);
+      assert.ok(text.includes(watcher), `${doc} mentions the watcher`);
+      assert.match(text, /gates?/i, `${doc} keeps the full run at gates`);
+    }
+    assert.match(skill('test-failures'), /## Watch Mode/);
   });
 
   it('routes agent test runs through the failed-tests-only runner', () => {
