@@ -161,6 +161,18 @@ pub enum EventData {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         grant: Option<super::permissions::ToolGrant>,
     },
+    #[serde(rename = "job.started")]
+    JobStarted {
+        run: String,
+        job: String,
+        stage: String,
+        attempt: u32,
+        cli: String,
+        model: String,
+        role: String,
+        source: super::team::AssignmentSource,
+        pane_id: String,
+    },
     #[serde(rename = "stage.succeeded")]
     StageSucceeded { run: String, stage: String },
     #[serde(rename = "stage.failed")]

@@ -1,13 +1,13 @@
 ---
 name: factory-planner
-description: "Headless Factory Mode plan-stage playbook. Turns an approved plan snapshot into specs via specs.py and writes artifacts/slices.json and result.json without modifying the repository."
+description: "Interactive Factory Mode plan-stage playbook. Reads prompt.md, turns an approved plan snapshot into specs via specs.py, writes artifacts/slices.json and result.json without modifying the repository, then stops."
 ---
 
 # Factory Planner
 
 ## Read-Only Mandate
 
-The `plan` stage has only `repo_read` and `issue_context` tools. Never modify, create, or delete files inside the target repository or worktree. Write outputs only under `$TANDEM_FACTORY_RUN_DIR/artifacts` and the job's `result.json`.
+The `plan` stage runs in an interactive worker pane with only `repo_read` and `issue_context` tools. Read `$TANDEM_JOB_DIR/prompt.md` first, never modify, create, or delete files inside the target repository or worktree, write outputs only under `$TANDEM_FACTORY_RUN_DIR/artifacts` and `$TANDEM_JOB_DIR/result.json`, and finish your turn once `result.json` is written.
 
 ## Procedure
 

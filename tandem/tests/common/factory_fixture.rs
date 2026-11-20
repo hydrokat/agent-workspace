@@ -1,19 +1,24 @@
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command as StdCommand;
+use std::process::{Child, Command as StdCommand, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tandem::factory::approval::Caller;
 use tandem::factory::broker::gate::{AuthType, ProviderTermsRow, consent_provider_with_terms};
 use tandem::factory::broker::terms::{TERMS_RECORD_PATH, TermsVerdict};
 use tandem::factory::checks::set_checks;
 use tandem::factory::executor::{BrokerExecutor, Executor, StageJob, StageOutcome};
-use tandem::factory::model::{Actor, ActorKind};
-use tandem::factory::runner::drive_run_step_with_gh;
+use tandem::factory::login::LoginProbe;
+use tandem::factory::model::{Actor, ActorKind, Run};
+use tandem::factory::runner::{RunnerError, drive_run_step_with_gh, resume_paused_run_with_probe};
 use tandem::factory::settings;
 use tandem::factory::store::FactoryStore;
+use tandem::tmux::SESSION;
+use tandem::tmux::client::{Result as TmuxCmdResult, TmuxClient, TmuxRunner};
 
 use super::TempDir;
 
@@ -65,6 +70,327 @@ pub fn stub_provider_dir() -> PathBuf {
         .expect("stub-provider directory exists")
 }
 
+pub struct StubEnvLoginProbe {
+    pub env: BTreeMap<String, String>,
+    pub signed_out: bool,
+    pub stub_only_dir: Option<PathBuf>,
+}
+
+impl LoginProbe for StubEnvLoginProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        if let Some(ref only_dir) = self.stub_only_dir {
+            let candidate = only_dir.join(bin);
+            return candidate.is_file().then_some(candidate);
+        }
+        let path_val = self.env.get("PATH")?;
+        for dir in std::env::split_paths(path_val) {
+            let candidate = dir.join(bin);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn version(&self, cli: &str) -> String {
+        format!("{cli} stub-1.0")
+    }
+
+    fn run(&self, argv: &[&str]) -> (i32, String, String) {
+        if self.signed_out {
+            return (1, String::new(), "not signed in".to_string());
+        }
+        let Some((prog, args)) = argv.split_first() else {
+            return (1, String::new(), "empty argv".to_string());
+        };
+        let Some(resolved) = self.which(prog) else {
+            return (127, String::new(), format!("{prog} not found"));
+        };
+        let mut cmd = StdCommand::new(resolved);
+        cmd.args(args)
+            .env_clear()
+            .envs(&self.env)
+            .stdin(Stdio::null());
+        match cmd.output() {
+            Ok(out) => (
+                out.status.code().unwrap_or(1),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                String::from_utf8_lossy(&out.stderr).into_owned(),
+            ),
+            Err(e) => (1, String::new(), e.to_string()),
+        }
+    }
+}
+
+struct StubPane {
+    id: String,
+    window: String,
+    kind: String,
+    role: String,
+    index: String,
+    label: String,
+    run: String,
+    job: String,
+    stage: String,
+    cli: String,
+    model: String,
+    child: Option<Child>,
+    dead: bool,
+    dead_status: i32,
+}
+
+#[derive(Default)]
+pub struct StubWorkerTmuxRunner {
+    next_id: AtomicUsize,
+    panes: Mutex<HashMap<String, StubPane>>,
+}
+
+impl StubWorkerTmuxRunner {
+    pub fn new() -> Self {
+        Self {
+            next_id: AtomicUsize::new(100),
+            panes: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl Drop for StubWorkerTmuxRunner {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.panes.lock() {
+            for pane in guard.values_mut() {
+                if let Some(ref mut child) = pane.child {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+    }
+}
+
+impl TmuxRunner for StubWorkerTmuxRunner {
+    fn run(&self, argv: &[String]) -> TmuxCmdResult {
+        let mut rest = if argv.len() >= 3 && argv[0] == "tmux" && argv[1] == "-L" {
+            if argv.get(3).map(String::as_str) == Some("-f") {
+                &argv[5..]
+            } else {
+                &argv[3..]
+            }
+        } else {
+            argv
+        };
+        if rest.is_empty() {
+            return TmuxCmdResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            };
+        }
+        match rest[0].as_str() {
+            "new-window" => {
+                rest = &rest[1..];
+                let mut window = String::new();
+                let mut cwd = std::env::temp_dir();
+                let mut i = 0;
+                while i < rest.len() {
+                    match rest[i].as_str() {
+                        "-P" => i += 1,
+                        "-F" | "-t" => i += 2,
+                        "-n" => {
+                            window = rest.get(i + 1).cloned().unwrap_or_default();
+                            i += 2;
+                        }
+                        "-c" => {
+                            if let Some(c) = rest.get(i + 1) {
+                                cwd = PathBuf::from(c);
+                            }
+                            i += 2;
+                        }
+                        _ => break,
+                    }
+                }
+                let cmd_tokens = &rest[i..];
+                let mut child_env: BTreeMap<String, String> = BTreeMap::new();
+                let mut cmd_idx = 0;
+                if cmd_tokens.first().map(String::as_str) == Some("env") {
+                    cmd_idx = 1;
+                    while cmd_idx < cmd_tokens.len() && cmd_tokens[cmd_idx].contains('=') {
+                        if let Some((k, v)) = cmd_tokens[cmd_idx].split_once('=') {
+                            child_env.insert(k.to_string(), v.to_string());
+                        }
+                        cmd_idx += 1;
+                    }
+                }
+                let Some(prog) = cmd_tokens.get(cmd_idx) else {
+                    return TmuxCmdResult {
+                        code: 1,
+                        out: String::new(),
+                        err: "missing worker command".to_string(),
+                    };
+                };
+                let args = &cmd_tokens[cmd_idx + 1..];
+                let resolved = if prog.contains('/') {
+                    PathBuf::from(prog)
+                } else {
+                    child_env
+                        .get("PATH")
+                        .and_then(|p| {
+                            std::env::split_paths(p)
+                                .map(|d| d.join(prog))
+                                .find(|cand| cand.is_file())
+                        })
+                        .unwrap_or_else(|| PathBuf::from(prog))
+                };
+                let child = match StdCommand::new(resolved)
+                    .args(args)
+                    .current_dir(&cwd)
+                    .env_clear()
+                    .envs(&child_env)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return TmuxCmdResult {
+                            code: 1,
+                            out: String::new(),
+                            err: format!("spawn failed: {e}"),
+                        };
+                    }
+                };
+                let id_num = self.next_id.fetch_add(1, Ordering::Relaxed);
+                let pane_id = format!("%{id_num}");
+                self.panes.lock().unwrap().insert(
+                    pane_id.clone(),
+                    StubPane {
+                        id: pane_id.clone(),
+                        window,
+                        kind: String::new(),
+                        role: String::new(),
+                        index: "0".to_string(),
+                        label: String::new(),
+                        run: String::new(),
+                        job: String::new(),
+                        stage: String::new(),
+                        cli: String::new(),
+                        model: String::new(),
+                        child: Some(child),
+                        dead: false,
+                        dead_status: 0,
+                    },
+                );
+                TmuxCmdResult {
+                    code: 0,
+                    out: format!("{pane_id}\n"),
+                    err: String::new(),
+                }
+            }
+            "set-option" => {
+                let mut pane_id = String::new();
+                let mut i = 1;
+                while i < rest.len() {
+                    if rest[i] == "-p" {
+                        i += 1;
+                    } else if rest[i] == "-t" {
+                        pane_id = rest.get(i + 1).cloned().unwrap_or_default();
+                        i += 2;
+                    } else {
+                        break;
+                    }
+                }
+                if let (Some(key), Some(val)) = (rest.get(i), rest.get(i + 1))
+                    && let Some(pane) = self.panes.lock().unwrap().get_mut(&pane_id)
+                {
+                    match key.as_str() {
+                        "@tandem_kind" => pane.kind = val.clone(),
+                        "@tandem_role" => pane.role = val.clone(),
+                        "@tandem_index" => pane.index = val.clone(),
+                        "@tandem_label" => pane.label = val.clone(),
+                        "@tandem_run" => pane.run = val.clone(),
+                        "@tandem_job" => pane.job = val.clone(),
+                        "@tandem_stage" => pane.stage = val.clone(),
+                        "@tandem_cli" => pane.cli = val.clone(),
+                        "@tandem_model" => pane.model = val.clone(),
+                        _ => {}
+                    }
+                }
+                TmuxCmdResult {
+                    code: 0,
+                    out: String::new(),
+                    err: String::new(),
+                }
+            }
+            "list-panes" => {
+                let mut guard = self.panes.lock().unwrap();
+                let mut lines = Vec::new();
+                for pane in guard.values_mut() {
+                    if !pane.dead
+                        && let Some(ref mut child) = pane.child
+                        && let Ok(Some(status)) = child.try_wait()
+                    {
+                        pane.dead = true;
+                        pane.dead_status = status.code().unwrap_or(1);
+                    }
+                    let dead_flag = if pane.dead { "1" } else { "0" };
+                    lines.push(
+                        [
+                            pane.id.as_str(),
+                            pane.window.as_str(),
+                            pane.kind.as_str(),
+                            pane.role.as_str(),
+                            pane.index.as_str(),
+                            pane.label.as_str(),
+                            dead_flag,
+                            &pane.dead_status.to_string(),
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            pane.run.as_str(),
+                            pane.job.as_str(),
+                            pane.stage.as_str(),
+                            pane.cli.as_str(),
+                            pane.model.as_str(),
+                        ]
+                        .join("\t"),
+                    );
+                }
+                TmuxCmdResult {
+                    code: 0,
+                    out: lines.join("\n"),
+                    err: String::new(),
+                }
+            }
+            "kill-pane" => {
+                let mut pane_id = String::new();
+                for w in rest.windows(2) {
+                    if w[0] == "-t" {
+                        pane_id = w[1].clone();
+                    }
+                }
+                if let Some(mut pane) = self.panes.lock().unwrap().remove(&pane_id)
+                    && let Some(ref mut child) = pane.child
+                {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                TmuxCmdResult {
+                    code: 0,
+                    out: String::new(),
+                    err: String::new(),
+                }
+            }
+            other => TmuxCmdResult {
+                code: 1,
+                out: String::new(),
+                err: format!("unsupported stub tmux command: {other}"),
+            },
+        }
+    }
+}
+
 pub struct FixtureExecutor {
     pub broker: BrokerExecutor,
     pub parent_env: BTreeMap<String, String>,
@@ -76,6 +402,14 @@ impl Executor for FixtureExecutor {
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.broker
             .run_with_env_and_gate(job, self.parent_env.clone(), self.terms, &self.today)
+    }
+
+    fn is_interactive(&self) -> bool {
+        self.broker.is_interactive()
+    }
+
+    fn ready_providers(&self) -> Option<Vec<&'static str>> {
+        self.broker.ready_providers()
     }
 }
 
@@ -176,7 +510,7 @@ impl FactoryFixture {
         fs::write(self.claude_config_dir.join("stub-scenario"), scenario).unwrap();
     }
 
-    pub fn executor(&self) -> FixtureExecutor {
+    pub fn env_map(&self) -> BTreeMap<String, String> {
         let mut parent_env: BTreeMap<String, String> = std::env::vars().collect();
         let orig_path = parent_env.get("PATH").cloned().unwrap_or_default();
         let new_path = if orig_path.is_empty() {
@@ -189,17 +523,44 @@ impl FactoryFixture {
             "CLAUDE_CONFIG_DIR".to_string(),
             self.claude_config_dir.display().to_string(),
         );
+        parent_env
+    }
+
+    pub fn login_probe(&self) -> StubEnvLoginProbe {
+        StubEnvLoginProbe {
+            env: self.env_map(),
+            signed_out: false,
+            stub_only_dir: Some(self.stub_dir.clone()),
+        }
+    }
+
+    pub fn signed_out_login_probe(&self) -> StubEnvLoginProbe {
+        StubEnvLoginProbe {
+            env: self.env_map(),
+            signed_out: true,
+            stub_only_dir: Some(self.stub_dir.clone()),
+        }
+    }
+
+    pub fn resume_run(&self, run_id: &str) -> Result<Run, RunnerError> {
+        resume_paused_run_with_probe(&self.store, run_id, &user_actor(), &self.login_probe())
+    }
+
+    pub fn executor(&self) -> FixtureExecutor {
+        let parent_env = self.env_map();
+        let tmux = TmuxClient::with_runner(SESSION, None, Arc::new(StubWorkerTmuxRunner::new()));
+        let probe = Arc::new(self.login_probe());
         FixtureExecutor {
-            broker: BrokerExecutor {
-                workspace: self.workspace.clone(),
-            },
+            broker: BrokerExecutor::new(&self.workspace)
+                .with_tmux(tmux)
+                .with_login_probe(probe),
             parent_env,
             terms: TEST_TERMS,
             today: FIXED_TODAY.to_string(),
         }
     }
 
-    pub fn drive_step(&self, run_id: &str) -> Result<(), tandem::factory::runner::RunnerError> {
+    pub fn drive_step(&self, run_id: &str) -> Result<(), RunnerError> {
         let mut exec = self.executor();
         drive_run_step_with_gh(
             &self.store,

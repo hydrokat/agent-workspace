@@ -1,12 +1,13 @@
 ---
 name: factory-implementer
-description: "Headless Factory Mode develop stage playbook. Reads slices.json, implements changes inside slice paths without weakening create-tests files, follows spec-implement test-first and comment rules, never commits, and writes result.json."
+description: "Interactive Factory Mode develop stage playbook. Reads prompt.md and slices.json, implements changes inside slice paths without weakening create-tests files, follows spec-implement test-first and comment rules, never commits, writes result.json, then stops."
 ---
 
 # Factory Implementer
 
 ## Mandate
 
+- Read `$TANDEM_JOB_DIR/prompt.md` first when starting in your interactive worker pane. Once `$TANDEM_JOB_DIR/result.json` is written, finish your turn and stop cleanly so the runner can advance.
 - Follow the test-first and code-comment discipline rules in `.agents/skills/spec-implement/SKILL.md` (Steps 5 and 7) by reference.
 - Work strictly inside the paths declared in `$TANDEM_FACTORY_RUN_DIR/artifacts/slices.json`. Never modify protected paths (`.agent-workspace/`, `workflows/`, `.github/workflows/`, `.git/hooks/`, or check-config files).
 - **Preserve `create-tests` files.** Never delete test files created in `create-tests`, and do not modify them unless strictly required (if modified, provide a clear `"rationale"` in `result.json`).

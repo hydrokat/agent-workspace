@@ -1,19 +1,45 @@
+mod common;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
+use std::sync::Arc;
 use tandem::factory::approval::mark_ready_with_workflow;
 use tandem::factory::artifacts;
 use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::Command;
 use tandem::factory::model::{Actor, ActorKind, IdeaState, RunState, StageState};
 use tandem::factory::run::get_run;
 use tandem::factory::runner::{
-    RunnerError, acquire_runner_lock, drive_run_step, resume_paused_run, retry_paused_stage,
+    RunnerError, acquire_runner_lock, drive_run_step, resume_paused_run_with_probe,
+    retry_paused_stage, retry_paused_stage_with_probe,
 };
+
+struct StaticLoginProbe(bool);
+impl LoginProbe for StaticLoginProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (self.0 && bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "claude 2.0".to_string()
+    }
+    fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+        if self.0 {
+            (
+                0,
+                r#"{"loggedIn":true,"authMethod":"apiKey"}"#.to_string(),
+                String::new(),
+            )
+        } else {
+            (1, String::new(), "not signed in".to_string())
+        }
+    }
+}
 use tandem::factory::store::FactoryStore;
 
 fn temp_ws(name: &str) -> PathBuf {
@@ -210,7 +236,7 @@ fn runner_pauses_when_gate_closed_then_advances_retries_and_resumes_from_log() {
         kind: ActorKind::User,
         id: "alice".into(),
     };
-    resume_paused_run(&store, &run_id, &user).unwrap();
+    resume_paused_run_with_probe(&store, &run_id, &user, &StaticLoginProbe(true)).unwrap();
     exec.outcomes.insert(
         ("create-tests".into(), 1),
         StageOutcome::Failed {
@@ -265,13 +291,14 @@ fn runner_pauses_when_gate_closed_then_advances_retries_and_resumes_from_log() {
     let no_env = |_: &str| None;
     let no_pane = |_: &str| None;
     let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
-    retry_paused_stage(
+    retry_paused_stage_with_probe(
         &store,
         &run_id,
         "develop",
         "try smaller slice",
         &user,
         &caller,
+        &StaticLoginProbe(true),
     )
     .unwrap();
     let resumed = get_run(&store, &run_id).unwrap().unwrap();
@@ -335,30 +362,19 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
     assert_eq!(err_actor.code(), "agent_caller_forbidden");
 
     // Closed gate blocks retry
-    let err_gate = retry_paused_stage(
+    let err_gate = retry_paused_stage_with_probe(
         &store,
         &run_id,
         "plan",
         "new hypothesis",
         &user,
         &user_caller,
+        &StaticLoginProbe(false),
     )
     .unwrap_err();
     assert_eq!(err_gate.code(), "gate_not_met");
 
-    // Open gate, then tamper with plan snapshot -> hash mismatch blocks retry
-    let no_env = |_: &str| None;
-    let no_pane = |_: &str| None;
-    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
+    // Signed in, then tamper with plan snapshot -> hash mismatch blocks retry
     let snap_path = store
         .root
         .join("ideas")
@@ -367,26 +383,28 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
         .join("plan-snapshot.md");
     let orig_snap = fs::read_to_string(&snap_path).unwrap();
     fs::write(&snap_path, "# Tampered\n").unwrap();
-    let err_hash = retry_paused_stage(
+    let err_hash = retry_paused_stage_with_probe(
         &store,
         &run_id,
         "plan",
         "new hypothesis",
         &user,
         &user_caller,
+        &StaticLoginProbe(true),
     )
     .unwrap_err();
     assert_eq!(err_hash.code(), "gate_not_met");
     fs::write(&snap_path, orig_snap).unwrap();
 
     // Valid retry succeeds and persists hypothesis on stage + event
-    let updated = retry_paused_stage(
+    let updated = retry_paused_stage_with_probe(
         &store,
         &run_id,
         "plan",
         "  check edge case  ",
         &user,
         &user_caller,
+        &StaticLoginProbe(true),
     )
     .unwrap();
     assert_eq!(updated.state, RunState::Running);
@@ -409,9 +427,8 @@ fn broker_executor_handles_closed_gate_and_idempotent_result_and_ui_slices() {
     tandem::factory::workspace::prepare_worktree(&store, &ws, &run_id).unwrap();
 
     // Closed gate -> StageOutcome::Blocked
-    let mut exec = tandem::factory::executor::BrokerExecutor {
-        workspace: ws.clone(),
-    };
+    let mut exec = tandem::factory::executor::BrokerExecutor::new(&ws)
+        .with_login_probe(Arc::new(StaticLoginProbe(false)));
     let outcome = exec.run(&StageJob {
         run: run_id.clone(),
         stage: "plan".to_string(),
@@ -420,18 +437,8 @@ fn broker_executor_handles_closed_gate_and_idempotent_result_and_ui_slices() {
     assert!(matches!(outcome, StageOutcome::Blocked { .. }));
 
     // Open gate and pre-populate valid job result + plan artifacts -> idempotent path verifies contract
-    let no_env = |_: &str| None;
-    let no_pane = |_: &str| None;
-    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
+    let mut exec = tandem::factory::executor::BrokerExecutor::new(&ws)
+        .with_login_probe(Arc::new(StaticLoginProbe(true)));
     let art_dir = store.root.join("runs").join(&run_id).join("artifacts");
     fs::create_dir_all(art_dir.join("specs/p-001-demo")).unwrap();
     fs::write(art_dir.join("specs/p-001-demo/impl.md"), "# Impl\n").unwrap();
@@ -486,31 +493,65 @@ fn broker_executor_runs_end_to_end_with_fake_provider_script() {
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
+    if !common::require_tool("tmux") {
+        return;
+    }
+
+    struct TmuxServerGuard(String);
+    impl Drop for TmuxServerGuard {
+        fn drop(&mut self) {
+            let _ = StdCommand::new("tmux")
+                .args(["-L", &self.0, "kill-server"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+
     let ws = temp_ws("broker-e2e");
     let state_dir = ws.join(".state");
     fs::create_dir_all(&state_dir).unwrap();
+    let tmux_socket = format!("tandem-e2e-{}", std::process::id());
+    let _tmux_guard = TmuxServerGuard(tmux_socket.clone());
+    assert!(
+        StdCommand::new("tmux")
+            .args(["-L", &tmux_socket, "new-session", "-d", "-s", "tandem"])
+            .status()
+            .unwrap()
+            .success(),
+        "failed to start isolated tmux server"
+    );
+    assert!(
+        StdCommand::new("tmux")
+            .args([
+                "-L",
+                &tmux_socket,
+                "set-window-option",
+                "-g",
+                "remain-on-exit",
+                "on"
+            ])
+            .status()
+            .unwrap()
+            .success(),
+        "failed to set remain-on-exit on isolated tmux server"
+    );
+
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
-    let no_env = |_: &str| None;
-    let no_pane = |_: &str| None;
-    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
 
     let fake_bin = ws.join("fake-bin");
     fs::create_dir_all(&fake_bin).unwrap();
     let script_path = fake_bin.join("claude");
     let script = r#"#!/bin/sh
-cat >/dev/null
-echo "fake claude stdout stage=$TANDEM_STAGE attempt=$TANDEM_ATTEMPT"
-echo "fake claude stderr" >&2
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  echo '{"loggedIn":true,"authMethod":"apiKey"}'
+  exit 0
+fi
+if [ ! -t 0 ]; then
+  cat >/dev/null
+fi
 RUN_DIR="$(dirname "$(dirname "$TANDEM_JOB_DIR")")"
+printf 'stage=%s attempt=%s\n' "$TANDEM_STAGE" "$TANDEM_ATTEMPT" > "$TANDEM_JOB_DIR/worker-ran.txt"
 if [ "$TANDEM_STAGE" = "plan" ] && [ "$TANDEM_ATTEMPT" = "1" ]; then
   cat > "$TANDEM_JOB_DIR/result.json" <<'EOF'
 {"status":"failed","summary":"attempt 1 failed","files_changed":[],"artifacts":[],"rationale":"synthetic failure","hypothesis":"create missing artifacts"}
@@ -538,6 +579,14 @@ exit 1
     perms.set_mode(0o755);
     fs::set_permissions(&script_path, perms).unwrap();
 
+    for helper_cli in ["agy", "opencode"] {
+        let p = fake_bin.join(helper_cli);
+        fs::write(&p, "#!/bin/sh\nexit 1\n").unwrap();
+        let mut hperms = fs::metadata(&p).unwrap().permissions();
+        hperms.set_mode(0o755);
+        fs::set_permissions(&p, hperms).unwrap();
+    }
+
     let mut new_path = OsString::from(fake_bin.as_os_str());
     if let Some(orig) = std::env::var_os("PATH") {
         new_path.push(":");
@@ -550,10 +599,13 @@ exit 1
         .env("TANDEM_WORKSPACE", &ws)
         .env("XDG_STATE_HOME", &state_dir)
         .env("TANDEM_FACTORY", "1")
+        .env("TANDEM_TMUX_SOCKET", &tmux_socket)
         .env_remove("TANDEM_ROLE")
         .env_remove("TANDEM_SESSION_ID")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn tandem factory runner");
 
@@ -570,9 +622,16 @@ exit 1
     }
 
     let _ = child.kill();
-    let _ = child.wait();
+    let out = child.wait_with_output().unwrap();
+    let cur_run = get_run(&store, &run_id).unwrap();
 
-    let run = final_run.expect("runner should pause after create-tests fails");
+    let run = final_run.unwrap_or_else(|| {
+        panic!(
+            "runner should pause after create-tests fails; cur_run={cur_run:?} stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
     let plan_stage = run.stages.iter().find(|s| s.name == "plan").unwrap();
     assert_eq!(
         plan_stage.state,
@@ -582,12 +641,10 @@ exit 1
     );
     assert_eq!(plan_stage.attempts, 2);
 
-    let log1 = fs::read_to_string(
-        tandem::factory::broker::job::job_dir(&store, &run_id, "plan", 1).join("log.txt"),
-    )
-    .unwrap();
-    assert!(log1.contains("fake claude stdout stage=plan attempt=1"));
-    assert!(log1.contains("fake claude stderr"));
+    let j1 = tandem::factory::broker::job::job_dir(&store, &run_id, "plan", 1);
+    assert!(j1.join("pane_id").is_file(), "expected pane_id in plan.1");
+    let ran1 = fs::read_to_string(j1.join("worker-ran.txt")).unwrap();
+    assert!(ran1.contains("stage=plan attempt=1"));
 
     let ct_stage = run
         .stages

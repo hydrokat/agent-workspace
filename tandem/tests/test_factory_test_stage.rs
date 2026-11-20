@@ -1,11 +1,15 @@
+mod common;
+
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use common::factory_fixture::{StubEnvLoginProbe, StubWorkerTmuxRunner};
 use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::checks::{CheckOutcome, MAX_CHECK_LOG_BYTES, run_checks};
@@ -20,6 +24,8 @@ use tandem::factory::run::get_run;
 use tandem::factory::runner::drive_run_step;
 use tandem::factory::stages::test::run_test_stage_checks;
 use tandem::factory::store::FactoryStore;
+use tandem::tmux::SESSION;
+use tandem::tmux::client::TmuxClient;
 
 fn temp_ws(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -307,6 +313,25 @@ sys.exit(proc.returncode)
     let _ = fs::remove_dir_all(&ws);
 }
 
+use tandem::factory::login::LoginProbe;
+
+struct ReadyClaudeProbe;
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "claude 2.0".to_string()
+    }
+    fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+        (
+            0,
+            r#"{"loggedIn":true,"authMethod":"apiKey"}"#.to_string(),
+            String::new(),
+        )
+    }
+}
+
 #[test]
 fn test_stage_passing_checks_succeeds_without_starting_agent_job() {
     let ws = temp_ws("pass-no-agent");
@@ -343,9 +368,7 @@ fn test_stage_passing_checks_succeeds_without_starting_agent_job() {
     drive_run_step(&store, &ws, &run_id, &mut scripted).unwrap(); // create-tests
     drive_run_step(&store, &ws, &run_id, &mut scripted).unwrap(); // develop
 
-    let mut broker = BrokerExecutor {
-        workspace: ws.clone(),
-    };
+    let mut broker = BrokerExecutor::new(&ws).with_login_probe(Arc::new(ReadyClaudeProbe));
     drive_run_step(&store, &ws, &run_id, &mut broker).unwrap(); // test
 
     let run = get_run(&store, &run_id).unwrap().unwrap();
@@ -404,6 +427,10 @@ fn test_stage_failing_checks_invokes_economy_verifier_and_records_diagnosis() {
         &claude_bin,
         format!(
             r#"#!/bin/sh
+if [ "${{1:-}}" = "auth" ] && [ "${{2:-}}" = "status" ]; then
+  echo '{{"loggedIn":true,"authMethod":"apiKey"}}'
+  exit 0
+fi
 echo "$@" > "{}"
 cat > "$TANDEM_JOB_DIR/result.json" <<'EOF'
 {{"status":"succeeded","summary":"checked failures","rationale":"diagnosis: false exited 1; hypothesis: fix assertion","files_changed":[],"artifacts":[],"tests_run":[]}}
@@ -430,9 +457,17 @@ EOF
         env_map.insert("HOME".to_string(), home);
     }
 
-    let broker = BrokerExecutor {
-        workspace: ws.clone(),
-    };
+    let broker = BrokerExecutor::new(&ws)
+        .with_tmux(TmuxClient::with_runner(
+            SESSION,
+            None,
+            Arc::new(StubWorkerTmuxRunner::new()),
+        ))
+        .with_login_probe(Arc::new(StubEnvLoginProbe {
+            env: env_map.clone(),
+            signed_out: false,
+            stub_only_dir: Some(bin_dir.clone()),
+        }));
     let outcome = broker.run_with_env(
         &StageJob {
             run: run_id.clone(),

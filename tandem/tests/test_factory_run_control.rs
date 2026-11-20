@@ -9,21 +9,42 @@ use std::time::{Duration, Instant};
 use tandem::config::Config;
 use tandem::factory::approval::{mark_ready_with_workflow, revoke_ready};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{
-    AuthType, check, consent_provider, revoke_provider, today_iso_date,
-};
+use tandem::factory::broker::gate::{AuthType, check, consent_provider, today_iso_date};
 use tandem::factory::broker::job::{JobState, job_dir, read_job_state, set_job_state};
 use tandem::factory::broker::spawn::{ProviderCommand, WaitOutcome, spawn_provider};
 use tandem::factory::commands::{FactoryArgs, run_with_io};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::Command;
 use tandem::factory::model::{Actor, ActorKind, IdeaState, RunState, StageState};
 use tandem::factory::run::get_run;
 use tandem::factory::runner::{
-    RunnerError, cancel_idea, cancel_run, drive_run_step, pause_run_by_user, resume_paused_run,
+    RunnerError, cancel_idea, cancel_run, drive_run_step, pause_run_by_user,
+    resume_paused_run_with_probe,
 };
 use tandem::factory::store::FactoryStore;
+
+struct StaticLoginProbe(bool);
+impl LoginProbe for StaticLoginProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (self.0 && bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "claude 2.0".to_string()
+    }
+    fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+        if self.0 {
+            (
+                0,
+                r#"{"loggedIn":true,"authMethod":"apiKey"}"#.to_string(),
+                String::new(),
+            )
+        } else {
+            (1, String::new(), "not signed in".to_string())
+        }
+    }
+}
 
 fn temp_ws(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -351,7 +372,7 @@ fn pause_now_stops_running_child_process_and_interrupted_attempt_does_not_consum
                 .unwrap_or(StageOutcome::Succeeded)
         },
     };
-    resume_paused_run(&store, &run_id, &user_actor()).unwrap();
+    resume_paused_run_with_probe(&store, &run_id, &user_actor(), &StaticLoginProbe(true)).unwrap();
     // Attempt 2 fails with hypothesis -> stays Running (not paused for exhausted retries)
     drive_run_step(&store, &ws, &run_id, &mut exec_retry).unwrap();
     let mid_run = get_run(&store, &run_id).unwrap().unwrap();
@@ -406,7 +427,8 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
         .join("artifacts/plan-snapshot.md");
     let orig_snap = fs::read(&snap_path).unwrap();
     fs::write(&snap_path, b"tampered plan").unwrap();
-    let err = resume_paused_run(&store, &run_id, &user_actor()).unwrap_err();
+    let err = resume_paused_run_with_probe(&store, &run_id, &user_actor(), &StaticLoginProbe(true))
+        .unwrap_err();
     assert!(err.to_string().to_lowercase().contains("plan snapshot"));
     assert_eq!(
         get_run(&store, &run_id).unwrap().unwrap().state,
@@ -421,7 +443,8 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
         .join("workflow.yaml");
     let orig_wf = fs::read(&wf_path).unwrap();
     fs::write(&wf_path, b"tampered: true\n").unwrap();
-    let err = resume_paused_run(&store, &run_id, &user_actor()).unwrap_err();
+    let err = resume_paused_run_with_probe(&store, &run_id, &user_actor(), &StaticLoginProbe(true))
+        .unwrap_err();
     assert!(err.to_string().to_lowercase().contains("workflow"));
     assert_eq!(
         get_run(&store, &run_id).unwrap().unwrap().state,
@@ -429,26 +452,20 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
     );
     fs::write(&wf_path, &orig_wf).unwrap();
 
-    // 3. Revoke provider consent -> resume refused with gate closed message
-    revoke_provider(&store, "claude", "alice", &caller).unwrap();
-    let err = resume_paused_run(&store, &run_id, &user_actor()).unwrap_err();
+    // 3. CLI not signed in -> resume refused with gate closed message
+    let err =
+        resume_paused_run_with_probe(&store, &run_id, &user_actor(), &StaticLoginProbe(false))
+            .unwrap_err();
     assert!(err.to_string().to_lowercase().contains("gate"));
     assert_eq!(
         get_run(&store, &run_id).unwrap().unwrap().state,
         RunState::Paused
     );
 
-    // 4. Re-consent -> resume succeeds and continues from create-tests
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
-    let resumed = resume_paused_run(&store, &run_id, &user_actor()).unwrap();
+    // 4. Signed in -> resume succeeds and continues from create-tests
+    let resumed =
+        resume_paused_run_with_probe(&store, &run_id, &user_actor(), &StaticLoginProbe(true))
+            .unwrap();
     assert_eq!(resumed.state, RunState::Running);
 
     drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();

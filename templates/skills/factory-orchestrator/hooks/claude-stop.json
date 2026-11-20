@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'if [ -n \"${TANDEM_JOB_DIR:-}\" ] && [ -d \"$TANDEM_JOB_DIR\" ]; then if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi; ts=$(date +%s); stage=${TANDEM_STAGE:-unknown}; printf \"{\\\"last_stop_at\\\":%s,\\\"state\\\":\\\"idle\\\",\\\"cli\\\":\\\"claude\\\",\\\"stage\\\":\\\"%s\\\"}\\n\" \"$ts\" \"$stage\" > \"$TANDEM_JOB_DIR/activity.json.tmp\" && mv \"$TANDEM_JOB_DIR/activity.json.tmp\" \"$TANDEM_JOB_DIR/activity.json\"; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}

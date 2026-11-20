@@ -450,6 +450,7 @@ pub(super) fn event_run_id(ev: &EventData) -> Option<String> {
         | EventData::RunChangesRequested { run }
         | EventData::IdeaDelivered { run, .. }
         | EventData::StageStarted { run, .. }
+        | EventData::JobStarted { run, .. }
         | EventData::StageSucceeded { run, .. }
         | EventData::StageFailed { run, .. }
         | EventData::StageSkipped { run, .. }
@@ -488,7 +489,7 @@ pub(super) fn create_private_dir(path: &Path) -> Result<(), FactoryError> {
     Ok(())
 }
 
-pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
     reject_if_symlink(path)?;
     let tmp_path = path.with_extension(
         path.extension()

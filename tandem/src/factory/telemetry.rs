@@ -143,6 +143,14 @@ fn tier_label(tier: ModelTier) -> String {
 
 pub fn build_job_usage_event(input: &RecordJobUsageInput<'_>) -> EventData {
     let cost = compute_cost(input.usage, input.model, input.price_table);
+    build_job_usage_event_with_cost(input, cost)
+}
+
+pub fn build_interactive_job_usage_event(input: &RecordJobUsageInput<'_>) -> EventData {
+    build_job_usage_event_with_cost(input, Cost::unknown())
+}
+
+fn build_job_usage_event_with_cost(input: &RecordJobUsageInput<'_>, cost: Cost) -> EventData {
     let cost_usd = if cost.basis == CostBasis::Unknown {
         None
     } else {
@@ -164,8 +172,20 @@ pub fn build_job_usage_event(input: &RecordJobUsageInput<'_>) -> EventData {
 }
 
 pub fn record_job_usage(input: RecordJobUsageInput<'_>) -> Result<Event, FactoryError> {
-    input.store.ensure()?;
     let ev_data = build_job_usage_event(&input);
+    record_job_usage_event(&input, ev_data)
+}
+
+pub fn record_interactive_job_usage(input: RecordJobUsageInput<'_>) -> Result<Event, FactoryError> {
+    let ev_data = build_interactive_job_usage_event(&input);
+    record_job_usage_event(&input, ev_data)
+}
+
+fn record_job_usage_event(
+    input: &RecordJobUsageInput<'_>,
+    ev_data: EventData,
+) -> Result<Event, FactoryError> {
+    input.store.ensure()?;
     let ev = Event::from_data(
         current_time(),
         input.actor.clone(),

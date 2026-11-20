@@ -55,11 +55,99 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("question-check", help="Check whether the open-question ceiling is reached.")
     sub.add_parser("select-direction", help="Advance idea from Ideation to Planning.")
 
+    p_assign = sub.add_parser("assign", help="Assign a CLI and model to a run stage.")
+    p_assign.add_argument("--run", required=True, help="Run ID (r-...).")
+    p_assign.add_argument("--stage", required=True, help="Workflow stage name.")
+    p_assign.add_argument("--cli", required=True, help="CLI name (claude, agy, opencode).")
+    p_assign.add_argument("--model", required=True, help="Model ID.")
+    p_assign.add_argument("--role", help="Optional worker role label.")
+
+    p_agents = sub.add_parser("agents", help="List worker agents for a run.")
+    p_agents.add_argument("--run", required=True, help="Run ID (r-...).")
+
+    p_send = sub.add_parser("send", help="Send a message file to a running worker pane.")
+    p_send.add_argument("--run", required=True, help="Run ID (r-...).")
+    p_send.add_argument("--job", required=True, help="Job ID (<run>.<stage>.<attempt>).")
+    p_send.add_argument("--file", required=True, help="Path to message text file.")
+
+    p_cap = sub.add_parser("capture", help="Capture output from a running worker pane.")
+    p_cap.add_argument("--run", required=True, help="Run ID (r-...).")
+    p_cap.add_argument("--job", required=True, help="Job ID (<run>.<stage>.<attempt>).")
+    p_cap.add_argument("--lines", type=int, default=50, help="Lines to capture.")
+
+    p_term = sub.add_parser("terminate", help="Terminate an idle or stuck worker pane.")
+    p_term.add_argument("--run", required=True, help="Run ID (r-...).")
+    p_term.add_argument("--job", required=True, help="Job ID (<run>.<stage>.<attempt>).")
+    p_term.add_argument("--confirm", required=True, help="Must match --job.")
+
+    p_rel = sub.add_parser("relaunch", help="Relaunch a worker pane with current assignments.")
+    p_rel.add_argument("--run", required=True, help="Run ID (r-...).")
+    p_rel.add_argument("--job", required=True, help="Job ID (<run>.<stage>.<attempt>).")
+
     return parser
 
 
 def build_argv(tandem_bin: str, idea_id: str, args: argparse.Namespace) -> list[str]:
     cmd = args.command
+    if cmd == "assign":
+        argv = [
+            tandem_bin,
+            "factory",
+            "agent",
+            "assign",
+            args.run,
+            args.stage,
+            "--cli",
+            args.cli,
+            "--model",
+            args.model,
+            "--by",
+            "orchestrator",
+            "--json",
+        ]
+        if args.role:
+            argv.extend(["--role", args.role])
+        return argv
+    if cmd == "agents":
+        return [tandem_bin, "factory", "agent", "list", args.run, "--json"]
+    if cmd == "send":
+        return [
+            tandem_bin,
+            "factory",
+            "agent",
+            "send",
+            args.run,
+            args.job,
+            "--file",
+            args.file,
+            "--json",
+        ]
+    if cmd == "capture":
+        return [
+            tandem_bin,
+            "factory",
+            "agent",
+            "capture",
+            args.run,
+            args.job,
+            "--lines",
+            str(args.lines),
+            "--json",
+        ]
+    if cmd == "terminate":
+        return [
+            tandem_bin,
+            "factory",
+            "agent",
+            "terminate",
+            args.run,
+            args.job,
+            "--confirm",
+            args.confirm,
+            "--json",
+        ]
+    if cmd == "relaunch":
+        return [tandem_bin, "factory", "agent", "relaunch", args.run, args.job, "--json"]
     if cmd == "show":
         return [tandem_bin, "factory", "idea", "show", idea_id, "--json"]
     if cmd == "describe":
@@ -131,8 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    team_cmds = {"assign", "agents", "send", "capture", "terminate", "relaunch"}
     idea_id = os.environ.get("TANDEM_FACTORY_IDEA", "").strip()
-    if not idea_id:
+    if args.command not in team_cmds and not idea_id:
         print("TANDEM_FACTORY_IDEA environment variable is not set.", file=sys.stderr)
         return 2
 

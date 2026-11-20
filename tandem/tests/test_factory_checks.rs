@@ -10,10 +10,28 @@ use tandem::factory::checks::{
     discover_checks, require_confirmed_checks, set_checks, show_checks, validate_checks_config,
 };
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::Command;
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, RunState};
 use tandem::factory::run::get_run;
-use tandem::factory::runner::{drive_run_step, resume_paused_run};
+use tandem::factory::runner::{drive_run_step, resume_paused_run_with_probe};
+
+struct ReadyClaudeProbe;
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "claude 2.0".to_string()
+    }
+    fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+        (
+            0,
+            r#"{"loggedIn":true,"authMethod":"apiKey"}"#.to_string(),
+            String::new(),
+        )
+    }
+}
 use tandem::factory::store::FactoryStore;
 
 fn temp_ws(label: &str) -> PathBuf {
@@ -456,7 +474,7 @@ fn runner_pauses_at_test_stage_when_checks_unconfirmed_then_resumes_after_confir
         &user_caller,
     )
     .unwrap();
-    resume_paused_run(&store, &run_id, &user_actor()).unwrap();
+    resume_paused_run_with_probe(&store, &run_id, &user_actor(), &ReadyClaudeProbe).unwrap();
     drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
     assert_eq!(exec.calls, vec!["plan", "create-tests", "develop", "test"]);
 

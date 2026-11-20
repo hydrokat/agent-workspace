@@ -1,8 +1,18 @@
 #!/bin/sh
 set -eu
 
-# Drain stdin so the broker's prompt writer never hits EPIPE.
-cat > /dev/null
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  if [ "${STUB_AUTH_SIGNED_OUT:-}" = "1" ]; then
+    echo '{"loggedIn":false}'
+    exit 1
+  fi
+  echo '{"loggedIn":true,"authMethod":"apiKey"}'
+  exit 0
+fi
+
+if [ ! -t 0 ]; then
+  cat > /dev/null
+fi
 
 SCENARIO="${STUB_SCENARIO:-}"
 if [ -z "$SCENARIO" ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ -f "$CLAUDE_CONFIG_DIR/stub-scenario" ]; then
@@ -28,6 +38,10 @@ fi
 
 if [ "$SCENARIO" = "hang" ]; then
   exec sleep 60
+fi
+
+if [ "$SCENARIO" = "budget-breach" ]; then
+  sleep 1
 fi
 
 HYPOTHESIS_JSON=""

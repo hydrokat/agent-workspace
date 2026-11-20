@@ -122,6 +122,15 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
             settings.approval_grace_secs
         )));
     }
+    if !matches!(
+        settings.default_worker_cli.as_str(),
+        "auto" | "claude" | "agy" | "opencode"
+    ) {
+        return Err(FactoryError::InvalidInput(format!(
+            "default_worker_cli must be auto, claude, agy, or opencode (got \"{}\")",
+            settings.default_worker_cli
+        )));
+    }
     for agent in settings.allowed_tools.keys() {
         if super::workflow::schema::WorkflowAgent::parse(agent).is_none() {
             return Err(FactoryError::InvalidInput(format!(
@@ -325,6 +334,23 @@ fn apply_setting_change(
             })?;
             settings.approval_grace_secs = parsed;
             let new = serde_json::to_value(settings.approval_grace_secs)?;
+            Ok((old, new))
+        }
+        "default_worker_cli" => {
+            let old = serde_json::to_value(&settings.default_worker_cli)?;
+            settings.default_worker_cli = parse_string_value(raw_value.trim());
+            let new = serde_json::to_value(&settings.default_worker_cli)?;
+            Ok((old, new))
+        }
+        "orchestrator_may_choose" => {
+            let old = serde_json::to_value(settings.orchestrator_may_choose)?;
+            let parsed: bool = raw_value.trim().parse().map_err(|_| {
+                FactoryError::InvalidInput(
+                    "orchestrator_may_choose must be true or false".to_string(),
+                )
+            })?;
+            settings.orchestrator_may_choose = parsed;
+            let new = serde_json::to_value(settings.orchestrator_may_choose)?;
             Ok((old, new))
         }
         "default_budget" => {

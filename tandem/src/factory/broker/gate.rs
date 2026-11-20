@@ -64,6 +64,40 @@ pub enum GateDenied {
     GateClosed { provider: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InteractiveReadiness {
+    pub cli: String,
+    pub installed: bool,
+    pub signed_in: bool,
+    pub ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+pub fn interactive_ready(
+    cli: &str,
+    probe: &dyn crate::factory::login::LoginProbe,
+) -> InteractiveReadiness {
+    let status = crate::factory::login::check_readiness(cli, probe);
+    let reason = if !status.installed {
+        Some(format!("{cli} is not installed"))
+    } else if !status.signed_in {
+        Some(format!("{cli} is not signed in"))
+    } else {
+        None
+    };
+    InteractiveReadiness {
+        cli: status.cli,
+        installed: status.installed,
+        signed_in: status.signed_in,
+        ready: status.ready,
+        method: status.method,
+        reason,
+    }
+}
+
 pub fn check(
     provider: &str,
     settings: &FactorySettings,

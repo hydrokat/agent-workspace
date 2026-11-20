@@ -428,8 +428,8 @@ default-delivery
             .unwrap_or_else(|| panic!("missing telemetry for stage {stage_name}"));
         assert_eq!(su.provider.as_deref(), Some("claude"));
         assert!(su.model.is_some(), "model recorded for {stage_name}");
-        assert_eq!(su.cost.basis, CostBasis::Actual);
-        assert!(su.cost.value.unwrap_or(0.0) > 0.0);
+        assert_eq!(su.cost.basis, CostBasis::Unknown);
+        assert!(su.cost.value.is_none());
     }
     let rounds = evidence::load_review_rounds(&fixture.store, &run.id);
     assert_eq!(rounds.rounds.len(), 1);
@@ -562,6 +562,7 @@ fn stub_scenario_budget_breach_pauses_run() {
         CreateRunOptions {
             budget: Some(Budget {
                 max_cost_usd: Some(1.0),
+                max_duration_secs: Some(1),
                 ..Budget::default()
             }),
             ..CreateRunOptions::default()
@@ -575,8 +576,10 @@ fn stub_scenario_budget_breach_pauses_run() {
     let after = get_run(&fixture.store, &run.id).unwrap().unwrap();
     let ev_log = read_all(&fixture.store.root.join("events.jsonl")).unwrap();
     let spent = compute_spent(&after, &ev_log.events, current_time());
+    assert_eq!(spent.cost_usd, None);
     let run_budget = RunBudget {
         max_cost_usd: after.budget.as_ref().and_then(|b| b.max_cost_usd),
+        max_duration_secs: after.budget.as_ref().and_then(|b| b.max_duration_secs),
         ..RunBudget::default()
     };
     assert!(matches!(

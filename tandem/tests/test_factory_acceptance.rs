@@ -8,7 +8,6 @@ use common::factory_fixture::{FactoryFixture, orch_actor, sys_actor, user_actor,
 use tandem::coordination::CoordStore;
 use tandem::factory::approval::mark_ready;
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::revoke_provider;
 use tandem::factory::events::read_all;
 use tandem::factory::evidence;
 use tandem::factory::machine::Command;
@@ -17,7 +16,7 @@ use tandem::factory::model::{
 };
 use tandem::factory::permissions;
 use tandem::factory::run::{CreateRunOptions, create_run, get_run};
-use tandem::factory::runner::{cancel_run, pause_run_by_user, resume_paused_run};
+use tandem::factory::runner::{cancel_run, pause_run_by_user, resume_paused_run_with_probe};
 use tandem::factory::workflow::parse::load_workflow_file;
 use tandem::factory::workflow::schema::WorkflowTool;
 use tandem::factory::workflow::validate::validate;
@@ -181,7 +180,14 @@ fn criterion_1_no_manual_agent_assignment_after_ready() {
     .unwrap();
 
     let final_state = drive_until_settled(&fixture, &run.id, 16);
-    assert_eq!(final_state, RunState::Delivered);
+    let final_run = get_run(&fixture.store, &run.id).unwrap().unwrap();
+    assert_eq!(
+        final_state,
+        RunState::Delivered,
+        "pause_reason={:?} stages={:?}",
+        final_run.pause_reason,
+        final_run.stages
+    );
 
     let log = read_all(&fixture.store.root.join("events.jsonl")).unwrap();
     let ready_pos = log
@@ -342,6 +348,7 @@ fn criterion_3_breach_or_denial_pauses_with_action_request() {
             CreateRunOptions {
                 budget: Some(Budget {
                     max_cost_usd: Some(1.0),
+                    max_duration_secs: Some(1),
                     ..Budget::default()
                 }),
                 ..CreateRunOptions::default()
@@ -488,7 +495,14 @@ fn criterion_4_pr_is_linked_and_carries_evidence() {
     .unwrap();
 
     let final_state = drive_until_settled(&fixture, &run.id, 16);
-    assert_eq!(final_state, RunState::Delivered);
+    let final_run = get_run(&fixture.store, &run.id).unwrap().unwrap();
+    assert_eq!(
+        final_state,
+        RunState::Delivered,
+        "pause_reason={:?} stages={:?}",
+        final_run.pause_reason,
+        final_run.stages
+    );
 
     let gh_log = fs::read_to_string(&fixture.gh_log_path).unwrap();
     let pr_create_line = gh_log
@@ -565,7 +579,7 @@ fn criterion_5_pause_cancel_resume_from_last_valid_stage() {
         assert_eq!(paused.state, RunState::Paused);
 
         fixture.set_scenario("happy");
-        let resumed = resume_paused_run(&fixture.store, &run.id, &user_actor()).unwrap();
+        let resumed = fixture.resume_run(&run.id).unwrap();
         assert_eq!(resumed.state, RunState::Running);
 
         let final_state = drive_until_settled(&fixture, &run.id, 16);
@@ -647,10 +661,10 @@ fn criterion_5_pause_cancel_resume_from_last_valid_stage() {
         );
     }
 
-    // Resume with revoked gate is refused
+    // Resume when signed out is refused
     {
         let fixture = FactoryFixture::new("happy");
-        let idea_id = setup_ready_idea(&fixture, "Criterion 5 revoked gate");
+        let idea_id = setup_ready_idea(&fixture, "Criterion 5 signed out gate");
         let run = create_run(
             &fixture.store,
             &fixture.workspace,
@@ -670,9 +684,13 @@ fn criterion_5_pause_cancel_resume_from_last_valid_stage() {
         )
         .unwrap();
 
-        revoke_provider(&fixture.store, "claude", "user", &user_caller()).unwrap();
-
-        let err = resume_paused_run(&fixture.store, &run.id, &user_actor()).unwrap_err();
+        let err = resume_paused_run_with_probe(
+            &fixture.store,
+            &run.id,
+            &user_actor(),
+            &fixture.signed_out_login_probe(),
+        )
+        .unwrap_err();
         assert!(
             err.to_string().contains("Cannot resume"),
             "expected gate refusal on resume, got: {err}"

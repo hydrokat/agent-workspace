@@ -364,7 +364,7 @@ fn is_allowed_factory_var(key: &str) -> bool {
         .any(|forbidden| upper.contains(forbidden))
 }
 
-fn build_env(
+pub(crate) fn build_env(
     provider: &str,
     parent_env: &BTreeMap<String, String>,
     factory_env: &BTreeMap<String, String>,
