@@ -423,6 +423,7 @@
   "templates/knowledgebase/guidelines/release-versioning.md",
   "templates/knowledgebase/guidelines/security.md",
   "templates/knowledgebase/guidelines/testing-and-knowledgebase.md",
+  "templates/knowledgebase/guidelines/watch-mode-testing.md",
   "templates/skills/agent-coordination/SKILL.md",
   "templates/skills/agent-coordination/agents/openai.yaml",
   "templates/skills/agent-coordination/references/protocol.md",

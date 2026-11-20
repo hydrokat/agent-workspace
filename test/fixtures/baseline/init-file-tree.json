@@ -524,6 +524,7 @@
   "knowledgebase/guidelines/release-versioning.md",
   "knowledgebase/guidelines/security.md",
   "knowledgebase/guidelines/testing-and-knowledgebase.md",
+  "knowledgebase/guidelines/watch-mode-testing.md",
   "run.sh",
   "specs/README.md",
   "specs/in-progress.md",
