@@ -1,5 +1,7 @@
 # Changelog
 
+## [Unreleased]
+
 ## [1.23.0] — 2026-11-21
 
 ### Added: Cost-aware model routing for the interactive team (`p-025` / `s-018`)
