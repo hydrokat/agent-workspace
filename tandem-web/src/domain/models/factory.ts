@@ -228,6 +228,12 @@ export interface RunSummary {
   base_commit?: string | null;
   worktree_path?: string | null;
   pause_reason?: string | null;
+  cost_usd?: number | null;
+  cost?: {
+    basis: string;
+    amount_usd?: number | null;
+  } | null;
+  cost_display?: string | null;
   state: RunState;
   stages: Stage[];
   created: number;
@@ -322,6 +328,8 @@ export interface FactorySettings {
   max_review_rounds: number;
   approval_grace_secs: number;
   default_budget: FactoryBudget;
+  default_worker_cli?: "auto" | FactoryCli;
+  orchestrator_may_choose?: boolean;
   model_tiers: Record<string, ProviderModelTiers>;
   provider_gates: FactoryProviderGate[];
   checks: Record<string, unknown>;

@@ -625,6 +625,14 @@ export default function DashboardPage() {
             onResetUI={handleResetUI}
             onRenameWorkspace={handleRenameWorkspace}
             onRenameAgent={handleRenameAgent}
+            onOpenTerminal={(paneId) => {
+              if (paneId) {
+                handleInteractPaneId(paneId);
+              } else {
+                setActiveTab("terminal");
+                setDesktopTab("terminal");
+              }
+            }}
           />
         )}
       </div>

@@ -25,6 +25,7 @@ interface WebSettingsPanelProps {
   onResetUI: () => Promise<void>;
   onRenameWorkspace?: (label: string | null) => Promise<void>;
   onRenameAgent?: (paneId: string, label: string | null) => Promise<void>;
+  onOpenTerminal?: (paneId?: string) => void;
 }
 
 export function WebSettingsPanel({
@@ -37,6 +38,7 @@ export function WebSettingsPanel({
   onResetUI,
   onRenameWorkspace,
   onRenameAgent,
+  onOpenTerminal,
 }: WebSettingsPanelProps) {
   const [form, setForm] = useState<WebSettings>(initialSettings);
   const [consentOpen, setConsentOpen] = useState(false);
@@ -94,7 +96,10 @@ export function WebSettingsPanel({
   return (
     <div className="flex flex-col gap-6">
       {factoryEnabled && activeWorkspace && (
-        <FactorySettingsCard workspaceId={activeWorkspace.id} />
+        <FactorySettingsCard
+          workspaceId={activeWorkspace.id}
+          onOpenTerminal={onOpenTerminal}
+        />
       )}
 
       {activeWorkspace && onRenameWorkspace && (

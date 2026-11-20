@@ -233,8 +233,45 @@ describe("Factory Settings (t-010)", () => {
     expect(factoryCardHtml).toContain("Max parallel agents");
     expect(factoryCardHtml).toContain("Default temperature");
     expect(factoryCardHtml).toContain("Default workflow");
+    expect(factoryCardHtml).toContain("Default worker CLI");
+    expect(factoryCardHtml).toContain("Orchestrator may choose worker");
     expect(factoryCardHtml).toContain("Consent is given in tandem on the host.");
     expect(factoryCardHtml).toContain("terms verdict: unclear");
     expect(factoryCardHtml).toContain("disabled");
+  });
+
+  it("validates and updates default_worker_cli and orchestrator_may_choose", async () => {
+    const calls: Array<{ key: string; value: string }> = [];
+    const fakeGateway = {
+      factoryGetSettings: async () => sampleSettings,
+      factorySetSetting: async (_ws: string, key: string, value: string) => {
+        calls.push({ key, value });
+        return {
+          key,
+          old_value: "",
+          new_value: value,
+          actor: "web",
+          settings: {
+            ...sampleSettings,
+            default_worker_cli: "agy" as const,
+            orchestrator_may_choose: false,
+          },
+        };
+      },
+    } as never;
+
+    const uc = new UpdateFactorySettingsUseCase(fakeRegistry, fakeGateway);
+    await uc.execute("tandem-1111111111", {
+      default_worker_cli: "agy",
+      orchestrator_may_choose: false,
+    });
+    expect(calls).toEqual([
+      { key: "default_worker_cli", value: "agy" },
+      { key: "orchestrator_may_choose", value: "false" },
+    ]);
+
+    await expect(
+      uc.execute("tandem-1111111111", { default_worker_cli: "invalid" })
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });

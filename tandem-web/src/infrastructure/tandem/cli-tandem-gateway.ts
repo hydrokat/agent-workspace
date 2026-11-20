@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -55,11 +56,23 @@ function buildFactoryEnv(workspacePath: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     TANDEM_WORKSPACE: workspacePath,
+    TANDEM_INTERNAL_SURFACE: "web",
   };
   delete env.TANDEM_ROLE;
   delete env.TANDEM_SESSION_ID;
   delete env.TANDEM_FACTORY_IDEA;
   return env;
+}
+
+function assertNoSymlinkSegments(basePath: string, segments: string[]): string {
+  let current = basePath;
+  for (const segment of segments) {
+    current = join(current, segment);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
+      throw new FactoryGatewayError("invalid_input", "Refusing symlinked factory path");
+    }
+  }
+  return current;
 }
 
 function parseErrorEnvelope(stdout: unknown): { code?: string; message?: string } | null {
@@ -100,6 +113,12 @@ function mapFactoryExecError(error: unknown): FactoryGatewayError {
     mappedCode = "factory_disabled";
   } else if (exitCode === 3) {
     mappedCode = "gate_not_met";
+  } else if (
+    exitCode === 4 ||
+    envelope?.code === "forbidden" ||
+    envelope?.code === "agent_caller_forbidden"
+  ) {
+    mappedCode = "forbidden";
   } else if (exitCode === 1) {
     mappedCode =
       envelope?.code === "not_found" || /not found/i.test(message)
@@ -600,7 +619,6 @@ export class CliTandemGateway implements ITandemGateway {
       "factory",
       "agent",
       "list",
-      "--run",
       runId,
       "--json",
     ]);
@@ -611,19 +629,15 @@ export class CliTandemGateway implements ITandemGateway {
     workspacePath: string,
     runId: string
   ): Promise<Record<string, StageAssignment>> {
-    const assignPath = join(
-      workspacePath,
+    const assignPath = assertNoSymlinkSegments(workspacePath, [
       ".agent-workspace",
       "factory",
       "runs",
       runId,
-      "assignments.json"
-    );
+      "assignments.json",
+    ]);
     if (!existsSync(assignPath)) {
       return {};
-    }
-    if (lstatSync(assignPath).isSymbolicLink()) {
-      throw new FactoryGatewayError("invalid_input", "Refusing symlinked assignments file");
     }
     const parsed = JSON.parse(readFileSync(assignPath, "utf8")) as {
       stages?: Record<string, StageAssignment>;
@@ -640,9 +654,7 @@ export class CliTandemGateway implements ITandemGateway {
       "factory",
       "agent",
       "assign",
-      "--run",
       runId,
-      "--stage",
       params.stage,
       "--cli",
       params.cli,
@@ -665,20 +677,23 @@ export class CliTandemGateway implements ITandemGateway {
     jobId: string,
     message: string
   ): Promise<void> {
-    const runDir = join(workspacePath, ".agent-workspace", "factory", "runs", runId);
-    if (!existsSync(runDir) || lstatSync(runDir).isSymbolicLink()) {
+    const runDir = assertNoSymlinkSegments(workspacePath, [
+      ".agent-workspace",
+      "factory",
+      "runs",
+      runId,
+    ]);
+    if (!existsSync(runDir)) {
       throw new FactoryGatewayError("not_found", "Run directory unavailable");
     }
-    const msgPath = join(runDir, `web-message-${Date.now()}.txt`);
-    writeFileSync(msgPath, message, { encoding: "utf8", mode: 0o600 });
+    const msgPath = join(runDir, `web-message-${randomUUID()}.txt`);
+    writeFileSync(msgPath, message, { encoding: "utf8", mode: 0o600, flag: "wx" });
     try {
       await this.runFactory(workspacePath, [
         "factory",
         "agent",
         "send",
-        "--run",
         runId,
-        "--job",
         jobId,
         "--file",
         msgPath,
@@ -703,9 +718,7 @@ export class CliTandemGateway implements ITandemGateway {
       "factory",
       "agent",
       "terminate",
-      "--run",
       runId,
-      "--job",
       jobId,
       "--confirm",
       confirm,
@@ -722,9 +735,7 @@ export class CliTandemGateway implements ITandemGateway {
       "factory",
       "agent",
       "relaunch",
-      "--run",
       runId,
-      "--job",
       jobId,
       "--json",
     ]);

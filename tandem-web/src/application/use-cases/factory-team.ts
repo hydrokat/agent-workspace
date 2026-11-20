@@ -73,7 +73,7 @@ export class AssignStageUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     if (!this.gateway.factoryAssignStage) {
-      throw new FactoryGatewayError("cli_error", "Agent assignment unavailable");
+      throw new FactoryGatewayError("internal_error", "Agent assignment unavailable");
     }
     return this.gateway.factoryAssignStage(workspace.path, runId, {
       stage: params.stage,
@@ -110,7 +110,7 @@ export class SendAgentMessageUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     if (!this.gateway.factorySendAgentMessage) {
-      throw new FactoryGatewayError("cli_error", "Agent messaging unavailable");
+      throw new FactoryGatewayError("internal_error", "Agent messaging unavailable");
     }
     await this.gateway.factorySendAgentMessage(workspace.path, runId, jobId, message);
   }
@@ -139,7 +139,7 @@ export class TerminateAgentUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     if (!this.gateway.factoryTerminateAgent) {
-      throw new FactoryGatewayError("cli_error", "Agent termination unavailable");
+      throw new FactoryGatewayError("internal_error", "Agent termination unavailable");
     }
     await this.gateway.factoryTerminateAgent(workspace.path, runId, jobId, confirm);
   }
@@ -164,7 +164,7 @@ export class RelaunchAgentUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     if (!this.gateway.factoryRelaunchAgent) {
-      throw new FactoryGatewayError("cli_error", "Agent relaunch unavailable");
+      throw new FactoryGatewayError("internal_error", "Agent relaunch unavailable");
     }
     return this.gateway.factoryRelaunchAgent(workspace.path, runId, jobId);
   }

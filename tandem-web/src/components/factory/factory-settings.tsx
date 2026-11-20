@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Factory, Save } from "lucide-react";
 import { ProviderLoginCard } from "./provider-login";
 import {
@@ -18,6 +19,7 @@ import {
 interface FactorySettingsCardProps {
   workspaceId: string;
   initialData?: FactorySettingsPayload;
+  onOpenTerminal?: (paneId?: string) => void;
 }
 
 interface DraftState {
@@ -26,6 +28,8 @@ interface DraftState {
   max_review_rounds: string;
   default_workflow: string;
   approval_grace_secs: string;
+  default_worker_cli: "auto" | "claude" | "agy" | "opencode";
+  orchestrator_may_choose: boolean;
   max_cost_usd: string;
   max_duration_mins: string;
   max_retries: string;
@@ -39,6 +43,8 @@ function settingsToDraft(s: FactorySettings): DraftState {
     max_review_rounds: String(s.max_review_rounds),
     default_workflow: s.default_workflow,
     approval_grace_secs: String(s.approval_grace_secs),
+    default_worker_cli: s.default_worker_cli ?? "auto",
+    orchestrator_may_choose: s.orchestrator_may_choose ?? true,
     max_cost_usd:
       s.default_budget.max_cost_usd != null ? String(s.default_budget.max_cost_usd) : "",
     max_duration_mins:
@@ -59,6 +65,8 @@ function validateDraft(draft: DraftState): {
     max_review_rounds: number;
     default_workflow: string;
     approval_grace_secs: number;
+    default_worker_cli: "auto" | "claude" | "agy" | "opencode";
+    orchestrator_may_choose: boolean;
     default_budget: {
       max_cost_usd: number | null;
       max_duration_secs: number | null;
@@ -134,6 +142,8 @@ function validateDraft(draft: DraftState): {
       max_review_rounds: rounds,
       default_workflow: draft.default_workflow,
       approval_grace_secs: grace,
+      default_worker_cli: draft.default_worker_cli,
+      orchestrator_may_choose: draft.orchestrator_may_choose,
       default_budget: {
         max_cost_usd: maxCost,
         max_duration_secs: maxDurationSecs,
@@ -144,7 +154,11 @@ function validateDraft(draft: DraftState): {
   };
 }
 
-export function FactorySettingsCard({ workspaceId, initialData }: FactorySettingsCardProps) {
+export function FactorySettingsCard({
+  workspaceId,
+  initialData,
+  onOpenTerminal,
+}: FactorySettingsCardProps) {
   const [saved, setSaved] = useState<FactorySettings | null>(initialData?.settings ?? null);
   const [draft, setDraft] = useState<DraftState | null>(
     initialData?.settings ? settingsToDraft(initialData.settings) : null
@@ -201,6 +215,8 @@ export function FactorySettingsCard({ workspaceId, initialData }: FactorySetting
       p.max_review_rounds !== saved.max_review_rounds ||
       p.default_workflow !== saved.default_workflow ||
       p.approval_grace_secs !== saved.approval_grace_secs ||
+      p.default_worker_cli !== (saved.default_worker_cli ?? "auto") ||
+      p.orchestrator_may_choose !== (saved.orchestrator_may_choose ?? true) ||
       JSON.stringify(p.default_budget) !== JSON.stringify(saved.default_budget) ||
       JSON.stringify(p.model_tiers) !== JSON.stringify(saved.model_tiers)
     );
@@ -363,6 +379,49 @@ export function FactorySettingsCard({ workspaceId, initialData }: FactorySetting
             </p>
           )}
         </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="default-worker-cli"
+            className="text-xs font-semibold text-foreground"
+          >
+            Default worker CLI
+          </label>
+          <select
+            id="default-worker-cli"
+            value={draft.default_worker_cli}
+            onChange={(e) => {
+              const val = e.target.value as DraftState["default_worker_cli"];
+              setSaveSuccess(null);
+              setDraft((prev) => prev && { ...prev, default_worker_cli: val });
+            }}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs font-mono shadow-sm"
+          >
+            <option value="auto">auto</option>
+            <option value="claude">claude</option>
+            <option value="agy">agy</option>
+            <option value="opencode">opencode</option>
+          </select>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border rounded-md px-3 py-2">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-foreground">
+              Orchestrator may choose worker
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              Allow Orchestrator stage CLI/model overrides
+            </span>
+          </div>
+          <Switch
+            checked={draft.orchestrator_may_choose}
+            onCheckedChange={(checked) => {
+              setSaveSuccess(null);
+              setDraft((prev) => prev && { ...prev, orchestrator_may_choose: checked });
+            }}
+            aria-label="Orchestrator may choose worker"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -462,7 +521,10 @@ export function FactorySettingsCard({ workspaceId, initialData }: FactorySetting
       )}
 
       <div className="flex flex-col gap-2 border-t pt-4">
-        <ProviderLoginCard workspaceId={workspaceId} />
+        <ProviderLoginCard
+          workspaceId={workspaceId}
+          onLoginPaneOpened={(res) => onOpenTerminal?.(res.pane_id)}
+        />
       </div>
 
       <div className="flex flex-col gap-2 border-t pt-4">
