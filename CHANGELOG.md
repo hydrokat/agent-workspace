@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-11-20
+
+### Added & Fixed: Dedicated Factory TUI, Full Mouse Support, and 3-CLI Orchestrator Selection (`p-023` / `s-016`)
+- **Launch & add-agent decoupling**: `./run.sh --factory` skips the old Tandem planner/implementer wizard and opens directly in a Factory-first session, while `tandem add-agent` in Factory Mode restricts selection to the `orchestrator` role. Normal Tandem Mode (`./run.sh` without `--factory`) is unchanged.
+- **Dedicated Factory-first TUI shell & sidebar**: Factory sessions render a 4-tab status bar (`Factory | Queries | Web | Settings`) defaulting to `Factory`, a taller Factory status pane, and a Factory-native sidebar (`[+ New Idea]`, `ORCHESTRATORS`, `ACTIVE RUNS`) wired through `ui_intent.rs`.
+- **Full mouse support across Factory views & settings**: Added `ui/hits.rs` deterministic hit-region tracking with left-click and scroll-wheel interaction across the Factory Board, New Idea modal, Idea Detail, Run Monitor (Stage Detail, Logs, Consent, Target Picker, Checks, Evidence), Audit Trail, and Factory Settings (including edit, consent, and revoke modals).
+- **3-CLI orchestrator selection (`claude`, `agy`, `opencode`)**: Supported all three installed CLIs and live model discovery (`tandem factory models --cli <cli> --json`, `validate_model_for_cli`, and `GET /api/workspaces/[workspaceId]/factory/models`) across the TUI New Idea modal, `tandem factory idea start`, and `tandem-web`'s `NewIdeaDialog`.
+- **Permanent real-launch & mouse E2E gate**: Added `tandem/tests/test_factory_launch_and_mouse.rs` to guard Factory launch decoupling, dedicated tab/sidebar layout, mouse interactions, and 3-CLI orchestrator selection.
+
 ## [1.20.0] — 2026-11-19
 
 ### Added: Factory Mode pilot hardening (`p-019`)
