@@ -272,6 +272,7 @@
   "tandem/src/factory/machine.rs",
   "tandem/src/factory/mod.rs",
   "tandem/src/factory/model.rs",
+  "tandem/src/factory/model_catalog.rs",
   "tandem/src/factory/permissions.rs",
   "tandem/src/factory/pr.rs",
   "tandem/src/factory/protected.rs",

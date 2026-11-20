@@ -47,6 +47,7 @@
   ".agent-workspace/tandem/src/factory/machine.rs",
   ".agent-workspace/tandem/src/factory/mod.rs",
   ".agent-workspace/tandem/src/factory/model.rs",
+  ".agent-workspace/tandem/src/factory/model_catalog.rs",
   ".agent-workspace/tandem/src/factory/permissions.rs",
   ".agent-workspace/tandem/src/factory/pr.rs",
   ".agent-workspace/tandem/src/factory/protected.rs",
