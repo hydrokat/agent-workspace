@@ -16,6 +16,7 @@ pub mod ids;
 pub mod login;
 pub mod machine;
 pub mod model;
+pub mod model_catalog;
 pub mod permissions;
 pub mod pr;
 pub mod protected;
