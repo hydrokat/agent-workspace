@@ -726,7 +726,7 @@ fn claude_stop_hook_installed_for_claude_only_and_is_git_excluded() {
             stage: "develop".to_string(),
             attempt: 1,
             job_dir: j_claude.clone(),
-            prompt_file: prompt_claude,
+            prompt_file: prompt_claude.clone(),
             result_path: j_claude.join("result.json"),
             worktree_path: wt_claude.clone(),
             assignment: WorkerAssignment {
@@ -754,6 +754,60 @@ fn claude_stop_hook_installed_for_claude_only_and_is_git_excluded() {
         .as_str()
         .expect("Stop hook command string");
     assert!(list_changed_files(&wt_claude).unwrap().is_empty());
+
+    // Linked git worktree with empty global git config keeps .claude/settings.local.json untracked-ignored
+    let linked_wt = tmp.path.join("wt-linked");
+    assert!(
+        StdCommand::new("git")
+            .args([
+                "-C",
+                wt_claude.to_str().unwrap(),
+                "worktree",
+                "add",
+                "-b",
+                "feat/hook-wt",
+                linked_wt.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    launch(
+        &tmux,
+        &WorkerLaunchSpec {
+            run_id: "r-1".to_string(),
+            stage: "develop".to_string(),
+            attempt: 2,
+            job_dir: j_claude.clone(),
+            prompt_file: prompt_claude.clone(),
+            result_path: j_claude.join("result.json"),
+            worktree_path: linked_wt.clone(),
+            assignment: WorkerAssignment {
+                cli: "claude".to_string(),
+                model: "sonnet".to_string(),
+                read_only: false,
+                tools: vec![],
+                agent: "senior-backend-dev".to_string(),
+                role: "factory-worker".to_string(),
+            },
+            env: BTreeMap::new(),
+            time_limit_secs: 30,
+        },
+    )
+    .unwrap();
+    let wt_status = StdCommand::new("git")
+        .args(["-C", linked_wt.to_str().unwrap(), "status", "--porcelain"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(wt_status.status.success());
+    assert!(
+        String::from_utf8_lossy(&wt_status.stdout).trim().is_empty(),
+        "linked worktree must exclude .claude/settings.local.json via commondir info/exclude, got: {}",
+        String::from_utf8_lossy(&wt_status.stdout)
+    );
 
     // Execute hook command -> writes activity.json
     let out = StdCommand::new("sh")

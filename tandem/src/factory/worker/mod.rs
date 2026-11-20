@@ -105,7 +105,24 @@ fn resolve_git_exclude_path(worktree: &Path) -> Option<PathBuf> {
     } else {
         return None;
     };
-    Some(git_dir.join("info").join("exclude"))
+    let commondir_file = git_dir.join("commondir");
+    let common_dir = if commondir_file.is_file() {
+        let raw = fs::read_to_string(&commondir_file).ok()?;
+        let rel = raw.trim();
+        if rel.is_empty() {
+            git_dir
+        } else {
+            let cand = PathBuf::from(rel);
+            if cand.is_absolute() {
+                cand
+            } else {
+                git_dir.join(cand)
+            }
+        }
+    } else {
+        git_dir
+    };
+    Some(common_dir.join("info").join("exclude"))
 }
 
 fn ensure_claude_stop_hook(worktree: &Path) -> Result<(), std::io::Error> {
