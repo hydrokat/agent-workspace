@@ -1,6 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [1.23.0] — 2026-11-21
+
+### Added: Cost-aware model routing for the interactive team (`p-025` / `s-018`)
+- **Live model catalog**: `tandem factory models --cli <claude|agy|opencode> [--refresh] [--json]` now returns `tier` (Economy, Standard, Premium), `cost_rank`, `cost_basis` (`price_table`, `free_tier`, `heuristic`), `allowed`, and `source` (`live`, `cache`, `fallback`) alongside the existing `id` and `label`. Results are cached for 10 minutes in a private, symlink-refused file, filtered by `allowed_models` and `validate_model_for_cli`, and fall back to `model_tiers` when a CLI fails or is signed out. The pinned tier models always join the discovered list, and `max_cost_usd` stays unenforced.
+- **Least-cost capable defaults**: When neither the user nor the Orchestrator chose, a stage's default CLI and model is now the cheapest allowed model whose tier is at least the stage floor, the slice `complexity` (`low|medium|high`), and any `required_tier`, among signed-in CLIs. `default_worker_cli` is honored first, review avoids the develop model, and the idea's orchestrator CLI is no longer preferred. `tandem factory models recommend --run <r> --stage <s>` and `factory.py recommend` expose it. `slices.json` accepts optional `complexity`, `required_tier`, and `model_rationale`; older files remain valid.
+- **Relaunch escalation and provenance**: Relaunching a failed job with a default assignment moves it up one tier (cheapest next model). User and Orchestrator assignments are never changed. The choice (`required_tier`, `selected_tier`, `cost_basis`, `candidates`, `rationale`, `source`) is recorded in `assignments.json` and `job.started`, and shown in the TUI team view and assignment modal and in the `tandem-web` team panel and assignment editor (with a **Use recommendation** button).
+- **Skills and tests**: `factory-orchestrator` (`factory.py recommend`) and `factory-planner` (per-slice `complexity`) guidance, a real-tmux E2E (`test_factory_cost_routing_e2e.rs`) with routed stub CLIs, and golden-fixture updates for the new source file.
 
 ### Added: `cleanup-tests` skill (`p-025` / `s-018`)
 - **`cleanup-tests` skill**: Added `templates/skills/cleanup-tests/` with `SKILL.md` (verbatim user text) and `agents/openai.yaml`. Invocable as `/cleanup-tests [paths]` in Claude, Antigravity, Codex, and opencode. The skill audits, cleans up, and strengthens automated tests across seven coverage categories (happy paths, sad paths, edge cases, security/malicious paths, error handling, data-leakage prevention, input validation, authorization/data isolation, and regression coverage) with a seven-step execution workflow and a mandatory test-integrity rule set.

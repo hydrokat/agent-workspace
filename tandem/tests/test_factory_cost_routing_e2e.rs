@@ -460,7 +460,6 @@ fn defaults_pick_the_cheapest_capable_model_and_record_provenance() {
     }
     assert_eq!(saved.stages["develop"].model, "gemini-2.0-flash");
 
-    // A failed default attempt escalates one tier on relaunch.
     let tmux = team.tmux();
     let job = team.fabricate_job(&settled, "develop", 98, "agy", "gemini-2.0-flash", "failed");
     let suggestion = suggest_escalation(&team.fixture.store, &run.id, &job, &*team.runner)
