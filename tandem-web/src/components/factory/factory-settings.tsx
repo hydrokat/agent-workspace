@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Factory, Save } from "lucide-react";
+import { ProviderLoginCard } from "./provider-login";
 import {
   isValidModelId,
   isValidWorkflowName,
@@ -461,8 +462,12 @@ export function FactorySettingsCard({ workspaceId, initialData }: FactorySetting
       )}
 
       <div className="flex flex-col gap-2 border-t pt-4">
+        <ProviderLoginCard workspaceId={workspaceId} />
+      </div>
+
+      <div className="flex flex-col gap-2 border-t pt-4">
         <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
-          Providers (read-only)
+          Providers (reference terms)
         </span>
         <div className="flex flex-col gap-1.5">
           {providers.map((p) => (

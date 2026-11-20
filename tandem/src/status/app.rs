@@ -738,6 +738,39 @@ impl StatusApp {
                     }
                 }
             }
+            FactoryAction::OpenWorkerPane { pane_id } => {
+                if let Some(ref tmux) = self.tmux {
+                    let _ = tmux.run_checked(&["select-pane", "-t", &pane_id]);
+                } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                    mon.notice = format!("Tmux client unavailable for pane {pane_id}.");
+                }
+            }
+            FactoryAction::OpenLoginPane { cli } => {
+                if let Some(ref tmux) = self.tmux {
+                    match crate::factory::login::open_login_pane(
+                        tmux,
+                        &self.workspace,
+                        &cli,
+                        &crate::factory::login::HostLoginProbe,
+                    ) {
+                        Ok(res) => {
+                            if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                                mon.notice =
+                                    format!("Opened {cli} sign-in pane ({}).", res.pane_id);
+                            }
+                            self.action_refresh_now();
+                        }
+                        Err(err) => {
+                            if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                                mon.notice = err.to_string();
+                            }
+                        }
+                    }
+                } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                    mon.notice =
+                        format!("Run `tandem factory login open {cli}` in tmux to sign in.");
+                }
+            }
             FactoryAction::Refresh => {
                 self.action_refresh_now();
             }

@@ -85,6 +85,8 @@ fn card(id: &str, title: &str, state: IdeaState) -> IdeaCard {
         blockers: 0,
         updated: 0.0,
         run: None,
+        team_count: 0,
+        needs_sign_in: false,
     }
 }
 

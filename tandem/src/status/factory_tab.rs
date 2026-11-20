@@ -117,6 +117,8 @@ pub enum NewIdeaStep {
 pub enum FactoryAction {
     StartIdea { cli: String, model: String },
     OpenOrResumeOrchestrator { idea_id: String },
+    OpenWorkerPane { pane_id: String },
+    OpenLoginPane { cli: String },
     Refresh,
 }
 
@@ -834,6 +836,12 @@ impl FactoryTab {
                         }
                         None
                     }
+                    RunKeyOutcome::OpenWorkerPane { pane_id } => {
+                        Some(FactoryAction::OpenWorkerPane { pane_id })
+                    }
+                    RunKeyOutcome::OpenLoginPane { cli } => {
+                        Some(FactoryAction::OpenLoginPane { cli })
+                    }
                     RunKeyOutcome::Refresh => Some(FactoryAction::Refresh),
                     RunKeyOutcome::Consumed | RunKeyOutcome::Ignored => None,
                 }
@@ -1223,7 +1231,7 @@ impl FactoryTab {
             } else {
                 "0".to_string()
             };
-            let state = if let Some(ref run) = idea.run {
+            let mut state = if let Some(ref run) = idea.run {
                 format!(
                     "{} {}/{}",
                     idea.state.label(),
@@ -1233,6 +1241,12 @@ impl FactoryTab {
             } else {
                 idea.state.label().to_string()
             };
+            if idea.team_count > 0 {
+                state.push_str(&format!(" · {}a", idea.team_count));
+            }
+            if idea.needs_sign_in {
+                state.push_str(" · sign in");
+            }
             let clean_title = clean(&idea.title);
             let clean_owner = clean(&idea.owner);
 
