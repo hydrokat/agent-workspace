@@ -696,6 +696,12 @@ fn agent_send_capture_terminate_and_relaunch_use_worker_guards() {
     assert_ne!(relaunched.pane_id, "%21");
     assert_eq!(relaunched.model, "claude-opus-4-7");
     assert_eq!(read_job_state(&j1).unwrap(), JobState::Running);
+    let updated_list = list_agents(&store, &tmux, &run_id).unwrap();
+    assert_eq!(updated_list[0].model, "claude-opus-4-7");
+    assert_eq!(
+        updated_list[0].pane_id.as_deref(),
+        Some(relaunched.pane_id.as_str())
+    );
     let evs = read_all(&store.root.join("events.jsonl")).unwrap().events;
     assert!(evs.iter().any(|ev| {
         ev.r#type == "job.started"
@@ -1008,4 +1014,356 @@ exit 1
     ] {
         assert!(help_txt.contains(cmd), "factory.py missing {cmd}");
     }
+}
+
+#[test]
+fn remediation_regression_checks_cover_socket_env_i_hooks_auth_watch_layout_and_settings() {
+    use std::io::Cursor;
+    use tandem::factory::commands::{
+        FactoryAgentArgs, FactoryAgentAssignArgs, FactoryAgentCommand, FactoryArgs, FactoryCommand,
+        run_with_caller_io,
+    };
+    use tandem::factory::worker::{LaunchedWorker, WorkerWatchOutcome, watch_with_interval};
+    use tandem::status::settings_tab::SettingsTab;
+    use tandem::tmux::layout::Layout;
+    use tandem::tmux::socket_for;
+    use tandem::tmux::tabs::PaneInfo;
+
+    let tmp = TempDir::new("remediation");
+    let (store, _idea_id, run_id) = setup_run(&tmp.path);
+
+    // #2: BrokerExecutor defaults to workspace socket when TANDEM_TMUX_SOCKET is unset
+    if std::env::var_os("TANDEM_TMUX_SOCKET").is_none() {
+        let exec = BrokerExecutor::new(&tmp.path);
+        assert_eq!(exec.tmux.socket, socket_for(&tmp.path));
+    }
+
+    // #3: CLI non-TTY returns exit 3 (terminal_required); agent env returns exit 4
+    let mut cfg = store.settings().unwrap();
+    let cfg_dir = tmp.path.join(".agent-workspace");
+    fs::create_dir_all(&cfg_dir).unwrap();
+    let ws_cfg = tandem::config::Config {
+        factory: true,
+        state_dir: tmp.path.join(".state"),
+        ..Default::default()
+    };
+    let cli_args = FactoryArgs {
+        command: FactoryCommand::Agent(FactoryAgentArgs {
+            command: FactoryAgentCommand::Assign(FactoryAgentAssignArgs {
+                run: run_id.clone(),
+                stage: "develop".to_string(),
+                cli: "claude".to_string(),
+                model: "claude-sonnet-4-6".to_string(),
+                role: None,
+                by: Some("user".to_string()),
+                json: true,
+            }),
+        }),
+    };
+
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let non_tty = Caller::cli(false, &|_| None, &|_| None);
+    let code_non_tty = run_with_caller_io(
+        &cli_args,
+        &tmp.path,
+        &ws_cfg,
+        &non_tty,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut out,
+        &mut err,
+    );
+    assert_eq!(code_non_tty, 3);
+    assert!(String::from_utf8_lossy(&out).contains("terminal_required"));
+
+    let mut out2 = Vec::new();
+    let mut err2 = Vec::new();
+    let agent_caller = Caller::cli(
+        true,
+        &|k| (k == "TANDEM_ROLE").then(|| "implementer".to_string()),
+        &|_| None,
+    );
+    let code_agent = run_with_caller_io(
+        &cli_args,
+        &tmp.path,
+        &ws_cfg,
+        &agent_caller,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut out2,
+        &mut err2,
+    );
+    assert_eq!(code_agent, 4);
+    assert!(String::from_utf8_lossy(&out2).contains("agent_caller_forbidden"));
+
+    let mut out3 = Vec::new();
+    let mut err3 = Vec::new();
+    let web_caller = Caller::web(&|_| None);
+    let code_web = run_with_caller_io(
+        &cli_args,
+        &tmp.path,
+        &ws_cfg,
+        &web_caller,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut out3,
+        &mut err3,
+    );
+    assert_eq!(
+        code_web,
+        0,
+        "web caller stderr: {}",
+        String::from_utf8_lossy(&err3)
+    );
+
+    // #5: User override survives orchestrator_may_choose=false && default_worker_cli="agy"
+    cfg.orchestrator_may_choose = false;
+    cfg.default_worker_cli = "agy".to_string();
+    settings::save(&store, &cfg).unwrap();
+    let run = get_run(&store, &run_id).unwrap().unwrap();
+    let raw_wf = load_workflow_file(&store.run_dir(&run_id).join("workflow.yaml")).unwrap();
+    let wf = validate(&raw_wf, &cfg).unwrap();
+    let dev_def = wf.stages.iter().find(|s| s.name == "develop").unwrap();
+    let dev_grant =
+        permissions::grant(dev_def.agent, dev_def, "workspace", &wf, &cfg, false).unwrap();
+    let resolved_user = resolve_stage_assignment(
+        &store,
+        &run,
+        dev_def,
+        &dev_grant,
+        &wf,
+        &cfg,
+        &["claude", "agy"],
+        1,
+        &RoutingContext::default(),
+    )
+    .unwrap();
+    assert_eq!(resolved_user.route.provider, "claude");
+    assert_eq!(resolved_user.source, AssignmentSource::User);
+
+    // #4 & #7: worker::launch uses `env -i`, preserves existing Stop hooks, and rejects symlinked `.claude`
+    let repo_dir = tmp.path.join("repo-hook");
+    fs::create_dir_all(repo_dir.join(".claude")).unwrap();
+    init_repo(&repo_dir);
+    fs::write(
+        repo_dir.join(".claude/settings.local.json"),
+        serde_json::json!({
+            "hooks": {
+                "Stop": [{ "hooks": [{ "type": "command", "command": "echo user-hook" }] }]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let jdir = tmp.path.join("job-hook");
+    fs::create_dir_all(&jdir).unwrap();
+    let prompt_file = jdir.join("prompt.md");
+    fs::write(&prompt_file, "# Prompt\n").unwrap();
+    let runner = TeamTmuxRunner::default();
+    let tmux = TmuxClient::with_runner(SESSION, None, Arc::new(runner.clone()));
+    launch(
+        &tmux,
+        &WorkerLaunchSpec {
+            run_id: run_id.clone(),
+            stage: "develop".to_string(),
+            attempt: 1,
+            job_dir: jdir.clone(),
+            prompt_file: prompt_file.clone(),
+            result_path: jdir.join("result.json"),
+            worktree_path: repo_dir.clone(),
+            assignment: WorkerAssignment {
+                cli: "claude".to_string(),
+                model: "claude-sonnet-4-6".to_string(),
+                read_only: false,
+                tools: vec![],
+                agent: "senior-backend-dev".to_string(),
+                role: "factory-worker".to_string(),
+            },
+            env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
+            time_limit_secs: 30,
+        },
+    )
+    .unwrap();
+    assert!(
+        runner
+            .calls()
+            .iter()
+            .any(|(argv, _)| argv.windows(2).any(|w| w[0] == "env" && w[1] == "-i")),
+        "expected env -i in tmux new-window argv"
+    );
+    let merged_hook: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(repo_dir.join(".claude/settings.local.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(merged_hook["hooks"]["Stop"].as_array().unwrap().len(), 2);
+
+    #[cfg(unix)]
+    {
+        let sym_repo = tmp.path.join("repo-sym");
+        fs::create_dir_all(&sym_repo).unwrap();
+        init_repo(&sym_repo);
+        std::os::unix::fs::symlink(tmp.path.join("nowhere"), sym_repo.join(".claude")).unwrap();
+        assert!(
+            launch(
+                &tmux,
+                &WorkerLaunchSpec {
+                    run_id: run_id.clone(),
+                    stage: "develop".to_string(),
+                    attempt: 2,
+                    job_dir: jdir.clone(),
+                    prompt_file: prompt_file.clone(),
+                    result_path: jdir.join("result.json"),
+                    worktree_path: sym_repo,
+                    assignment: WorkerAssignment {
+                        cli: "claude".to_string(),
+                        model: "claude-sonnet-4-6".to_string(),
+                        read_only: false,
+                        tools: vec![],
+                        agent: "senior-backend-dev".to_string(),
+                        role: "factory-worker".to_string(),
+                    },
+                    env: BTreeMap::new(),
+                    time_limit_secs: 30,
+                },
+            )
+            .is_err()
+        );
+    }
+
+    // #8: Layout::show_pane_with switches window+pane for factory-worker and login panes
+    let layout_runner = TeamTmuxRunner::default();
+    let layout_tmux = TmuxClient::with_runner(SESSION, None, Arc::new(layout_runner.clone()));
+    let layout = Layout::new(&layout_tmux);
+    layout
+        .show_pane_with(
+            &[PaneInfo {
+                id: "%77".to_string(),
+                window: "fw-r-1-develop".to_string(),
+                index: 1,
+                role: "factory-worker".to_string(),
+                kind: "factory-worker".to_string(),
+                label: "develop".to_string(),
+                run: run_id.clone(),
+                job: format!("{run_id}.develop.1"),
+                stage: "develop".to_string(),
+                cli: "claude".to_string(),
+                model: "claude-sonnet-4-6".to_string(),
+                ..PaneInfo::default()
+            }],
+            "%77",
+        )
+        .unwrap();
+    let layout_calls = layout_runner.calls();
+    assert!(
+        layout_calls
+            .iter()
+            .any(|(argv, _)| argv.contains(&"select-window".to_string())
+                && argv.contains(&"%77".to_string()))
+    );
+    assert!(
+        layout_calls
+            .iter()
+            .any(|(argv, _)| argv.contains(&"select-pane".to_string())
+                && argv.contains(&"%77".to_string()))
+    );
+
+    // #9: SettingsTab probes logins once lazily
+    struct CountProbe(Arc<Mutex<usize>>);
+    impl LoginProbe for CountProbe {
+        fn which(&self, _bin: &str) -> Option<PathBuf> {
+            None
+        }
+        fn version(&self, _cli: &str) -> String {
+            String::new()
+        }
+        fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+            *self.0.lock().unwrap() += 1;
+            (1, String::new(), String::new())
+        }
+    }
+    let count = Arc::new(Mutex::new(0usize));
+    let mut tab = SettingsTab::default();
+    assert!(!tab.logins_probed);
+    let probe = CountProbe(Arc::clone(&count));
+    tab.ensure_logins_probed_with(&probe);
+    assert!(tab.logins_probed);
+    let first_count = *count.lock().unwrap();
+    tab.ensure_logins_probed_with(&probe);
+    assert_eq!(*count.lock().unwrap(), first_count);
+
+    // #6 & #11: watch_with_interval survives transient list-panes error and follows updated pane_id
+    #[derive(Default)]
+    struct WatchRunner {
+        step: Mutex<usize>,
+        job_dir: PathBuf,
+        result_path: PathBuf,
+    }
+    impl TmuxRunner for WatchRunner {
+        fn run(&self, argv: &[String]) -> TmuxCmdResult {
+            if argv.iter().any(|a| a == "list-panes") {
+                let mut s = self.step.lock().unwrap();
+                *s += 1;
+                if *s == 1 {
+                    return TmuxCmdResult {
+                        code: 1,
+                        out: String::new(),
+                        err: "transient".to_string(),
+                    };
+                }
+                if *s == 2 {
+                    fs::write(self.job_dir.join("pane_id"), "%56\n").unwrap();
+                    return TmuxCmdResult {
+                        code: 0,
+                        out: "%55\tfw\t0\tfactory-worker\tfactory-worker\tdev\t\t0\tsh\t\tr\tj\td\tc\tm\t80\t24\n"
+                            .to_string(),
+                        err: String::new(),
+                    };
+                }
+                fs::write(
+                    &self.result_path,
+                    r#"{"status":"succeeded","summary":"ok","files_changed":[],"artifacts":[]}"#,
+                )
+                .unwrap();
+                return TmuxCmdResult {
+                    code: 0,
+                    out: "%56\tfw\t0\tfactory-worker\tfactory-worker\tdev\t\t0\tsh\t\tr\tj\td\tc\tm\t80\t24\n"
+                        .to_string(),
+                    err: String::new(),
+                };
+            }
+            TmuxCmdResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            }
+        }
+    }
+    let watch_jdir = tmp.path.join("watch-job");
+    fs::create_dir_all(&watch_jdir).unwrap();
+    let watch_res = watch_jdir.join("result.json");
+    let watch_tmux = TmuxClient::with_runner(
+        SESSION,
+        None,
+        Arc::new(WatchRunner {
+            step: Mutex::new(0),
+            job_dir: watch_jdir.clone(),
+            result_path: watch_res.clone(),
+        }),
+    );
+    let outcome = watch_with_interval(
+        &watch_tmux,
+        &LaunchedWorker {
+            pane_id: "%55".to_string(),
+            run_id,
+            stage: "develop".to_string(),
+            attempt: 1,
+            cli: "claude".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            job_dir: watch_jdir,
+            result_path: watch_res,
+            time_limit_secs: 5,
+        },
+        &|| false,
+        std::time::Duration::from_millis(1),
+    )
+    .unwrap();
+    assert!(matches!(outcome, WorkerWatchOutcome::Completed(_)));
 }

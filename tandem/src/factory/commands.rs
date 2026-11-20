@@ -1372,8 +1372,30 @@ pub fn run_with_caller(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32 {
+    run_with_caller_and_probe(
+        args,
+        workspace,
+        config,
+        caller,
+        &super::login::HostLoginProbe,
+        stdout,
+        stderr,
+    )
+}
+
+pub fn run_with_caller_and_probe(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
     let mut empty = std::io::empty();
-    run_with_caller_io(args, workspace, config, caller, &mut empty, stdout, stderr)
+    run_with_caller_io_and_probe(
+        args, workspace, config, caller, probe, &mut empty, stdout, stderr,
+    )
 }
 
 pub fn run_with_caller_io(
@@ -1381,6 +1403,29 @@ pub fn run_with_caller_io(
     workspace: &Path,
     config: &Config,
     caller: &super::approval::Caller<'_>,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    run_with_caller_io_and_probe(
+        args,
+        workspace,
+        config,
+        caller,
+        &super::login::HostLoginProbe,
+        stdin,
+        stdout,
+        stderr,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_caller_io_and_probe(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -1394,7 +1439,7 @@ pub fn run_with_caller_io(
     if let FactoryCommand::Doctor(doc_args) = &args.command {
         return run_doctor_command(doc_args, workspace, caller, stdin, stdout, stderr);
     }
-    match execute(args, workspace, config, caller, stdin) {
+    match execute_with_probe(args, workspace, config, caller, probe, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
             let _ = stdout.write_all(b"\n");
@@ -1423,11 +1468,12 @@ pub fn run_with_caller_io(
     }
 }
 
-fn execute(
+fn execute_with_probe(
     args: &FactoryArgs,
     workspace: &Path,
     config: &Config,
     caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
     stdin: &mut dyn Read,
 ) -> Result<String, CmdError> {
     let enabled = config.factory || registry::factory_enabled(&config.state_dir, workspace);
@@ -1966,13 +2012,14 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let run = super::runner::retry_paused_stage(
+                let run = super::runner::retry_paused_stage_with_probe(
                     &store,
                     &a.run,
                     &a.stage,
                     &a.hypothesis,
                     &actor,
                     caller,
+                    probe,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -2015,13 +2062,12 @@ fn execute(
                     id: resolve_owner(None)?,
                 };
                 let run =
-                    super::runner::resume_paused_run(&store, &a.run, &actor).map_err(|e| {
-                        CmdError {
+                    super::runner::resume_paused_run_with_probe(&store, &a.run, &actor, probe)
+                        .map_err(|e| CmdError {
                             exit_code: e.exit_code(),
                             code: e.code(),
                             message: e.to_string(),
-                        }
-                    })?;
+                        })?;
                 if a.json {
                     serialize_compact(&run)
                 } else {
@@ -2541,7 +2587,11 @@ fn handle_agent_command(
     let tmux = crate::tmux::TmuxClient::new(socket, None);
     match cmd {
         FactoryAgentCommand::Assign(a) => {
-            let is_agent = super::approval::require_user(caller).is_err();
+            let caller_check = super::approval::require_user(caller);
+            let is_agent = matches!(
+                caller_check,
+                Err(super::approval::ApprovalError::AgentCaller)
+            );
             let source = match a.by.as_deref() {
                 Some("user") => {
                     if is_agent {
@@ -2549,6 +2599,13 @@ fn handle_agent_command(
                             exit_code: 4,
                             code: "agent_caller_forbidden",
                             message: "an AI agent cannot pass --by user".to_string(),
+                        });
+                    }
+                    if let Err(err) = caller_check {
+                        return Err(CmdError {
+                            exit_code: err.exit_code(),
+                            code: err.code(),
+                            message: err.to_string(),
                         });
                     }
                     super::team::AssignmentSource::User
@@ -2562,6 +2619,12 @@ fn handle_agent_command(
                 None => {
                     if is_agent {
                         super::team::AssignmentSource::Orchestrator
+                    } else if let Err(err) = caller_check {
+                        return Err(CmdError {
+                            exit_code: err.exit_code(),
+                            code: err.code(),
+                            message: err.to_string(),
+                        });
                     } else {
                         super::team::AssignmentSource::User
                     }

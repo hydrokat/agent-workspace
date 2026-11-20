@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -11,6 +12,7 @@ use tandem::factory::approval::mark_ready_with_workflow;
 use tandem::factory::artifacts;
 use tandem::factory::events::Event;
 use tandem::factory::evidence::{self, AddEvidenceInput};
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command, EventData};
 use tandem::factory::model::{Actor, ActorKind, FeasibilityVerdict, PrLink, Risk};
 use tandem::factory::run::get_run;
@@ -571,6 +573,28 @@ fn factory_run_evidence_list_reader_and_narrow_responsive() {
     ));
 }
 
+struct ReadyClaudeProbe;
+
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "1.0.0".to_string()
+    }
+    fn run(&self, argv: &[&str]) -> (i32, String, String) {
+        if argv.first() == Some(&"claude") {
+            (
+                0,
+                r#"{"loggedIn":true,"authMethod":"subscription"}"#.to_string(),
+                String::new(),
+            )
+        } else {
+            (1, String::new(), String::new())
+        }
+    }
+}
+
 #[test]
 fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
     let ws = temp_workspace("checks-confirm");
@@ -700,7 +724,8 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
         &sys,
     );
 
-    let mut run_view = FactoryRun::load(&ws, &idea.id, &run_id, "macos");
+    let mut run_view = FactoryRun::load(&ws, &idea.id, &run_id, "macos")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     let area = Rect::new(0, 0, 120, 20);
     let mut buf = Buffer::empty(area);
     run_view.render(2000.0, area, &mut buf);

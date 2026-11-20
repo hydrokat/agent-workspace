@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -13,6 +14,7 @@ use tandem::factory::broker::context::AssembledContext;
 use tandem::factory::broker::job::{JobSpec, JobState, prepare_job, set_job_state};
 use tandem::factory::broker::result::{JobResult, JobResultStatus, JobUsage};
 use tandem::factory::events::Event;
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command, EventData};
 use tandem::factory::model::{Actor, ActorKind, FeasibilityVerdict, Risk, RunState};
 use tandem::factory::run::get_run;
@@ -449,7 +451,8 @@ fn test_detail_opens_run_monitor_and_responsive_variants() {
         })
     );
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
 
     // Wide (>= 120)
     let mut buf = Buffer::empty(wide);
@@ -542,7 +545,8 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
         }),
     );
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     // Move selection to `develop` stage
     let dev_idx = monitor
         .run
@@ -608,6 +612,28 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
     let _ = fs::remove_dir_all(ws);
 }
 
+struct ReadyClaudeProbe;
+
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "1.0.0".to_string()
+    }
+    fn run(&self, argv: &[&str]) -> (i32, String, String) {
+        if argv.first() == Some(&"claude") {
+            (
+                0,
+                r#"{"loggedIn":true,"authMethod":"subscription"}"#.to_string(),
+                String::new(),
+            )
+        } else {
+            (1, String::new(), String::new())
+        }
+    }
+}
+
 #[test]
 fn test_pause_resume_cancel_and_retry_controls() {
     let ws = temp_workspace("controls");
@@ -622,7 +648,8 @@ fn test_pause_resume_cancel_and_retry_controls() {
         &caller,
     )
     .unwrap();
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
 
     // Pause via Ctrl+Alt+p
     monitor.handle_key(&KeyEvent::new(
@@ -729,7 +756,8 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
             limit: None,
         },
     );
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     let area = Rect::new(0, 0, 120, 25);
     let mut buf = Buffer::empty(area);
     monitor.render(200.0, area, &mut buf);
@@ -892,7 +920,8 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
     big_log.push_str("END_OF_LOG\n");
     fs::write(&log_path, &big_log).unwrap();
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     let area = Rect::new(0, 0, 120, 26);
 
     // Main does not capture input; Esc returns BackToDetail
@@ -1057,7 +1086,8 @@ fn test_t006_run_monitor_team_table_assignments_and_sign_in() {
     )
     .expect("assign stage");
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     let wide = Rect::new(0, 0, 120, 32);
     let mut buf = Buffer::empty(wide);
     monitor.render(850.0, wide, &mut buf);
@@ -1153,7 +1183,8 @@ fn test_t006_run_monitor_worker_message_stop_and_view_actions() {
     let jdir = tandem::factory::broker::job::job_dir(&store, &run_id, "develop", 1);
     let _ = fs::write(jdir.join("pane_id"), "%77\n");
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     assert_eq!(monitor.team.len(), 1);
     // Force pane_alive true for view test
     monitor.team[0].pane_alive = true;

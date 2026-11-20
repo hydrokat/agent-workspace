@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::adapters::base::{AdapterError, ToolFlag, WorkerLaunchRequest};
+use crate::coordination::filelock::exclusive_lock;
 use crate::factory::broker::job::{JobState, correlation_id, job_dir, read_job_state};
 use crate::factory::broker::result::JobResult;
 use crate::factory::broker::spawn::build_env;
-use crate::factory::events::set_private_file_mode;
+use crate::factory::events::{reject_if_symlink, set_private_file_mode};
 use crate::factory::model::RunState;
 use crate::factory::run::get_run;
 use crate::factory::store::{FactoryStore, write_atomic};
@@ -89,13 +90,20 @@ pub enum WorkerError {
     Invalid(String),
 }
 
-fn resolve_git_exclude_path(worktree: &Path) -> Option<PathBuf> {
+fn reject_symlink_io(path: &Path) -> Result<(), std::io::Error> {
+    reject_if_symlink(path).map_err(|e| std::io::Error::other(e.to_string()))
+}
+
+fn resolve_git_exclude_path(worktree: &Path) -> Result<Option<PathBuf>, std::io::Error> {
     let dot_git = worktree.join(".git");
+    reject_symlink_io(&dot_git)?;
     let git_dir = if dot_git.is_dir() {
         dot_git
     } else if dot_git.is_file() {
-        let raw = fs::read_to_string(&dot_git).ok()?;
-        let rel = raw.strip_prefix("gitdir:")?.trim();
+        let raw = fs::read_to_string(&dot_git)?;
+        let Some(rel) = raw.strip_prefix("gitdir:").map(str::trim) else {
+            return Ok(None);
+        };
         let cand = PathBuf::from(rel);
         if cand.is_absolute() {
             cand
@@ -103,11 +111,13 @@ fn resolve_git_exclude_path(worktree: &Path) -> Option<PathBuf> {
             worktree.join(cand)
         }
     } else {
-        return None;
+        return Ok(None);
     };
+    reject_symlink_io(&git_dir)?;
     let commondir_file = git_dir.join("commondir");
+    reject_symlink_io(&commondir_file)?;
     let common_dir = if commondir_file.is_file() {
-        let raw = fs::read_to_string(&commondir_file).ok()?;
+        let raw = fs::read_to_string(&commondir_file)?;
         let rel = raw.trim();
         if rel.is_empty() {
             git_dir
@@ -122,13 +132,18 @@ fn resolve_git_exclude_path(worktree: &Path) -> Option<PathBuf> {
     } else {
         git_dir
     };
-    Some(common_dir.join("info").join("exclude"))
+    reject_symlink_io(&common_dir)?;
+    let info_dir = common_dir.join("info");
+    reject_symlink_io(&info_dir)?;
+    Ok(Some(info_dir.join("exclude")))
 }
 
 fn ensure_claude_stop_hook(worktree: &Path) -> Result<(), std::io::Error> {
     let claude_dir = worktree.join(".claude");
+    reject_symlink_io(&claude_dir)?;
     fs::create_dir_all(&claude_dir)?;
     let settings_path = claude_dir.join("settings.local.json");
+    reject_symlink_io(&settings_path)?;
     let hook_cmd = r#"sh -c 'if [ -n "${TANDEM_JOB_DIR:-}" ] && [ -d "$TANDEM_JOB_DIR" ]; then if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi; ts=$(date +%s); stage=${TANDEM_STAGE:-unknown}; printf "{\"last_stop_at\":%s,\"state\":\"idle\",\"cli\":\"claude\",\"stage\":\"%s\"}\n" "$ts" "$stage" > "$TANDEM_JOB_DIR/activity.json.tmp" && mv "$TANDEM_JOB_DIR/activity.json.tmp" "$TANDEM_JOB_DIR/activity.json"; fi'"#;
     let mut root: serde_json::Value = if settings_path.is_file() {
         fs::read_to_string(&settings_path)
@@ -149,37 +164,66 @@ fn ensure_claude_stop_hook(worktree: &Path) -> Result<(), std::io::Error> {
     if !hooks_obj.is_object() {
         *hooks_obj = serde_json::json!({});
     }
-    hooks_obj.as_object_mut().unwrap().insert(
-        "Stop".to_string(),
-        serde_json::json!([
+    let hooks_map = hooks_obj.as_object_mut().unwrap();
+    let mut merged_stop = hooks_map
+        .get("Stop")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry| {
+            let s = entry.to_string();
+            !(s.contains("TANDEM_JOB_DIR") && s.contains("activity.json"))
+        })
+        .collect::<Vec<_>>();
+    merged_stop.push(serde_json::json!({
+        "hooks": [
             {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": hook_cmd
-                    }
-                ]
+                "type": "command",
+                "command": hook_cmd
             }
-        ]),
-    );
+        ]
+    }));
+    hooks_map.insert("Stop".to_string(), serde_json::Value::Array(merged_stop));
     let body = serde_json::to_string_pretty(&root).map_err(std::io::Error::other)?;
     write_atomic(&settings_path, format!("{body}\n").as_bytes())
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-    if let Some(exclude_path) = resolve_git_exclude_path(worktree) {
-        if let Some(parent) = exclude_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
+    if let Some(exclude_path) = resolve_git_exclude_path(worktree)?
+        && let Some(parent) = exclude_path.parent()
+    {
+        fs::create_dir_all(parent)?;
+        let lock_path = parent.join(".tandem-exclude.lock");
+        reject_symlink_io(&lock_path)?;
+        let lock_file = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)?;
+        let _guard = exclusive_lock(&lock_file).map_err(std::io::Error::other)?;
+        reject_symlink_io(&exclude_path)?;
         let existing = fs::read_to_string(&exclude_path).unwrap_or_default();
         let entry = ".claude/settings.local.json";
         if !existing.lines().any(|l| l.trim() == entry) {
+            use std::io::Write;
             let mut next = existing;
             if !next.is_empty() && !next.ends_with('\n') {
                 next.push('\n');
             }
             next.push_str(entry);
             next.push('\n');
-            let _ = write_atomic(&exclude_path, next.as_bytes());
+            let tmp_path = parent.join(format!(
+                ".exclude.{}.{:?}.tmp",
+                crate::factory::broker::current_process_id(),
+                std::thread::current().id()
+            ));
+            reject_symlink_io(&tmp_path)?;
+            let mut tmp = fs::File::create(&tmp_path)?;
+            tmp.write_all(next.as_bytes())?;
+            tmp.flush()?;
+            tmp.sync_all()?;
+            fs::rename(&tmp_path, &exclude_path)?;
         }
     }
     Ok(())
@@ -187,7 +231,7 @@ fn ensure_claude_stop_hook(worktree: &Path) -> Result<(), std::io::Error> {
 
 pub fn launch(tmux: &TmuxClient, spec: &WorkerLaunchSpec) -> Result<LaunchedWorker, WorkerError> {
     if spec.assignment.cli == "claude" && spec.worktree_path.is_dir() {
-        let _ = ensure_claude_stop_hook(&spec.worktree_path);
+        ensure_claude_stop_hook(&spec.worktree_path)?;
     }
     let req = WorkerLaunchRequest {
         model: spec.assignment.model.clone(),
@@ -230,11 +274,10 @@ pub fn launch(tmux: &TmuxClient, spec: &WorkerLaunchSpec) -> Result<LaunchedWork
         "-c".to_string(),
         cwd,
     ];
-    if !child_env.is_empty() {
-        launch_argv.push("env".to_string());
-        for (k, v) in &child_env {
-            launch_argv.push(format!("{k}={v}"));
-        }
+    launch_argv.push("env".to_string());
+    launch_argv.push("-i".to_string());
+    for (k, v) in &child_env {
+        launch_argv.push(format!("{k}={v}"));
     }
     launch_argv.extend(cmd_spec.argv);
 

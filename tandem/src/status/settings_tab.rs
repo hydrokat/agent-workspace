@@ -139,6 +139,7 @@ pub struct SettingsTab {
     pub factory_consent: Option<FactoryConsentState>,
     pub factory_revoke: Option<FactoryRevokeState>,
     pub factory_login_pane: Option<FactoryLoginPaneState>,
+    pub logins_probed: bool,
     pub scroll_offset: usize,
     pub render_scroll: Cell<usize>,
 }
@@ -168,6 +169,7 @@ impl Default for SettingsTab {
             factory_consent: None,
             factory_revoke: None,
             factory_login_pane: None,
+            logins_probed: false,
             scroll_offset: 0,
             render_scroll: Cell::new(0),
         }
@@ -194,10 +196,21 @@ impl SettingsTab {
 
     pub fn refresh_logins_with(&mut self, probe: &dyn LoginProbe) {
         self.factory_logins = all_statuses(probe);
+        self.logins_probed = true;
     }
 
     pub fn refresh_logins(&mut self) {
         self.refresh_logins_with(&HostLoginProbe);
+    }
+
+    pub fn ensure_logins_probed_with(&mut self, probe: &dyn LoginProbe) {
+        if !self.logins_probed {
+            self.refresh_logins_with(probe);
+        }
+    }
+
+    pub fn ensure_logins_probed(&mut self) {
+        self.ensure_logins_probed_with(&HostLoginProbe);
     }
 
     pub fn configure_factory(&mut self, enabled: bool, workspace: Option<PathBuf>) {
@@ -558,13 +571,19 @@ impl SettingsTab {
     }
 
     fn activate_agent_login(&mut self, idx: usize) {
-        let Some(item) = self.factory_logins.get(idx).cloned() else {
+        let Some(mut item) = self.factory_logins.get(idx).cloned() else {
             return;
         };
         if !item.installed {
             self.refresh_logins();
-            self.flash(&format!("{} is not installed — see README", item.cli));
-            return;
+            let Some(updated) = self.factory_logins.get(idx).cloned() else {
+                return;
+            };
+            if !updated.installed {
+                self.flash(&format!("{} is not installed — see README", updated.cli));
+                return;
+            }
+            item = updated;
         }
         if !item.has_login_command {
             let hint = item

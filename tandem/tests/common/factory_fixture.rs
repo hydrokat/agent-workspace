@@ -213,6 +213,9 @@ impl TmuxRunner for StubWorkerTmuxRunner {
                 let mut cmd_idx = 0;
                 if cmd_tokens.first().map(String::as_str) == Some("env") {
                     cmd_idx = 1;
+                    if cmd_tokens.get(cmd_idx).map(String::as_str) == Some("-i") {
+                        cmd_idx += 1;
+                    }
                     while cmd_idx < cmd_tokens.len() && cmd_tokens[cmd_idx].contains('=') {
                         if let Some((k, v)) = cmd_tokens[cmd_idx].split_once('=') {
                             child_env.insert(k.to_string(), v.to_string());

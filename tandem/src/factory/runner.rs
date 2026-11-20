@@ -30,7 +30,7 @@ use crate::factory::model::{
     Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
 };
 use crate::factory::redact::RedactContext;
-use crate::factory::routing::{RoutingContext, route, route_interactive};
+use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
@@ -792,10 +792,14 @@ pub fn drive_run_step_with_gh(
         .unwrap_or(0);
     let next_attempt = resumed_attempt.unwrap_or(current_attempts + 1);
 
-    let preferred_provider = store
-        .get_idea(&run.idea)?
-        .and_then(|i| i.orchestrator)
-        .map(|o| o.cli);
+    let preferred_provider = if executor.is_interactive() && settings.default_worker_cli != "auto" {
+        Some(settings.default_worker_cli.clone())
+    } else {
+        store
+            .get_idea(&run.idea)?
+            .and_then(|i| i.orchestrator)
+            .map(|o| o.cli)
+    };
     let (avoid_provider, avoid_model) = if stage_name == "review" {
         last_stage_provider_model(store, &run, "develop")
     } else {
@@ -856,31 +860,47 @@ pub fn drive_run_step_with_gh(
         }
     };
 
-    let routed_res = if executor.is_interactive() {
-        route_interactive(
-            stage_def,
-            &tool_grant,
-            &wf,
-            &settings,
-            &open_providers,
-            next_attempt,
-            &r_ctx,
-        )
-    } else {
-        route(
-            stage_def,
-            &tool_grant,
-            &wf,
-            &settings,
-            &open_providers,
-            next_attempt,
-            &r_ctx,
-        )
-    };
-    let routed = match routed_res {
+    let routed_res: Result<(crate::factory::routing::Route, Vec<String>), String> =
+        if executor.is_interactive() {
+            super::team::resolve_stage_assignment(
+                store,
+                &run,
+                stage_def,
+                &tool_grant,
+                &wf,
+                &settings,
+                &open_providers,
+                next_attempt,
+                &r_ctx,
+            )
+            .map(|resolved| (resolved.route, Vec::new()))
+            .map_err(|e| e.to_string())
+        } else {
+            route(
+                stage_def,
+                &tool_grant,
+                &wf,
+                &settings,
+                &open_providers,
+                next_attempt,
+                &r_ctx,
+            )
+            .map(|r| (r, Vec::new()))
+            .map_err(|e| e.to_string())
+        };
+    let (routed, _) = match routed_res {
         Ok(r) => r,
-        Err(unroutable) => {
-            let reason = unroutable.to_string();
+        Err(reason) => {
+            let mut cmds = Vec::new();
+            if !settings.orchestrator_may_choose
+                && settings.default_worker_cli != "auto"
+                && reason.contains("configured default_worker_cli")
+            {
+                cmds.push(format!(
+                    "tandem factory login open {}",
+                    settings.default_worker_cli
+                ));
+            }
             let sys = Actor {
                 kind: ActorKind::System,
                 id: "engine".to_string(),
@@ -899,7 +919,7 @@ pub fn drive_run_step_with_gh(
                 }],
                 &sys,
             )?;
-            return pause_run(store, run_after_block, reason, vec![]);
+            return pause_run(store, run_after_block, reason, cmds);
         }
     };
 

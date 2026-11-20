@@ -9,7 +9,7 @@ use super::broker::job::{
     JobInput, JobState, correlation_id, job_dir, jobs_dir, read_job_state, set_job_state,
 };
 use super::broker::result::{JobResult, JobResultStatus};
-use super::events::{append, redact_event, set_private_file_mode};
+use super::events::{append, redact_event, reject_if_symlink, set_private_file_mode};
 use super::ids::is_valid_run_id;
 use super::machine::EventData;
 use super::model::{Actor, ActorKind, FactorySettings, KNOWN_PROVIDERS, Run};
@@ -150,6 +150,7 @@ pub fn load_assignments(store: &FactoryStore, run_id: &str) -> Result<Assignment
         return Err(TeamError::InvalidInput(format!("invalid run id: {run_id}")));
     }
     let path = assignments_path(store, run_id);
+    reject_if_symlink(&path)?;
     if !path.is_file() {
         return Ok(AssignmentsFile::default());
     }
@@ -306,7 +307,31 @@ pub fn resolve_stage_assignment(
         }
     }
 
-    let route = route_interactive(stage, grant, workflow, settings, ready_clis, attempt, ctx)?;
+    let fallback_clis: Vec<&str> =
+        if !settings.orchestrator_may_choose && settings.default_worker_cli != "auto" {
+            ready_clis
+                .iter()
+                .copied()
+                .filter(|&c| c == settings.default_worker_cli)
+                .collect()
+        } else {
+            ready_clis.to_vec()
+        };
+    if fallback_clis.is_empty() {
+        return Err(TeamError::InvalidInput(format!(
+            "gate closed: configured default_worker_cli '{}' is not installed and signed in",
+            settings.default_worker_cli
+        )));
+    }
+    let route = route_interactive(
+        stage,
+        grant,
+        workflow,
+        settings,
+        &fallback_clis,
+        attempt,
+        ctx,
+    )?;
     let role = route.agent_definition.to_string();
     Ok(ResolvedStageAssignment {
         route,
@@ -383,6 +408,7 @@ fn resolve_job_pane_id(
 ) -> Result<String, TeamError> {
     let dir = job_dir(store, run_id, stage, attempt);
     let pane_path = dir.join("pane_id");
+    reject_if_symlink(&pane_path)?;
     if pane_path.is_file()
         && let Ok(raw) = fs::read_to_string(&pane_path)
     {
@@ -448,9 +474,14 @@ pub fn list_agents(
                 continue;
             };
 
-            let input: Option<JobInput> = fs::read_to_string(dir.join("input.json"))
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok());
+            let input_path = dir.join("input.json");
+            let input: Option<JobInput> = if reject_if_symlink(&input_path).is_ok() {
+                fs::read_to_string(&input_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+            } else {
+                None
+            };
             let cli = input
                 .as_ref()
                 .map(|i| i.provider.clone())
@@ -465,23 +496,37 @@ pub fn list_agents(
             let job_state = read_job_state(&dir)
                 .map(|s| s.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
-            let pane_from_file = fs::read_to_string(dir.join("pane_id"))
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
+            let pane_id_path = dir.join("pane_id");
+            let pane_from_file = if reject_if_symlink(&pane_id_path).is_ok() {
+                fs::read_to_string(&pane_id_path)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            } else {
+                None
+            };
             let (pane_id, pane_alive) = match live_panes.get(&name) {
                 Some((id, alive)) => (Some(id.clone()), *alive),
                 None => (pane_from_file, false),
             };
-            let activity: Option<WorkerActivity> = fs::read_to_string(dir.join("activity.json"))
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok());
+            let activity_path = dir.join("activity.json");
+            let activity: Option<WorkerActivity> = if reject_if_symlink(&activity_path).is_ok() {
+                fs::read_to_string(&activity_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+            } else {
+                None
+            };
             let result_path = dir.join("result.json");
-            let has_result = result_path.is_file();
-            let result_status = fs::read_to_string(&result_path)
-                .ok()
-                .and_then(|s| serde_json::from_str::<JobResult>(&s).ok())
-                .map(|r| r.status);
+            let has_result = reject_if_symlink(&result_path).is_ok() && result_path.is_file();
+            let result_status = if has_result {
+                fs::read_to_string(&result_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<JobResult>(&s).ok())
+                    .map(|r| r.status)
+            } else {
+                None
+            };
 
             out.push(AgentSummary {
                 job_id: name,
@@ -515,6 +560,7 @@ pub fn send_agent_message(
         return Err(TeamError::InvalidInput(format!("invalid run id: {run_id}")));
     }
     let (stage, attempt) = parse_job_id(run_id, job_id)?;
+    reject_if_symlink(file_path)?;
     let msg = fs::read_to_string(file_path)?;
     if msg.trim().is_empty() {
         return Err(TeamError::InvalidInput("message file is empty".to_string()));
@@ -583,6 +629,16 @@ pub fn relaunch_agent(
     run_id: &str,
     job_id: &str,
 ) -> Result<LaunchedWorker, TeamError> {
+    relaunch_agent_with_env(store, tmux, run_id, job_id, std::env::vars().collect())
+}
+
+pub fn relaunch_agent_with_env(
+    store: &FactoryStore,
+    tmux: &TmuxClient,
+    run_id: &str,
+    job_id: &str,
+    env: BTreeMap<String, String>,
+) -> Result<LaunchedWorker, TeamError> {
     if !is_valid_run_id(run_id) {
         return Err(TeamError::InvalidInput(format!("invalid run id: {run_id}")));
     }
@@ -590,47 +646,101 @@ pub fn relaunch_agent(
         .ok_or_else(|| TeamError::NotFound(format!("run {run_id} not found")))?;
     let (stage, attempt) = parse_job_id(run_id, job_id)?;
     let jdir = job_dir(store, run_id, &stage, attempt);
-    let input_raw = fs::read_to_string(jdir.join("input.json"))
+    let input_path = jdir.join("input.json");
+    reject_if_symlink(&input_path)?;
+    let input_raw = fs::read_to_string(&input_path)
         .map_err(|_| TeamError::NotFound(format!("job input.json not found for '{job_id}'")))?;
     let input: JobInput = serde_json::from_str(&input_raw)?;
+
+    let ws_root = store
+        .root
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| TeamError::InvalidInput("invalid factory store root".to_string()))?;
+    let cwd_path = PathBuf::from(&input.cwd);
+    let cwd_meta = fs::symlink_metadata(&cwd_path)
+        .map_err(|e| TeamError::InvalidInput(format!("invalid job cwd {}: {e}", input.cwd)))?;
+    if cwd_meta.file_type().is_symlink() || !cwd_meta.is_dir() {
+        return Err(TeamError::InvalidInput(format!(
+            "job cwd must be a real directory: {}",
+            input.cwd
+        )));
+    }
+    let canon_ws = ws_root.canonicalize()?;
+    let canon_cwd = cwd_path.canonicalize()?;
+    if run.worktree_path.is_some() || canon_cwd != canon_ws {
+        super::broker::spawn::validate_worktree(ws_root, &cwd_path)
+            .map_err(|e| TeamError::InvalidInput(e.to_string()))?;
+    }
+
+    let settings = store.settings()?;
+    let assignments = load_assignments(store, run_id)?;
+    let (cli, model, role, source) = match assignments.stages.get(&stage) {
+        Some(a)
+            if a.source == AssignmentSource::User
+                || (a.source == AssignmentSource::Orchestrator
+                    && settings.orchestrator_may_choose) =>
+        {
+            (a.cli.clone(), a.model.clone(), a.role.clone(), a.source)
+        }
+        _ => (
+            input.provider.clone(),
+            input.model.clone(),
+            input.agent.clone(),
+            AssignmentSource::Default,
+        ),
+    };
+
+    let wf_path = store.run_dir(run_id).join("workflow.yaml");
+    reject_if_symlink(&wf_path)?;
+    let raw_wf = load_workflow_file(&wf_path)
+        .map_err(|e| TeamError::InvalidInput(format!("workflow invalid for relaunch: {e}")))?;
+    let wf = validate(&raw_wf, &settings).map_err(|diags| {
+        let msgs: Vec<String> = diags.iter().map(ToString::to_string).collect();
+        TeamError::InvalidInput(format!(
+            "workflow invalid for relaunch: {}",
+            msgs.join("; ")
+        ))
+    })?;
+    let st_def =
+        wf.stages.iter().find(|s| s.name == stage).ok_or_else(|| {
+            TeamError::InvalidInput(format!("stage '{stage}' missing in workflow"))
+        })?;
+    let run_approvals = super::protected::load_run_approvals(store, run_id)?;
+    let matching_approval = super::protected::find_matching_approval(
+        &run_approvals,
+        run_id,
+        &stage,
+        &run.workflow_sha256,
+        current_time(),
+    )
+    .is_some();
+    let grant = super::permissions::grant(
+        st_def.agent,
+        st_def,
+        run.target.as_deref().unwrap_or("workspace"),
+        &wf,
+        &settings,
+        matching_approval,
+    )
+    .map_err(|e| TeamError::Forbidden(e.to_string()))?;
+    let read_only = !grant.has_repo_write;
+    let mut tools: Vec<ToolFlag> = Vec::new();
+    for &tool in &grant.tools {
+        interactive_map_tool(&cli, tool, &mut tools)?;
+    }
+
+    let mut updated_input = input.clone();
+    updated_input.provider = cli.clone();
+    updated_input.model = model.clone();
+    updated_input.agent = role.clone();
+    let updated_input_bytes = serde_json::to_vec_pretty(&updated_input)?;
+    write_atomic(&input_path, &updated_input_bytes)?;
 
     if let Ok(old_pane) = resolve_job_pane_id(store, tmux, run_id, job_id, &stage, attempt)
         && tmux.capture_worker(run_id, &old_pane, 1).is_ok()
     {
         let _ = tmux.kill_pane(&old_pane);
-    }
-
-    let settings = store.settings()?;
-    let assignments = load_assignments(store, run_id)?;
-    let (cli, model, role, source) = if let Some(a) = assignments.stages.get(&stage) {
-        (a.cli.clone(), a.model.clone(), a.role.clone(), a.source)
-    } else {
-        (
-            input.provider.clone(),
-            input.model.clone(),
-            input.agent.clone(),
-            AssignmentSource::Default,
-        )
-    };
-
-    let mut tools: Vec<ToolFlag> = Vec::new();
-    let mut read_only = true;
-    if let Ok(raw_wf) = load_workflow_file(&store.run_dir(run_id).join("workflow.yaml"))
-        && let Ok(wf) = validate(&raw_wf, &settings)
-        && let Some(st_def) = wf.stages.iter().find(|s| s.name == stage)
-        && let Ok(grant) = super::permissions::grant(
-            st_def.agent,
-            st_def,
-            run.target.as_deref().unwrap_or("workspace"),
-            &wf,
-            &settings,
-            false,
-        )
-    {
-        read_only = !grant.has_repo_write;
-        for &tool in &grant.tools {
-            interactive_map_tool(&cli, tool, &mut tools)?;
-        }
     }
 
     set_job_state(&jdir, JobState::Running).map_err(|e| TeamError::InvalidInput(e.to_string()))?;
@@ -642,7 +752,7 @@ pub fn relaunch_agent(
         job_dir: jdir.clone(),
         prompt_file: jdir.join("prompt.md"),
         result_path: jdir.join("result.json"),
-        worktree_path: PathBuf::from(&input.cwd),
+        worktree_path: cwd_path,
         assignment: WorkerAssignment {
             cli: cli.clone(),
             model: model.clone(),
@@ -651,7 +761,7 @@ pub fn relaunch_agent(
             agent: role.clone(),
             role: role.clone(),
         },
-        env: std::env::vars().collect(),
+        env,
         time_limit_secs: input.time_limit_secs,
     };
     let launched = launch(tmux, &spec)?;
@@ -659,7 +769,7 @@ pub fn relaunch_agent(
         kind: ActorKind::Orchestrator,
         id: "team".to_string(),
     };
-    let _ = record_job_started(
+    record_job_started(
         store,
         &run.idea,
         run_id,
@@ -672,6 +782,6 @@ pub fn relaunch_agent(
         source,
         &launched.pane_id,
         &actor,
-    );
+    )?;
     Ok(launched)
 }

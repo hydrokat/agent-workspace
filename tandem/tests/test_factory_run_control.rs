@@ -626,11 +626,12 @@ fn cli_run_control_commands_work_and_enforce_factory_mode() {
     let parsed = Wrapper::try_parse_from(["factory", "run", "resume", &run_id]).unwrap();
     let mut out = Vec::new();
     let mut err = Vec::new();
-    let code = tandem::factory::commands::run_with_caller(
+    let code = tandem::factory::commands::run_with_caller_and_probe(
         &parsed.args,
         &ws,
         &cfg,
         &caller,
+        &StaticLoginProbe(true),
         &mut out,
         &mut err,
     );
@@ -762,8 +763,15 @@ fn run_tandem_cli(
         },
     )
     .unwrap();
+    let stubs_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("stub-clis");
+    let orig_path = std::env::var("PATH").unwrap_or_default();
+    let child_path = format!("{}:{orig_path}", stubs_dir.display());
     let mut cmd = StdCommand::new(env!("CARGO_BIN_EXE_tandem"));
     cmd.args(args)
+        .env("PATH", child_path)
         .env("TANDEM_WORKSPACE", ws)
         .env("XDG_STATE_HOME", state_dir)
         .env("TANDEM_AUTH_TOKEN", "test-token")

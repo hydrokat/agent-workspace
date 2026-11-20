@@ -281,9 +281,9 @@ pub fn open_login_pane(
     probe: &dyn LoginProbe,
 ) -> Result<LoginPaneResult, LoginError> {
     let spec = spec_for(cli).ok_or_else(|| LoginError::UnknownCli(cli.to_string()))?;
-    if probe.which(spec.cli).is_none() {
+    let Some(bin_path) = probe.which(spec.cli) else {
         return Err(LoginError::NotInstalled(spec.cli.to_string()));
-    }
+    };
     let Some(login_argv) = spec.login_argv else {
         return Err(LoginError::NoLoginSubcommand {
             cli: spec.cli.to_string(),
@@ -296,6 +296,7 @@ pub fn open_login_pane(
 
     let win_name = format!("login-{cli}");
     let ws_str = workspace.to_string_lossy().into_owned();
+    let bin_str = bin_path.to_string_lossy().into_owned();
     let mut args = vec![
         "new-window",
         "-P",
@@ -307,8 +308,11 @@ pub fn open_login_pane(
         &win_name,
         "-c",
         &ws_str,
+        &bin_str,
     ];
-    args.extend_from_slice(login_argv);
+    if let Some((_, rest)) = login_argv.split_first() {
+        args.extend_from_slice(rest);
+    }
     let pane_id = client.run_checked(&args)?.trim().to_string();
 
     let label = format!("login·{cli}");

@@ -30,7 +30,6 @@ use super::worker::{
 };
 use super::workflow::parse::load_workflow_file;
 use super::workflow::validate::validate;
-use crate::tmux::SESSION;
 use crate::tmux::client::TmuxClient;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +74,7 @@ pub struct BrokerExecutor {
 
 impl BrokerExecutor {
     pub fn new(workspace: impl Into<PathBuf>) -> Self {
+        let workspace = workspace.into();
         let socket = std::env::var("TANDEM_TMUX_SOCKET")
             .ok()
             .filter(|s| {
@@ -82,9 +82,9 @@ impl BrokerExecutor {
                     && s.bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             })
-            .unwrap_or_else(|| SESSION.to_string());
+            .unwrap_or_else(|| crate::tmux::socket_for(&workspace));
         Self {
-            workspace: workspace.into(),
+            workspace,
             tmux: TmuxClient::new(socket, None),
             login_probe: Arc::new(HostLoginProbe),
             readiness_cache: Mutex::new(None),
@@ -474,27 +474,6 @@ impl BrokerExecutor {
                 .and_then(|i| i.orchestrator.as_ref())
                 .map(|o| o.cli.clone())
         };
-        let candidate_clis: Vec<&str> =
-            if !settings.orchestrator_may_choose && settings.default_worker_cli != "auto" {
-                ready_clis
-                    .into_iter()
-                    .filter(|&c| c == settings.default_worker_cli)
-                    .collect()
-            } else {
-                ready_clis
-            };
-        if candidate_clis.is_empty() {
-            return StageOutcome::Blocked {
-                reason: format!(
-                    "gate closed: configured default_worker_cli '{}' is not installed and signed in",
-                    settings.default_worker_cli
-                ),
-                action_commands: vec![format!(
-                    "tandem factory login open {}",
-                    settings.default_worker_cli
-                )],
-            };
-        }
         let r_ctx = RoutingContext {
             preferred_provider,
             is_ui_work: has_ui_slices(&store, &job.run),
@@ -526,15 +505,25 @@ impl BrokerExecutor {
             &tool_grant,
             &wf,
             &settings,
-            &candidate_clis,
+            &ready_clis,
             job.attempt,
             &r_ctx,
         ) {
             Ok(r) => r,
             Err(e) => {
+                let mut action_commands = Vec::new();
+                if !settings.orchestrator_may_choose
+                    && settings.default_worker_cli != "auto"
+                    && e.to_string().contains("configured default_worker_cli")
+                {
+                    action_commands.push(format!(
+                        "tandem factory login open {}",
+                        settings.default_worker_cli
+                    ));
+                }
                 return StageOutcome::Blocked {
                     reason: e.to_string(),
-                    action_commands: vec![],
+                    action_commands,
                 };
             }
         };

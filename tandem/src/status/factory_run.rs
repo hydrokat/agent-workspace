@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
@@ -13,12 +14,12 @@ use crate::factory::broker::result::JobResult;
 use crate::factory::checks::{CheckKind, CheckProposal, discover_checks, set_checks};
 use crate::factory::events::{self, Event};
 use crate::factory::evidence::{self, load_review_rounds};
-use crate::factory::login;
+use crate::factory::login::{self, HostLoginProbe, LoginProbe};
 use crate::factory::machine::EventData;
 use crate::factory::model::{Actor, ActorKind, Idea, Run, RunState, StageState};
 use crate::factory::run::get_run;
 use crate::factory::runner::{
-    cancel_run, pause_run_by_user, resume_paused_run, retry_paused_stage,
+    cancel_run, pause_run_by_user, resume_paused_run_with_probe, retry_paused_stage_with_probe,
 };
 use crate::factory::stages::review::ReviewVerdict;
 use crate::factory::store::{FactoryStore, write_atomic};
@@ -147,7 +148,7 @@ enum PauseResolution {
     UserPaused,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FactoryRun {
     pub workspace: PathBuf,
     pub idea_id: String,
@@ -173,6 +174,19 @@ pub struct FactoryRun {
     pub error: Option<String>,
     pub loaded_updated: Option<f64>,
     pub hits: HitMap,
+    pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
+}
+
+impl std::fmt::Debug for FactoryRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FactoryRun")
+            .field("workspace", &self.workspace)
+            .field("idea_id", &self.idea_id)
+            .field("run_id", &self.run_id)
+            .field("platform", &self.platform)
+            .field("selected_stage", &self.selected_stage)
+            .finish()
+    }
 }
 
 impl FactoryRun {
@@ -205,6 +219,7 @@ impl FactoryRun {
             error: None,
             loaded_updated: None,
             hits: HitMap::default(),
+            login_probe: Arc::new(HostLoginProbe),
         };
         view.reload();
         if let Some(ref run) = view.run
@@ -218,6 +233,11 @@ impl FactoryRun {
             view.selected_stage = idx;
         }
         view
+    }
+
+    pub fn with_login_probe(mut self, probe: Arc<dyn LoginProbe + Send + Sync>) -> Self {
+        self.login_probe = probe;
+        self
     }
 
     pub fn reload(&mut self) {
@@ -548,7 +568,15 @@ impl FactoryRun {
                     let env_fn = |k: &str| std::env::var(k).ok();
                     let no_pane = |_: &str| None;
                     let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
-                    match retry_paused_stage(&store, &self.run_id, &stage, &hyp, &actor, &caller) {
+                    match retry_paused_stage_with_probe(
+                        &store,
+                        &self.run_id,
+                        &stage,
+                        &hyp,
+                        &actor,
+                        &caller,
+                        &*self.login_probe,
+                    ) {
                         Ok(_) => {
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Retrying stage {stage}.");
@@ -780,7 +808,12 @@ impl FactoryRun {
                     let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
                     match set_run_target(&store, &self.workspace, &self.run_id, &target, &caller) {
                         Ok(_) => {
-                            let _ = resume_paused_run(&store, &self.run_id, &actor);
+                            let _ = resume_paused_run_with_probe(
+                                &store,
+                                &self.run_id,
+                                &actor,
+                                &*self.login_probe,
+                            );
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Target set to {target}.");
                             self.reload();
@@ -874,7 +907,12 @@ impl FactoryRun {
                         &caller,
                     ) {
                         Ok(_) => {
-                            let _ = resume_paused_run(&store, &self.run_id, &actor);
+                            let _ = resume_paused_run_with_probe(
+                                &store,
+                                &self.run_id,
+                                &actor,
+                                &*self.login_probe,
+                            );
                             self.notice = format!("Check commands confirmed for {target}.");
                             self.sub_view = RunSubView::Main;
                             self.reload();
@@ -1099,17 +1137,20 @@ impl FactoryRun {
                     }
                 }
             }
-            RunState::Paused => match resume_paused_run(&store, &self.run_id, &actor) {
-                Ok(_) => {
-                    self.notice = format!("Run {} resumed.", self.run_id);
-                    self.reload();
-                    RunKeyOutcome::Refresh
+            RunState::Paused => {
+                match resume_paused_run_with_probe(&store, &self.run_id, &actor, &*self.login_probe)
+                {
+                    Ok(_) => {
+                        self.notice = format!("Run {} resumed.", self.run_id);
+                        self.reload();
+                        RunKeyOutcome::Refresh
+                    }
+                    Err(err) => {
+                        self.notice = clean(&err.to_string());
+                        RunKeyOutcome::Consumed
+                    }
                 }
-                Err(err) => {
-                    self.notice = clean(&err.to_string());
-                    RunKeyOutcome::Consumed
-                }
-            },
+            }
             _ => RunKeyOutcome::Consumed,
         }
     }
@@ -1129,7 +1170,8 @@ impl FactoryRun {
             Some(PauseResolution::UserPaused) => {
                 let store = FactoryStore::new(&self.workspace);
                 let actor = self.user_actor();
-                match resume_paused_run(&store, &self.run_id, &actor) {
+                match resume_paused_run_with_probe(&store, &self.run_id, &actor, &*self.login_probe)
+                {
                     Ok(_) => {
                         self.notice = format!("Run {} resumed.", self.run_id);
                         self.reload();

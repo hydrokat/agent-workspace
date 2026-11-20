@@ -26,7 +26,7 @@ use tandem::factory::run::{CreateRunOptions, create_run, get_run};
 use tandem::factory::runner::drive_run_step_with_gh;
 use tandem::factory::team::{
     AssignStageInput, AssignmentSource, TeamError, assign_stage, capture_agent_output, list_agents,
-    load_assignments, relaunch_agent, send_agent_message, terminate_agent,
+    load_assignments, relaunch_agent_with_env, send_agent_message, terminate_agent,
 };
 use tandem::factory::telemetry::{self, CostBasis};
 use tandem::factory::worker::{WorkerAssignment, WorkerLaunchSpec, launch};
@@ -203,6 +203,20 @@ fn real_tmux_interactive_team_end_to_end() {
         &uuid::Uuid::new_v4().to_string()[..8]
     );
     let _tmux_guard = TmuxSessionGuard::start(socket.clone());
+    assert!(
+        StdCommand::new("tmux")
+            .args([
+                "-L",
+                &socket,
+                "set-environment",
+                "-g",
+                "ANTHROPIC_API_KEY",
+                "sk-secret-tmux-server",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
     let tmux = TmuxClient::new(&socket, None);
 
     // 1. CLI-native login pane stays isolated from guarded worker ops.
@@ -413,6 +427,7 @@ fn real_tmux_interactive_team_end_to_end() {
 
     let mut live_env = env.clone();
     live_env.insert("STUB_STAY_ALIVE".to_string(), "1".to_string());
+    let live_env_relaunch = live_env.clone();
     let launched = launch(
         &tmux,
         &WorkerLaunchSpec {
@@ -467,7 +482,9 @@ fn real_tmux_interactive_team_end_to_end() {
     }
     assert!(saw_ping, "expected pasted message inside live worker pane");
 
-    let relaunched = relaunch_agent(&fixture.store, &tmux, &run.id, &live_cid).unwrap();
+    let relaunched =
+        relaunch_agent_with_env(&fixture.store, &tmux, &run.id, &live_cid, live_env_relaunch)
+            .unwrap();
     assert_ne!(relaunched.pane_id, launched.pane_id);
     terminate_agent(&fixture.store, &tmux, &run.id, &live_cid, &live_cid).unwrap();
 

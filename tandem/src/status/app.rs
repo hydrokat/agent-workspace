@@ -600,6 +600,9 @@ impl StatusApp {
         };
         self.tab = tab;
         self.tab_bar.selected = tab.index_for(factory);
+        if factory && tab == StatusTab::Settings {
+            self.settings_tab.ensure_logins_probed();
+        }
         self.dirty = true;
     }
 
@@ -740,7 +743,14 @@ impl StatusApp {
             }
             FactoryAction::OpenWorkerPane { pane_id } => {
                 if let Some(ref tmux) = self.tmux {
-                    let _ = tmux.run_checked(&["select-pane", "-t", &pane_id]);
+                    let _ = tmux.run_batch_checked(&[
+                        vec![
+                            "select-window".to_string(),
+                            "-t".to_string(),
+                            pane_id.clone(),
+                        ],
+                        vec!["select-pane".to_string(), "-t".to_string(), pane_id.clone()],
+                    ]);
                 } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
                     mon.notice = format!("Tmux client unavailable for pane {pane_id}.");
                 }

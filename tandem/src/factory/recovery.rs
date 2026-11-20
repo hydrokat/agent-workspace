@@ -20,7 +20,6 @@ use super::workflow::DEFAULT_WORKFLOW_YAML;
 use super::workspace::{
     WorkspaceError, find_orphan_branches, find_orphan_worktrees, remove_orphan_worktree,
 };
-use crate::tmux::SESSION;
 use crate::tmux::client::TmuxClient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,7 +358,11 @@ fn append_log_and_orphan_findings(
 }
 
 pub fn diagnose(store: &FactoryStore, workspace: &Path) -> Result<DoctorReport, RecoveryError> {
-    diagnose_with_tmux(store, workspace, &TmuxClient::new(SESSION, None))
+    diagnose_with_tmux(
+        store,
+        workspace,
+        &TmuxClient::new(crate::tmux::socket_for(workspace), None),
+    )
 }
 
 pub fn diagnose_with_tmux(
@@ -525,7 +528,11 @@ pub fn run_safe_repairs(
     store: &FactoryStore,
     workspace: &Path,
 ) -> Result<DoctorReport, RecoveryError> {
-    run_safe_repairs_with_tmux(store, workspace, &TmuxClient::new(SESSION, None))
+    run_safe_repairs_with_tmux(
+        store,
+        workspace,
+        &TmuxClient::new(crate::tmux::socket_for(workspace), None),
+    )
 }
 
 pub fn run_safe_repairs_with_tmux(
@@ -725,7 +732,7 @@ pub fn doctor_fix(
         caller,
         stdin,
         prompt_out,
-        &TmuxClient::new(SESSION, None),
+        &TmuxClient::new(crate::tmux::socket_for(workspace), None),
     )
 }
 
