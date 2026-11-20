@@ -6,7 +6,10 @@ use std::time::Duration;
 use crate::conversations::valid_opencode_session_id;
 
 use super::agy::RunnerFn;
-use super::base::{Adapter, AdapterError, AgentSpec, Model, validate_opencode_model_id};
+use super::base::{
+    Adapter, AdapterError, AgentSpec, InteractiveWorkerAdapter, Model, ToolFlag, WorkerCommandSpec,
+    WorkerLaunchRequest, validate_opencode_model_id, validate_tool_name,
+};
 
 const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
 
@@ -115,5 +118,50 @@ impl Adapter for OpencodeAdapter {
         let model = validate_opencode_model_id(&spec.model)?;
         let config = serde_json::json!({ "model": model }).to_string();
         Ok(BTreeMap::from([(CONFIG_ENV.to_string(), config)]))
+    }
+}
+
+impl InteractiveWorkerAdapter for OpencodeAdapter {
+    fn build_worker_argv(
+        &self,
+        request: &WorkerLaunchRequest,
+    ) -> Result<WorkerCommandSpec, AdapterError> {
+        let model = validate_opencode_model_id(&request.model)?;
+        if request.read_only {
+            return Err(AdapterError::InvalidInput(
+                "opencode interactive mode does not support read-only enforcement".to_string(),
+            ));
+        }
+        for tool in &request.tools {
+            match tool {
+                ToolFlag::Disallow(name) => {
+                    return Err(AdapterError::InvalidInput(format!(
+                        "opencode interactive mode cannot enforce disallowed tool filter: {name}"
+                    )));
+                }
+                ToolFlag::Allow(name) => {
+                    validate_tool_name(name)?;
+                    if name.contains('(') {
+                        return Err(AdapterError::InvalidInput(format!(
+                            "opencode interactive mode does not support scoped tool filter: {name}"
+                        )));
+                    }
+                }
+            }
+        }
+        let prompt = format!(
+            "Read and execute the task instructions in {}.",
+            request.prompt_file.display()
+        );
+        let config = serde_json::json!({ "model": model }).to_string();
+        Ok(WorkerCommandSpec {
+            argv: vec![
+                "opencode".to_string(),
+                "--auto".to_string(),
+                "--prompt".to_string(),
+                prompt,
+            ],
+            env: BTreeMap::from([(CONFIG_ENV.to_string(), config)]),
+        })
     }
 }

@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha512};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -58,18 +59,60 @@ pub enum TmuxError {
     ToS(#[from] ToSViolation),
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaneKind {
+    Own,
+    Agent,
+    FactoryWorker,
+    Login,
+    Other(String),
+}
+
+impl PaneKind {
+    pub fn from_tag(tag: &str) -> Self {
+        match tag.trim() {
+            "own" => Self::Own,
+            "agent" => Self::Agent,
+            "factory-worker" => Self::FactoryWorker,
+            "login" => Self::Login,
+            other => Self::Other(other.to_string()),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Own => "own",
+            Self::Agent => "agent",
+            Self::FactoryWorker => "factory-worker",
+            Self::Login => "login",
+            Self::Other(s) => s.as_str(),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq, Clone)]
 pub enum ToSViolation {
     #[error("tmux subcommand not allowed: {0}")]
     SubcommandNotAllowed(String),
     #[error("refusing to touch a pane that is not tandem-owned")]
     NotTandemOwned,
+    #[error("refusing to touch a pane that is not a factory worker")]
+    NotFactoryWorker,
+    #[error("refusing to touch a login pane")]
+    LoginPaneProtected,
+    #[error("refusing to touch a factory worker belonging to another run")]
+    RunMismatch,
     #[error("invalid pane id")]
     InvalidPaneId,
 }
 
 pub trait TmuxRunner: Send + Sync {
     fn run(&self, argv: &[String]) -> Result;
+
+    fn run_with_stdin(&self, argv: &[String], stdin: &str) -> Result {
+        let _ = stdin;
+        self.run(argv)
+    }
 }
 
 pub struct SubprocessRunner;
@@ -100,11 +143,56 @@ impl TmuxRunner for SubprocessRunner {
             },
         }
     }
+
+    fn run_with_stdin(&self, argv: &[String], stdin: &str) -> Result {
+        if argv.is_empty() {
+            return Result {
+                code: 1,
+                out: String::new(),
+                err: "empty argv".to_string(),
+            };
+        }
+        let mut child = match std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return Result {
+                    code: 1,
+                    out: String::new(),
+                    err: e.to_string(),
+                };
+            }
+        };
+        if let Some(mut pipe) = child.stdin.take() {
+            let _ = pipe.write_all(stdin.as_bytes());
+        }
+        match child.wait_with_output() {
+            Ok(out) => Result {
+                code: out.status.code().unwrap_or(-1),
+                out: String::from_utf8_lossy(&out.stdout).into_owned(),
+                err: String::from_utf8_lossy(&out.stderr).into_owned(),
+            },
+            Err(e) => Result {
+                code: 1,
+                out: String::new(),
+                err: e.to_string(),
+            },
+        }
+    }
 }
 
 impl<T: TmuxRunner + ?Sized> TmuxRunner for Arc<T> {
     fn run(&self, argv: &[String]) -> Result {
         (**self).run(argv)
+    }
+
+    fn run_with_stdin(&self, argv: &[String], stdin: &str) -> Result {
+        (**self).run_with_stdin(argv, stdin)
     }
 }
 
@@ -234,11 +322,50 @@ impl TmuxClient {
         Ok(res.out.trim().to_string())
     }
 
+    pub fn parsed_pane_kind(&self, pane_id: &str) -> std::result::Result<PaneKind, ToSViolation> {
+        Ok(PaneKind::from_tag(&self.pane_kind(pane_id)?))
+    }
+
     fn require_own(&self, pane_id: &str) -> std::result::Result<(), ToSViolation> {
-        if self.pane_kind(pane_id)? != "own" {
+        if self.parsed_pane_kind(pane_id)? != PaneKind::Own {
             return Err(ToSViolation::NotTandemOwned);
         }
         Ok(())
+    }
+
+    fn require_worker(&self, run_id: &str, pane_id: &str) -> std::result::Result<(), ToSViolation> {
+        if !is_valid_pane_id(pane_id) {
+            return Err(ToSViolation::InvalidPaneId);
+        }
+        if !is_valid_run_id(run_id) {
+            return Err(ToSViolation::RunMismatch);
+        }
+        let res = self.run(&[
+            "display-message",
+            "-p",
+            "-t",
+            pane_id,
+            "#{@tandem_kind}\t#{@tandem_run}",
+        ])?;
+        if res.code != 0 {
+            return Err(ToSViolation::NotFactoryWorker);
+        }
+        let line = res.out.lines().next().unwrap_or("");
+        let (kind_tag, actual_run) = match line.split_once('\t') {
+            Some((k, r)) => (k.trim(), r.trim()),
+            None => (line.trim(), ""),
+        };
+        match PaneKind::from_tag(kind_tag) {
+            PaneKind::Login => Err(ToSViolation::LoginPaneProtected),
+            PaneKind::FactoryWorker => {
+                if actual_run.is_empty() || actual_run != run_id {
+                    Err(ToSViolation::RunMismatch)
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(ToSViolation::NotFactoryWorker),
+        }
     }
 
     pub fn send_keys_own(
@@ -259,6 +386,98 @@ impl TmuxClient {
         let res = self.runner.run(&self.argv(&args));
         Ok(res.out)
     }
+
+    pub fn send_keys_worker(
+        &self,
+        run_id: &str,
+        pane_id: &str,
+        keys: &[&str],
+    ) -> std::result::Result<(), TmuxError> {
+        self.require_worker(run_id, pane_id)?;
+        let mut args = vec!["send-keys", "-t", pane_id];
+        args.extend_from_slice(keys);
+        let res = self.runner.run(&self.argv(&args));
+        if res.code != 0 {
+            return Err(TmuxError::Failed {
+                cmd: "send-keys".to_string(),
+                err: res.err.trim().to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn paste_worker(
+        &self,
+        run_id: &str,
+        pane_id: &str,
+        text: &str,
+    ) -> std::result::Result<(), TmuxError> {
+        self.require_worker(run_id, pane_id)?;
+        let buf_name = format!("tandem-w-{}", uuid::Uuid::new_v4().simple());
+        let load_res = self
+            .runner
+            .run_with_stdin(&self.argv(&["load-buffer", "-b", &buf_name, "-"]), text);
+        if load_res.code != 0 {
+            return Err(TmuxError::Failed {
+                cmd: "load-buffer".to_string(),
+                err: load_res.err.trim().to_string(),
+            });
+        }
+        let paste_res =
+            self.runner
+                .run(&self.argv(&["paste-buffer", "-d", "-b", &buf_name, "-t", pane_id]));
+        if paste_res.code != 0 {
+            let _ = self
+                .runner
+                .run(&self.argv(&["delete-buffer", "-b", &buf_name]));
+            return Err(TmuxError::Failed {
+                cmd: "paste-buffer".to_string(),
+                err: paste_res.err.trim().to_string(),
+            });
+        }
+        let enter_res = self
+            .runner
+            .run(&self.argv(&["send-keys", "-t", pane_id, "Enter"]));
+        if enter_res.code != 0 {
+            return Err(TmuxError::Failed {
+                cmd: "send-keys".to_string(),
+                err: enter_res.err.trim().to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn capture_worker(
+        &self,
+        run_id: &str,
+        pane_id: &str,
+        lines: usize,
+    ) -> std::result::Result<String, TmuxError> {
+        self.require_worker(run_id, pane_id)?;
+        let start = format!("-{lines}");
+        let res = if lines > 0 {
+            self.runner
+                .run(&self.argv(&["capture-pane", "-p", "-S", &start, "-t", pane_id]))
+        } else {
+            self.runner
+                .run(&self.argv(&["capture-pane", "-p", "-t", pane_id]))
+        };
+        if res.code != 0 {
+            return Err(TmuxError::Failed {
+                cmd: "capture-pane".to_string(),
+                err: res.err.trim().to_string(),
+            });
+        }
+        Ok(res.out)
+    }
+
+    pub fn kill_pane(&self, pane_id: &str) -> std::result::Result<(), TmuxError> {
+        if !is_valid_pane_id(pane_id) {
+            return Err(ToSViolation::InvalidPaneId.into());
+        }
+        self.run_checked(&["kill-pane", "-t", pane_id])?;
+        Ok(())
+    }
 }
 
 fn is_valid_pane_id(id: &str) -> bool {
@@ -267,6 +486,14 @@ fn is_valid_pane_id(id: &str) -> bool {
         None => return false,
     };
     !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+fn is_valid_run_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('-')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 struct Mt19937 {

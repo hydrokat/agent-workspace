@@ -4,10 +4,13 @@ use common::parity::load_fixture_value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tandem::tmux::client::{Result, TmuxClient, TmuxError, TmuxRunner, ToSViolation, socket_for};
+use tandem::tmux::client::{
+    PaneKind, Result, TmuxClient, TmuxError, TmuxRunner, ToSViolation, socket_for,
+};
 
 struct FakeRunner {
     calls: Mutex<Vec<Vec<String>>>,
+    stdin_calls: Mutex<Vec<(Vec<String>, Option<String>)>>,
     responses: HashMap<String, Result>,
 }
 
@@ -15,6 +18,7 @@ impl FakeRunner {
     fn new(responses: HashMap<&str, Result>) -> Self {
         Self {
             calls: Mutex::new(Vec::new()),
+            stdin_calls: Mutex::new(Vec::new()),
             responses: responses
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
@@ -25,11 +29,34 @@ impl FakeRunner {
     fn calls(&self) -> Vec<Vec<String>> {
         self.calls.lock().unwrap().clone()
     }
+
+    fn stdin_calls(&self) -> Vec<(Vec<String>, Option<String>)> {
+        self.stdin_calls.lock().unwrap().clone()
+    }
 }
 
 impl TmuxRunner for FakeRunner {
     fn run(&self, argv: &[String]) -> Result {
         self.calls.lock().unwrap().push(argv.to_vec());
+        self.stdin_calls.lock().unwrap().push((argv.to_vec(), None));
+        for (key, val) in &self.responses {
+            if argv.iter().any(|arg| arg == key) {
+                return val.clone();
+            }
+        }
+        Result {
+            code: 0,
+            out: String::new(),
+            err: String::new(),
+        }
+    }
+
+    fn run_with_stdin(&self, argv: &[String], stdin: &str) -> Result {
+        self.calls.lock().unwrap().push(argv.to_vec());
+        self.stdin_calls
+            .lock()
+            .unwrap()
+            .push((argv.to_vec(), Some(stdin.to_string())));
         for (key, val) in &self.responses {
             if argv.iter().any(|arg| arg == key) {
                 return val.clone();
@@ -354,4 +381,257 @@ fn test_run_batch_enforces_allow_list() {
         Err(ToSViolation::SubcommandNotAllowed("send-keys".to_string()))
     );
     assert_eq!(fake.calls().len(), 0);
+}
+
+#[test]
+fn test_pane_kind_parses_factory_worker_login_and_unknown() {
+    assert_eq!(PaneKind::from_tag("own"), PaneKind::Own);
+    assert_eq!(PaneKind::from_tag("agent"), PaneKind::Agent);
+    assert_eq!(
+        PaneKind::from_tag("factory-worker"),
+        PaneKind::FactoryWorker
+    );
+    assert_eq!(PaneKind::from_tag("login"), PaneKind::Login);
+    assert_eq!(PaneKind::from_tag(""), PaneKind::Other(String::new()));
+    assert_eq!(
+        PaneKind::from_tag("user"),
+        PaneKind::Other("user".to_string())
+    );
+}
+
+#[test]
+fn test_send_keys_worker_allowed_for_matching_worker_and_run() {
+    let fake = std::sync::Arc::new(FakeRunner::new(HashMap::from([(
+        "display-message",
+        Result {
+            code: 0,
+            out: "factory-worker\tr-abc\n".to_string(),
+            err: String::new(),
+        },
+    )])));
+    let client = create_client(fake.clone());
+    let res = client.send_keys_worker("r-abc", "%11", &["Enter"]);
+    assert!(res.is_ok(), "unexpected error: {res:?}");
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    assert!(calls[1].ends_with(&[
+        "send-keys".to_string(),
+        "-t".to_string(),
+        "%11".to_string(),
+        "Enter".to_string()
+    ]));
+}
+
+#[test]
+fn test_worker_helpers_fail_closed_on_wrong_or_missing_run() {
+    for output in [
+        "factory-worker\tr-other\n",
+        "factory-worker\t\n",
+        "factory-worker\n",
+    ] {
+        let fake = std::sync::Arc::new(FakeRunner::new(HashMap::from([(
+            "display-message",
+            Result {
+                code: 0,
+                out: output.to_string(),
+                err: String::new(),
+            },
+        )])));
+        let client = create_client(fake.clone());
+
+        let r1 = client.send_keys_worker("r-abc", "%11", &["Enter"]);
+        assert!(
+            matches!(r1, Err(TmuxError::ToS(ToSViolation::RunMismatch))),
+            "send_keys_worker for {output:?}: {r1:?}"
+        );
+        let r2 = client.paste_worker("r-abc", "%11", "read prompt.md");
+        assert!(
+            matches!(r2, Err(TmuxError::ToS(ToSViolation::RunMismatch))),
+            "paste_worker for {output:?}: {r2:?}"
+        );
+        let r3 = client.capture_worker("r-abc", "%11", 50);
+        assert!(
+            matches!(r3, Err(TmuxError::ToS(ToSViolation::RunMismatch))),
+            "capture_worker for {output:?}: {r3:?}"
+        );
+
+        assert!(
+            fake.calls()
+                .iter()
+                .all(|c| c.iter().any(|a| a == "display-message")),
+            "must not invoke send-keys/load-buffer/paste-buffer/capture-pane on run mismatch"
+        );
+    }
+}
+
+#[test]
+fn test_worker_helpers_refuse_login_own_agent_user_and_untagged_panes() {
+    let cases = [
+        ("login\t\n", ToSViolation::LoginPaneProtected),
+        ("login\tr-abc\n", ToSViolation::LoginPaneProtected),
+        ("own\t\n", ToSViolation::NotFactoryWorker),
+        ("agent\t\n", ToSViolation::NotFactoryWorker),
+        ("user\t\n", ToSViolation::NotFactoryWorker),
+        ("\t\n", ToSViolation::NotFactoryWorker),
+    ];
+
+    for (output, expected) in cases {
+        let fake = std::sync::Arc::new(FakeRunner::new(HashMap::from([(
+            "display-message",
+            Result {
+                code: 0,
+                out: output.to_string(),
+                err: String::new(),
+            },
+        )])));
+        let client = create_client(fake.clone());
+
+        assert_eq!(
+            client
+                .send_keys_worker("r-abc", "%11", &["Enter"])
+                .unwrap_err()
+                .to_string(),
+            TmuxError::ToS(expected.clone()).to_string()
+        );
+        assert_eq!(
+            client
+                .paste_worker("r-abc", "%11", "secret")
+                .unwrap_err()
+                .to_string(),
+            TmuxError::ToS(expected.clone()).to_string()
+        );
+        assert_eq!(
+            client
+                .capture_worker("r-abc", "%11", 50)
+                .unwrap_err()
+                .to_string(),
+            TmuxError::ToS(expected).to_string()
+        );
+        assert_eq!(fake.calls().len(), 3);
+        assert!(
+            fake.calls()
+                .iter()
+                .all(|c| c.iter().any(|a| a == "display-message"))
+        );
+    }
+}
+
+#[test]
+fn test_own_helpers_refuse_login_and_factory_worker_panes() {
+    for kind in ["login\n", "factory-worker\n"] {
+        let fake = std::sync::Arc::new(FakeRunner::new(HashMap::from([(
+            "display-message",
+            Result {
+                code: 0,
+                out: kind.to_string(),
+                err: String::new(),
+            },
+        )])));
+        let client = create_client(fake.clone());
+        assert_eq!(
+            client.send_keys_own("%5", &["Enter"]),
+            Err(ToSViolation::NotTandemOwned)
+        );
+        assert_eq!(client.capture_own("%5"), Err(ToSViolation::NotTandemOwned));
+        assert!(
+            fake.calls()
+                .iter()
+                .all(|c| c.iter().any(|a| a == "display-message"))
+        );
+    }
+}
+
+#[test]
+fn test_paste_worker_uses_named_buffer_stdin_delete_and_enter() {
+    let fake = std::sync::Arc::new(FakeRunner::new(HashMap::from([(
+        "display-message",
+        Result {
+            code: 0,
+            out: "factory-worker\tr-abc\n".to_string(),
+            err: String::new(),
+        },
+    )])));
+    let client = create_client(fake.clone());
+    let prompt = "Read .agent-workspace/factory/runs/r-abc/jobs/j-1/prompt.md\nand follow it.";
+    client.paste_worker("r-abc", "%11", prompt).unwrap();
+
+    let calls = fake.stdin_calls();
+    assert_eq!(calls.len(), 4);
+
+    assert!(calls[0].0.iter().any(|a| a == "display-message"));
+    assert_eq!(calls[0].1, None);
+
+    let (load_argv, load_stdin) = &calls[1];
+    let load_idx = load_argv.iter().position(|a| a == "load-buffer").unwrap();
+    assert_eq!(load_argv[load_idx + 1], "-b");
+    let buf_name = &load_argv[load_idx + 2];
+    assert!(buf_name.starts_with("tandem-w-"));
+    assert_eq!(load_argv[load_idx + 3], "-");
+    assert_eq!(load_stdin.as_deref(), Some(prompt));
+
+    let (paste_argv, paste_stdin) = &calls[2];
+    let paste_idx = paste_argv.iter().position(|a| a == "paste-buffer").unwrap();
+    assert_eq!(
+        &paste_argv[paste_idx..],
+        &[
+            "paste-buffer".to_string(),
+            "-d".to_string(),
+            "-b".to_string(),
+            buf_name.clone(),
+            "-t".to_string(),
+            "%11".to_string(),
+        ]
+    );
+    assert_eq!(*paste_stdin, None);
+
+    let (enter_argv, _) = &calls[3];
+    assert!(enter_argv.ends_with(&[
+        "send-keys".to_string(),
+        "-t".to_string(),
+        "%11".to_string(),
+        "Enter".to_string(),
+    ]));
+}
+
+#[test]
+fn test_capture_worker_passes_lines_and_validates_pane_id_and_run_id() {
+    let fake = std::sync::Arc::new(FakeRunner::new(HashMap::from([
+        (
+            "display-message",
+            Result {
+                code: 0,
+                out: "factory-worker\tr-abc\n".to_string(),
+                err: String::new(),
+            },
+        ),
+        (
+            "capture-pane",
+            Result {
+                code: 0,
+                out: "worker output\n".to_string(),
+                err: String::new(),
+            },
+        ),
+    ])));
+    let client = create_client(fake.clone());
+    let out = client.capture_worker("r-abc", "%11", 80).unwrap();
+    assert_eq!(out, "worker output\n");
+    let cap_call = &fake.calls()[1];
+    assert!(cap_call.ends_with(&[
+        "capture-pane".to_string(),
+        "-p".to_string(),
+        "-S".to_string(),
+        "-80".to_string(),
+        "-t".to_string(),
+        "%11".to_string(),
+    ]));
+
+    assert!(matches!(
+        client.capture_worker("r-abc", "%11; bad", 10),
+        Err(TmuxError::ToS(ToSViolation::InvalidPaneId))
+    ));
+    assert!(matches!(
+        client.capture_worker("", "%11", 10),
+        Err(TmuxError::ToS(ToSViolation::RunMismatch))
+    ));
 }

@@ -229,6 +229,27 @@ pub trait HeadlessAdapter: Send + Sync {
     fn build_headless_argv(&self, request: &HeadlessRequest) -> Result<Vec<String>, AdapterError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerLaunchRequest {
+    pub model: String,
+    pub tools: Vec<ToolFlag>,
+    pub read_only: bool,
+    pub prompt_file: std::path::PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerCommandSpec {
+    pub argv: Vec<String>,
+    pub env: BTreeMap<String, String>,
+}
+
+pub trait InteractiveWorkerAdapter: Send + Sync {
+    fn build_worker_argv(
+        &self,
+        request: &WorkerLaunchRequest,
+    ) -> Result<WorkerCommandSpec, AdapterError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

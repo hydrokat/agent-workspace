@@ -5,8 +5,9 @@ use std::time::Duration;
 use crate::conversations::valid_id;
 
 use super::base::{
-    Adapter, AdapterError, AgentSpec, Capabilities, HeadlessAdapter, HeadlessRequest, Model,
-    validate_model_id,
+    Adapter, AdapterError, AgentSpec, Capabilities, HeadlessAdapter, HeadlessRequest,
+    InteractiveWorkerAdapter, Model, ToolFlag, WorkerCommandSpec, WorkerLaunchRequest,
+    validate_model_id, validate_tool_name,
 };
 
 pub type RunnerFn =
@@ -148,5 +149,58 @@ impl HeadlessAdapter for AgyAdapter {
             "--output-format".to_string(),
             request.output.as_str().to_string(),
         ])
+    }
+}
+
+impl InteractiveWorkerAdapter for AgyAdapter {
+    fn build_worker_argv(
+        &self,
+        request: &WorkerLaunchRequest,
+    ) -> Result<WorkerCommandSpec, AdapterError> {
+        let valid_model = validate_model_id(&request.model)?;
+        for tool in &request.tools {
+            match tool {
+                ToolFlag::Disallow(name) => {
+                    return Err(AdapterError::InvalidInput(format!(
+                        "agy interactive mode cannot enforce disallowed tool filter: {name}"
+                    )));
+                }
+                ToolFlag::Allow(name) => {
+                    validate_tool_name(name)?;
+                    if name.contains('(') {
+                        return Err(AdapterError::InvalidInput(format!(
+                            "agy interactive mode does not support scoped tool filter: {name}"
+                        )));
+                    }
+                    if request.read_only && matches!(name.as_str(), "Edit" | "Write" | "Bash") {
+                        return Err(AdapterError::InvalidInput(format!(
+                            "agy read-only worker cannot grant tool: {name}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        let mode = if request.read_only {
+            "plan"
+        } else {
+            "accept-edits"
+        };
+        let prompt = format!(
+            "Read and execute the task instructions in {}.",
+            request.prompt_file.display()
+        );
+        Ok(WorkerCommandSpec {
+            argv: vec![
+                "agy".to_string(),
+                "--model".to_string(),
+                valid_model,
+                "--mode".to_string(),
+                mode.to_string(),
+                "--prompt-interactive".to_string(),
+                prompt,
+            ],
+            env: std::collections::BTreeMap::new(),
+        })
     }
 }
