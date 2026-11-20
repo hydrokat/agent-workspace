@@ -219,6 +219,9 @@ pub struct FactoryModelsArgs {
     #[arg(long, help = "CLI provider (claude, agy, or opencode)")]
     pub cli: String,
 
+    #[arg(long, help = "bypass cache and re-discover models from the CLI")]
+    pub refresh: bool,
+
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
 }
@@ -2451,19 +2454,44 @@ fn execute_with_probe(
                     a.cli
                 )));
             }
-            let adapter = crate::adapters::adapter_for(&a.cli)
-                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
-            let models = adapter.list_models().map_err(|e| CmdError {
-                exit_code: 1,
-                code: "models_unavailable",
-                message: format!("could not list models for {}: {e}", a.cli),
-            })?;
+            let settings = store.settings().map_err(map_factory_error)?;
+            let runner = |cli: &str| -> Result<
+                Vec<crate::adapters::base::Model>,
+                crate::adapters::base::AdapterError,
+            > {
+                let adapter = crate::adapters::adapter_for(cli)
+                    .map_err(|e| crate::adapters::base::AdapterError::UnknownCli(e.to_string()))?;
+                adapter.list_models()
+            };
+            let catalog = super::model_catalog::discover(
+                &a.cli,
+                &settings,
+                store.root_dir(),
+                a.refresh,
+                &runner,
+            );
             if a.json {
-                serialize_compact(&models)
+                serialize_compact(&catalog)
             } else {
-                Ok(models
+                Ok(catalog
                     .iter()
-                    .map(|m| format!("{}\t{}", m.id, m.label))
+                    .map(|m| {
+                        let tier = match m.tier {
+                            super::routing::ModelTier::Economy => "economy",
+                            super::routing::ModelTier::Standard => "standard",
+                            super::routing::ModelTier::Premium => "premium",
+                        };
+                        let allowed = if m.allowed { "allowed" } else { "denied" };
+                        let source = match m.source {
+                            super::model_catalog::ModelSource::Live => "live",
+                            super::model_catalog::ModelSource::Cache => "cache",
+                            super::model_catalog::ModelSource::Fallback => "fallback",
+                        };
+                        format!(
+                            "{}\t{}\t{}\t{:.4}\t{}\t{}",
+                            m.id, m.label, tier, m.cost_rank, allowed, source
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n"))
             }
