@@ -41,6 +41,16 @@ export function IdeaCard({ idea, onSelect }: IdeaCardProps) {
         </Badge>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {riskLabel && <span className="capitalize">{riskLabel}</span>}
+          {(idea.team_count ?? 0) > 0 && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+              {idea.team_count} active
+            </Badge>
+          )}
+          {idea.needs_sign_in && (
+            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+              Sign in
+            </Badge>
+          )}
           {idea.blockers > 0 && (
             <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
               {idea.blockers} open

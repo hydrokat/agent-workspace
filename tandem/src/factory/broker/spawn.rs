@@ -289,7 +289,7 @@ pub fn spawn_provider(pass: GatePass, command: ProviderCommand) -> Result<Runnin
     })
 }
 
-fn validate_worktree(workspace_root: &Path, cwd: &Path) -> Result<PathBuf, SpawnError> {
+pub(crate) fn validate_worktree(workspace_root: &Path, cwd: &Path) -> Result<PathBuf, SpawnError> {
     let worktrees_dir = workspace_root.join("worktrees");
     let wt_meta =
         fs::symlink_metadata(&worktrees_dir).map_err(|e| SpawnError::InvalidWorktree {
@@ -364,7 +364,7 @@ fn is_allowed_factory_var(key: &str) -> bool {
         .any(|forbidden| upper.contains(forbidden))
 }
 
-fn build_env(
+pub(crate) fn build_env(
     provider: &str,
     parent_env: &BTreeMap<String, String>,
     factory_env: &BTreeMap<String, String>,

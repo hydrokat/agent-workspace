@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+  echo "opencode 1.0.0-stub"
+  exit 0
+fi
+
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "list" ]; then
+  echo "anthropic authenticated"
+  exit 0
+fi
+
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "login" ]; then
+  echo "opencode CLI login screen"
+  exec sleep 30
+fi
+
+if [ -n "${TANDEM_TEST_SECRET:-}" ] || [ -n "${OPENAI_API_KEY:-}" ]; then
+  echo "SECRET_LEAKED_TO_WORKER_ENV" >&2
+  exit 99
+fi
+
+STAGE="${TANDEM_STAGE:-}"
+JOB_DIR="${TANDEM_JOB_DIR:-.}"
+mkdir -p "$JOB_DIR"
+
+if [ ! -f "$JOB_DIR/prompt.md" ]; then
+  echo "missing prompt.md in $JOB_DIR" >&2
+  exit 2
+fi
+
+if grep -q "top-secret-should-not-leak" "$JOB_DIR/prompt.md" 2>/dev/null; then
+  echo "SECRET_LEAKED_TO_PROMPT" >&2
+  exit 98
+fi
+
+echo "stub-opencode executed stage=$STAGE" > "$JOB_DIR/log.txt"
+
+case "$STAGE" in
+  create-tests)
+    mkdir -p test
+    cat <<'EOF' > test/export_test.sh
+#!/bin/sh
+set -eu
+out="$(sh src/export.sh)"
+printf '%s\n' "$out" | grep -q "member,action,date"
+printf '%s\n' "$out" | grep -q "alice,commit,2026-01-15"
+EOF
+    chmod +x test/export_test.sh
+    cat <<'EOF' > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Created failing acceptance test via interactive opencode pane",
+  "files_changed": ["test/export_test.sh"],
+  "artifacts": [],
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+  *)
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "failed",
+  "summary": "Unexpected stage for opencode stub: $STAGE",
+  "files_changed": [],
+  "artifacts": [],
+  "rationale": "unexpected stage $STAGE",
+  "no_behaviour_change": false
+}
+EOF
+    exit 1
+    ;;
+esac

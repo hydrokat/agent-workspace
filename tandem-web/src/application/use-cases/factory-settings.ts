@@ -29,6 +29,8 @@ const PLAIN_KEYS = new Set([
   "default_workflow",
   "max_review_rounds",
   "approval_grace_secs",
+  "default_worker_cli",
+  "orchestrator_may_choose",
   "default_budget",
   "model_tiers",
 ]);
@@ -47,6 +49,8 @@ export interface PlainFactorySettingsUpdate {
   default_workflow?: string;
   max_review_rounds?: number;
   approval_grace_secs?: number;
+  default_worker_cli?: "auto" | "claude" | "agy" | "opencode";
+  orchestrator_may_choose?: boolean;
   default_budget?: FactoryBudget;
   model_tiers?: Record<string, ProviderModelTiers>;
 }
@@ -173,6 +177,18 @@ function validatePlainUpdate(payload: unknown): PlainFactorySettingsUpdate {
       );
     }
   }
+  if (obj.default_worker_cli !== undefined) {
+    const v = obj.default_worker_cli;
+    if (v !== "auto" && v !== "claude" && v !== "agy" && v !== "opencode") {
+      throw new FactoryGatewayError(
+        "invalid_input",
+        "default_worker_cli must be auto, claude, agy, or opencode"
+      );
+    }
+  }
+  if (obj.orchestrator_may_choose !== undefined && typeof obj.orchestrator_may_choose !== "boolean") {
+    throw new FactoryGatewayError("invalid_input", "orchestrator_may_choose must be a boolean");
+  }
   if (obj.default_budget !== undefined) {
     validateBudget(obj.default_budget);
   }
@@ -253,6 +269,18 @@ export class UpdateFactorySettingsUseCase {
       updates.approval_grace_secs !== current.approval_grace_secs
     ) {
       pairs.push(["approval_grace_secs", String(updates.approval_grace_secs), true]);
+    }
+    if (
+      updates.default_worker_cli !== undefined &&
+      updates.default_worker_cli !== (current.default_worker_cli ?? "auto")
+    ) {
+      pairs.push(["default_worker_cli", updates.default_worker_cli, true]);
+    }
+    if (
+      updates.orchestrator_may_choose !== undefined &&
+      updates.orchestrator_may_choose !== (current.orchestrator_may_choose ?? true)
+    ) {
+      pairs.push(["orchestrator_may_choose", String(updates.orchestrator_may_choose), true]);
     }
     if (
       updates.default_budget !== undefined &&

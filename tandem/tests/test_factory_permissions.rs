@@ -12,12 +12,30 @@ use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::{JobSpec, prepare_job};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command as MachineCommand, EventData};
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, RunState};
 use tandem::factory::permissions::{DeniedReason, ToolGrant, grant};
 use tandem::factory::routing::{RoutingContext, route};
 use tandem::factory::run::get_run;
-use tandem::factory::runner::{drive_run_step, resume_paused_run};
+use tandem::factory::runner::{drive_run_step, resume_paused_run_with_probe};
+
+struct ReadyClaudeProbe;
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<std::path::PathBuf> {
+        (bin == "claude").then(|| std::path::PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "claude 2.0".to_string()
+    }
+    fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+        (
+            0,
+            r#"{"loggedIn":true,"authMethod":"apiKey"}"#.to_string(),
+            String::new(),
+        )
+    }
+}
 use tandem::factory::settings::save as save_settings;
 use tandem::factory::stages::scope::verify_scope_with_grant;
 use tandem::factory::store::FactoryStore;
@@ -472,7 +490,7 @@ fn runner_pauses_with_action_request_on_policy_denial_and_records_grant_on_start
         kind: ActorKind::User,
         id: "alice".to_string(),
     };
-    resume_paused_run(&store, &run_id, &user).unwrap();
+    resume_paused_run_with_probe(&store, &run_id, &user, &ReadyClaudeProbe).unwrap();
 
     drive_run_step(&store, &ws.root, &run_id, &mut exec).unwrap();
 

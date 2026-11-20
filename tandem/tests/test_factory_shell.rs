@@ -155,6 +155,8 @@ fn card(id: &str, title: &str, state: IdeaState, run: Option<RunSummary>) -> Ide
         blockers: 0,
         updated: 0.0,
         run,
+        team_count: 0,
+        needs_sign_in: false,
     }
 }
 

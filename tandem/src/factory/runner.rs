@@ -11,7 +11,7 @@ use crate::factory::FactoryError;
 use crate::factory::approval::{
     ApprovalError, Caller, require_user, take_pending_run, verify_snapshot,
 };
-use crate::factory::broker::gate::{check, today_iso_date};
+use crate::factory::broker::gate::{check, interactive_ready, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, job_dir, jobs_dir, read_job_state, set_job_state};
 use crate::factory::broker::result::JobResult;
@@ -24,6 +24,7 @@ use crate::factory::events::{
 };
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
+use crate::factory::login::{HostLoginProbe, LOGIN_SPECS, LoginProbe};
 use crate::factory::machine::{self, Command, EventData, Facts};
 use crate::factory::model::{
     Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
@@ -33,7 +34,9 @@ use crate::factory::routing::{RoutingContext, route};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
-use crate::factory::telemetry::{RecordJobUsageInput, record_job_usage};
+use crate::factory::telemetry::{
+    RecordJobUsageInput, record_interactive_job_usage, record_job_usage,
+};
 use crate::factory::workflow::parse::load_workflow_file;
 use crate::factory::workflow::scheduler::{
     RunFacts, SchedulerLimits, TriState, next, stage_has_writer_tool,
@@ -725,23 +728,36 @@ pub fn drive_run_step_with_gh(
         }
     }
 
-    let today = today_iso_date();
-    let open_providers: Vec<&str> = KNOWN_PROVIDERS
-        .iter()
-        .copied()
-        .filter(|p| check(p, &settings, &today).is_ok())
-        .collect();
-    if open_providers.is_empty() {
-        return pause_run(
-            store,
-            run,
-            "gate closed: no provider consented and allowed".to_string(),
-            vec![
-                "tandem factory provider consent claude --auth api-key --confirm claude"
-                    .to_string(),
-            ],
-        );
-    }
+    let open_providers: Vec<&str> = if let Some(ready_clis) = executor.ready_providers() {
+        if ready_clis.is_empty() {
+            return pause_run(
+                store,
+                run,
+                "gate closed: no CLI installed and signed in".to_string(),
+                vec!["tandem factory login open claude".to_string()],
+            );
+        }
+        ready_clis
+    } else {
+        let today = today_iso_date();
+        let providers: Vec<&str> = KNOWN_PROVIDERS
+            .iter()
+            .copied()
+            .filter(|p| check(p, &settings, &today).is_ok())
+            .collect();
+        if providers.is_empty() {
+            return pause_run(
+                store,
+                run,
+                "gate closed: no provider consented and allowed".to_string(),
+                vec![
+                    "tandem factory provider consent claude --auth api-key --confirm claude"
+                        .to_string(),
+                ],
+            );
+        }
+        providers
+    };
 
     let stage_def = wf
         .stages
@@ -776,10 +792,14 @@ pub fn drive_run_step_with_gh(
         .unwrap_or(0);
     let next_attempt = resumed_attempt.unwrap_or(current_attempts + 1);
 
-    let preferred_provider = store
-        .get_idea(&run.idea)?
-        .and_then(|i| i.orchestrator)
-        .map(|o| o.cli);
+    let preferred_provider = if executor.is_interactive() && settings.default_worker_cli != "auto" {
+        Some(settings.default_worker_cli.clone())
+    } else {
+        store
+            .get_idea(&run.idea)?
+            .and_then(|i| i.orchestrator)
+            .map(|o| o.cli)
+    };
     let (avoid_provider, avoid_model) = if stage_name == "review" {
         last_stage_provider_model(store, &run, "develop")
     } else {
@@ -840,18 +860,47 @@ pub fn drive_run_step_with_gh(
         }
     };
 
-    let routed = match route(
-        stage_def,
-        &tool_grant,
-        &wf,
-        &settings,
-        &open_providers,
-        next_attempt,
-        &r_ctx,
-    ) {
+    let routed_res: Result<(crate::factory::routing::Route, Vec<String>), String> =
+        if executor.is_interactive() {
+            super::team::resolve_stage_assignment(
+                store,
+                &run,
+                stage_def,
+                &tool_grant,
+                &wf,
+                &settings,
+                &open_providers,
+                next_attempt,
+                &r_ctx,
+            )
+            .map(|resolved| (resolved.route, Vec::new()))
+            .map_err(|e| e.to_string())
+        } else {
+            route(
+                stage_def,
+                &tool_grant,
+                &wf,
+                &settings,
+                &open_providers,
+                next_attempt,
+                &r_ctx,
+            )
+            .map(|r| (r, Vec::new()))
+            .map_err(|e| e.to_string())
+        };
+    let (routed, _) = match routed_res {
         Ok(r) => r,
-        Err(unroutable) => {
-            let reason = unroutable.to_string();
+        Err(reason) => {
+            let mut cmds = Vec::new();
+            if !settings.orchestrator_may_choose
+                && settings.default_worker_cli != "auto"
+                && reason.contains("configured default_worker_cli")
+            {
+                cmds.push(format!(
+                    "tandem factory login open {}",
+                    settings.default_worker_cli
+                ));
+            }
             let sys = Actor {
                 kind: ActorKind::System,
                 id: "engine".to_string(),
@@ -870,7 +919,7 @@ pub fn drive_run_step_with_gh(
                 }],
                 &sys,
             )?;
-            return pause_run(store, run_after_block, reason, vec![]);
+            return pause_run(store, run_after_block, reason, cmds);
         }
     };
 
@@ -975,7 +1024,7 @@ pub fn drive_run_step_with_gh(
             .ok()
             .and_then(|raw| serde_json::from_str::<JobResult>(&raw).ok())
             .and_then(|r| r.usage);
-        record_job_usage(RecordJobUsageInput {
+        let usage_input = RecordJobUsageInput {
             store,
             idea_id: &run.idea,
             run_id,
@@ -988,7 +1037,12 @@ pub fn drive_run_step_with_gh(
             usage: parsed_usage.as_ref(),
             price_table: &settings.price_table,
             actor: &sys,
-        })?;
+        };
+        if executor.is_interactive() {
+            record_interactive_job_usage(usage_input)?;
+        } else {
+            record_job_usage(usage_input)?;
+        }
     }
 
     let mut current_run = match get_run(store, run_id)? {
@@ -1350,7 +1404,11 @@ pub fn pause_run_by_user(
     })
 }
 
-fn verify_run_resumable(store: &FactoryStore, run: &Run) -> Result<(), RunnerError> {
+fn verify_run_resumable(
+    store: &FactoryStore,
+    run: &Run,
+    probe: &dyn LoginProbe,
+) -> Result<(), RunnerError> {
     let idea = store
         .get_idea(&run.idea)?
         .ok_or_else(|| RunnerError::InvalidInput(format!("idea {} not found", run.idea)))?;
@@ -1386,24 +1444,22 @@ fn verify_run_resumable(store: &FactoryStore, run: &Run) -> Result<(), RunnerErr
         ))
     })?;
 
-    let today = today_iso_date();
-    let open_providers: Vec<&str> = KNOWN_PROVIDERS
+    let ready_clis: Vec<&str> = LOGIN_SPECS
         .iter()
-        .copied()
-        .filter(|p| check(p, &settings, &today).is_ok())
+        .map(|s| s.cli)
+        .filter(|cli| interactive_ready(cli, probe).ready)
         .collect();
-    if open_providers.is_empty() {
+    if ready_clis.is_empty() {
         let preferred = idea
             .orchestrator
             .as_ref()
             .map(|o| o.cli.as_str())
             .unwrap_or("claude");
-        let reason = match check(preferred, &settings, &today) {
-            Ok(_) => "no provider consented and allowed".to_string(),
-            Err(e) => e.to_string(),
-        };
+        let reason = interactive_ready(preferred, probe)
+            .reason
+            .unwrap_or_else(|| "no CLI installed and signed in".to_string());
         return Err(RunnerError::Gate(format!(
-            "Cannot resume: the {preferred} gate is closed ({reason})."
+            "Cannot resume: {preferred} gate is closed ({reason})."
         )));
     }
     Ok(())
@@ -1432,6 +1488,15 @@ pub fn resume_paused_run(
     run_id: &str,
     actor: &Actor,
 ) -> Result<Run, RunnerError> {
+    resume_paused_run_with_probe(store, run_id, actor, &HostLoginProbe)
+}
+
+pub fn resume_paused_run_with_probe(
+    store: &FactoryStore,
+    run_id: &str,
+    actor: &Actor,
+    probe: &dyn LoginProbe,
+) -> Result<Run, RunnerError> {
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
     }
@@ -1448,7 +1513,7 @@ pub fn resume_paused_run(
         )));
     }
 
-    verify_run_resumable(store, &run)?;
+    verify_run_resumable(store, &run, probe)?;
 
     let mut evs = collect_resume_events(store, &run);
     evs.push(EventData::RunResumed {
@@ -1599,6 +1664,26 @@ pub fn retry_paused_stage(
     actor: &Actor,
     caller: &Caller<'_>,
 ) -> Result<Run, RunnerError> {
+    retry_paused_stage_with_probe(
+        store,
+        run_id,
+        stage,
+        hypothesis,
+        actor,
+        caller,
+        &HostLoginProbe,
+    )
+}
+
+pub fn retry_paused_stage_with_probe(
+    store: &FactoryStore,
+    run_id: &str,
+    stage: &str,
+    hypothesis: &str,
+    actor: &Actor,
+    caller: &Caller<'_>,
+    probe: &dyn LoginProbe,
+) -> Result<Run, RunnerError> {
     require_user(caller)?;
     if actor.kind != ActorKind::User {
         return Err(RunnerError::Approval(ApprovalError::AgentCaller));
@@ -1627,7 +1712,7 @@ pub fn retry_paused_stage(
         )));
     }
 
-    verify_run_resumable(store, &run)?;
+    verify_run_resumable(store, &run, probe)?;
 
     let mut evs = collect_resume_events(store, &run);
     evs.push(EventData::StageRetryRequested {

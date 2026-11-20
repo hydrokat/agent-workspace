@@ -9,6 +9,11 @@ import type {
   FactorySettingsChangeResult,
   Idea,
   IdeaDetail,
+  LoginPaneResult,
+  LoginStatusItem,
+  AgentSummary,
+  RelaunchAgentResult,
+  StageAssignment,
   PrLink,
   ProviderStatusItem,
   ReadyResult,
@@ -115,4 +120,33 @@ export interface ITandemGateway {
     key: string,
     value: string
   ): Promise<FactorySettingsChangeResult>;
+  factoryLoginStatus(workspacePath: string): Promise<LoginStatusItem[]>;
+  factoryLoginOpen(workspacePath: string, cli: FactoryCli): Promise<LoginPaneResult>;
+  factoryListAgents?(workspacePath: string, runId: string): Promise<AgentSummary[]>;
+  factoryGetAssignments?(
+    workspacePath: string,
+    runId: string
+  ): Promise<Record<string, StageAssignment>>;
+  factoryAssignStage?(
+    workspacePath: string,
+    runId: string,
+    params: { stage: string; cli: FactoryCli; model: string; role?: string }
+  ): Promise<StageAssignment>;
+  factorySendAgentMessage?(
+    workspacePath: string,
+    runId: string,
+    jobId: string,
+    message: string
+  ): Promise<void>;
+  factoryTerminateAgent?(
+    workspacePath: string,
+    runId: string,
+    jobId: string,
+    confirm: string
+  ): Promise<void>;
+  factoryRelaunchAgent?(
+    workspacePath: string,
+    runId: string,
+    jobId: string
+  ): Promise<RelaunchAgentResult>;
 }

@@ -330,6 +330,7 @@ fn test_snapshot_payload_matches_contract_keys() {
             spec: "p-001-sample".to_string(),
             cli_version: "1.0.0".to_string(),
             idea: String::new(),
+            ..PaneInfo::default()
         }],
         snapshot: StatusSnapshot {
             coord_exists: true,

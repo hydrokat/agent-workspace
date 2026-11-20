@@ -1,12 +1,13 @@
 ---
 name: factory-test-engineer
-description: "Headless Factory Mode create-tests stage playbook. Reads slices.json, writes failing tests inside slice paths following spec-implement test-first and comment rules, never commits, and writes result.json."
+description: "Interactive Factory Mode create-tests stage playbook. Reads prompt.md and slices.json, writes failing tests inside slice paths following spec-implement test-first and comment rules, never commits, writes result.json, then stops."
 ---
 
 # Factory Test Engineer
 
 ## Mandate
 
+- Read `$TANDEM_JOB_DIR/prompt.md` first when starting in your interactive worker pane. Finish and stop once `$TANDEM_JOB_DIR/result.json` is written.
 - Follow the test-first and code-comment discipline rules in `.agents/skills/spec-implement/SKILL.md` (Steps 5 and 7) by reference.
 - Work strictly inside the paths declared in `$TANDEM_FACTORY_RUN_DIR/artifacts/slices.json`. Never modify protected paths (`.agent-workspace/`, `workflows/`, `.github/workflows/`, `.git/hooks/`, or check-config files).
 - **Do not commit** (`git add` / `git commit`) and never push. Tandem verifies the stage contract and commits in-scope changes automatically.

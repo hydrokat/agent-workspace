@@ -322,6 +322,14 @@ fn default_max_review_rounds() -> u32 {
     2
 }
 
+fn default_worker_cli() -> String {
+    "auto".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 fn default_provider_gates() -> Vec<ProviderGate> {
     KNOWN_PROVIDERS
         .iter()
@@ -363,6 +371,10 @@ pub struct FactorySettings {
     pub price_table: BTreeMap<String, ModelPrice>,
     #[serde(default = "default_approval_grace_secs")]
     pub approval_grace_secs: u64,
+    #[serde(default = "default_worker_cli")]
+    pub default_worker_cli: String,
+    #[serde(default = "default_true")]
+    pub orchestrator_may_choose: bool,
     #[serde(default)]
     pub allowed_tools: BTreeMap<String, Vec<super::workflow::schema::WorkflowTool>>,
     #[serde(default)]
@@ -392,6 +404,8 @@ impl Default for FactorySettings {
             model_tiers: super::routing::default_model_tiers(),
             price_table: BTreeMap::new(),
             approval_grace_secs: default_approval_grace_secs(),
+            default_worker_cli: default_worker_cli(),
+            orchestrator_may_choose: true,
             allowed_tools: BTreeMap::new(),
             denied_tools: BTreeMap::new(),
             allowed_data_classes: BTreeMap::new(),

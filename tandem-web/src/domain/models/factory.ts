@@ -148,6 +148,8 @@ export interface IdeaCard {
   risk?: Risk | null;
   blockers: number;
   updated: number;
+  team_count?: number;
+  needs_sign_in?: boolean;
 }
 
 export interface FactorySummary {
@@ -226,6 +228,12 @@ export interface RunSummary {
   base_commit?: string | null;
   worktree_path?: string | null;
   pause_reason?: string | null;
+  cost_usd?: number | null;
+  cost?: {
+    basis: string;
+    value?: number | null;
+  } | null;
+  cost_display?: string | null;
   state: RunState;
   stages: Stage[];
   created: number;
@@ -320,6 +328,8 @@ export interface FactorySettings {
   max_review_rounds: number;
   approval_grace_secs: number;
   default_budget: FactoryBudget;
+  default_worker_cli?: "auto" | FactoryCli;
+  orchestrator_may_choose?: boolean;
   model_tiers: Record<string, ProviderModelTiers>;
   provider_gates: FactoryProviderGate[];
   checks: Record<string, unknown>;
@@ -542,4 +552,86 @@ export interface RunDataView {
   excluded_paths: string[];
   exclusions: ExcludedPathEntry[];
   jobs: JobDataView[];
+}
+
+export interface LoginStatusItem {
+  cli: string;
+  installed: boolean;
+  version: string;
+  signed_in: boolean;
+  method?: string | null;
+  ready: boolean;
+  has_login_command: boolean;
+  login_hint?: string | null;
+  error?: string | null;
+}
+
+export interface LoginPaneResult {
+  cli: string;
+  pane_id: string;
+}
+
+export type AssignmentSource = "user" | "orchestrator" | "default";
+
+export interface StageAssignment {
+  stage: string;
+  cli: string;
+  model: string;
+  role: string;
+  source: AssignmentSource;
+  updated: number;
+  updated_by: string;
+}
+
+export interface WorkerActivity {
+  last_stop_at?: number | null;
+  state?: string | null;
+  cli?: string | null;
+  stage?: string | null;
+}
+
+export interface AgentSummary {
+  job_id: string;
+  run_id: string;
+  stage: string;
+  attempt: number;
+  cli: string;
+  model: string;
+  role: string;
+  source: AssignmentSource;
+  job_state: string;
+  pane_id?: string | null;
+  pane_alive: boolean;
+  activity?: WorkerActivity | null;
+  has_result: boolean;
+  result_status?: string | null;
+}
+
+export interface RelaunchAgentResult {
+  ok?: boolean;
+  run?: string;
+  job?: string;
+  pane_id: string;
+  cli: string;
+  model: string;
+}
+
+export interface RunAgentsPayload {
+  run_id: string;
+  agents: AgentSummary[];
+  assignments: Record<string, StageAssignment>;
+}
+
+export function isValidModelName(model: string): boolean {
+  const trimmed = model.trim();
+  return trimmed.length > 0 && trimmed.length <= 128 && !/[\x00-\x1f\x7f]/.test(trimmed);
+}
+
+export function isValidAgentJobId(jobId: string): boolean {
+  return /^[A-Za-z0-9_.-]{1,128}$/.test(jobId) && !jobId.includes("..");
+}
+
+export function isValidAgentMessage(message: string): boolean {
+  const trimmed = message.trim();
+  return trimmed.length > 0 && Buffer.byteLength(message, "utf8") <= 65_536;
 }

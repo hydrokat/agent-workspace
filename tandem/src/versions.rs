@@ -150,6 +150,28 @@ pub fn installed_version(cli: &str) -> String {
     installed_version_with(cli, default_which, default_runner)
 }
 
+pub fn which_cli(cli: &str) -> Option<PathBuf> {
+    default_which(cli)
+}
+
+pub fn run_cli_probe(argv: &[&str]) -> (i32, String, String) {
+    if argv.is_empty() {
+        return (1, String::new(), "empty argv".to_string());
+    }
+    match Command::new(argv[0])
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .output()
+    {
+        Ok(out) => (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        ),
+        Err(e) => (1, String::new(), e.to_string()),
+    }
+}
+
 pub fn installed_version_with<W, R>(cli: &str, which: W, runner: R) -> String
 where
     W: Fn(&str) -> Option<PathBuf>,

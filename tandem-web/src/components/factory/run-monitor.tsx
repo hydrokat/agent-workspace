@@ -17,16 +17,20 @@ import { Input } from "@/components/ui/input";
 import {
   HYPOTHESIS_MAX_LEN,
   isValidHypothesis,
+  type AgentSummary,
   type ProviderStatusItem,
   type RunControlAction,
   type RunControlOptions,
   type RunDataView,
   type RunSummary,
   type Stage,
+  type StageAssignment,
   type StageState,
 } from "@/domain/models/factory";
+import { AssignmentEditor } from "./assignment-editor";
 import { DataHandlingPanel } from "./data-handling";
 import { formatShortTime } from "./format";
+import { TeamPanel } from "./team-panel";
 
 interface RunMonitorProps {
   run: RunSummary;
@@ -37,11 +41,21 @@ interface RunMonitorProps {
   dataView?: RunDataView | null;
   dataLoading?: boolean;
   dataError?: string | null;
+  agents?: AgentSummary[];
+  assignments?: Record<string, StageAssignment>;
+  teamBusy?: boolean;
+  teamError?: string | null;
   controlling: boolean;
   controlError: string | null;
   onControl: (action: RunControlAction, options?: RunControlOptions) => Promise<void>;
   onFetchLog: (correlationId: string) => void;
   onWithdraw?: (runId: string) => Promise<void>;
+  onSignIn?: (cli: string) => Promise<void>;
+  onViewPane?: (paneId: string) => void;
+  onSendMessage?: (jobId: string, message: string) => Promise<void>;
+  onTerminateAgent?: (jobId: string, confirm: string) => Promise<void>;
+  onRelaunchAgent?: (jobId: string) => Promise<void>;
+  onAssignStage?: (params: { stage: string; cli: string; model: string }) => Promise<void>;
 }
 
 const STAGE_LABEL: Record<StageState, string> = {
@@ -81,18 +95,28 @@ function formatDuration(created: number, updated: number): string {
 
 export function RunMonitor({
   run,
-  providers,
+  providers: _providers,
   logText,
   logLoading,
   logError,
   dataView,
   dataLoading,
   dataError,
+  agents = [],
+  assignments = {},
+  teamBusy = false,
+  teamError = null,
   controlling,
   controlError,
   onControl,
   onFetchLog,
   onWithdraw,
+  onSignIn,
+  onViewPane,
+  onSendMessage,
+  onTerminateAgent,
+  onRelaunchAgent,
+  onAssignStage,
 }: RunMonitorProps) {
   const [selectedStageName, setSelectedStageName] = useState<string>(() =>
     defaultSelectedStage(run.stages)
@@ -116,10 +140,17 @@ export function RunMonitor({
     : null;
 
   const runningCount = run.stages.filter((s) => s.state === "running").length;
-  const closedGate = providers.find((p) => p.gate === "closed");
-  const pauseNeedsHostConsent =
-    Boolean(closedGate) ||
-    Boolean(run.pause_reason && /gate|consent/i.test(run.pause_reason));
+  const pauseLower = (run.pause_reason ?? "").toLowerCase();
+  const pauseNeedsSignIn =
+    run.state === "paused" &&
+    /signed in|sign in|not installed|login|gate/.test(pauseLower);
+  const signInCli = pauseNeedsSignIn
+    ? (["claude", "agy", "opencode"].find((cli) => pauseLower.includes(cli)) ?? null)
+    : null;
+  const resolvedCost = run.cost_usd ?? run.cost?.value ?? null;
+  const costLabel =
+    run.cost_display ??
+    (resolvedCost == null ? "cost: not tracked" : `$${resolvedCost.toFixed(2)}`);
 
   const canPause = run.state === "running" || run.state === "queued";
   const canResume = run.state === "paused";
@@ -165,7 +196,7 @@ export function RunMonitor({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-semibold">
             Run <span className="font-mono">{run.id}</span> · {run.workflow} v{run.workflow_version}{" "}
-            · {formatDuration(run.created, run.updated)} · cost unknown
+            · {formatDuration(run.created, run.updated)} · {costLabel}
           </CardTitle>
           <Badge variant={run.state === "paused" ? "destructive" : "secondary"} className="capitalize">
             {run.state}
@@ -175,12 +206,26 @@ export function RunMonitor({
         {run.state === "paused" && (
           <div
             role="alert"
-            className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200"
+            className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200"
           >
-            <span className="font-semibold">Paused: </span>
-            <span>{run.pause_reason || "Run is paused."}</span>
-            {pauseNeedsHostConsent && (
-              <span className="ml-1 font-medium">Give consent in tandem on the host.</span>
+            <div>
+              <span className="font-semibold">Paused: </span>
+              <span>{run.pause_reason || "Run is paused."}</span>
+              {pauseNeedsSignIn && !onSignIn && (
+                <span className="ml-1 font-medium">Sign in via Settings or tandem CLI.</span>
+              )}
+            </div>
+            {pauseNeedsSignIn && signInCli && onSignIn && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={controlling}
+                onClick={() => void onSignIn(signInCli)}
+                className="min-h-8"
+              >
+                Sign in ({signInCli})
+              </Button>
             )}
           </div>
         )}
@@ -292,18 +337,29 @@ export function RunMonitor({
               );
             })}
           </ul>
-          {providers.length > 0 && (
-            <div className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
-              <div className="font-medium text-foreground">Provider gates</div>
-              {providers.map((p) => (
-                <div key={p.provider} className="mt-0.5 flex items-center justify-between gap-2">
-                  <span>
-                    {p.provider} ({p.auth_type}): {p.gate}
-                  </span>
-                  {p.gate === "closed" && <span>Give consent in tandem on the host</span>}
-                </div>
-              ))}
-            </div>
+          <TeamPanel
+            agents={agents}
+            busy={teamBusy}
+            error={teamError}
+            onViewPane={onViewPane}
+            onSendMessage={
+              onSendMessage ?? (async () => {})
+            }
+            onTerminate={
+              onTerminateAgent ?? (async () => {})
+            }
+            onRelaunch={
+              onRelaunchAgent ?? (async () => {})
+            }
+          />
+          {onAssignStage && (
+            <AssignmentEditor
+              stages={run.stages.map((s) => s.name)}
+              assignments={assignments}
+              saving={teamBusy}
+              error={teamError}
+              onAssign={onAssignStage}
+            />
           )}
         </div>
 

@@ -90,6 +90,38 @@ pub fn check_own_pane_helpers(src_dir: &Path) -> Vec<String> {
     violations
 }
 
+pub fn check_worker_pane_helpers(src_dir: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    let patterns = [".send_keys_worker(", ".paste_worker(", ".capture_worker("];
+
+    for file in collect_rs_files(src_dir) {
+        let rel_path = file.strip_prefix(src_dir).unwrap_or(&file);
+        let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+        if rel_str == "tmux/client.rs"
+            || rel_str == "factory/team.rs"
+            || rel_str.starts_with("factory/worker/")
+        {
+            continue;
+        }
+
+        let content = fs::read_to_string(&file).unwrap_or_default();
+        for (line_no, line) in content.lines().enumerate() {
+            for pattern in &patterns {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{}:{}: worker pane helper '{}' called outside factory/worker/ and factory/team.rs",
+                        rel_path.display(),
+                        line_no + 1,
+                        pattern
+                    ));
+                }
+            }
+        }
+    }
+
+    violations
+}
+
 pub fn check_no_shell(src_dir: &Path) -> Vec<String> {
     let mut violations = Vec::new();
     let shell_patterns = [
@@ -639,6 +671,35 @@ fn test_own_pane_helpers_are_only_called_for_tandem_panes() {
 }
 
 #[test]
+fn test_worker_pane_helpers_only_called_from_factory_worker_or_team() {
+    let src = manifest_dir().join("src");
+    let violations = check_worker_pane_helpers(&src);
+    assert_eq!(violations, Vec::<String>::new());
+}
+
+#[test]
+fn test_login_module_never_reads_credentials_or_opens_network() {
+    let login_rs = manifest_dir().join("src").join("factory").join("login.rs");
+    let content = fs::read_to_string(&login_rs).expect("factory/login.rs must exist");
+    let forbidden = [
+        ".credentials.json",
+        "auth.json",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "std::net",
+        "reqwest",
+        "ureq",
+    ];
+    for needle in forbidden {
+        assert!(
+            !content.contains(needle),
+            "factory/login.rs must not reference {needle}"
+        );
+    }
+}
+
+#[test]
 fn test_no_shell_outside_quota_chain() {
     let src = manifest_dir().join("src");
     let violations = check_no_shell(&src);
@@ -1008,6 +1069,48 @@ fn test_negative_tos_violations_are_detected() {
         v7.iter()
             .any(|v| v.contains("artifacts.rs") && v.contains("put_redacted")),
         "expected artifacts.rs violation, got {v7:?}"
+    );
+
+    let tmp_worker_dir = tmp_factory.join("worker");
+    fs::create_dir_all(&tmp_worker_dir).unwrap();
+    fs::write(
+        tmp_worker_dir.join("ok.rs"),
+        "pub fn drive(c: &TmuxClient) { let _ = c.send_keys_worker(\"r\", \"%1\", &[\"Enter\"]); let _ = c.paste_worker(\"r\", \"%1\", \"hi\"); let _ = c.capture_worker(\"r\", \"%1\", 20); }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("team.rs"),
+        "pub fn msg(c: &TmuxClient) { let _ = c.send_keys_worker(\"r\", \"%1\", &[\"Enter\"]); }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_src.join("commands.rs"),
+        "pub fn bad(c: &TmuxClient) { let _ = c.paste_worker(\"r\", \"%1\", \"hi\"); }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_factory.join("bad_caller.rs"),
+        "pub fn bad(c: &TmuxClient) { let _ = c.capture_worker(\"r\", \"%1\", 10); let _ = c.send_keys_worker(\"r\", \"%1\", &[\"Enter\"]); }",
+    )
+    .unwrap();
+
+    let v8 = check_worker_pane_helpers(&tmp_src);
+    assert_eq!(
+        v8.len(),
+        3,
+        "expected 3 worker helper violations, got {v8:?}"
+    );
+    assert!(
+        v8.iter()
+            .any(|v| v.contains("commands.rs") && v.contains(".paste_worker("))
+    );
+    assert!(
+        v8.iter()
+            .any(|v| v.contains("bad_caller.rs") && v.contains(".capture_worker("))
+    );
+    assert!(
+        v8.iter()
+            .any(|v| v.contains("bad_caller.rs") && v.contains(".send_keys_worker("))
     );
 
     let _ = fs::remove_dir_all(&tmp);

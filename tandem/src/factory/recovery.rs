@@ -20,6 +20,7 @@ use super::workflow::DEFAULT_WORKFLOW_YAML;
 use super::workspace::{
     WorkspaceError, find_orphan_branches, find_orphan_worktrees, remove_orphan_worktree,
 };
+use crate::tmux::client::TmuxClient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,6 +54,21 @@ pub enum ProblemKind {
     HashChainBreak,
     OrphanWorktree,
     OrphanBranch,
+    OrphanWorkerPane,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrphanWorkerPaneInfo {
+    pub pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
+    pub killed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +109,8 @@ pub struct DoctorReport {
     pub findings: Vec<DoctorFinding>,
     pub orphan_worktrees: Vec<OrphanWorktreeInfo>,
     pub orphan_branches: Vec<OrphanBranchInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orphan_worker_panes: Vec<OrphanWorkerPaneInfo>,
     pub safe_repairs_applied: usize,
     pub worktrees_removed: usize,
     pub truncated_log: bool,
@@ -340,6 +358,18 @@ fn append_log_and_orphan_findings(
 }
 
 pub fn diagnose(store: &FactoryStore, workspace: &Path) -> Result<DoctorReport, RecoveryError> {
+    diagnose_with_tmux(
+        store,
+        workspace,
+        &TmuxClient::new(crate::tmux::socket_for(workspace), None),
+    )
+}
+
+pub fn diagnose_with_tmux(
+    store: &FactoryStore,
+    workspace: &Path,
+    tmux: &TmuxClient,
+) -> Result<DoctorReport, RecoveryError> {
     let mut findings = Vec::new();
 
     if is_runner_lock_stale(store) {
@@ -382,6 +412,33 @@ pub fn diagnose(store: &FactoryStore, workspace: &Path) -> Result<DoctorReport, 
         });
     }
 
+    let runner_live = is_runner_live(store);
+    let orphan_worker_panes: Vec<OrphanWorkerPaneInfo> =
+        super::worker::find_orphaned_worker_panes(tmux, store, runner_live)
+            .into_iter()
+            .map(|p| {
+                findings.push(DoctorFinding {
+                    severity: FindingSeverity::Warn,
+                    kind: ProblemKind::OrphanWorkerPane,
+                    subject: format!("worker pane {}", p.pane_id),
+                    message: format!(
+                        "orphaned worker pane (run {}, job {})",
+                        p.run_id.as_deref().unwrap_or("unknown"),
+                        p.job_id.as_deref().unwrap_or("unknown")
+                    ),
+                    repaired: false,
+                });
+                OrphanWorkerPaneInfo {
+                    pane_id: p.pane_id,
+                    run_id: p.run_id,
+                    job_id: p.job_id,
+                    stage: p.stage,
+                    cli: p.cli,
+                    killed: false,
+                }
+            })
+            .collect();
+
     let (orphan_worktrees, orphan_branches, truncated_log, chain_intact) =
         append_log_and_orphan_findings(store, workspace, &mut findings)?;
 
@@ -389,6 +446,7 @@ pub fn diagnose(store: &FactoryStore, workspace: &Path) -> Result<DoctorReport, 
         findings,
         orphan_worktrees,
         orphan_branches,
+        orphan_worker_panes,
         safe_repairs_applied: 0,
         worktrees_removed: 0,
         truncated_log,
@@ -469,6 +527,18 @@ fn mark_half_created_run_failed(
 pub fn run_safe_repairs(
     store: &FactoryStore,
     workspace: &Path,
+) -> Result<DoctorReport, RecoveryError> {
+    run_safe_repairs_with_tmux(
+        store,
+        workspace,
+        &TmuxClient::new(crate::tmux::socket_for(workspace), None),
+    )
+}
+
+pub fn run_safe_repairs_with_tmux(
+    store: &FactoryStore,
+    workspace: &Path,
+    tmux: &TmuxClient,
 ) -> Result<DoctorReport, RecoveryError> {
     let mut findings = Vec::new();
     let mut safe_repairs_applied = 0usize;
@@ -590,6 +660,34 @@ pub fn run_safe_repairs(
         }
     }
 
+    let runner_live = is_runner_live(store);
+    let mut orphan_worker_panes = Vec::new();
+    for p in super::worker::find_orphaned_worker_panes(tmux, store, runner_live) {
+        let killed = tmux.kill_pane(&p.pane_id).is_ok();
+        if killed {
+            safe_repairs_applied += 1;
+            findings.push(DoctorFinding {
+                severity: FindingSeverity::Fixed,
+                kind: ProblemKind::OrphanWorkerPane,
+                subject: format!("worker pane {}", p.pane_id),
+                message: format!(
+                    "killed orphaned worker pane (run {}, job {})",
+                    p.run_id.as_deref().unwrap_or("unknown"),
+                    p.job_id.as_deref().unwrap_or("unknown")
+                ),
+                repaired: true,
+            });
+        }
+        orphan_worker_panes.push(OrphanWorkerPaneInfo {
+            pane_id: p.pane_id,
+            run_id: p.run_id,
+            job_id: p.job_id,
+            stage: p.stage,
+            cli: p.cli,
+            killed,
+        });
+    }
+
     let (orphan_worktrees, orphan_branches, truncated_log, chain_intact) =
         append_log_and_orphan_findings(store, workspace, &mut findings)?;
 
@@ -597,6 +695,7 @@ pub fn run_safe_repairs(
         findings,
         orphan_worktrees,
         orphan_branches,
+        orphan_worker_panes,
         safe_repairs_applied,
         worktrees_removed: 0,
         truncated_log,
@@ -627,8 +726,26 @@ pub fn doctor_fix(
     stdin: &mut dyn Read,
     prompt_out: &mut dyn Write,
 ) -> Result<DoctorReport, RecoveryError> {
+    doctor_fix_with_tmux(
+        store,
+        workspace,
+        caller,
+        stdin,
+        prompt_out,
+        &TmuxClient::new(crate::tmux::socket_for(workspace), None),
+    )
+}
+
+pub fn doctor_fix_with_tmux(
+    store: &FactoryStore,
+    workspace: &Path,
+    caller: &Caller<'_>,
+    stdin: &mut dyn Read,
+    prompt_out: &mut dyn Write,
+    tmux: &TmuxClient,
+) -> Result<DoctorReport, RecoveryError> {
     require_user(caller)?;
-    let mut report = run_safe_repairs(store, workspace)?;
+    let mut report = run_safe_repairs_with_tmux(store, workspace, tmux)?;
 
     let mut reader = BufReader::new(stdin);
     for wt in &mut report.orphan_worktrees {

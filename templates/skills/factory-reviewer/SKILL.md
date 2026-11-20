@@ -1,13 +1,13 @@
 ---
 name: factory-reviewer
-description: "Headless Factory Mode review-stage playbook. Reviews the run branch diff against the base commit read-only using the code-review checklist and writes findings.json and result.json."
+description: "Interactive Factory Mode review-stage playbook. Reads prompt.md, reviews the run branch diff against the base commit read-only using the code-review checklist, writes findings.json and result.json, then stops."
 ---
 
 # Factory Reviewer
 
 ## Read-Only Mandate
 
-The `review` stage has only `repo_read` and `diff_review` tools. Never modify, create, or delete files inside the target repository or worktree, and never commit or push. Any edit to the worktree fails the stage. Write outputs only under `$TANDEM_FACTORY_RUN_DIR/artifacts` and the job's `result.json`.
+The `review` stage runs in an interactive worker pane with only `repo_read` and `diff_review` tools. Read `$TANDEM_JOB_DIR/prompt.md` first, never modify, create, or delete files inside the target repository or worktree, and never commit or push. Any edit to the worktree fails the stage. Write outputs only under `$TANDEM_FACTORY_RUN_DIR/artifacts` and `$TANDEM_JOB_DIR/result.json`, then finish your turn and stop cleanly.
 
 ## Procedure
 

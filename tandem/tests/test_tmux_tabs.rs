@@ -34,6 +34,7 @@ fn pane(
         cli_version: String::new(),
         name: String::new(),
         idea: String::new(),
+        ..PaneInfo::default()
     }
 }
 
@@ -117,6 +118,26 @@ fn test_parse_panes_skips_garbage_and_untagged() {
 fn test_format_uses_user_options() {
     assert!(FORMAT.contains("@tandem_role"));
     assert!(FORMAT.contains("pane_dead_status"));
+    assert!(FORMAT.contains("@tandem_run"));
+    assert!(FORMAT.contains("@tandem_job"));
+    assert!(FORMAT.contains("@tandem_stage"));
+    assert!(FORMAT.contains("@tandem_cli"));
+    assert!(FORMAT.contains("@tandem_model"));
+}
+
+#[test]
+fn test_parse_panes_reads_factory_worker_fields() {
+    let row = "%12\tmain\tfactory-worker\tworker\t1\tclaude·opus\t0\t\tsess-1\t\t2.3.1\tdev\ti-123\tr-abc\tj-001\tdevelop\tclaude\tclaude-opus-4-7";
+    let panes = parse_panes(row);
+    assert_eq!(panes.len(), 1);
+    let p = &panes[0];
+    assert_eq!(p.kind, "factory-worker");
+    assert_eq!(p.idea, "i-123");
+    assert_eq!(p.run, "r-abc");
+    assert_eq!(p.job, "j-001");
+    assert_eq!(p.stage, "develop");
+    assert_eq!(p.cli, "claude");
+    assert_eq!(p.model, "claude-opus-4-7");
 }
 
 #[test]

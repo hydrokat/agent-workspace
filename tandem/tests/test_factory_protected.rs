@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::sync::Arc;
 use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
 use tandem::factory::broker::gate::{AuthType, consent_provider};
@@ -10,13 +11,31 @@ use tandem::factory::broker::result::{JobResult, JobResultStatus};
 use tandem::factory::checks::{set_checks, set_deploy_command};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::BrokerExecutor;
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command as MachineCommand, EventData};
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, PrLink, RunState, StageState};
 use tandem::factory::protected::{
     APPROVAL_TTL_SECS, ProtectedAction, ProtectedApproval, approve, load_run_approvals,
 };
 use tandem::factory::run::get_run;
-use tandem::factory::runner::{append_run_events, drive_run_step, resume_paused_run};
+use tandem::factory::runner::{append_run_events, drive_run_step, resume_paused_run_with_probe};
+
+struct ReadyClaudeProbe;
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "claude 2.0".to_string()
+    }
+    fn run(&self, _argv: &[&str]) -> (i32, String, String) {
+        (
+            0,
+            r#"{"loggedIn":true,"authMethod":"apiKey"}"#.to_string(),
+            String::new(),
+        )
+    }
+}
 use tandem::factory::stages::deploy::{
     DeployBlockReason, DeployStageContract, check_deploy_preconditions, run_deploy_stage,
 };
@@ -622,9 +641,7 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
     )
     .unwrap();
 
-    let mut exec = BrokerExecutor {
-        workspace: ws.root.clone(),
-    };
+    let mut exec = BrokerExecutor::new(&ws.root).with_login_probe(Arc::new(ReadyClaudeProbe));
     drive_run_step(&store, &ws.root, &run_id, &mut exec).unwrap();
     let paused = get_run(&store, &run_id).unwrap().unwrap();
     assert_eq!(paused.state, RunState::Paused);
@@ -668,7 +685,7 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
         check_deploy_preconditions(&paused, &settings, &approvals, now_secs()).unwrap_err();
     assert_eq!(pre_err, DeployBlockReason::MissingPullRequest);
 
-    resume_paused_run(&store, &run_id, &user_actor()).unwrap();
+    resume_paused_run_with_probe(&store, &run_id, &user_actor(), &ReadyClaudeProbe).unwrap();
     drive_run_step(&store, &ws.root, &run_id, &mut exec).unwrap();
     let paused_no_pr = get_run(&store, &run_id).unwrap().unwrap();
     assert_eq!(paused_no_pr.state, RunState::Paused);
@@ -701,7 +718,7 @@ fn deploy_stage_requires_pr_confirmed_command_and_single_use_approval_and_record
     )
     .unwrap();
 
-    resume_paused_run(&store, &run_id, &user_actor()).unwrap();
+    resume_paused_run_with_probe(&store, &run_id, &user_actor(), &ReadyClaudeProbe).unwrap();
     drive_run_step(&store, &ws.root, &run_id, &mut exec).unwrap();
 
     let after_deploy = get_run(&store, &run_id).unwrap().unwrap();

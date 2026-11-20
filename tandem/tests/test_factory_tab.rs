@@ -69,6 +69,8 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             blockers: 0,
             updated: now - 120.0,
             run: None,
+            team_count: 0,
+            needs_sign_in: false,
         },
         IdeaCard {
             id: "i-b81xw0pe".to_string(),
@@ -79,6 +81,8 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             blockers: 0,
             updated: now - 3600.0,
             run: None,
+            team_count: 0,
+            needs_sign_in: false,
         },
         IdeaCard {
             id: "i-c92yz1qf".to_string(),
@@ -89,6 +93,8 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             blockers: 0,
             updated: now - 30.0,
             run: None,
+            team_count: 0,
+            needs_sign_in: false,
         },
     ]
 }
@@ -237,6 +243,8 @@ fn test_factory_tab_selection_follows_idea_id_across_refresh() {
         blockers: 0,
         updated: now,
         run: None,
+        team_count: 0,
+        needs_sign_in: false,
     }];
     reordered.extend(ideas);
 

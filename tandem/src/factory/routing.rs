@@ -344,3 +344,150 @@ pub fn route(
         temperature,
     })
 }
+
+pub(crate) fn interactive_map_tool(
+    provider: &str,
+    tool: WorkflowTool,
+    out: &mut Vec<ToolFlag>,
+) -> Result<(), Unroutable> {
+    match provider {
+        "claude" => map_tool_for_provider("claude", tool, out),
+        "agy" => match tool {
+            WorkflowTool::RepoRead
+            | WorkflowTool::IssueContext
+            | WorkflowTool::DiffReview
+            | WorkflowTool::RepoWrite
+            | WorkflowTool::Shell
+            | WorkflowTool::TestRunner
+            | WorkflowTool::LintRunner => Ok(()),
+            WorkflowTool::Ci
+            | WorkflowTool::Deployment
+            | WorkflowTool::Browser
+            | WorkflowTool::Screenshot => Err(Unroutable::UnsupportedTool {
+                provider: provider.to_string(),
+                tool,
+            }),
+        },
+        "opencode" => match tool {
+            WorkflowTool::RepoWrite
+            | WorkflowTool::Shell
+            | WorkflowTool::TestRunner
+            | WorkflowTool::LintRunner
+            | WorkflowTool::RepoRead => Ok(()),
+            WorkflowTool::IssueContext
+            | WorkflowTool::DiffReview
+            | WorkflowTool::Ci
+            | WorkflowTool::Deployment
+            | WorkflowTool::Browser
+            | WorkflowTool::Screenshot => Err(Unroutable::UnsupportedTool {
+                provider: provider.to_string(),
+                tool,
+            }),
+        },
+        other => Err(Unroutable::UnsupportedProvider {
+            provider: other.to_string(),
+        }),
+    }
+}
+
+pub fn route_interactive(
+    stage: &StageDef,
+    grant: &ToolGrant,
+    _workflow: &Workflow,
+    settings: &FactorySettings,
+    ready_clis: &[&str],
+    attempt: u32,
+    ctx: &RoutingContext,
+) -> Result<Route, Unroutable> {
+    if ready_clis.is_empty() {
+        return Err(Unroutable::NoOpenProvider);
+    }
+
+    let mut ordered: Vec<&str> = Vec::with_capacity(ready_clis.len());
+    if let Some(ref pref) = ctx.preferred_provider
+        && let Some(&found) = ready_clis.iter().find(|&&c| c == pref.as_str())
+        && ctx.avoid_provider.as_deref() != Some(found)
+    {
+        ordered.push(found);
+    }
+    for &cli in ready_clis {
+        if ctx.avoid_provider.as_deref() != Some(cli) && !ordered.contains(&cli) {
+            ordered.push(cli);
+        }
+    }
+    for &cli in ready_clis {
+        if !ordered.contains(&cli) {
+            ordered.push(cli);
+        }
+    }
+
+    let mut last_err: Option<Unroutable> = None;
+    for provider in ordered {
+        let mut tool_flags = Vec::new();
+        let mut mapped_ok = true;
+        for &tool in &grant.tools {
+            if let Err(err) = interactive_map_tool(provider, tool, &mut tool_flags) {
+                last_err = Some(err);
+                mapped_ok = false;
+                break;
+            }
+        }
+        if !mapped_ok {
+            continue;
+        }
+        if provider == "opencode" && !grant.has_repo_write {
+            last_err = Some(Unroutable::UnsupportedTool {
+                provider: provider.to_string(),
+                tool: WorkflowTool::DiffReview,
+            });
+            continue;
+        }
+
+        let base_tier = base_tier_for_stage(stage);
+        let mut tier = base_tier;
+        for _ in 1..attempt {
+            if let Some(next_tier) = tier.upgrade() {
+                tier = next_tier;
+            }
+        }
+        let default_tiers = default_model_tiers();
+        let Some(provider_tiers) = settings
+            .model_tiers
+            .get(provider)
+            .or_else(|| default_tiers.get(provider))
+        else {
+            last_err = Some(Unroutable::UnsupportedProvider {
+                provider: provider.to_string(),
+            });
+            continue;
+        };
+        if let Some(ref avoid_model) = ctx.avoid_model
+            && provider_tiers.for_tier(tier) == avoid_model.as_str()
+            && let Some(next_tier) = tier.upgrade()
+        {
+            tier = next_tier;
+        }
+        let upgraded_from = (tier != base_tier).then_some(base_tier);
+        let model = provider_tiers.for_tier(tier).to_string();
+        if let Err(reason) = crate::adapters::base::validate_model_for_cli(provider, &model) {
+            last_err = Some(Unroutable::InvalidModel {
+                provider: provider.to_string(),
+                model,
+                reason: reason.to_string(),
+            });
+            continue;
+        }
+
+        return Ok(Route {
+            agent_definition: map_agent_definition(stage.agent, ctx.is_ui_work),
+            provider: provider.to_string(),
+            tier,
+            upgraded_from,
+            model,
+            tool_flags,
+            temperature: TemperatureSupport::Unsupported,
+        });
+    }
+
+    Err(last_err.unwrap_or(Unroutable::NoOpenProvider))
+}

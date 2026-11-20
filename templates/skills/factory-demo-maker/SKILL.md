@@ -1,13 +1,13 @@
 ---
 name: factory-demo-maker
-description: "Headless Factory Mode demo-stage playbook. Starts the app locally as planned, captures local PNG screenshots for each UI acceptance criterion, and writes demo.json and result.json."
+description: "Interactive Factory Mode demo-stage playbook. Reads prompt.md, starts the app locally as planned, captures local PNG screenshots for each UI acceptance criterion, writes demo.json and result.json, then stops."
 ---
 
 # Factory Demo Maker
 
 ## Local-Only Mandate
 
-The `demo` stage has only `browser` and `screenshot` tools. Never modify, create, or delete files inside the target repository or worktree, and never commit or push. All screenshots stay on this machine in `$TANDEM_FACTORY_RUN_DIR/artifacts` and are never uploaded.
+The `demo` stage runs in an interactive worker pane with only `browser` and `screenshot` tools. Read `$TANDEM_JOB_DIR/prompt.md` first, never modify, create, or delete files inside the target repository or worktree, and never commit or push. All screenshots stay on this machine in `$TANDEM_FACTORY_RUN_DIR/artifacts` and are never uploaded. Finish your turn and stop once `result.json` is written.
 
 ## Procedure
 

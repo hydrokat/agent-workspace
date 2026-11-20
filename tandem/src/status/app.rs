@@ -600,6 +600,9 @@ impl StatusApp {
         };
         self.tab = tab;
         self.tab_bar.selected = tab.index_for(factory);
+        if factory && tab == StatusTab::Settings {
+            self.settings_tab.ensure_logins_probed();
+        }
         self.dirty = true;
     }
 
@@ -736,6 +739,49 @@ impl StatusApp {
                             self.factory_tab.notice = err;
                         }
                     }
+                }
+            }
+            FactoryAction::OpenWorkerPane { pane_id } => {
+                if let Some(ref tmux) = self.tmux {
+                    if let Err(err) = tmux.run_batch_checked(&[
+                        vec![
+                            "select-window".to_string(),
+                            "-t".to_string(),
+                            pane_id.clone(),
+                        ],
+                        vec!["select-pane".to_string(), "-t".to_string(), pane_id.clone()],
+                    ]) && let Some(ref mut mon) = self.factory_tab.run_monitor
+                    {
+                        mon.notice = format!("Could not focus worker pane {pane_id}: {err}");
+                    }
+                } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                    mon.notice = format!("Tmux client unavailable for pane {pane_id}.");
+                }
+            }
+            FactoryAction::OpenLoginPane { cli } => {
+                if let Some(ref tmux) = self.tmux {
+                    match crate::factory::login::open_login_pane(
+                        tmux,
+                        &self.workspace,
+                        &cli,
+                        &crate::factory::login::HostLoginProbe,
+                    ) {
+                        Ok(res) => {
+                            if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                                mon.notice =
+                                    format!("Opened {cli} sign-in pane ({}).", res.pane_id);
+                            }
+                            self.action_refresh_now();
+                        }
+                        Err(err) => {
+                            if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                                mon.notice = err.to_string();
+                            }
+                        }
+                    }
+                } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                    mon.notice =
+                        format!("Run `tandem factory login open {cli}` in tmux to sign in.");
                 }
             }
             FactoryAction::Refresh => {

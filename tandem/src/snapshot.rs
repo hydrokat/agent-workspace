@@ -159,6 +159,19 @@ pub struct IdeaCard {
     pub updated: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<RunSummary>,
+    #[serde(default)]
+    pub team_count: usize,
+    #[serde(default)]
+    pub needs_sign_in: bool,
+}
+
+pub fn pause_reason_needs_sign_in(reason: &str) -> bool {
+    let lower = reason.to_ascii_lowercase();
+    lower.contains("signed in")
+        || lower.contains("sign in")
+        || lower.contains("not installed")
+        || lower.contains("login")
+        || lower.contains("gate")
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -442,6 +455,41 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                 let run_paused = run
                     .as_ref()
                     .is_some_and(|r| r.state == crate::factory::model::RunState::Paused);
+                let running_job_count = run
+                    .as_ref()
+                    .map(|r| {
+                        let jdir = crate::factory::broker::job::jobs_dir(&fstore, &r.id);
+                        let mut count = 0usize;
+                        if jdir.is_dir()
+                            && let Ok(entries) = std::fs::read_dir(&jdir)
+                        {
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.is_dir()
+                                    && matches!(
+                                        crate::factory::broker::job::read_job_state(&p),
+                                        Ok(crate::factory::broker::job::JobState::Running)
+                                    )
+                                {
+                                    count += 1;
+                                }
+                            }
+                        }
+                        let stage_count = r
+                            .stages
+                            .iter()
+                            .filter(|s| s.state == crate::factory::model::StageState::Running)
+                            .count();
+                        count.max(stage_count)
+                    })
+                    .unwrap_or(0);
+                let team_count = running_job_count;
+                let needs_sign_in = run.as_ref().is_some_and(|r| {
+                    r.state == crate::factory::model::RunState::Paused
+                        && r.pause_reason
+                            .as_deref()
+                            .is_some_and(pause_reason_needs_sign_in)
+                });
                 if iq.open > 0 || run_paused {
                     needs_you += 1;
                 }
@@ -454,6 +502,8 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                     blockers: iq.blocking,
                     updated: idea.updated,
                     run,
+                    team_count,
+                    needs_sign_in,
                 });
             }
             FactorySummary {

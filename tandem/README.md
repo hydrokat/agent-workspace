@@ -222,9 +222,15 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory checks discover [--target NAME] [--json]` | Propose `test` and `lint` commands by reading target project files |
 | `tandem factory checks set --target NAME [--test CMD] [--lint CMD] [--deploy JSON_CMD] [--timeout-secs N] [--ui-paths GLOBS] --confirm NAME [--json]` | Confirm `test`, `lint`, or `deploy` commands for a target (user-only) |
 | `tandem factory checks show [--target NAME] [--json]` | Show confirmed check commands |
-| `tandem factory provider status [--json]` | Show provider terms verdicts, expiry, consent, and gate state |
-| `tandem factory provider consent <PROVIDER> --auth <TYPE> --confirm <PROVIDER> [--json]` | Record user consent to open a headless provider gate (user-only) |
-| `tandem factory provider revoke <PROVIDER> [--json]` | Close a provider gate in factory settings (user-only) |
+| `tandem factory login status [--json]` | Check installed/signed-in status for `claude`, `agy`, and `opencode` |
+| `tandem factory login open <CLI> [--json]` | Open an isolated tmux login pane (`@tandem_role=login`) using the CLI's own login command |
+| `tandem factory agent assign --run <RUN> --stage <STAGE> --cli <CLI> --model <MODEL> [--by user\|orchestrator] [--json]` | Assign or override the interactive CLI/model for a stage (`user` always overrides `orchestrator`) |
+| `tandem factory agent list --run <RUN> [--json]` | List recorded worker jobs, pane liveness, assignment source, and activity status |
+| `tandem factory agent send --run <RUN> --job <JOB> --file <PATH> [--json]` | Deliver a file-backed message to an owned worker pane via guarded `paste-buffer` |
+| `tandem factory agent capture --run <RUN> --job <JOB> [--lines N] [--json]` | Capture output from an owned worker pane (fails closed on login/non-worker panes) |
+| `tandem factory agent terminate --run <RUN> --job <JOB> --confirm <JOB> [--json]` | Stop an owned worker pane and mark its job interrupted |
+| `tandem factory agent relaunch --run <RUN> --job <JOB> [--json]` | Relaunch a worker pane using the active `assignments.json` entry |
+| `tandem factory provider status [--json]` | Show legacy headless terms verdicts and gate state |
 | `tandem factory settings get [--json]` | Show current factory settings |
 | `tandem factory settings set <KEY> <VALUE> [--json]` | Update a non-protected factory setting within valid bounds (user-only) |
 | `tandem factory run budget <RUN> [--max-cost USD] [--max-duration SECS] [--max-retries N] [--json]` | View or update budget caps for a run (mutating is user-only) |
@@ -245,7 +251,7 @@ Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or 
 - **Question tagging**: Questions asked with `task = "idea:<id>"` feed `blockers`, `needs_you`, and Gate 2.
 - **User-only rule**: User-only commands route through one shared approval gate (`approval::require_user`) enforcing a terminal check (`IsTerminal`), tmux `@tandem_role` pane check, derived `via` surface (`--via` removed), `approval_grace_secs` undo window, and audit logging. See [Approval boundary](#approval-boundary-threat-model--five-measures) for what it stops and does not stop.
 - **Orchestrator recommendation**: The Orchestrator may recommend a workflow by name in the plan, but cannot edit workflow policy; the validator's upper bounds always apply to whatever the user selects.
-- **Factory tab & Web views**: TUI Factory tab (`Alt+f`) provides new idea (`Ctrl+Alt+n`), lifecycle filter, detail/artifact reader, mark ready (`Ctrl+Alt+y` with workflow selector & deploy toggle), run strip, withdraw (`x`), and revoke; `tandem-web` exposes `/api/workspaces/:id/factory/...` routes including `workflows` and `runs/:runId` with the workflow selector and run timeline.
+- **Factory tab & Web views**: TUI Factory tab (`Alt+f`) provides new idea (`Ctrl+Alt+n` choosing `claude`, `agy`, or `opencode`), lifecycle filter with active team count and sign-in badges, detail/artifact reader, mark ready (`Ctrl+Alt+y`), Run Monitor with **Team** panel (`[v]iew`, `[m]essage`, `[s]top`, `[x] relaunch`), **Stage Assignments** modal (`a`, labeling user overrides `"you"`), `"cost: not tracked"`, and **Agents & sign-in** in Settings; `tandem-web` mirrors these under `/api/workspaces/:id/factory/login/...` and `/api/workspaces/:id/factory/runs/:runId/agents/...` with `<TeamPanel>` and `<AssignmentEditor>`.
 
 ### Workflow reference (`workflows/*.yaml`)
 
@@ -295,32 +301,21 @@ Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or 
         └── log.txt       # raw stdout/stderr output
 ```
 
-### Provider gate & consent
+### Login choice, interactive team & stage assignments
 
 > **Governance stance:** Factory Mode accelerates execution; it does not transfer accountability. Teams keep approval, merge, deployment, and compliance responsibility.
 
-Before any headless stage runs, tandem checks five conditions for the provider:
-1. **Verified terms**: the `(provider, auth_type)` pair has a verified terms row whose verdict allows headless execution.
-2. **Not expired**: today's date is on or before the terms row's `reverify_by` date.
-3. **Explicit user consent**: consent is recorded in `settings.json` (`consented_at` present).
-4. **Matches the current terms**: the consent's `verified_on` date matches the current terms row's `verified_on` date (otherwise re-consent is required).
-5. **Gate is open**: `gate.state` is `open` (not revoked or closed).
+- **Worker logins & terms notice**: Interactive worker panes (`claude`, `agy`, `opencode`) use whatever login each CLI already holds on the host (`tandem` handles no credentials and reads no OAuth tokens or API keys). Subscription logins may conflict with provider terms of service — see the 2026-11-20 summary in `knowledgebase/architecture-decisions/factory-provider-terms.md` (`claude`: API key/Console `allowed-with-conditions`, consumer subscription `not-allowed` / gray; `agy`: Gemini Enterprise / AI Studio API key / Vertex AI `allowed-with-conditions`, consumer OAuth `unclear`; `opencode`: configured provider auth). You can sign in with an API key through **Settings → Agents & sign-in** (`tandem factory login open <cli>`).
+- **Guarded tmux ownership**: Worker panes (`@tandem_role=worker`, `@tandem_run_id=<run>`) are launched interactively inside tmux (`TmuxClient::launch_worker`). `send_worker` / `paste_worker` / `capture_worker` fail closed on non-worker panes, including `@tandem_role=login` panes opened for sign-in.
+- **Assignment precedence (`assignments.json`)**: `user` > `orchestrator` > workflow `default`. Agents cannot pass `--by user` and cannot overwrite an existing user override.
+- **Activity signals & hooks**: When a worker uses `claude`, tandem installs an isolated worktree `Stop` hook (`.claude/settings.local.json`, excluded via git `info/exclude`) updating `<job_dir>/activity.json`; `team_watch.py` polls files first before `agent capture`.
 
-tandem **handles no credentials**: each provider CLI (`claude`, `agy`) uses your own already-configured authentication and environment. Give or revoke consent with:
+### Runner, retries & action requests
 
-```bash
-tandem factory provider status --json
-tandem factory provider consent claude --auth api-key --confirm claude --json
-tandem factory provider revoke claude --json
-```
-
-### Runner, retries, model tiers & action requests
-
-- **Operating loop**: The runner acquires `.agent-workspace/factory/`'s runner lock, checks for an open provider gate, verifies `plan-snapshot.md` against its recorded SHA-256, prepares the run worktree, and steps the workflow scheduler through runnable stages (producing `slices.json` and slice task files in the `plan` stage).
+- **Operating loop**: The runner acquires `.agent-workspace/factory/`'s runner lock, checks CLI readiness (`broker::gate::interactive_ready`), verifies `plan-snapshot.md` against its recorded SHA-256, prepares the run worktree, and steps the workflow scheduler through interactive worker panes (`assignments.json`). Interactive runs record `"cost: not tracked"` (`max_duration_secs` and `max_retries` caps still enforce).
 - **Retries & new-hypothesis rule**: A failed stage pauses the run unless a retry provides a non-empty, distinct **new hypothesis** explaining what changed. Grant one more attempt with `tandem factory run retry <run> <stage> --hypothesis "<new hypothesis>"`.
-- **Model tiers**: Stages route across `economy` (`claude-haiku-4-5` / `gemini-2.0-flash-lite`), `standard` (`claude-sonnet-4-6` / `gemini-2.0-flash`), and `premium` (`claude-opus-4-7` / `gemini-2.5-pro`).
 - **Action requests**: When a stage requires user action or input, `run.json` records the exact commands in `action_commands` so the user can resolve the blocker before running `tandem factory run resume <run>`.
-- **`result.json` schema**: `status` (`succeeded` | `failed` | `needs_input`), `summary`, `files_changed`, `artifacts`, `rationale` (required when `failed`), `hypothesis` (required on retry), and optional `usage` (`input_tokens`, `output_tokens`, `cost_usd`).
+- **`result.json` schema**: `status` (`succeeded` | `failed` | `needs_input`), `summary`, `files_changed`, `artifacts`, `rationale` (required when `failed`), and `hypothesis` (required on retry).
 
 ### Run worktree, target selection & cleanup
 

@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
@@ -8,29 +9,34 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 
-use crate::factory::broker::gate::{AuthType, consent_provider, today_iso_date};
 use crate::factory::broker::job::{JobInput, JobState, job_dir, jobs_dir, read_job_state};
 use crate::factory::broker::result::JobResult;
-use crate::factory::broker::terms::{PROVIDER_TERMS, TermsVerdict, lookup};
 use crate::factory::checks::{CheckKind, CheckProposal, discover_checks, set_checks};
 use crate::factory::events::{self, Event};
 use crate::factory::evidence::{self, load_review_rounds};
+use crate::factory::login::{self, HostLoginProbe, LoginProbe};
 use crate::factory::machine::EventData;
-use crate::factory::model::{Actor, ActorKind, Idea, KNOWN_PROVIDERS, Run, RunState, StageState};
+use crate::factory::model::{Actor, ActorKind, Idea, Run, RunState, StageState};
 use crate::factory::run::get_run;
 use crate::factory::runner::{
-    cancel_run, pause_run_by_user, resume_paused_run, retry_paused_stage,
+    cancel_run, pause_run_by_user, resume_paused_run_with_probe, retry_paused_stage_with_probe,
 };
 use crate::factory::stages::review::ReviewVerdict;
-use crate::factory::store::FactoryStore;
+use crate::factory::store::{FactoryStore, write_atomic};
+use crate::factory::team::{
+    AgentSummary, AssignStageInput, AssignmentSource, AssignmentsFile, assign_stage, list_agents,
+    load_assignments, relaunch_agent, send_agent_message, terminate_agent,
+};
+use crate::factory::telemetry::CostBasis;
 use crate::factory::workflow::schema::EvidenceKind;
 use crate::factory::workspace::{TargetResolution, resolve_target, set_run_target};
 use crate::sanitize::clean;
-use crate::snapshot::RunSummary;
+use crate::snapshot::{RunSummary, pause_reason_needs_sign_in};
 use crate::status::render::age;
 use crate::tmux::keys::{
     FACTORY_CANCEL_RUN_KEY, FACTORY_PAUSE_RUN_KEY, display_shortcut, matches_crossterm_event,
 };
+use crate::tmux::{TmuxClient, socket_for};
 use crate::ui::hits::{Hit, HitMap, Resolved};
 use crate::ui::input::TextInput;
 use crate::ui::scroll::ScrollView;
@@ -39,7 +45,9 @@ use unicode_width::UnicodeWidthStr;
 
 pub const LOG_TAIL_BYTES: usize = 65_536;
 
-const AUTH_TYPES: [AuthType; 3] = [AuthType::Subscription, AuthType::ApiKey, AuthType::Cloud];
+const TEAM_CLIS: [&str; 3] = ["claude", "agy", "opencode"];
+const CMD_TEAM_ROW_BASE: u8 = 100;
+const CMD_ASSIGN_CLI_BASE: u8 = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunKeyOutcome {
@@ -47,6 +55,8 @@ pub enum RunKeyOutcome {
     Consumed,
     BackToDetail,
     Refresh,
+    OpenWorkerPane { pane_id: String },
+    OpenLoginPane { cli: String },
 }
 
 #[derive(Debug, Clone)]
@@ -80,10 +90,20 @@ pub enum RunSubView {
         input: TextInput,
         error: Option<String>,
     },
-    ConsentDialog {
-        provider_idx: usize,
-        providers: Vec<String>,
-        auth_idx: usize,
+    AssignmentsModal {
+        stages: Vec<String>,
+        stage_idx: usize,
+        cli_idx: usize,
+        model_input: TextInput,
+        error: Option<String>,
+    },
+    MessagePrompt {
+        job_id: String,
+        input: TextInput,
+        error: Option<String>,
+    },
+    ConfirmStop {
+        job_id: String,
         input: TextInput,
         error: Option<String>,
     },
@@ -117,9 +137,9 @@ enum PauseResolution {
         target: String,
         proposals: Vec<CheckProposal>,
     },
-    GateClosed {
-        provider: Option<String>,
-        consent_possible: bool,
+    SignInNeeded {
+        cli: Option<String>,
+        has_login_command: bool,
     },
     RetriesOrFailed {
         stage: String,
@@ -128,7 +148,7 @@ enum PauseResolution {
     UserPaused,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FactoryRun {
     pub workspace: PathBuf,
     pub idea_id: String,
@@ -140,16 +160,33 @@ pub struct FactoryRun {
     pub events: Vec<Event>,
     pub stage_jobs: Vec<Option<StageJobInfo>>,
     pub exclusions: Vec<crate::factory::data_policy::ExcludedPathEntry>,
+    pub team: Vec<AgentSummary>,
+    pub assignments: AssignmentsFile,
     pub running_jobs: usize,
     pub job_limit: usize,
     pub cost_usd: Option<f64>,
     pub cost: crate::factory::telemetry::Cost,
     pub selected_stage: usize,
+    pub selected_agent: usize,
+    pub focus_team: bool,
     pub sub_view: RunSubView,
     pub notice: String,
     pub error: Option<String>,
     pub loaded_updated: Option<f64>,
     pub hits: HitMap,
+    pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
+}
+
+impl std::fmt::Debug for FactoryRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FactoryRun")
+            .field("workspace", &self.workspace)
+            .field("idea_id", &self.idea_id)
+            .field("run_id", &self.run_id)
+            .field("platform", &self.platform)
+            .field("selected_stage", &self.selected_stage)
+            .finish()
+    }
 }
 
 impl FactoryRun {
@@ -168,16 +205,21 @@ impl FactoryRun {
             events: Vec::new(),
             stage_jobs: Vec::new(),
             exclusions: Vec::new(),
+            team: Vec::new(),
+            assignments: AssignmentsFile::default(),
             running_jobs: 0,
             job_limit: 3,
             cost_usd: None,
             cost: crate::factory::telemetry::Cost::unknown(),
             selected_stage: 0,
+            selected_agent: 0,
+            focus_team: false,
             sub_view: RunSubView::Main,
             notice: String::new(),
             error: None,
             loaded_updated: None,
             hits: HitMap::default(),
+            login_probe: Arc::new(HostLoginProbe),
         };
         view.reload();
         if let Some(ref run) = view.run
@@ -191,6 +233,11 @@ impl FactoryRun {
             view.selected_stage = idx;
         }
         view
+    }
+
+    pub fn with_login_probe(mut self, probe: Arc<dyn LoginProbe + Send + Sync>) -> Self {
+        self.login_probe = probe;
+        self
     }
 
     pub fn reload(&mut self) {
@@ -291,6 +338,15 @@ impl FactoryRun {
             filtered.reverse();
             self.events = filtered;
         }
+        self.assignments = load_assignments(&store, &self.run_id).unwrap_or_default();
+        let tmux = TmuxClient::new(socket_for(&self.workspace), None);
+        self.team = list_agents(&store, &tmux, &self.run_id).unwrap_or_default();
+        if self.team.is_empty() {
+            self.selected_agent = 0;
+            self.focus_team = false;
+        } else if self.selected_agent >= self.team.len() {
+            self.selected_agent = self.team.len() - 1;
+        }
     }
 
     pub fn sync_if_changed(&mut self, summary: Option<&RunSummary>) {
@@ -318,7 +374,9 @@ impl FactoryRun {
             self.sub_view,
             RunSubView::ConfirmCancel { .. }
                 | RunSubView::RetryPrompt { .. }
-                | RunSubView::ConsentDialog { .. }
+                | RunSubView::AssignmentsModal { .. }
+                | RunSubView::MessagePrompt { .. }
+                | RunSubView::ConfirmStop { .. }
                 | RunSubView::TargetPicker { .. }
                 | RunSubView::ConfirmChecks { .. }
         )
@@ -368,36 +426,19 @@ impl FactoryRun {
                 .unwrap_or_default();
             return Some(PauseResolution::ChecksUnconfirmed { target, proposals });
         }
-        if reason.contains("gate") || reason.contains("consent") {
-            let today = today_iso_date();
-            let mentioned = KNOWN_PROVIDERS
+        if pause_reason_needs_sign_in(reason) {
+            let lower = reason.to_ascii_lowercase();
+            let cli = TEAM_CLIS
                 .iter()
-                .find(|p| reason.contains(*p))
-                .map(|p| (*p).to_string());
-            let verdict_note = if reason.contains("unclear") {
-                Some("unclear".to_string())
-            } else if reason.contains("not-allowed") {
-                Some("not-allowed".to_string())
-            } else {
-                None
-            };
-            let consent_possible = match mentioned.as_deref() {
-                Some(p) if verdict_note.is_some() => {
-                    let _ = p;
-                    false
-                }
-                Some(p) => PROVIDER_TERMS.iter().any(|row| {
-                    row.provider == p
-                        && row.verdict.allows_headless()
-                        && today.as_str() <= row.reverify_by
-                }),
-                None => PROVIDER_TERMS
-                    .iter()
-                    .any(|row| row.verdict.allows_headless() && today.as_str() <= row.reverify_by),
-            };
-            return Some(PauseResolution::GateClosed {
-                provider: mentioned,
-                consent_possible,
+                .find(|c| lower.contains(**c))
+                .map(|c| (*c).to_string());
+            let has_login_command = cli
+                .as_deref()
+                .and_then(login::spec_for)
+                .is_some_and(|s| s.login_argv.is_some());
+            return Some(PauseResolution::SignInNeeded {
+                cli,
+                has_login_command,
             });
         }
         if reason.contains("retries are used up")
@@ -527,7 +568,15 @@ impl FactoryRun {
                     let env_fn = |k: &str| std::env::var(k).ok();
                     let no_pane = |_: &str| None;
                     let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
-                    match retry_paused_stage(&store, &self.run_id, &stage, &hyp, &actor, &caller) {
+                    match retry_paused_stage_with_probe(
+                        &store,
+                        &self.run_id,
+                        &stage,
+                        &hyp,
+                        &actor,
+                        &caller,
+                        &*self.login_probe,
+                    ) {
                         Ok(_) => {
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Retrying stage {stage}.");
@@ -545,10 +594,114 @@ impl FactoryRun {
                     RunKeyOutcome::Consumed
                 }
             },
-            RunSubView::ConsentDialog {
-                provider_idx,
-                providers,
-                auth_idx,
+            RunSubView::AssignmentsModal {
+                stages,
+                stage_idx,
+                cli_idx,
+                model_input,
+                error,
+            } => match event.code {
+                KeyCode::Esc => {
+                    self.sub_view = RunSubView::Main;
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Up => {
+                    if !stages.is_empty() {
+                        *stage_idx = if *stage_idx == 0 {
+                            stages.len() - 1
+                        } else {
+                            *stage_idx - 1
+                        };
+                        sync_assign_stage_inputs(
+                            &self.assignments,
+                            &stages[*stage_idx],
+                            cli_idx,
+                            model_input,
+                        );
+                        *error = None;
+                    }
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Down => {
+                    if !stages.is_empty() {
+                        *stage_idx = (*stage_idx + 1) % stages.len();
+                        sync_assign_stage_inputs(
+                            &self.assignments,
+                            &stages[*stage_idx],
+                            cli_idx,
+                            model_input,
+                        );
+                        *error = None;
+                    }
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Left => {
+                    *cli_idx = if *cli_idx == 0 {
+                        TEAM_CLIS.len() - 1
+                    } else {
+                        *cli_idx - 1
+                    };
+                    *model_input =
+                        TextInput::with_placeholder(default_model_for_cli(TEAM_CLIS[*cli_idx]));
+                    model_input.value = default_model_for_cli(TEAM_CLIS[*cli_idx]).to_string();
+                    model_input.focused = true;
+                    *error = None;
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Right => {
+                    *cli_idx = (*cli_idx + 1) % TEAM_CLIS.len();
+                    *model_input =
+                        TextInput::with_placeholder(default_model_for_cli(TEAM_CLIS[*cli_idx]));
+                    model_input.value = default_model_for_cli(TEAM_CLIS[*cli_idx]).to_string();
+                    model_input.focused = true;
+                    *error = None;
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Enter => {
+                    let Some(stage) = stages.get(*stage_idx).cloned() else {
+                        return RunKeyOutcome::Consumed;
+                    };
+                    let cli = TEAM_CLIS[*cli_idx];
+                    let model = model_input.value.trim().to_string();
+                    if model.is_empty() {
+                        *error = Some("Model name must not be empty.".to_string());
+                        return RunKeyOutcome::Consumed;
+                    }
+                    let store = FactoryStore::new(&self.workspace);
+                    match assign_stage(
+                        &store,
+                        AssignStageInput {
+                            run_id: &self.run_id,
+                            stage: &stage,
+                            cli,
+                            model: &model,
+                            role: None,
+                            by: AssignmentSource::User,
+                            actor_id: &owner,
+                        },
+                    ) {
+                        Ok(assigned) => {
+                            self.sub_view = RunSubView::Main;
+                            self.notice = format!(
+                                "Assigned {} -> {}/{} (you).",
+                                assigned.stage, assigned.cli, assigned.model
+                            );
+                            self.reload();
+                            RunKeyOutcome::Refresh
+                        }
+                        Err(err) => {
+                            *error = Some(clean(&err.to_string()));
+                            RunKeyOutcome::Consumed
+                        }
+                    }
+                }
+                _ => {
+                    model_input.handle_key(event);
+                    RunKeyOutcome::Consumed
+                }
+            },
+            RunSubView::MessagePrompt {
+                job_id,
                 input,
                 error,
             } => match event.code {
@@ -556,55 +709,62 @@ impl FactoryRun {
                     self.sub_view = RunSubView::Main;
                     RunKeyOutcome::Consumed
                 }
-                KeyCode::Left => {
-                    if *auth_idx == 0 {
-                        *auth_idx = AUTH_TYPES.len() - 1;
-                    } else {
-                        *auth_idx -= 1;
-                    }
-                    *error = None;
-                    RunKeyOutcome::Consumed
-                }
-                KeyCode::Right => {
-                    *auth_idx = (*auth_idx + 1) % AUTH_TYPES.len();
-                    *error = None;
-                    RunKeyOutcome::Consumed
-                }
-                KeyCode::Up => {
-                    if !providers.is_empty() {
-                        *provider_idx = if *provider_idx == 0 {
-                            providers.len() - 1
-                        } else {
-                            *provider_idx - 1
-                        };
-                        *error = None;
-                    }
-                    RunKeyOutcome::Consumed
-                }
-                KeyCode::Down => {
-                    if !providers.is_empty() {
-                        *provider_idx = (*provider_idx + 1) % providers.len();
-                        *error = None;
-                    }
-                    RunKeyOutcome::Consumed
-                }
                 KeyCode::Enter => {
-                    let provider = providers[*provider_idx].clone();
-                    let auth = AUTH_TYPES[*auth_idx];
-                    let confirm = input.value.trim().to_string();
-                    if confirm != provider {
-                        *error = Some(format!("Type {provider} to confirm consent."));
+                    let msg = input.value.trim().to_string();
+                    if msg.is_empty() {
+                        *error = Some("Message must not be empty.".to_string());
                         return RunKeyOutcome::Consumed;
                     }
                     let store = FactoryStore::new(&self.workspace);
-                    let env_fn = |k: &str| std::env::var(k).ok();
-                    let no_pane = |_: &str| None;
-                    let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
-                    match consent_provider(&store, &provider, auth, &confirm, &owner, &caller) {
-                        Ok(_) => {
-                            let _ = resume_paused_run(&store, &self.run_id, &actor);
+                    let job = job_id.clone();
+                    let msg_path = store.run_dir(&self.run_id).join("tui-message.txt");
+                    if let Err(err) = write_atomic(&msg_path, msg.as_bytes()) {
+                        *error = Some(clean(&err.to_string()));
+                        return RunKeyOutcome::Consumed;
+                    }
+                    let tmux = TmuxClient::new(socket_for(&self.workspace), None);
+                    let res = send_agent_message(&store, &tmux, &self.run_id, &job, &msg_path);
+                    let _ = fs::remove_file(&msg_path);
+                    match res {
+                        Ok(()) => {
                             self.sub_view = RunSubView::Main;
-                            self.notice = format!("Consented to {provider} ({}).", auth.as_str());
+                            self.notice = format!("Sent message to {job}.");
+                            self.reload();
+                            RunKeyOutcome::Refresh
+                        }
+                        Err(err) => {
+                            *error = Some(clean(&err.to_string()));
+                            RunKeyOutcome::Consumed
+                        }
+                    }
+                }
+                _ => {
+                    input.handle_key(event);
+                    RunKeyOutcome::Consumed
+                }
+            },
+            RunSubView::ConfirmStop {
+                job_id,
+                input,
+                error,
+            } => match event.code {
+                KeyCode::Esc => {
+                    self.sub_view = RunSubView::Main;
+                    RunKeyOutcome::Consumed
+                }
+                KeyCode::Enter => {
+                    let typed = input.value.trim().to_string();
+                    if typed != *job_id {
+                        *error = Some(format!("Type {job_id} to confirm stop."));
+                        return RunKeyOutcome::Consumed;
+                    }
+                    let store = FactoryStore::new(&self.workspace);
+                    let tmux = TmuxClient::new(socket_for(&self.workspace), None);
+                    let job = job_id.clone();
+                    match terminate_agent(&store, &tmux, &self.run_id, &job, &typed) {
+                        Ok(()) => {
+                            self.sub_view = RunSubView::Main;
+                            self.notice = format!("Stopped worker {job}.");
                             self.reload();
                             RunKeyOutcome::Refresh
                         }
@@ -648,7 +808,12 @@ impl FactoryRun {
                     let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
                     match set_run_target(&store, &self.workspace, &self.run_id, &target, &caller) {
                         Ok(_) => {
-                            let _ = resume_paused_run(&store, &self.run_id, &actor);
+                            let _ = resume_paused_run_with_probe(
+                                &store,
+                                &self.run_id,
+                                &actor,
+                                &*self.login_probe,
+                            );
                             self.sub_view = RunSubView::Main;
                             self.notice = format!("Target set to {target}.");
                             self.reload();
@@ -742,7 +907,12 @@ impl FactoryRun {
                         &caller,
                     ) {
                         Ok(_) => {
-                            let _ = resume_paused_run(&store, &self.run_id, &actor);
+                            let _ = resume_paused_run_with_probe(
+                                &store,
+                                &self.run_id,
+                                &actor,
+                                &*self.login_probe,
+                            );
                             self.notice = format!("Check commands confirmed for {target}.");
                             self.sub_view = RunSubView::Main;
                             self.reload();
@@ -769,12 +939,25 @@ impl FactoryRun {
                 }
                 match event.code {
                     KeyCode::Esc => RunKeyOutcome::BackToDetail,
+                    KeyCode::Tab => {
+                        if !self.team.is_empty() {
+                            self.focus_team = !self.focus_team;
+                        }
+                        RunKeyOutcome::Consumed
+                    }
                     KeyCode::Left | KeyCode::Up => {
-                        self.selected_stage = self.selected_stage.saturating_sub(1);
+                        if self.focus_team && !self.team.is_empty() {
+                            self.selected_agent = self.selected_agent.saturating_sub(1);
+                        } else {
+                            self.selected_stage = self.selected_stage.saturating_sub(1);
+                        }
                         RunKeyOutcome::Consumed
                     }
                     KeyCode::Right | KeyCode::Down => {
-                        if let Some(ref run) = self.run
+                        if self.focus_team && !self.team.is_empty() {
+                            self.selected_agent =
+                                (self.selected_agent + 1).min(self.team.len() - 1);
+                        } else if let Some(ref run) = self.run
                             && !run.stages.is_empty()
                         {
                             self.selected_stage =
@@ -828,15 +1011,85 @@ impl FactoryRun {
                         }
                     }
                     KeyCode::Char('a') => {
-                        if matches!(
-                            self.pause_resolution(),
-                            Some(PauseResolution::GateClosed {
-                                consent_possible: true,
-                                ..
-                            })
-                        ) {
-                            self.open_consent_dialog();
+                        self.open_assignments_modal();
+                        RunKeyOutcome::Consumed
+                    }
+                    KeyCode::Char('i') => {
+                        if let Some(PauseResolution::SignInNeeded {
+                            cli: Some(cli),
+                            has_login_command: true,
+                        }) = self.pause_resolution()
+                        {
+                            RunKeyOutcome::OpenLoginPane { cli }
+                        } else {
+                            RunKeyOutcome::Ignored
+                        }
+                    }
+                    KeyCode::Char('v') => {
+                        if let Some(agent) = self.team.get(self.selected_agent) {
+                            if agent.pane_alive
+                                && let Some(ref pane_id) = agent.pane_id
+                            {
+                                RunKeyOutcome::OpenWorkerPane {
+                                    pane_id: pane_id.clone(),
+                                }
+                            } else {
+                                self.notice = format!("Worker {} pane is closed.", agent.job_id);
+                                RunKeyOutcome::Consumed
+                            }
+                        } else {
+                            RunKeyOutcome::Ignored
+                        }
+                    }
+                    KeyCode::Char('m') => {
+                        if let Some(agent) = self.team.get(self.selected_agent) {
+                            let mut input = TextInput::with_placeholder("Message for worker");
+                            input.focused = true;
+                            self.sub_view = RunSubView::MessagePrompt {
+                                job_id: agent.job_id.clone(),
+                                input,
+                                error: None,
+                            };
                             RunKeyOutcome::Consumed
+                        } else {
+                            RunKeyOutcome::Ignored
+                        }
+                    }
+                    KeyCode::Char('s') => {
+                        if let Some(agent) = self.team.get(self.selected_agent) {
+                            let mut input = TextInput::with_placeholder(&agent.job_id);
+                            input.focused = true;
+                            self.sub_view = RunSubView::ConfirmStop {
+                                job_id: agent.job_id.clone(),
+                                input,
+                                error: None,
+                            };
+                            RunKeyOutcome::Consumed
+                        } else {
+                            RunKeyOutcome::Ignored
+                        }
+                    }
+                    KeyCode::Char('x') | KeyCode::Char('R') => {
+                        if let Some(agent) = self.team.get(self.selected_agent).cloned() {
+                            let store = FactoryStore::new(&self.workspace);
+                            let tmux = TmuxClient::new(socket_for(&self.workspace), None);
+                            match relaunch_agent(&store, &tmux, &self.run_id, &agent.job_id) {
+                                Ok(launched) => {
+                                    self.notice = format!(
+                                        "Relaunched {} in {} ({}/{}).",
+                                        agent.job_id,
+                                        launched.pane_id,
+                                        launched.cli,
+                                        launched.model
+                                    );
+                                    self.reload();
+                                    RunKeyOutcome::Refresh
+                                }
+                                Err(err) => {
+                                    self.notice = clean(&err.to_string());
+                                    RunKeyOutcome::Consumed
+                                }
+                            }
                         } else {
                             RunKeyOutcome::Ignored
                         }
@@ -884,17 +1137,20 @@ impl FactoryRun {
                     }
                 }
             }
-            RunState::Paused => match resume_paused_run(&store, &self.run_id, &actor) {
-                Ok(_) => {
-                    self.notice = format!("Run {} resumed.", self.run_id);
-                    self.reload();
-                    RunKeyOutcome::Refresh
+            RunState::Paused => {
+                match resume_paused_run_with_probe(&store, &self.run_id, &actor, &*self.login_probe)
+                {
+                    Ok(_) => {
+                        self.notice = format!("Run {} resumed.", self.run_id);
+                        self.reload();
+                        RunKeyOutcome::Refresh
+                    }
+                    Err(err) => {
+                        self.notice = clean(&err.to_string());
+                        RunKeyOutcome::Consumed
+                    }
                 }
-                Err(err) => {
-                    self.notice = clean(&err.to_string());
-                    RunKeyOutcome::Consumed
-                }
-            },
+            }
             _ => RunKeyOutcome::Consumed,
         }
     }
@@ -914,7 +1170,8 @@ impl FactoryRun {
             Some(PauseResolution::UserPaused) => {
                 let store = FactoryStore::new(&self.workspace);
                 let actor = self.user_actor();
-                match resume_paused_run(&store, &self.run_id, &actor) {
+                match resume_paused_run_with_probe(&store, &self.run_id, &actor, &*self.login_probe)
+                {
                     Ok(_) => {
                         self.notice = format!("Run {} resumed.", self.run_id);
                         self.reload();
@@ -951,24 +1208,35 @@ impl FactoryRun {
         RunKeyOutcome::Consumed
     }
 
-    fn open_consent_dialog(&mut self) {
-        let providers: Vec<String> = KNOWN_PROVIDERS.iter().map(|s| (*s).to_string()).collect();
-        let default_idx = if let Some(PauseResolution::GateClosed {
-            provider: Some(ref p),
-            ..
-        }) = self.pause_resolution()
-        {
-            providers.iter().position(|x| x == p).unwrap_or(0)
-        } else {
-            0
-        };
-        let mut input = TextInput::with_placeholder(&providers[default_idx]);
-        input.focused = true;
-        self.sub_view = RunSubView::ConsentDialog {
-            provider_idx: default_idx,
-            providers,
-            auth_idx: 0,
-            input,
+    fn open_assignments_modal(&mut self) {
+        let mut stages: Vec<String> = self
+            .run
+            .as_ref()
+            .map(|r| r.stages.iter().map(|s| s.name.clone()).collect())
+            .unwrap_or_default();
+        if stages.is_empty() {
+            stages = vec![
+                "plan".to_string(),
+                "create-tests".to_string(),
+                "develop".to_string(),
+                "test".to_string(),
+                "review".to_string(),
+            ];
+        }
+        let stage_idx = self.selected_stage.min(stages.len().saturating_sub(1));
+        let mut cli_idx = 0usize;
+        let mut model_input = TextInput::with_placeholder(default_model_for_cli(TEAM_CLIS[0]));
+        sync_assign_stage_inputs(
+            &self.assignments,
+            &stages[stage_idx],
+            &mut cli_idx,
+            &mut model_input,
+        );
+        self.sub_view = RunSubView::AssignmentsModal {
+            stages,
+            stage_idx,
+            cli_idx,
+            model_input,
             error: None,
         };
     }
@@ -1045,9 +1313,29 @@ impl FactoryRun {
         match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
             Resolved::Key(key) => Some(key),
             Resolved::Row(idx) => match &mut self.sub_view {
-                RunSubView::Main if idx == self.selected_stage => Some(enter),
+                RunSubView::Main if idx == self.selected_stage && !self.focus_team => Some(enter),
                 RunSubView::Main => {
                     self.selected_stage = idx;
+                    self.focus_team = false;
+                    None
+                }
+                RunSubView::AssignmentsModal {
+                    stages,
+                    stage_idx,
+                    cli_idx,
+                    model_input,
+                    error,
+                } => {
+                    if idx < stages.len() {
+                        *stage_idx = idx;
+                        sync_assign_stage_inputs(
+                            &self.assignments,
+                            &stages[*stage_idx],
+                            cli_idx,
+                            model_input,
+                        );
+                        *error = None;
+                    }
                     None
                 }
                 RunSubView::TargetPicker { selected, .. }
@@ -1057,7 +1345,37 @@ impl FactoryRun {
                 }
                 _ => None,
             },
-            Resolved::Cmd(_) => None,
+            Resolved::Cmd(cmd) => {
+                if cmd >= CMD_ASSIGN_CLI_BASE {
+                    if let RunSubView::AssignmentsModal {
+                        cli_idx,
+                        model_input,
+                        error,
+                        ..
+                    } = &mut self.sub_view
+                    {
+                        let idx = usize::from(cmd - CMD_ASSIGN_CLI_BASE);
+                        if idx < TEAM_CLIS.len() {
+                            *cli_idx = idx;
+                            let model = default_model_for_cli(TEAM_CLIS[idx]);
+                            *model_input = TextInput::with_placeholder(model);
+                            model_input.value = model.to_string();
+                            model_input.focused = true;
+                            *error = None;
+                        }
+                    }
+                    return None;
+                }
+                if cmd >= CMD_TEAM_ROW_BASE {
+                    let idx = usize::from(cmd - CMD_TEAM_ROW_BASE);
+                    if idx < self.team.len() {
+                        self.selected_agent = idx;
+                        self.focus_team = true;
+                    }
+                    return None;
+                }
+                None
+            }
         }
     }
 
@@ -1114,22 +1432,38 @@ impl FactoryRun {
                     buf,
                 );
             }
-            RunSubView::ConsentDialog {
-                provider_idx,
-                providers,
-                auth_idx,
-                input,
+            RunSubView::AssignmentsModal {
+                stages,
+                stage_idx,
+                cli_idx,
+                model_input,
                 error,
             } => {
-                render_consent_dialog(
-                    &providers[*provider_idx],
-                    AUTH_TYPES[*auth_idx],
-                    input,
+                render_assignments_modal(
+                    stages,
+                    *stage_idx,
+                    *cli_idx,
+                    model_input,
+                    &self.assignments,
                     error.as_deref(),
                     &mut self.hits,
                     area,
                     buf,
                 );
+            }
+            RunSubView::MessagePrompt {
+                job_id,
+                input,
+                error,
+            } => {
+                render_message_prompt(job_id, input, error.as_deref(), &mut self.hits, area, buf);
+            }
+            RunSubView::ConfirmStop {
+                job_id,
+                input,
+                error,
+            } => {
+                render_confirm_stop(job_id, input, error.as_deref(), &mut self.hits, area, buf);
             }
             RunSubView::TargetPicker {
                 choices,
@@ -1223,7 +1557,11 @@ impl FactoryRun {
             run.updated
         };
         let elapsed = age((end_ts - start_ts).max(0.0));
-        let cost = self.cost.format();
+        let cost_segment = if self.cost.basis == CostBasis::Unknown {
+            "cost: not tracked".to_string()
+        } else {
+            format!("cost {}", self.cost.format())
+        };
 
         let mut y = area.y;
         let bottom = area.y + area.height;
@@ -1231,22 +1569,22 @@ impl FactoryRun {
         let agents_text = format!("Agents {} of {}", self.running_jobs, self.job_limit);
         let hdr = if merge_agents_into_header {
             format!(
-                "◀ Idea   Run {}  {}   {}   elapsed {}   cost {}   {}",
+                "◀ Idea   Run {}  {}   {}   elapsed {}   {}   {}",
                 run.id,
                 truncate_to_width(&title, 24),
                 state_label,
                 elapsed,
-                cost,
+                cost_segment,
                 agents_text
             )
         } else {
             format!(
-                "◀ Idea   Run {}  {}   {}   elapsed {}   cost {}",
+                "◀ Idea   Run {}  {}   {}   elapsed {}   {}",
                 run.id,
                 truncate_to_width(&title, if narrow { 18 } else { 32 }),
                 state_label,
                 elapsed,
-                cost
+                cost_segment
             )
         };
         write_clipped(buf, area.x, y, max_w, &hdr, header_style);
@@ -1296,14 +1634,17 @@ impl FactoryRun {
                         }
                         "  k confirm check commands   c cancel".to_string()
                     }
-                    PauseResolution::GateClosed {
-                        consent_possible: true,
-                        ..
-                    } => "  a allow provider (consent)   c cancel".to_string(),
-                    PauseResolution::GateClosed {
-                        consent_possible: false,
-                        ..
-                    } => "  Choose another provider or cancel (c cancel).".to_string(),
+                    PauseResolution::SignInNeeded {
+                        cli: Some(ref cli),
+                        has_login_command: true,
+                    } => format!("  i sign in ({cli})   c cancel"),
+                    PauseResolution::SignInNeeded {
+                        cli: Some(ref cli),
+                        has_login_command: false,
+                    } => format!("  Sign in to {cli} on this machine   c cancel"),
+                    PauseResolution::SignInNeeded { cli: None, .. } => {
+                        "  Sign in to an AI CLI in Settings   c cancel".to_string()
+                    }
                     PauseResolution::RetriesOrFailed { rationale, .. } => {
                         if let Some(rat) = rationale
                             && !short
@@ -1330,7 +1671,7 @@ impl FactoryRun {
                     &[
                         ("t choose target", Hit::ch('t')),
                         ("k confirm check commands", Hit::ch('k')),
-                        ("a allow provider (consent)", Hit::ch('a')),
+                        ("i sign in", Hit::ch('i')),
                         ("r retry with a new hypothesis", Hit::ch('r')),
                         ("r resume", Hit::ch('r')),
                         ("c cancel", Hit::ch('c')),
@@ -1410,8 +1751,12 @@ impl FactoryRun {
             y += 1;
         }
 
+        let run_state = run.state;
         let reserve_bottom = 1 + u16::from(!self.notice.is_empty());
         let activity_bottom = bottom.saturating_sub(reserve_bottom);
+        if !short {
+            self.render_team_section(now, &mut y, activity_bottom, area, narrow, buf);
+        }
         self.render_data_section(
             self.selected_stage,
             &mut y,
@@ -1445,7 +1790,7 @@ impl FactoryRun {
                 .unwrap_or_else(|_| FACTORY_PAUSE_RUN_KEY.to_string());
             let cancel_key = display_shortcut(FACTORY_CANCEL_RUN_KEY, &self.platform)
                 .unwrap_or_else(|_| FACTORY_CANCEL_RUN_KEY.to_string());
-            let pause_word = if run.state == RunState::Paused {
+            let pause_word = if run_state == RunState::Paused {
                 "resume"
             } else {
                 "pause"
@@ -1939,9 +2284,273 @@ fn render_retry_prompt(
     }
 }
 
-fn render_consent_dialog(
-    provider: &str,
-    auth: AuthType,
+fn default_model_for_cli(cli: &str) -> &'static str {
+    match cli {
+        "claude" => "sonnet",
+        "agy" => "gemini-2.5-pro",
+        "opencode" => "anthropic/claude-sonnet-4-6",
+        _ => "sonnet",
+    }
+}
+
+fn sync_assign_stage_inputs(
+    assignments: &AssignmentsFile,
+    stage: &str,
+    cli_idx: &mut usize,
+    model_input: &mut TextInput,
+) {
+    if let Some(existing) = assignments.stages.get(stage) {
+        if let Some(pos) = TEAM_CLIS.iter().position(|c| *c == existing.cli) {
+            *cli_idx = pos;
+        }
+        *model_input = TextInput::with_placeholder(default_model_for_cli(TEAM_CLIS[*cli_idx]));
+        model_input.value = existing.model.clone();
+        model_input.focused = true;
+    } else {
+        let model = default_model_for_cli(TEAM_CLIS[*cli_idx]);
+        *model_input = TextInput::with_placeholder(model);
+        model_input.value = model.to_string();
+        model_input.focused = true;
+    }
+}
+
+fn assignment_source_badge(source: AssignmentSource) -> &'static str {
+    match source {
+        AssignmentSource::User => "you",
+        AssignmentSource::Orchestrator => "orchestrator",
+        AssignmentSource::Default => "default",
+    }
+}
+
+impl FactoryRun {
+    fn render_team_section(
+        &mut self,
+        now: f64,
+        y: &mut u16,
+        bottom: u16,
+        area: Rect,
+        narrow: bool,
+        buf: &mut Buffer,
+    ) {
+        if *y >= bottom {
+            return;
+        }
+        let max_w = area.width as usize;
+        let header_style = Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD);
+        let text_style = Style::default().fg(Color::Gray);
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let title_line = format!("Team ({})   a assignments", self.team.len());
+        write_clipped(buf, area.x, *y, max_w, &title_line, header_style);
+        self.hits.tags(
+            Rect::new(area.x, *y, area.width, 1),
+            &title_line,
+            &[("a assignments", Hit::ch('a'))],
+        );
+        *y += 1;
+
+        if self.team.is_empty() {
+            if *y < bottom {
+                write_clipped(buf, area.x, *y, max_w, "  no workers yet", dim_style);
+                *y += 1;
+            }
+            return;
+        }
+
+        if !narrow && *y < bottom {
+            let hdr = format!(
+                "  {:<22} {:<12} {:<10} {:<8} BY",
+                "CLI/MODEL", "STAGE", "STATE", "TIME"
+            );
+            write_clipped(buf, area.x, *y, max_w, &hdr, dim_style);
+            *y += 1;
+        }
+
+        for (idx, agent) in self.team.iter().take(6).enumerate() {
+            if *y >= bottom {
+                break;
+            }
+            let is_sel = idx == self.selected_agent;
+            let marker = if is_sel { "▸ " } else { "  " };
+            let cli_model = format!("{}/{}", clean(&agent.cli), clean(&agent.model));
+            let state = agent
+                .activity
+                .as_ref()
+                .and_then(|act| act.state.as_deref())
+                .unwrap_or(&agent.job_state);
+            let row = if narrow {
+                format!(
+                    "{marker}{:<16} {:<10} {}",
+                    truncate_to_width(&cli_model, 16),
+                    truncate_to_width(&clean(&agent.stage), 10),
+                    clean(state),
+                )
+            } else {
+                let time_col = agent
+                    .activity
+                    .as_ref()
+                    .and_then(|act| act.last_stop_at)
+                    .map(|ts| format!("{} ago", age((now - ts).max(0.0))))
+                    .unwrap_or_else(|| "-".to_string());
+                let by = assignment_source_badge(agent.source);
+                format!(
+                    "{marker}{:<22} {:<12} {:<10} {:<8} {}",
+                    truncate_to_width(&cli_model, 22),
+                    truncate_to_width(&clean(&agent.stage), 12),
+                    truncate_to_width(&clean(state), 10),
+                    truncate_to_width(&time_col, 8),
+                    by,
+                )
+            };
+            let style = if is_sel { header_style } else { text_style };
+            write_clipped(buf, area.x, *y, max_w, &row, style);
+            self.hits.push(
+                Rect::new(area.x, *y, area.width, 1),
+                Hit::Cmd(CMD_TEAM_ROW_BASE + idx as u8),
+            );
+            *y += 1;
+        }
+
+        if *y < bottom {
+            let actions = "  v view   m message   s stop   x relaunch";
+            write_clipped(buf, area.x, *y, max_w, actions, dim_style);
+            self.hits.tags(
+                Rect::new(area.x, *y, area.width, 1),
+                actions,
+                &[
+                    ("v view", Hit::ch('v')),
+                    ("m message", Hit::ch('m')),
+                    ("s stop", Hit::ch('s')),
+                    ("x relaunch", Hit::ch('x')),
+                ],
+            );
+            *y += 1;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_assignments_modal(
+    stages: &[String],
+    stage_idx: usize,
+    cli_idx: usize,
+    model_input: &TextInput,
+    assignments: &AssignmentsFile,
+    error: Option<&str>,
+    hits: &mut HitMap,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let max_w = area.width as usize;
+    let header_style = Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(Color::Gray);
+    let err_style = Style::default().fg(Color::Red);
+    let dim_style = Style::default().fg(Color::DarkGray);
+    let mut y = area.y;
+    let bottom = area.y + area.height;
+
+    write_clipped(
+        buf,
+        area.x,
+        y,
+        max_w,
+        "Stage assignments (user overrides take priority)",
+        header_style,
+    );
+    y += 1;
+
+    for (idx, st) in stages.iter().enumerate() {
+        if y >= bottom.saturating_sub(4) {
+            break;
+        }
+        let marker = if idx == stage_idx { "▸ " } else { "  " };
+        let current = assignments
+            .stages
+            .get(st)
+            .map(|a| {
+                format!(
+                    "{}/{} ({})",
+                    clean(&a.cli),
+                    clean(&a.model),
+                    assignment_source_badge(a.source)
+                )
+            })
+            .unwrap_or_else(|| "default".to_string());
+        let line = format!("{marker}{:<16} {current}", truncate_to_width(st, 16));
+        write_clipped(
+            buf,
+            area.x,
+            y,
+            max_w,
+            &line,
+            if idx == stage_idx {
+                header_style
+            } else {
+                text_style
+            },
+        );
+        hits.push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
+        y += 1;
+    }
+
+    if y < bottom.saturating_sub(2) {
+        let mut cli_line = String::from("CLI     ");
+        for (i, c) in TEAM_CLIS.iter().enumerate() {
+            if i == cli_idx {
+                cli_line.push_str(&format!(" ▸ {c}"));
+            } else {
+                cli_line.push_str(&format!("   {c}"));
+            }
+        }
+        write_clipped(buf, area.x, y, max_w, &cli_line, text_style);
+        let cli_tags: Vec<(&str, Hit)> = TEAM_CLIS
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (*c, Hit::Cmd(CMD_ASSIGN_CLI_BASE + i as u8)))
+            .collect();
+        hits.tags(Rect::new(area.x, y, area.width, 1), &cli_line, &cli_tags);
+        y += 1;
+    }
+
+    if y < bottom.saturating_sub(1) {
+        write_clipped(
+            buf,
+            area.x,
+            y,
+            max_w,
+            &format!("Model   {}_", clean(&model_input.value)),
+            text_style,
+        );
+        y += 1;
+    }
+
+    if let Some(err) = error
+        && y < bottom.saturating_sub(1)
+    {
+        write_clipped(buf, area.x, y, max_w, err, err_style);
+    }
+
+    if area.height >= 2 {
+        let footer = "↑↓ stage   ←→ CLI   Enter save   Esc back";
+        write_clipped(buf, area.x, bottom - 1, max_w, footer, dim_style);
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            footer,
+            &[
+                ("↑↓ stage", Hit::key(KeyCode::Down)),
+                ("←→ CLI", Hit::key(KeyCode::Right)),
+                ("Enter save", Hit::key(KeyCode::Enter)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
+        );
+    }
+}
+
+fn render_message_prompt(
+    job_id: &str,
     input: &TextInput,
     error: Option<&str>,
     hits: &mut HitMap,
@@ -1953,7 +2562,6 @@ fn render_consent_dialog(
         .fg(Color::White)
         .add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(Color::Gray);
-    let warn_style = Style::default().fg(Color::Yellow);
     let err_style = Style::default().fg(Color::Red);
     let dim_style = Style::default().fg(Color::DarkGray);
     let mut y = area.y;
@@ -1964,106 +2572,95 @@ fn render_consent_dialog(
         area.x,
         y,
         max_w,
-        &format!("Factory Mode will run {provider} in headless mode for this workspace."),
+        &format!("Message worker {}", clean(job_id)),
         header_style,
     );
     y += 1;
-
-    if y < bottom {
-        if let Some(row) = lookup(provider, auth) {
-            let verdict_words = match row.verdict {
-                TermsVerdict::Allowed => "allowed",
-                TermsVerdict::AllowedWithConditions => "allowed with conditions",
-                TermsVerdict::NotAllowed => "not allowed",
-                TermsVerdict::Unclear => "unclear",
-            };
-            write_clipped(
-                buf,
-                area.x,
-                y,
-                max_w,
-                &format!(
-                    "Terms record: {verdict_words} (verified {}, re-verify by {}).",
-                    row.verified_on, row.reverify_by
-                ),
-                if row.verdict.allows_headless() {
-                    text_style
-                } else {
-                    warn_style
-                },
-            );
-        } else {
-            write_clipped(
-                buf,
-                area.x,
-                y,
-                max_w,
-                "Terms record: no verified terms row.",
-                warn_style,
-            );
-        }
-        y += 1;
-    }
-
-    if y < bottom {
+    if y < bottom.saturating_sub(1) {
         write_clipped(
             buf,
             area.x,
             y,
             max_w,
-            &format!("It uses your own {provider} login. tandem handles no credentials."),
+            &format!("Message: {}_", clean(&input.value)),
             text_style,
         );
         y += 1;
     }
-
-    if y < bottom {
-        let mut auth_line = String::from("Authentication  ");
-        for a in AUTH_TYPES {
-            if a == auth {
-                auth_line.push_str(&format!(" ▸ {}", a.as_str()));
-            } else {
-                auth_line.push_str(&format!("   {}", a.as_str()));
-            }
-        }
-        write_clipped(buf, area.x, y, max_w, &auth_line, text_style);
-        y += 1;
-    }
-
-    if y < bottom {
-        write_clipped(
-            buf,
-            area.x,
-            y,
-            max_w,
-            &format!("Type the provider name to allow: {}", input.value),
-            text_style,
-        );
-        y += 1;
-    }
-
     if let Some(err) = error
-        && y < bottom
+        && y < bottom.saturating_sub(1)
     {
         write_clipped(buf, area.x, y, max_w, err, err_style);
     }
-
     if area.height >= 2 {
+        let footer = "Enter send   Esc back";
+        write_clipped(buf, area.x, bottom - 1, max_w, footer, dim_style);
+        hits.tags(
+            Rect::new(area.x, bottom - 1, area.width, 1),
+            footer,
+            &[
+                ("Enter send", Hit::key(KeyCode::Enter)),
+                ("Esc back", Hit::key(KeyCode::Esc)),
+            ],
+        );
+    }
+}
+
+fn render_confirm_stop(
+    job_id: &str,
+    input: &TextInput,
+    error: Option<&str>,
+    hits: &mut HitMap,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let max_w = area.width as usize;
+    let header_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(Color::Gray);
+    let err_style = Style::default().fg(Color::Red);
+    let dim_style = Style::default().fg(Color::DarkGray);
+    let mut y = area.y;
+    let bottom = area.y + area.height;
+
+    write_clipped(
+        buf,
+        area.x,
+        y,
+        max_w,
+        &format!("Stop worker {}", clean(job_id)),
+        header_style,
+    );
+    y += 1;
+    if y < bottom.saturating_sub(1) {
         write_clipped(
             buf,
             area.x,
-            bottom - 1,
+            y,
             max_w,
-            "↑↓ provider   ←→ auth   Enter allow   Esc back",
-            dim_style,
+            &format!(
+                "Type the job id ({}) to confirm: {}_",
+                clean(job_id),
+                clean(&input.value)
+            ),
+            text_style,
         );
+        y += 1;
+    }
+    if let Some(err) = error
+        && y < bottom.saturating_sub(1)
+    {
+        write_clipped(buf, area.x, y, max_w, err, err_style);
+    }
+    if area.height >= 2 {
+        let footer = "Enter stop   Esc back";
+        write_clipped(buf, area.x, bottom - 1, max_w, footer, dim_style);
         hits.tags(
             Rect::new(area.x, bottom - 1, area.width, 1),
-            "↑↓ provider   ←→ auth   Enter allow   Esc back",
+            footer,
             &[
-                ("↑↓ provider", Hit::key(KeyCode::Down)),
-                ("←→ auth", Hit::key(KeyCode::Right)),
-                ("Enter allow", Hit::key(KeyCode::Enter)),
+                ("Enter stop", Hit::key(KeyCode::Enter)),
                 ("Esc back", Hit::key(KeyCode::Esc)),
             ],
         );

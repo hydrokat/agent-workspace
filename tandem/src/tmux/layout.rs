@@ -614,10 +614,29 @@ impl Layout {
     }
 
     pub fn show_pane_with(&self, panes: &[PaneInfo], pane_id: &str) -> Result<(), TmuxError> {
-        let target = match panes.iter().find(|p| p.id == pane_id && p.kind == "agent") {
+        let target = match panes.iter().find(|p| {
+            p.id == pane_id && matches!(p.kind.as_str(), "agent" | "factory-worker" | "login")
+        }) {
             Some(t) => t,
             None => return Ok(()),
         };
+        if target.kind == "factory-worker" || target.kind == "login" {
+            let batch = vec![
+                vec![
+                    "select-window".to_string(),
+                    "-t".to_string(),
+                    target.id.clone(),
+                ],
+                vec![
+                    "select-pane".to_string(),
+                    "-t".to_string(),
+                    target.id.clone(),
+                ],
+            ];
+            self.client.run_batch_checked(&batch)?;
+            self.refresh()?;
+            return Ok(());
+        }
         let shown = panes
             .iter()
             .find(|p| p.window == "main" && p.role != "sidebar" && p.role != "status");

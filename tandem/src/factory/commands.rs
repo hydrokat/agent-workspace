@@ -83,6 +83,135 @@ pub enum FactoryCommand {
 
     #[command(about = "list the models available to an orchestrator CLI")]
     Models(FactoryModelsArgs),
+
+    #[command(about = "check CLI sign-in readiness and open CLI-native login panes")]
+    Login(FactoryLoginArgs),
+
+    #[command(about = "manage interactive worker stage assignments and panes")]
+    Agent(FactoryAgentArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentArgs {
+    #[command(subcommand)]
+    pub command: FactoryAgentCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryAgentCommand {
+    #[command(about = "assign a CLI and model to a run stage")]
+    Assign(FactoryAgentAssignArgs),
+    #[command(about = "list worker agents for a run")]
+    List(FactoryAgentListArgs),
+    #[command(about = "send a message file to a running worker pane")]
+    Send(FactoryAgentSendArgs),
+    #[command(about = "capture recent lines from a running worker pane")]
+    Capture(FactoryAgentCaptureArgs),
+    #[command(about = "terminate a worker pane cleanly")]
+    Terminate(FactoryAgentTerminateArgs),
+    #[command(about = "relaunch a worker job pane with current assignments")]
+    Relaunch(FactoryAgentRelaunchArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentAssignArgs {
+    #[arg(help = "run ID (r-...)")]
+    pub run: String,
+    #[arg(help = "stage name")]
+    pub stage: String,
+    #[arg(long, help = "worker CLI (claude, agy, or opencode)")]
+    pub cli: String,
+    #[arg(long, help = "model id")]
+    pub model: String,
+    #[arg(long, help = "optional role label")]
+    pub role: Option<String>,
+    #[arg(long, help = "assignment source (user or orchestrator)")]
+    pub by: Option<String>,
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentListArgs {
+    #[arg(help = "run ID (r-...)")]
+    pub run: String,
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentSendArgs {
+    #[arg(help = "run ID (r-...)")]
+    pub run: String,
+    #[arg(help = "job ID (<run>.<stage>.<attempt>)")]
+    pub job: String,
+    #[arg(long, help = "path to message file")]
+    pub file: String,
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentCaptureArgs {
+    #[arg(help = "run ID (r-...)")]
+    pub run: String,
+    #[arg(help = "job ID (<run>.<stage>.<attempt>)")]
+    pub job: String,
+    #[arg(long, default_value_t = 50, help = "number of lines to capture")]
+    pub lines: usize,
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentTerminateArgs {
+    #[arg(help = "run ID (r-...)")]
+    pub run: String,
+    #[arg(help = "job ID (<run>.<stage>.<attempt>)")]
+    pub job: String,
+    #[arg(long, help = "must match job ID")]
+    pub confirm: String,
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryAgentRelaunchArgs {
+    #[arg(help = "run ID (r-...)")]
+    pub run: String,
+    #[arg(help = "job ID (<run>.<stage>.<attempt>)")]
+    pub job: String,
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryLoginArgs {
+    #[command(subcommand)]
+    pub command: FactoryLoginCommand,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum FactoryLoginCommand {
+    #[command(about = "check install and sign-in status for worker CLIs")]
+    Status(FactoryLoginStatusArgs),
+    #[command(about = "open a CLI's own sign-in flow in a login pane")]
+    Open(FactoryLoginOpenArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryLoginStatusArgs {
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryLoginOpenArgs {
+    #[arg(help = "CLI name (claude, agy, or opencode)")]
+    pub cli: String,
+
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -1047,6 +1176,18 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Doctor(a) => a.json,
         FactoryCommand::Report(a) => a.json,
         FactoryCommand::Models(a) => a.json,
+        FactoryCommand::Login(l_args) => match &l_args.command {
+            FactoryLoginCommand::Status(a) => a.json,
+            FactoryLoginCommand::Open(a) => a.json,
+        },
+        FactoryCommand::Agent(a_args) => match &a_args.command {
+            FactoryAgentCommand::Assign(a) => a.json,
+            FactoryAgentCommand::List(a) => a.json,
+            FactoryAgentCommand::Send(a) => a.json,
+            FactoryAgentCommand::Capture(a) => a.json,
+            FactoryAgentCommand::Terminate(a) => a.json,
+            FactoryAgentCommand::Relaunch(a) => a.json,
+        },
     }
 }
 
@@ -1231,8 +1372,30 @@ pub fn run_with_caller(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32 {
+    run_with_caller_and_probe(
+        args,
+        workspace,
+        config,
+        caller,
+        &super::login::HostLoginProbe,
+        stdout,
+        stderr,
+    )
+}
+
+pub fn run_with_caller_and_probe(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
     let mut empty = std::io::empty();
-    run_with_caller_io(args, workspace, config, caller, &mut empty, stdout, stderr)
+    run_with_caller_io_and_probe(
+        args, workspace, config, caller, probe, &mut empty, stdout, stderr,
+    )
 }
 
 pub fn run_with_caller_io(
@@ -1240,6 +1403,29 @@ pub fn run_with_caller_io(
     workspace: &Path,
     config: &Config,
     caller: &super::approval::Caller<'_>,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    run_with_caller_io_and_probe(
+        args,
+        workspace,
+        config,
+        caller,
+        &super::login::HostLoginProbe,
+        stdin,
+        stdout,
+        stderr,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_caller_io_and_probe(
+    args: &FactoryArgs,
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -1253,7 +1439,7 @@ pub fn run_with_caller_io(
     if let FactoryCommand::Doctor(doc_args) = &args.command {
         return run_doctor_command(doc_args, workspace, caller, stdin, stdout, stderr);
     }
-    match execute(args, workspace, config, caller, stdin) {
+    match execute_with_probe(args, workspace, config, caller, probe, stdin) {
         Ok(json_line) => {
             let _ = stdout.write_all(json_line.as_bytes());
             let _ = stdout.write_all(b"\n");
@@ -1282,11 +1468,12 @@ pub fn run_with_caller_io(
     }
 }
 
-fn execute(
+fn execute_with_probe(
     args: &FactoryArgs,
     workspace: &Path,
     config: &Config,
     caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
     stdin: &mut dyn Read,
 ) -> Result<String, CmdError> {
     let enabled = config.factory || registry::factory_enabled(&config.state_dir, workspace);
@@ -1825,13 +2012,14 @@ fn execute(
                     kind: ActorKind::User,
                     id: resolve_owner(None)?,
                 };
-                let run = super::runner::retry_paused_stage(
+                let run = super::runner::retry_paused_stage_with_probe(
                     &store,
                     &a.run,
                     &a.stage,
                     &a.hypothesis,
                     &actor,
                     caller,
+                    probe,
                 )
                 .map_err(|e| CmdError {
                     exit_code: e.exit_code(),
@@ -1874,13 +2062,12 @@ fn execute(
                     id: resolve_owner(None)?,
                 };
                 let run =
-                    super::runner::resume_paused_run(&store, &a.run, &actor).map_err(|e| {
-                        CmdError {
+                    super::runner::resume_paused_run_with_probe(&store, &a.run, &actor, probe)
+                        .map_err(|e| CmdError {
                             exit_code: e.exit_code(),
                             code: e.code(),
                             message: e.to_string(),
-                        }
-                    })?;
+                        })?;
                 if a.json {
                     serialize_compact(&run)
                 } else {
@@ -2203,9 +2390,7 @@ fn execute(
             if !enabled {
                 return Err(CmdError::factory_disabled());
             }
-            let mut exec = super::executor::BrokerExecutor {
-                workspace: workspace.to_path_buf(),
-            };
+            let mut exec = super::executor::BrokerExecutor::new(workspace);
             super::runner::run_loop(workspace, &mut exec)
                 .map_err(|e| CmdError::invalid_input(e.to_string()))?;
             Ok("{}".to_string())
@@ -2292,6 +2477,269 @@ fn execute(
                 Ok(super::telemetry::format_pilot_report_markdown(&report))
             } else {
                 Ok(super::telemetry::format_pilot_report_text(&report))
+            }
+        }
+        FactoryCommand::Login(l_args) => match &l_args.command {
+            FactoryLoginCommand::Status(a) => {
+                let items = super::login::all_statuses(&super::login::HostLoginProbe);
+                if a.json {
+                    #[derive(Serialize)]
+                    struct LoginStatusEnvelope {
+                        clis: Vec<super::login::LoginStatusItem>,
+                    }
+                    serialize_compact(&LoginStatusEnvelope { clis: items })
+                } else {
+                    Ok(items
+                        .iter()
+                        .map(|item| {
+                            let ver = if item.installed && !item.version.is_empty() {
+                                item.version.as_str()
+                            } else if item.installed {
+                                "installed"
+                            } else {
+                                "not-installed"
+                            };
+                            let state = if !item.installed {
+                                "Not installed"
+                            } else if item.signed_in {
+                                "Signed in"
+                            } else {
+                                "Not signed in"
+                            };
+                            let suffix = item
+                                .method
+                                .as_deref()
+                                .map(|m| format!(" ({m})"))
+                                .unwrap_or_default();
+                            format!("{}\t{}\t{}{}", item.cli, ver, state, suffix)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+            FactoryLoginCommand::Open(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                let socket = crate::tmux::socket_for(workspace);
+                let client = crate::tmux::TmuxClient::new(socket, None);
+                let res = super::login::open_login_pane(
+                    &client,
+                    workspace,
+                    &a.cli,
+                    &super::login::HostLoginProbe,
+                )
+                .map_err(|err| match err {
+                    super::login::LoginError::UnknownCli(_)
+                    | super::login::LoginError::NoLoginSubcommand { .. } => {
+                        CmdError::invalid_input(err.to_string())
+                    }
+                    super::login::LoginError::NotInstalled(_) => CmdError {
+                        exit_code: 3,
+                        code: "cli_not_installed",
+                        message: err.to_string(),
+                    },
+                    super::login::LoginError::Tmux(t) => CmdError {
+                        exit_code: 1,
+                        code: "tmux_error",
+                        message: t.to_string(),
+                    },
+                })?;
+                if a.json {
+                    serialize_compact(&res)
+                } else {
+                    Ok(format!(
+                        "Opened {} login pane {} (sign in there; tandem does not read credentials)",
+                        res.cli, res.pane_id
+                    ))
+                }
+            }
+        },
+        FactoryCommand::Agent(a_args) => {
+            if !enabled {
+                return Err(CmdError::factory_disabled());
+            }
+            handle_agent_command(&a_args.command, &store, workspace, caller)
+        }
+    }
+}
+
+fn map_team_error(err: super::team::TeamError) -> CmdError {
+    match err {
+        super::team::TeamError::InvalidInput(m) => CmdError::invalid_input(m),
+        super::team::TeamError::Forbidden(m) => CmdError {
+            exit_code: 4,
+            code: "forbidden",
+            message: m,
+        },
+        super::team::TeamError::NotFound(m) => CmdError::not_found(m),
+        other => CmdError::invalid_input(other.to_string()),
+    }
+}
+
+fn handle_agent_command(
+    cmd: &FactoryAgentCommand,
+    store: &FactoryStore,
+    workspace: &Path,
+    caller: &super::approval::Caller<'_>,
+) -> Result<String, CmdError> {
+    let socket = crate::tmux::socket_for(workspace);
+    let tmux = crate::tmux::TmuxClient::new(socket, None);
+    match cmd {
+        FactoryAgentCommand::Assign(a) => {
+            let caller_check = super::approval::require_user(caller);
+            let is_agent = matches!(
+                caller_check,
+                Err(super::approval::ApprovalError::AgentCaller)
+            );
+            let source = match a.by.as_deref() {
+                Some("user") => {
+                    if is_agent {
+                        return Err(CmdError {
+                            exit_code: 4,
+                            code: "agent_caller_forbidden",
+                            message: "an AI agent cannot pass --by user".to_string(),
+                        });
+                    }
+                    if let Err(err) = caller_check {
+                        return Err(CmdError {
+                            exit_code: err.exit_code(),
+                            code: err.code(),
+                            message: err.to_string(),
+                        });
+                    }
+                    super::team::AssignmentSource::User
+                }
+                Some("orchestrator") => super::team::AssignmentSource::Orchestrator,
+                Some(other) => {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid --by source '{other}' (expected user or orchestrator)"
+                    )));
+                }
+                None => {
+                    if is_agent {
+                        super::team::AssignmentSource::Orchestrator
+                    } else if let Err(err) = caller_check {
+                        return Err(CmdError {
+                            exit_code: err.exit_code(),
+                            code: err.code(),
+                            message: err.to_string(),
+                        });
+                    } else {
+                        super::team::AssignmentSource::User
+                    }
+                }
+            };
+            let actor_id = if source == super::team::AssignmentSource::User {
+                resolve_owner(None)?
+            } else {
+                "orchestrator".to_string()
+            };
+            let res = super::team::assign_stage(
+                store,
+                super::team::AssignStageInput {
+                    run_id: &a.run,
+                    stage: &a.stage,
+                    cli: &a.cli,
+                    model: &a.model,
+                    role: a.role.as_deref(),
+                    by: source,
+                    actor_id: &actor_id,
+                },
+            )
+            .map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&res)
+            } else {
+                Ok(format!(
+                    "Assigned {} -> {}/{} ({})",
+                    res.stage,
+                    res.cli,
+                    res.model,
+                    res.source.as_str()
+                ))
+            }
+        }
+        FactoryAgentCommand::List(a) => {
+            let list = super::team::list_agents(store, &tmux, &a.run).map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&list)
+            } else if list.is_empty() {
+                Ok("No worker jobs recorded for this run.".to_string())
+            } else {
+                Ok(list
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "{}\t{}/{}\t{}\t{}",
+                            item.job_id,
+                            item.cli,
+                            item.model,
+                            item.job_state,
+                            item.pane_id.as_deref().unwrap_or("-")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
+        FactoryAgentCommand::Send(a) => {
+            super::team::send_agent_message(store, &tmux, &a.run, &a.job, Path::new(&a.file))
+                .map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&serde_json::json!({
+                    "ok": true,
+                    "run": a.run,
+                    "job": a.job,
+                }))
+            } else {
+                Ok(format!("Sent message to worker {}", a.job))
+            }
+        }
+        FactoryAgentCommand::Capture(a) => {
+            let output = super::team::capture_agent_output(store, &tmux, &a.run, &a.job, a.lines)
+                .map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&serde_json::json!({
+                    "run": a.run,
+                    "job": a.job,
+                    "output": output,
+                }))
+            } else {
+                Ok(output)
+            }
+        }
+        FactoryAgentCommand::Terminate(a) => {
+            super::team::terminate_agent(store, &tmux, &a.run, &a.job, &a.confirm)
+                .map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&serde_json::json!({
+                    "ok": true,
+                    "run": a.run,
+                    "job": a.job,
+                    "terminated": true,
+                }))
+            } else {
+                Ok(format!("Terminated worker {}", a.job))
+            }
+        }
+        FactoryAgentCommand::Relaunch(a) => {
+            let launched = super::team::relaunch_agent(store, &tmux, &a.run, &a.job)
+                .map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&serde_json::json!({
+                    "ok": true,
+                    "run": a.run,
+                    "job": a.job,
+                    "pane_id": launched.pane_id,
+                    "cli": launched.cli,
+                    "model": launched.model,
+                }))
+            } else {
+                Ok(format!(
+                    "Relaunched worker {} in pane {} ({}/{})",
+                    a.job, launched.pane_id, launched.cli, launched.model
+                ))
             }
         }
     }

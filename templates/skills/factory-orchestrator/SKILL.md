@@ -17,10 +17,16 @@ When `TANDEM_ROLE=orchestrator` and `TANDEM_FACTORY_IDEA` are set, guide the ide
 4. **Direction.** When the user has chosen a feasible direction, run `factory.py select-direction`.
 5. **Plan.** Write a plan with the five required sections (`Scope`, `Acceptance criteria`, `Risks`, `Estimates`, `Workflow recommendation`) to a temporary file and store it with `factory.py plan --file <path> [--workflow <workflow>]`. Revise and store again when answers arrive.
 6. **Hand over.** Tell the user the plan is ready to review and that only they can mark it ready, in the Factory tab or the web UI.
+7. **Team Control (Post-Gate 2).** Once a run is queued or running (when `orchestrator_may_choose` is enabled):
+   - Choose per-stage workers with `factory.py assign --run <run> --stage <stage> --cli <cli> --model <model> [--role <role>]`. User explicit assignments always take precedence.
+   - Monitor worker progress with `python3 .agents/skills/factory-orchestrator/scripts/team_watch.py --run <run>` (reads `activity.json`, `result.json`, and `agent list --json` first; falls back to `agent capture` only when files are missing or stale).
+   - Send short clarifying guidance to a live worker by writing a file and calling `factory.py send --run <run> --job <job> --file <path>`.
+   - Relaunch wedged jobs with `factory.py relaunch --run <run> --job <job>` and terminate idle/unwanted worker panes with `factory.py terminate --run <run> --job <job> --confirm <job>`.
 
 ## Hard Rules
 
 - Never run `tandem factory idea ready` or `revoke-ready`. Only the user applies the tag.
+- Never call `tmux` directly or access credential files; all worker communication goes through `factory.py` / `tandem factory agent`.
 - Do not start implementation, create branches, or edit the codebase during ideation.
 - Never put secrets into a study, plan, assumption, or question.
 - State every assumption explicitly with `factory.py assume`; do not hide one inside the plan.
@@ -36,3 +42,9 @@ When `TANDEM_ROLE=orchestrator` and `TANDEM_FACTORY_IDEA` are set, guide the ide
 | `assume --text <t>` | Record an explicit assumption on the idea |
 | `select-direction` | Advance the idea from Ideation to Planning |
 | `plan --file <f> [--workflow <w>]` | Store a plan artifact |
+| `assign --run <r> --stage <s> --cli <c> --model <m>` | Assign CLI/model for a stage (respects user priority) |
+| `agents --run <r>` | List jobs, pane status, and activity for a run |
+| `send --run <r> --job <j> --file <f>` | Send a message file to a running worker pane |
+| `capture --run <r> --job <j> [--lines N]` | Capture recent worker pane lines when needed |
+| `terminate --run <r> --job <j> --confirm <j>` | Terminate a worker pane cleanly |
+| `relaunch --run <r> --job <j>` | Relaunch a worker pane with current assignment |

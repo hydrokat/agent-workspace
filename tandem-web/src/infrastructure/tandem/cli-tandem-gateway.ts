@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, lstatSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
@@ -17,14 +18,19 @@ import {
   type FactorySettingsChangeResult,
   type Idea,
   type IdeaDetail,
+  type LoginPaneResult,
+  type LoginStatusItem,
   type ModelOption,
   type PrLink,
   type ProviderStatusItem,
   type ReadyResult,
+  type RelaunchAgentResult,
   type RunControlAction,
   type RunControlOptions,
   type RunEvidenceBundle,
   type RunSummary,
+  type StageAssignment,
+  type AgentSummary,
   type WorkflowListItem,
 } from "../../domain/models/factory";
 import type { WorkspaceSnapshotPayload } from "../../domain/models/snapshot";
@@ -50,11 +56,23 @@ function buildFactoryEnv(workspacePath: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     TANDEM_WORKSPACE: workspacePath,
+    TANDEM_INTERNAL_SURFACE: "web",
   };
   delete env.TANDEM_ROLE;
   delete env.TANDEM_SESSION_ID;
   delete env.TANDEM_FACTORY_IDEA;
   return env;
+}
+
+function assertNoSymlinkSegments(basePath: string, segments: string[]): string {
+  let current = basePath;
+  for (const segment of segments) {
+    current = join(current, segment);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
+      throw new FactoryGatewayError("invalid_input", "Refusing symlinked factory path");
+    }
+  }
+  return current;
 }
 
 function parseErrorEnvelope(stdout: unknown): { code?: string; message?: string } | null {
@@ -95,6 +113,12 @@ function mapFactoryExecError(error: unknown): FactoryGatewayError {
     mappedCode = "factory_disabled";
   } else if (exitCode === 3) {
     mappedCode = "gate_not_met";
+  } else if (
+    exitCode === 4 ||
+    envelope?.code === "forbidden" ||
+    envelope?.code === "agent_caller_forbidden"
+  ) {
+    mappedCode = "forbidden";
   } else if (exitCode === 1) {
     mappedCode =
       envelope?.code === "not_found" || /not found/i.test(message)
@@ -566,5 +590,155 @@ export class CliTandemGateway implements ITandemGateway {
       "--json",
     ]);
     return JSON.parse(stdout) as FactorySettingsChangeResult;
+  }
+
+  async factoryLoginStatus(workspacePath: string): Promise<LoginStatusItem[]> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "login",
+      "status",
+      "--json",
+    ]);
+    const parsed = JSON.parse(stdout) as { clis?: LoginStatusItem[] };
+    return parsed.clis ?? [];
+  }
+
+  async factoryLoginOpen(workspacePath: string, cli: FactoryCli): Promise<LoginPaneResult> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "login",
+      "open",
+      cli,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as LoginPaneResult;
+  }
+
+  async factoryListAgents(workspacePath: string, runId: string): Promise<AgentSummary[]> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "agent",
+      "list",
+      runId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as AgentSummary[];
+  }
+
+  async factoryGetAssignments(
+    workspacePath: string,
+    runId: string
+  ): Promise<Record<string, StageAssignment>> {
+    const assignPath = assertNoSymlinkSegments(workspacePath, [
+      ".agent-workspace",
+      "factory",
+      "runs",
+      runId,
+      "assignments.json",
+    ]);
+    if (!existsSync(assignPath)) {
+      return {};
+    }
+    const parsed = JSON.parse(readFileSync(assignPath, "utf8")) as {
+      stages?: Record<string, StageAssignment>;
+    };
+    return parsed.stages ?? {};
+  }
+
+  async factoryAssignStage(
+    workspacePath: string,
+    runId: string,
+    params: { stage: string; cli: FactoryCli; model: string; role?: string }
+  ): Promise<StageAssignment> {
+    const args = [
+      "factory",
+      "agent",
+      "assign",
+      runId,
+      params.stage,
+      "--cli",
+      params.cli,
+      "--model",
+      params.model,
+      "--by",
+      "user",
+      "--json",
+    ];
+    if (params.role) {
+      args.push("--role", params.role);
+    }
+    const stdout = await this.runFactory(workspacePath, args);
+    return JSON.parse(stdout) as StageAssignment;
+  }
+
+  async factorySendAgentMessage(
+    workspacePath: string,
+    runId: string,
+    jobId: string,
+    message: string
+  ): Promise<void> {
+    const runDir = assertNoSymlinkSegments(workspacePath, [
+      ".agent-workspace",
+      "factory",
+      "runs",
+      runId,
+    ]);
+    if (!existsSync(runDir)) {
+      throw new FactoryGatewayError("not_found", "Run directory unavailable");
+    }
+    const msgPath = join(runDir, `web-message-${randomUUID()}.txt`);
+    writeFileSync(msgPath, message, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    try {
+      await this.runFactory(workspacePath, [
+        "factory",
+        "agent",
+        "send",
+        runId,
+        jobId,
+        "--file",
+        msgPath,
+        "--json",
+      ]);
+    } finally {
+      try {
+        unlinkSync(msgPath);
+      } catch {
+        // Ignore cleanup failure for ephemeral message file.
+      }
+    }
+  }
+
+  async factoryTerminateAgent(
+    workspacePath: string,
+    runId: string,
+    jobId: string,
+    confirm: string
+  ): Promise<void> {
+    await this.runFactory(workspacePath, [
+      "factory",
+      "agent",
+      "terminate",
+      runId,
+      jobId,
+      "--confirm",
+      confirm,
+      "--json",
+    ]);
+  }
+
+  async factoryRelaunchAgent(
+    workspacePath: string,
+    runId: string,
+    jobId: string
+  ): Promise<RelaunchAgentResult> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "agent",
+      "relaunch",
+      runId,
+      jobId,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as RelaunchAgentResult;
   }
 }

@@ -51,10 +51,11 @@ const PROVIDERS_CLOSED: ProviderStatusItem[] = [
 ];
 
 describe("RunMonitor", () => {
-  it("shows paused reason in an alert and instructs host consent for closed gates", () => {
+  it("shows paused reason in an alert with sign-in prompt and cost: not tracked", async () => {
+    const signIns: string[] = [];
     const { getByRole, getByText } = render(
       <RunMonitor
-        run={PAUSED_RUN}
+        run={{ ...PAUSED_RUN, pause_reason: "claude is not signed in" }}
         providers={PROVIDERS_CLOSED}
         logText={null}
         logLoading={false}
@@ -63,12 +64,19 @@ describe("RunMonitor", () => {
         controlError={null}
         onControl={async () => {}}
         onFetchLog={() => {}}
+        onSignIn={async (cli) => {
+          signIns.push(cli);
+        }}
       />
     );
 
     const alert = getByRole("alert");
-    expect(alert.textContent).toContain("the claude gate is closed");
-    expect(alert.textContent).toContain("Give consent in tandem on the host");
+    expect(alert.textContent).toContain("claude is not signed in");
+    expect(getByText(/cost: not tracked/i)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: /sign in \(claude\)/i }));
+    });
+    expect(signIns).toEqual(["claude"]);
     expect(getByText("Succeeded")).toBeTruthy();
     expect(getByText("Failed")).toBeTruthy();
   });

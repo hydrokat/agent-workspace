@@ -99,6 +99,7 @@ fn test_sidebar_orchestrators_group() {
         cli_version: String::new(),
         name: String::new(),
         idea: "i-7k2m9q4d".to_string(),
+        ..PaneInfo::default()
     };
     let rows = rows_from(&[orch_pane], &[], &[], Some("%5"), &[]);
     assert!(matches!(

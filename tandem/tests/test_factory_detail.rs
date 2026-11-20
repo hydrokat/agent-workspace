@@ -378,6 +378,8 @@ fn test_factory_detail_responsive_narrow_short_and_snapshot_reload() {
                 blockers: 0,
                 updated: idea.updated,
                 run: None,
+                team_count: 0,
+                needs_sign_in: false,
             }],
             needs_you: 0,
             ..FactorySummary::default()

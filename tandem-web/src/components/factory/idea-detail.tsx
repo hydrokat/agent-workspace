@@ -7,13 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
+  AgentSummary,
   AuditTimelinePayload,
   Idea,
   IdeaDetail,
   PrLink,
   ReadyResult,
+  RunAgentsPayload,
   RunDataView,
   RunEvidenceBundle,
+  StageAssignment,
   WorkflowListItem,
 } from "@/domain/models/factory";
 import {
@@ -257,6 +260,148 @@ export function IdeaDetailView({
       throw new Error(err.error?.message || `Failed to load item (${res.status})`);
     }
     return res.text();
+  };
+
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [assignments, setAssignments] = useState<Record<string, StageAssignment>>({});
+  const [teamBusy, setTeamBusy] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+
+  const loadRunAgents = useCallback(async () => {
+    if (!workspaceId || !activeRun?.id) return;
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/agents`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const payload = (await res.json()) as RunAgentsPayload;
+      if (Array.isArray(payload.agents)) setAgents(payload.agents);
+      if (payload.assignments) setAssignments(payload.assignments);
+    } catch {
+      // Transient refresh error is non-fatal; next stream update retries.
+    }
+  }, [workspaceId, activeRun?.id]);
+
+  useEffect(() => {
+    void loadRunAgents();
+  }, [loadRunAgents, streamKey]);
+
+  const handleAssignStage = async (params: { stage: string; cli: string; model: string }) => {
+    if (!workspaceId || !activeRun?.id) return;
+    setTeamBusy(true);
+    setTeamError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/agents/assign`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        }
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Failed to save assignment (${res.status})`);
+      }
+      await loadRunAgents();
+    } catch (err: unknown) {
+      setTeamError(err instanceof Error ? err.message : "Failed to save assignment.");
+    } finally {
+      setTeamBusy(false);
+    }
+  };
+
+  const handleSendAgentMessage = async (jobId: string, message: string) => {
+    if (!workspaceId || !activeRun?.id) return;
+    setTeamBusy(true);
+    setTeamError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/agents/${encodeURIComponent(jobId)}/send`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        }
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Failed to send message (${res.status})`);
+      }
+    } catch (err: unknown) {
+      setTeamError(err instanceof Error ? err.message : "Failed to send message.");
+    } finally {
+      setTeamBusy(false);
+    }
+  };
+
+  const handleTerminateAgent = async (jobId: string, confirm: string) => {
+    if (!workspaceId || !activeRun?.id) return;
+    setTeamBusy(true);
+    setTeamError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/agents/${encodeURIComponent(jobId)}/terminate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm }),
+        }
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Failed to stop worker (${res.status})`);
+      }
+      await loadRunAgents();
+    } catch (err: unknown) {
+      setTeamError(err instanceof Error ? err.message : "Failed to stop worker.");
+    } finally {
+      setTeamBusy(false);
+    }
+  };
+
+  const handleRelaunchAgent = async (jobId: string) => {
+    if (!workspaceId || !activeRun?.id) return;
+    setTeamBusy(true);
+    setTeamError(null);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/runs/${encodeURIComponent(activeRun.id)}/agents/${encodeURIComponent(jobId)}/relaunch`,
+        { method: "POST" }
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Failed to relaunch worker (${res.status})`);
+      }
+      await loadRunAgents();
+    } catch (err: unknown) {
+      setTeamError(err instanceof Error ? err.message : "Failed to relaunch worker.");
+    } finally {
+      setTeamBusy(false);
+    }
+  };
+
+  const handleSignInCli = async (cli: string) => {
+    if (!workspaceId) return;
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/factory/login/${encodeURIComponent(cli)}`,
+        { method: "POST" }
+      );
+      const body = (await res.json().catch(() => null)) as {
+        pane_id?: string;
+        error?: { message?: string };
+      } | null;
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Failed to open login (${res.status})`);
+      }
+      if (body?.pane_id) {
+        onOpenTerminal(body.pane_id);
+      }
+    } catch (err: unknown) {
+      setTeamError(err instanceof Error ? err.message : "Failed to open sign-in pane.");
+    }
   };
 
   const readyEvent = useMemo(() => {
@@ -646,11 +791,21 @@ export function IdeaDetailView({
               dataView={dataView}
               dataLoading={dataLoading}
               dataError={dataError}
+              agents={agents}
+              assignments={assignments}
+              teamBusy={teamBusy}
+              teamError={teamError}
               controlling={controlling}
               controlError={controlError}
               onControl={controlRun}
               onFetchLog={fetchLog}
               onWithdraw={onWithdrawRun}
+              onSignIn={handleSignInCli}
+              onViewPane={(paneId) => onOpenTerminal(paneId)}
+              onSendMessage={handleSendAgentMessage}
+              onTerminateAgent={handleTerminateAgent}
+              onRelaunchAgent={handleRelaunchAgent}
+              onAssignStage={handleAssignStage}
             />
           )}
 

@@ -13,6 +13,7 @@ pub mod evidence;
 pub mod executor;
 pub mod handoff;
 pub mod ids;
+pub mod login;
 pub mod machine;
 pub mod model;
 pub mod permissions;
@@ -28,8 +29,10 @@ pub mod settings;
 pub mod simulate;
 pub mod stages;
 pub mod store;
+pub mod team;
 pub mod telemetry;
 pub mod ui_intent;
+pub mod worker;
 pub mod workflow;
 pub mod workspace;
 

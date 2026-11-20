@@ -1,0 +1,98 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+  echo "claude 1.0.0-stub"
+  exit 0
+fi
+
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  echo '{"loggedIn":true,"authMethod":"apiKey"}'
+  exit 0
+fi
+
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "login" ]; then
+  echo "Claude CLI login screen"
+  exec sleep 30
+fi
+
+if [ -n "${TANDEM_TEST_SECRET:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "SECRET_LEAKED_TO_WORKER_ENV" >&2
+  exit 99
+fi
+
+STAGE="${TANDEM_STAGE:-}"
+JOB_DIR="${TANDEM_JOB_DIR:-.}"
+ARTIFACT_DIR="$JOB_DIR/../../artifacts"
+mkdir -p "$ARTIFACT_DIR"
+
+if [ ! -f "$JOB_DIR/prompt.md" ]; then
+  echo "missing prompt.md in $JOB_DIR" >&2
+  exit 2
+fi
+
+if grep -q "top-secret-should-not-leak" "$JOB_DIR/prompt.md" 2>/dev/null; then
+  echo "SECRET_LEAKED_TO_PROMPT" >&2
+  exit 98
+fi
+
+echo "stub-claude executed stage=$STAGE" > "$JOB_DIR/log.txt"
+
+if grep -q "STUB_STAY_ALIVE" "$JOB_DIR/prompt.md" 2>/dev/null; then
+  echo "READY_FOR_MESSAGE"
+  exec cat
+fi
+
+case "$STAGE" in
+  develop)
+    mkdir -p src
+    cat <<'EOF' > src/export.sh
+#!/bin/sh
+set -eu
+cat <<'CSV'
+member,action,date
+alice,commit,2026-01-15
+CSV
+EOF
+    chmod +x src/export.sh
+    cat <<'EOF' > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Implemented team activity CSV export via interactive claude pane",
+  "files_changed": ["src/export.sh"],
+  "artifacts": [],
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+  review)
+    cat <<'EOF' > "$ARTIFACT_DIR/findings.json"
+{
+  "verdict": "approve",
+  "findings": []
+}
+EOF
+    cat <<'EOF' > "$JOB_DIR/result.json"
+{
+  "status": "succeeded",
+  "summary": "Approved PR diff via interactive claude pane",
+  "files_changed": [],
+  "artifacts": [],
+  "no_behaviour_change": false
+}
+EOF
+    ;;
+  *)
+    cat <<EOF > "$JOB_DIR/result.json"
+{
+  "status": "failed",
+  "summary": "Unexpected stage for claude stub: $STAGE",
+  "files_changed": [],
+  "artifacts": [],
+  "rationale": "unexpected stage $STAGE",
+  "no_behaviour_change": false
+}
+EOF
+    exit 1
+    ;;
+esac

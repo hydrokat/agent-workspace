@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -9,24 +10,27 @@ use super::broker::context::{
     ContextError, ContextInputs, ReviewContextExtras, assemble_context_with_policy,
     assemble_review_context_with_policy,
 };
-use super::broker::gate::{ProviderTermsRow, check_with_terms, today_iso_date};
+use super::broker::gate::{ProviderTermsRow, interactive_ready, today_iso_date};
 use super::broker::git::{AllowedGitSubcommand, run_git};
 use super::broker::job::{
-    JobError, JobInput, JobSpec, JobState, job_dir, run_job_idempotent, set_job_state,
+    JobError, JobInput, JobSpec, JobState, correlation_id, job_dir, run_job_idempotent,
+    set_job_state,
 };
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
-use super::broker::spawn::{DEFAULT_STOP_GRACE, ProviderCommand, WaitOutcome, spawn_provider};
 use super::broker::terms::PROVIDER_TERMS;
 use super::data_policy::{format_readable_scope, load_exclusions};
-use super::model::KNOWN_PROVIDERS;
-use super::routing::{RoutingContext, TemperatureSupport, route};
+use super::login::{HostLoginProbe, LOGIN_SPECS, LoginProbe};
+use super::model::{Actor, ActorKind};
+use super::routing::RoutingContext;
 use super::runner::{has_ui_slices, is_stop_requested};
 use super::store::{FactoryStore, create_private_dir, write_atomic};
+use super::team::{record_job_started, resolve_stage_assignment};
+use super::worker::{
+    WorkerAssignment, WorkerLaunchSpec, WorkerWatchOutcome, finish, launch, watch,
+};
 use super::workflow::parse::load_workflow_file;
 use super::workflow::validate::validate;
-use crate::adapters::agy::AgyAdapter;
-use crate::adapters::base::{HeadlessAdapter, HeadlessRequest, OutputFormat};
-use crate::adapters::claude::ClaudeAdapter;
+use crate::tmux::client::TmuxClient;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageJob {
@@ -51,10 +55,71 @@ pub enum StageOutcome {
 
 pub trait Executor {
     fn run(&mut self, job: &StageJob) -> StageOutcome;
+
+    fn is_interactive(&self) -> bool {
+        false
+    }
+
+    fn ready_providers(&self) -> Option<Vec<&'static str>> {
+        None
+    }
 }
 
 pub struct BrokerExecutor {
     pub workspace: PathBuf,
+    pub tmux: TmuxClient,
+    pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
+    readiness_cache: Mutex<Option<(Instant, Vec<&'static str>)>>,
+}
+
+impl BrokerExecutor {
+    pub fn new(workspace: impl Into<PathBuf>) -> Self {
+        let workspace = workspace.into();
+        let socket = std::env::var("TANDEM_TMUX_SOCKET")
+            .ok()
+            .filter(|s| {
+                !s.is_empty()
+                    && s.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            })
+            .unwrap_or_else(|| crate::tmux::socket_for(&workspace));
+        Self {
+            workspace,
+            tmux: TmuxClient::new(socket, None),
+            login_probe: Arc::new(HostLoginProbe),
+            readiness_cache: Mutex::new(None),
+        }
+    }
+
+    pub fn with_tmux(mut self, tmux: TmuxClient) -> Self {
+        self.tmux = tmux;
+        self
+    }
+
+    pub fn with_login_probe(mut self, login_probe: Arc<dyn LoginProbe + Send + Sync>) -> Self {
+        self.login_probe = login_probe;
+        self.readiness_cache = Mutex::new(None);
+        self
+    }
+
+    fn probe_ready_clis(&self) -> Vec<&'static str> {
+        const TTL: Duration = Duration::from_secs(10);
+        if let Ok(guard) = self.readiness_cache.lock()
+            && let Some((ts, ref cached)) = *guard
+            && ts.elapsed() < TTL
+        {
+            return cached.clone();
+        }
+        let ready: Vec<&'static str> = LOGIN_SPECS
+            .iter()
+            .map(|spec| spec.cli)
+            .filter(|cli| interactive_ready(cli, self.login_probe.as_ref()).ready)
+            .collect();
+        if let Ok(mut guard) = self.readiness_cache.lock() {
+            *guard = Some((Instant::now(), ready.clone()));
+        }
+        ready
+    }
 }
 
 fn ensure_context_file(
@@ -179,6 +244,14 @@ fn collect_review_extras(
 impl Executor for BrokerExecutor {
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.run_with_env(job, std::env::vars().collect())
+    }
+
+    fn is_interactive(&self) -> bool {
+        true
+    }
+
+    fn ready_providers(&self) -> Option<Vec<&'static str>> {
+        Some(self.probe_ready_clis())
     }
 }
 
@@ -381,18 +454,11 @@ impl BrokerExecutor {
             };
         }
 
-        let open_providers: Vec<&str> = KNOWN_PROVIDERS
-            .iter()
-            .copied()
-            .filter(|p| check_with_terms(p, &settings, today, terms).is_ok())
-            .collect();
-        if open_providers.is_empty() {
+        let ready_clis = self.probe_ready_clis();
+        if ready_clis.is_empty() {
             return StageOutcome::Blocked {
-                reason: "gate closed: no provider consented and allowed".to_string(),
-                action_commands: vec![
-                    "tandem factory provider consent claude --auth api-key --confirm claude"
-                        .to_string(),
-                ],
+                reason: "gate closed: no CLI installed and signed in".to_string(),
+                action_commands: vec!["tandem factory login open claude".to_string()],
             };
         }
 
@@ -401,11 +467,15 @@ impl BrokerExecutor {
         } else {
             (None, None)
         };
-        let r_ctx = RoutingContext {
-            preferred_provider: idea
-                .as_ref()
+        let preferred_provider = if settings.default_worker_cli != "auto" {
+            Some(settings.default_worker_cli.clone())
+        } else {
+            idea.as_ref()
                 .and_then(|i| i.orchestrator.as_ref())
-                .map(|o| o.cli.clone()),
+                .map(|o| o.cli.clone())
+        };
+        let r_ctx = RoutingContext {
+            preferred_provider,
             is_ui_work: has_ui_slices(&store, &job.run),
             avoid_provider,
             avoid_model,
@@ -428,36 +498,39 @@ impl BrokerExecutor {
             }
         };
 
-        let routed = match route(
+        let resolved = match resolve_stage_assignment(
+            &store,
+            &run,
             stage_def,
             &tool_grant,
             &wf,
             &settings,
-            &open_providers,
+            &ready_clis,
             job.attempt,
             &r_ctx,
         ) {
             Ok(r) => r,
             Err(e) => {
+                let mut action_commands = Vec::new();
+                if !settings.orchestrator_may_choose
+                    && settings.default_worker_cli != "auto"
+                    && e.to_string().contains("configured default_worker_cli")
+                {
+                    action_commands.push(format!(
+                        "tandem factory login open {}",
+                        settings.default_worker_cli
+                    ));
+                }
                 return StageOutcome::Blocked {
                     reason: e.to_string(),
-                    action_commands: vec![],
+                    action_commands,
                 };
             }
         };
-
-        let pass = match check_with_terms(&routed.provider, &settings, today, terms) {
-            Ok(p) => p,
-            Err(e) => {
-                return StageOutcome::Blocked {
-                    reason: e.to_string(),
-                    action_commands: vec![format!(
-                        "tandem factory provider consent {} --auth api-key --confirm {}",
-                        routed.provider, routed.provider
-                    )],
-                };
-            }
-        };
+        let routed = resolved.route;
+        let assigned_role = resolved.role;
+        let assignment_source = resolved.source;
+        let _ = (terms, today);
 
         let plan_snapshot_path = store
             .root
@@ -577,34 +650,6 @@ impl BrokerExecutor {
             &worktree_path.to_string_lossy(),
         ));
 
-        let headless_req = HeadlessRequest {
-            model: routed.model.clone(),
-            tools: routed.tool_flags.clone(),
-            temperature: match routed.temperature {
-                TemperatureSupport::Supported(t) => Some(t),
-                TemperatureSupport::Unsupported => None,
-            },
-            output: OutputFormat::Json,
-        };
-        let argv = match routed.provider.as_str() {
-            "claude" => ClaudeAdapter::default().build_headless_argv(&headless_req),
-            "agy" => AgyAdapter::default().build_headless_argv(&headless_req),
-            other => {
-                return StageOutcome::Failed {
-                    reason: format!("unsupported provider: {other}"),
-                };
-            }
-        };
-        let argv = match argv {
-            Ok(a) => a,
-            Err(e) => {
-                return StageOutcome::Failed {
-                    reason: e.to_string(),
-                };
-            }
-        };
-        let cli_args: Vec<String> = argv.into_iter().skip(1).collect();
-
         let spec = JobSpec {
             run: job.run.clone(),
             stage: job.stage.clone(),
@@ -622,51 +667,60 @@ impl BrokerExecutor {
         };
 
         let mut was_interrupted = false;
-        let mut pass_opt = Some(pass);
 
         let job_outcome = run_job_idempotent(&store, &spec, &assembled, |prepared| {
-            let pass = pass_opt
-                .take()
-                .ok_or_else(|| JobError::Io(std::io::Error::other("missing gate pass")))?;
-            let mut factory_env = BTreeMap::new();
-            factory_env.insert("TANDEM_RUN_ID".to_string(), job.run.clone());
-            factory_env.insert("TANDEM_STAGE".to_string(), job.stage.clone());
-            factory_env.insert("TANDEM_ATTEMPT".to_string(), job.attempt.to_string());
-            factory_env.insert(
-                "TANDEM_JOB_DIR".to_string(),
-                prepared.dir.to_string_lossy().to_string(),
-            );
-            let cmd = ProviderCommand {
-                program: routed.provider.clone(),
-                args: cli_args.clone(),
-                workspace_root: self.workspace.clone(),
-                cwd: worktree_path.clone(),
-                log_path: prepared.log_path.clone(),
-                stdin_prompt: Some(assembled.prompt.clone()),
-                factory_env,
-                parent_env: parent_env.clone(),
+            let worker_spec = WorkerLaunchSpec {
+                run_id: job.run.clone(),
+                stage: job.stage.clone(),
+                attempt: job.attempt,
+                job_dir: prepared.dir.clone(),
+                prompt_file: prepared.prompt_path.clone(),
+                result_path: prepared.result_path.clone(),
+                worktree_path: worktree_path.clone(),
+                assignment: WorkerAssignment {
+                    cli: routed.provider.clone(),
+                    model: routed.model.clone(),
+                    read_only: !tool_grant.has_repo_write,
+                    tools: routed.tool_flags.clone(),
+                    agent: routed.agent_definition.to_string(),
+                    role: assigned_role.clone(),
+                },
+                env: parent_env.clone(),
+                time_limit_secs: spec.time_limit_secs,
             };
-            let mut running = spawn_provider(pass, cmd)
+            let launched = launch(&self.tmux, &worker_spec)
                 .map_err(|e| JobError::Io(std::io::Error::other(e.to_string())))?;
-            let timeout = Duration::from_secs(spec.time_limit_secs);
-            match running.wait_with_stop(
-                timeout,
-                &|| is_stop_requested(&store, &job.run),
-                DEFAULT_STOP_GRACE,
-            ) {
-                Ok(WaitOutcome::Stopped(_)) => {
-                    was_interrupted = true;
-                    Err(JobError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Interrupted,
-                        "interrupted",
-                    )))
-                }
-                Ok(WaitOutcome::Exited(_)) => Ok(parse_and_validate_result(
-                    &prepared.result_path,
-                    job.attempt > 1,
-                )),
-                Err(e) => Err(JobError::Io(std::io::Error::other(e.to_string()))),
+            let _ = record_job_started(
+                &store,
+                &run.idea,
+                &job.run,
+                &correlation_id(&job.run, &job.stage, job.attempt),
+                &job.stage,
+                job.attempt,
+                &routed.provider,
+                &routed.model,
+                &assigned_role,
+                assignment_source,
+                &launched.pane_id,
+                &Actor {
+                    kind: ActorKind::System,
+                    id: "executor".to_string(),
+                },
+            );
+            let watch_outcome = watch(&self.tmux, &launched, &|| {
+                is_stop_requested(&store, &job.run)
+            })
+            .map_err(|e| JobError::Io(std::io::Error::other(e.to_string())))?;
+            if matches!(watch_outcome, WorkerWatchOutcome::Interrupted) {
+                was_interrupted = true;
+                let _ = finish(&self.tmux, &launched, watch_outcome);
+                return Err(JobError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "interrupted",
+                )));
             }
+            finish(&self.tmux, &launched, watch_outcome)
+                .map_err(|e| JobError::Io(std::io::Error::other(e.to_string())))
         });
 
         if was_interrupted {

@@ -12,11 +12,15 @@ use crate::factory::broker::gate::{
     today_iso_date,
 };
 use crate::factory::broker::terms::{TermsVerdict, lookup as lookup_terms};
+use crate::factory::login::{
+    HostLoginProbe, LoginProbe, LoginStatusItem, all_statuses, default_login_items, open_login_pane,
+};
 use crate::factory::model::{FactorySettings, ProviderGateState};
 use crate::factory::settings as factory_settings;
 use crate::factory::store::FactoryStore;
 use crate::factory::workflow::{parse as wf_parse, validate as wf_validate};
 use crate::sanitize::clean;
+use crate::tmux::client::{TmuxClient, socket_for};
 use crate::tmux::grid::{FillOrder, GridCols, GridPrefs, GridRows, SidebarMode};
 use crate::ui::hits::{Hit, HitMap};
 
@@ -73,6 +77,16 @@ pub enum FactoryRow {
     ModelTier(usize),
     CheckCommands,
     DeployCommand,
+    AgentLogin(usize),
+    DefaultWorkerCli,
+    OrchestratorMayChoose,
+}
+
+#[derive(Debug, Clone)]
+pub struct FactoryLoginPaneState {
+    pub cli: String,
+    pub pane_id: String,
+    pub confirm_cancel: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -117,12 +131,15 @@ pub struct SettingsTab {
     pub workspace: Option<PathBuf>,
     pub factory_settings: FactorySettings,
     pub factory_providers: Vec<ProviderStatusItem>,
+    pub factory_logins: Vec<LoginStatusItem>,
     pub factory_workflows: Vec<String>,
     pub budget_sub_field: usize,
     pub tier_sub_field: usize,
     pub factory_edit: Option<FactoryEditState>,
     pub factory_consent: Option<FactoryConsentState>,
     pub factory_revoke: Option<FactoryRevokeState>,
+    pub factory_login_pane: Option<FactoryLoginPaneState>,
+    pub logins_probed: bool,
     pub scroll_offset: usize,
     pub render_scroll: Cell<usize>,
 }
@@ -144,12 +161,15 @@ impl Default for SettingsTab {
             workspace: None,
             factory_settings: defaults,
             factory_providers: providers,
+            factory_logins: default_login_items(),
             factory_workflows: Vec::new(),
             budget_sub_field: 0,
             tier_sub_field: 0,
             factory_edit: None,
             factory_consent: None,
             factory_revoke: None,
+            factory_login_pane: None,
+            logins_probed: false,
             scroll_offset: 0,
             render_scroll: Cell::new(0),
         }
@@ -171,6 +191,26 @@ impl SettingsTab {
             || self.factory_edit.is_some()
             || self.factory_consent.is_some()
             || self.factory_revoke.is_some()
+            || self.factory_login_pane.is_some()
+    }
+
+    pub fn refresh_logins_with(&mut self, probe: &dyn LoginProbe) {
+        self.factory_logins = all_statuses(probe);
+        self.logins_probed = true;
+    }
+
+    pub fn refresh_logins(&mut self) {
+        self.refresh_logins_with(&HostLoginProbe);
+    }
+
+    pub fn ensure_logins_probed_with(&mut self, probe: &dyn LoginProbe) {
+        if !self.logins_probed {
+            self.refresh_logins_with(probe);
+        }
+    }
+
+    pub fn ensure_logins_probed(&mut self) {
+        self.ensure_logins_probed_with(&HostLoginProbe);
     }
 
     pub fn configure_factory(&mut self, enabled: bool, workspace: Option<PathBuf>) {
@@ -235,6 +275,11 @@ impl SettingsTab {
         }
         rows.push(FactoryRow::CheckCommands);
         rows.push(FactoryRow::DeployCommand);
+        for i in 0..self.factory_logins.len() {
+            rows.push(FactoryRow::AgentLogin(i));
+        }
+        rows.push(FactoryRow::DefaultWorkerCli);
+        rows.push(FactoryRow::OrchestratorMayChoose);
         rows
     }
 
@@ -310,6 +355,9 @@ impl SettingsTab {
     }
 
     pub fn handle_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
+        if self.factory_login_pane.is_some() {
+            return self.handle_login_pane_key(key);
+        }
         if self.factory_consent.is_some() {
             return self.handle_consent_key(key);
         }
@@ -402,6 +450,13 @@ impl SettingsTab {
                 }
                 KeyCode::Left | KeyCode::Char('h') => self.handle_horizontal(false),
                 KeyCode::Right | KeyCode::Char('l') => self.handle_horizontal(true),
+                KeyCode::Char('r')
+                    if matches!(self.focused_factory_row(), Some(FactoryRow::AgentLogin(_))) =>
+                {
+                    self.refresh_logins();
+                    self.flash("Refreshed CLI sign-in status");
+                    None
+                }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if self.focused_row == QUIT_ROW {
                         Some(SettingsAction::QuitMenu)
@@ -447,6 +502,12 @@ impl SettingsTab {
                         (self.tier_sub_field + 2) % 3
                     };
                 }
+                FactoryRow::DefaultWorkerCli => {
+                    self.cycle_worker_cli(next);
+                }
+                FactoryRow::OrchestratorMayChoose => {
+                    self.toggle_orchestrator_may_choose();
+                }
                 _ => {}
             }
         }
@@ -479,6 +540,122 @@ impl SettingsTab {
         let chosen = self.factory_workflows[new_idx].clone();
         if let Err(err) = self.save_factory_setting("default_workflow", &chosen) {
             self.flash(&err);
+        }
+    }
+
+    fn cycle_worker_cli(&mut self, next: bool) {
+        const OPTIONS: [&str; 4] = ["auto", "claude", "agy", "opencode"];
+        let cur = OPTIONS
+            .iter()
+            .position(|&c| c == self.factory_settings.default_worker_cli)
+            .unwrap_or(0);
+        let new_idx = if next {
+            (cur + 1) % OPTIONS.len()
+        } else {
+            (cur + OPTIONS.len() - 1) % OPTIONS.len()
+        };
+        if let Err(err) = self.save_factory_setting("default_worker_cli", OPTIONS[new_idx]) {
+            self.flash(&err);
+        }
+    }
+
+    fn toggle_orchestrator_may_choose(&mut self) {
+        let next = if self.factory_settings.orchestrator_may_choose {
+            "false"
+        } else {
+            "true"
+        };
+        if let Err(err) = self.save_factory_setting("orchestrator_may_choose", next) {
+            self.flash(&err);
+        }
+    }
+
+    fn activate_agent_login(&mut self, idx: usize) {
+        let Some(mut item) = self.factory_logins.get(idx).cloned() else {
+            return;
+        };
+        if !item.installed {
+            self.refresh_logins();
+            let Some(updated) = self.factory_logins.get(idx).cloned() else {
+                return;
+            };
+            if !updated.installed {
+                self.flash(&format!("{} is not installed — see README", updated.cli));
+                return;
+            }
+            item = updated;
+        }
+        if !item.has_login_command {
+            let hint = item
+                .login_hint
+                .unwrap_or_else(|| format!("Sign in from {}'s own TUI", item.cli));
+            self.flash(&hint);
+            return;
+        }
+        let Some(ref ws) = self.workspace else {
+            self.flash("Workspace not configured");
+            return;
+        };
+        let client = TmuxClient::new(socket_for(ws), None);
+        match open_login_pane(&client, ws, &item.cli, &HostLoginProbe) {
+            Ok(res) => {
+                self.factory_login_pane = Some(FactoryLoginPaneState {
+                    cli: res.cli,
+                    pane_id: res.pane_id,
+                    confirm_cancel: false,
+                });
+            }
+            Err(err) => {
+                self.flash(&clean(&err.to_string()));
+            }
+        }
+    }
+
+    fn handle_login_pane_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
+        let state = self.factory_login_pane.as_mut()?;
+        match key.code {
+            KeyCode::Esc => {
+                if state.confirm_cancel {
+                    let pane = state.pane_id.clone();
+                    self.close_login_pane(&pane, true);
+                } else {
+                    state.confirm_cancel = true;
+                }
+                None
+            }
+            KeyCode::Char('y') | KeyCode::Char('Y') if state.confirm_cancel => {
+                let pane = state.pane_id.clone();
+                self.close_login_pane(&pane, true);
+                None
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') if state.confirm_cancel => {
+                state.confirm_cancel = false;
+                None
+            }
+            KeyCode::Enter => {
+                if state.confirm_cancel {
+                    let pane = state.pane_id.clone();
+                    self.close_login_pane(&pane, true);
+                } else {
+                    let pane = state.pane_id.clone();
+                    self.close_login_pane(&pane, false);
+                    self.refresh_logins();
+                    self.flash("Sign-in status refreshed");
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn close_login_pane(&mut self, pane_id: &str, cancelled: bool) {
+        if let Some(ref ws) = self.workspace {
+            let client = TmuxClient::new(socket_for(ws), None);
+            let _ = client.run(&["kill-pane", "-t", pane_id]);
+        }
+        self.factory_login_pane = None;
+        if cancelled {
+            self.flash("Login cancelled");
         }
     }
 
@@ -596,6 +773,15 @@ impl SettingsTab {
             }
             FactoryRow::DeployCommand => {
                 self.flash("Deploy command is confirmed via `tandem factory deploy confirm`");
+            }
+            FactoryRow::AgentLogin(idx) => {
+                self.activate_agent_login(idx);
+            }
+            FactoryRow::DefaultWorkerCli => {
+                self.cycle_worker_cli(true);
+            }
+            FactoryRow::OrchestratorMayChoose => {
+                self.toggle_orchestrator_may_choose();
             }
         }
     }
@@ -879,6 +1065,18 @@ impl SettingsTab {
                 hits.push(Rect::new(r.x + 12, r.y + 3, 7, 1), Hit::ch('y'));
                 hits.push(Rect::new(r.x + 24, r.y + 3, 6, 1), Hit::ch('n'));
             }
+        } else if self.factory_login_pane.is_some() {
+            let r = modal_rect(area, LOGIN_MODAL_SIZE);
+            if r.width >= 16 && r.height >= 5 {
+                hits.tags(
+                    Rect::new(r.x + 2, r.y + 3, r.width.saturating_sub(3), 1),
+                    LOGIN_MODAL_HINT,
+                    &[
+                        ("[Done]", Hit::key(KeyCode::Enter)),
+                        ("[Cancel]", Hit::key(KeyCode::Esc)),
+                    ],
+                );
+            }
         }
         match hits.at(mouse.column, mouse.row)? {
             Hit::Key(code, mods) => self.handle_key(&KeyEvent::new(code, mods)),
@@ -897,6 +1095,7 @@ impl SettingsTab {
         if self.factory_edit.is_some()
             || self.factory_consent.is_some()
             || self.factory_revoke.is_some()
+            || self.factory_login_pane.is_some()
         {
             return self.handle_factory_modal_click(mouse, area);
         }
@@ -962,8 +1161,20 @@ impl SettingsTab {
             }
             y if self.factory_enabled && y >= STANDARD_SECTION_HEIGHT => {
                 let lines = self.build_factory_lines(area.width);
-                let row = lines.get(y - STANDARD_SECTION_HEIGHT)?.row_index?;
+                let line = lines.get(y - STANDARD_SECTION_HEIGHT)?;
+                let row = line.row_index?;
                 self.focused_row = row;
+                if matches!(self.focused_factory_row(), Some(FactoryRow::AgentLogin(_)))
+                    && let Some(pos) = line.text.find("[Recheck]")
+                {
+                    let start = area.x + line.text[..pos].chars().count() as u16;
+                    let end = start + "[Recheck]".len() as u16;
+                    if mouse.column >= start && mouse.column < end {
+                        self.refresh_logins();
+                        self.flash("Refreshed CLI sign-in status");
+                        return None;
+                    }
+                }
                 self.handle_key(&KeyEvent::new(
                     KeyCode::Enter,
                     crossterm::event::KeyModifiers::NONE,
@@ -1233,6 +1444,16 @@ impl SettingsTab {
                 Style::default()
             };
 
+            if matches!(row, FactoryRow::AgentLogin(0)) {
+                lines.push(StyledLine {
+                    text: "Agents & sign-in".to_string(),
+                    style: Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                    row_index: None,
+                });
+            }
+
             let (label, value_and_range) = match row {
                 FactoryRow::MaxParallelAgents => (
                     "Max parallel agents".to_string(),
@@ -1356,6 +1577,48 @@ impl SettingsTab {
                     };
                     ("Deploy command".to_string(), val)
                 }
+                FactoryRow::AgentLogin(idx) => {
+                    let item = &self.factory_logins[idx];
+                    let ver = if !item.installed {
+                        "✗        ".to_string()
+                    } else if item.version.is_empty() {
+                        "✓        ".to_string()
+                    } else {
+                        format!("✓ {:<7}", item.version)
+                    };
+                    let status = if !item.installed {
+                        "Not installed — see README [Recheck]".to_string()
+                    } else if item.signed_in {
+                        let method = item
+                            .method
+                            .as_deref()
+                            .map(|m| format!(" ({m})"))
+                            .unwrap_or_default();
+                        let action = if item.has_login_command {
+                            "[Sign in…]"
+                        } else {
+                            "[Own TUI]"
+                        };
+                        format!("Signed in{method}  {action} [Recheck]")
+                    } else if item.has_login_command {
+                        "Not signed in  [Sign in] [Recheck]".to_string()
+                    } else {
+                        "Not signed in — sign in in own TUI [Recheck]".to_string()
+                    };
+                    (format!("CLI {}", item.cli), format!("{ver} {status}"))
+                }
+                FactoryRow::DefaultWorkerCli => (
+                    "Default worker CLI".to_string(),
+                    format!("[{} ▾]", s.default_worker_cli),
+                ),
+                FactoryRow::OrchestratorMayChoose => (
+                    "Orchestrator may choose".to_string(),
+                    if s.orchestrator_may_choose {
+                        "[✓]".to_string()
+                    } else {
+                        "[ ]".to_string()
+                    },
+                ),
             };
 
             if narrow {
@@ -1408,6 +1671,8 @@ impl SettingsTab {
             render_factory_consent_modal(area, buf, consent);
         } else if let Some(ref revoke) = self.factory_revoke {
             render_factory_revoke_modal(area, buf, revoke);
+        } else if let Some(ref login_pane) = self.factory_login_pane {
+            render_factory_login_pane_modal(area, buf, login_pane);
         }
     }
 }
@@ -1440,8 +1705,10 @@ fn clear_box(buf: &mut Buffer, x: u16, y: u16, width: u16, height: u16) {
 const EDIT_MODAL_SIZE: (u16, u16) = (62, 6);
 const CONSENT_MODAL_SIZE: (u16, u16) = (66, 7);
 const REVOKE_MODAL_SIZE: (u16, u16) = (54, 5);
+const LOGIN_MODAL_SIZE: (u16, u16) = (64, 5);
 const EDIT_MODAL_HINT: &str = "Enter save · Esc cancel";
 const CONSENT_MODAL_HINT: &str = "Left/Right auth · Enter consent · Esc cancel";
+const LOGIN_MODAL_HINT: &str = "[Done] refresh · [Cancel] close login pane";
 
 fn modal_rect(area: Rect, size: (u16, u16)) -> Rect {
     let width = size.0.min(area.width);
@@ -1702,5 +1969,53 @@ fn render_factory_revoke_modal(area: Rect, buf: &mut Buffer, state: &FactoryRevo
         format!("└{:─<pad$}┘", "", pad = w.saturating_sub(2)),
         w,
         Style::default().fg(Color::Red),
+    );
+}
+
+fn render_factory_login_pane_modal(area: Rect, buf: &mut Buffer, state: &FactoryLoginPaneState) {
+    let Rect {
+        x,
+        y,
+        width,
+        height,
+    } = modal_rect(area, LOGIN_MODAL_SIZE);
+    clear_box(buf, x, y, width, height);
+    if width < 16 || height < 5 {
+        return;
+    }
+
+    let w = width as usize;
+    buf.set_stringn(
+        x,
+        y,
+        format!("┌ login: {} ({}) ", state.cli, state.pane_id),
+        w,
+        Style::default().fg(Color::Cyan),
+    );
+    let body = if state.confirm_cancel {
+        "Cancel sign-in and close login pane? (y/n)"
+    } else {
+        "Sign in inside the CLI's own pane; tandem never reads credentials."
+    };
+    buf.set_stringn(
+        x + 2,
+        y + 1,
+        body,
+        w.saturating_sub(3),
+        Style::default().add_modifier(Modifier::BOLD),
+    );
+    buf.set_stringn(
+        x + 2,
+        y + 3,
+        LOGIN_MODAL_HINT,
+        w.saturating_sub(3),
+        Style::default().fg(Color::DarkGray),
+    );
+    buf.set_stringn(
+        x,
+        y + height - 1,
+        format!("└{:─<pad$}┘", "", pad = w.saturating_sub(2)),
+        w,
+        Style::default().fg(Color::Cyan),
     );
 }

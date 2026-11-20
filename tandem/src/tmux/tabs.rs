@@ -1,8 +1,8 @@
 use crate::tmux::keys::{default_keymap, display_shortcut, key_for};
 
-pub const FORMAT: &str = "#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}\t#{@tandem_name}\t#{@tandem_idea}";
+pub const FORMAT: &str = "#{pane_id}\t#{window_name}\t#{@tandem_kind}\t#{@tandem_role}\t#{@tandem_index}\t#{@tandem_label}\t#{pane_dead}\t#{pane_dead_status}\t#{@tandem_session}\t#{@tandem_spec}\t#{@tandem_cli_version}\t#{@tandem_name}\t#{@tandem_idea}\t#{@tandem_run}\t#{@tandem_job}\t#{@tandem_stage}\t#{@tandem_cli}\t#{@tandem_model}";
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PaneInfo {
     pub id: String,
     pub window: String,
@@ -19,6 +19,16 @@ pub struct PaneInfo {
     pub name: String,
     #[serde(default)]
     pub idea: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub run: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub job: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cli: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
 }
 
 impl PaneInfo {
@@ -42,11 +52,7 @@ impl PaneInfo {
             label: label.to_string(),
             dead,
             dead_status,
-            session: String::new(),
-            spec: String::new(),
-            cli_version: String::new(),
-            name: String::new(),
-            idea: String::new(),
+            ..Self::default()
         }
     }
 }
@@ -55,53 +61,31 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
     let mut panes = Vec::new();
     for line in text.lines() {
         let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 9 || parts.len() > 13 || parts[2].is_empty() || parts[3].is_empty() {
+        if parts.len() < 9 || parts.len() > 18 || parts[2].is_empty() || parts[3].is_empty() {
             continue;
         }
-        let id = parts[0].to_string();
-        let window = parts[1].to_string();
-        let kind = parts[2].to_string();
-        let role = parts[3].to_string();
-        let index = parts[4].parse::<usize>().unwrap_or(0);
-        let label = parts[5].to_string();
-        let dead = parts[6] == "1";
-        let dead_status = parts[7].parse::<i32>().ok();
-        let session = parts[8].to_string();
-        let spec = if parts.len() > 9 {
-            parts[9].to_string()
-        } else {
-            String::new()
-        };
-        let cli_version = if parts.len() >= 11 {
-            parts[10].to_string()
-        } else {
-            String::new()
-        };
-        let name = if parts.len() >= 12 {
-            parts[11].to_string()
-        } else {
-            String::new()
-        };
-        let idea = if parts.len() >= 13 {
-            parts[12].to_string()
-        } else {
-            String::new()
-        };
+        let field =
+            |idx: usize| -> String { parts.get(idx).map(|s| (*s).to_string()).unwrap_or_default() };
 
         panes.push(PaneInfo {
-            id,
-            window,
-            kind,
-            role,
-            index,
-            label,
-            dead,
-            dead_status,
-            session,
-            spec,
-            cli_version,
-            name,
-            idea,
+            id: field(0),
+            window: field(1),
+            kind: field(2),
+            role: field(3),
+            index: parts[4].parse::<usize>().unwrap_or(0),
+            label: field(5),
+            dead: parts[6] == "1",
+            dead_status: parts[7].parse::<i32>().ok(),
+            session: field(8),
+            spec: field(9),
+            cli_version: field(10),
+            name: field(11),
+            idea: field(12),
+            run: field(13),
+            job: field(14),
+            stage: field(15),
+            cli: field(16),
+            model: field(17),
         });
     }
     panes

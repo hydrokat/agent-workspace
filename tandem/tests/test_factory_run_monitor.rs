@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -13,6 +14,7 @@ use tandem::factory::broker::context::AssembledContext;
 use tandem::factory::broker::job::{JobSpec, JobState, prepare_job, set_job_state};
 use tandem::factory::broker::result::{JobResult, JobResultStatus, JobUsage};
 use tandem::factory::events::Event;
+use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command, EventData};
 use tandem::factory::model::{Actor, ActorKind, FeasibilityVerdict, Risk, RunState};
 use tandem::factory::run::get_run;
@@ -449,7 +451,8 @@ fn test_detail_opens_run_monitor_and_responsive_variants() {
         })
     );
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
 
     // Wide (>= 120)
     let mut buf = Buffer::empty(wide);
@@ -457,7 +460,7 @@ fn test_detail_opens_run_monitor_and_responsive_variants() {
     let out_wide = buffer_text(&buf, wide);
     assert!(out_wide.contains(&run_id));
     assert!(out_wide.contains("Export team activity as CSV"));
-    assert!(out_wide.contains("cost unknown"));
+    assert!(out_wide.contains("cost: not tracked"));
     assert!(out_wide.contains("Agents 1 of 3"));
     assert!(out_wide.contains("claude / sonnet"));
     assert!(out_wide.contains("attempt 1"));
@@ -542,7 +545,8 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
         }),
     );
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     // Move selection to `develop` stage
     let dev_idx = monitor
         .run
@@ -608,6 +612,28 @@ fn test_stage_detail_and_sanitized_64k_log_reader() {
     let _ = fs::remove_dir_all(ws);
 }
 
+struct ReadyClaudeProbe;
+
+impl LoginProbe for ReadyClaudeProbe {
+    fn which(&self, bin: &str) -> Option<PathBuf> {
+        (bin == "claude").then(|| PathBuf::from("/usr/local/bin/claude"))
+    }
+    fn version(&self, _cli: &str) -> String {
+        "1.0.0".to_string()
+    }
+    fn run(&self, argv: &[&str]) -> (i32, String, String) {
+        if argv.first() == Some(&"claude") {
+            (
+                0,
+                r#"{"loggedIn":true,"authMethod":"subscription"}"#.to_string(),
+                String::new(),
+            )
+        } else {
+            (1, String::new(), String::new())
+        }
+    }
+}
+
 #[test]
 fn test_pause_resume_cancel_and_retry_controls() {
     let ws = temp_workspace("controls");
@@ -622,7 +648,8 @@ fn test_pause_resume_cancel_and_retry_controls() {
         &caller,
     )
     .unwrap();
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
 
     // Pause via Ctrl+Alt+p
     monitor.handle_key(&KeyEvent::new(
@@ -714,7 +741,7 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
     let ws = temp_workspace("consent-target");
     let (store, idea_id, run_id) = setup_run(&ws);
 
-    // 1. Paused: gate closed, consent possible (claude)
+    // 1. Paused: CLI not signed in (claude -> i sign in triggers OpenLoginPane)
     append_run_event(
         &store,
         &idea_id,
@@ -722,58 +749,50 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
         150.0,
         EventData::RunPaused {
             run: run_id.clone(),
-            reason: "the claude gate is closed (no consent).".to_string(),
-            commands: vec![
-                "tandem factory provider consent claude --auth api-key --confirm claude"
-                    .to_string(),
-            ],
+            reason: "claude is not signed in.".to_string(),
+            commands: vec!["tandem factory login open claude".to_string()],
             cap: None,
             spent: None,
             limit: None,
         },
     );
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     let area = Rect::new(0, 0, 120, 25);
     let mut buf = Buffer::empty(area);
     monitor.render(200.0, area, &mut buf);
     let out = buffer_text(&buf, area);
     assert!(out.contains("Paused:"));
-    assert!(out.contains("claude gate is closed"));
+    assert!(out.contains("claude is not signed in"));
+    assert!(out.contains("i sign in (claude)"));
+    assert_eq!(
+        monitor.handle_key(&KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+        tandem::status::factory_run::RunKeyOutcome::OpenLoginPane {
+            cli: "claude".to_string()
+        }
+    );
 
-    // Open consent dialog ('a')
+    // 'a' opens AssignmentsModal and saves a user override -> "you" badge
     monitor.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(matches!(monitor.sub_view, RunSubView::ConsentDialog { .. }));
-
-    // Switch auth type to api-key (Right arrow from subscription -> api-key)
-    monitor.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    assert!(matches!(
+        monitor.sub_view,
+        RunSubView::AssignmentsModal { .. }
+    ));
     let mut buf = Buffer::empty(area);
     monitor.render(200.0, area, &mut buf);
-    let out_consent = buffer_text(&buf, area);
-    assert!(
-        out_consent.contains("Factory Mode will run claude in headless mode for this workspace.")
-    );
-    assert!(out_consent.contains("It uses your own claude login. tandem handles no credentials."));
-    assert!(out_consent.contains("Terms record:"));
-    assert!(out_consent.contains("Authentication"));
-
-    // Type "claude" and press Enter -> opens gate
-    for ch in "claude".chars() {
-        monitor.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
-    }
-    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(monitor.sub_view, RunSubView::Main));
-    let settings = store.settings().unwrap();
-    let claude_gate = settings
-        .provider_gates
-        .iter()
-        .find(|g| g.provider == "claude")
-        .unwrap();
+    let out_assign = buffer_text(&buf, area);
+    assert!(out_assign.contains("Stage assignments"));
+    assert!(out_assign.contains("CLI"));
+    assert!(out_assign.contains("Model"));
     assert_eq!(
-        claude_gate.state,
-        tandem::factory::model::ProviderGateState::Open
+        monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        tandem::status::factory_run::RunKeyOutcome::Refresh
     );
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+    let assigned = tandem::factory::team::load_assignments(&store, &run_id).unwrap();
+    assert!(!assigned.stages.is_empty());
 
-    // 2. Paused: gate cannot open (agy unclear)
+    // 2. Paused: CLI without login command (agy)
     append_run_event(
         &store,
         &idea_id,
@@ -781,7 +800,7 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
         160.0,
         EventData::RunPaused {
             run: run_id.clone(),
-            reason: "the agy gate is closed (terms verdict: unclear).".to_string(),
+            reason: "agy is not signed in or not installed.".to_string(),
             commands: vec![],
             cap: None,
             spent: None,
@@ -792,8 +811,8 @@ fn test_paused_consent_dialog_and_unclear_gate_and_ambiguous_target() {
     let mut buf = Buffer::empty(area);
     monitor.render(200.0, area, &mut buf);
     let out_unclear = buffer_text(&buf, area);
-    assert!(out_unclear.contains("agy gate is closed"));
-    assert!(out_unclear.contains("Choose another provider or cancel"));
+    assert!(out_unclear.contains("agy is not signed in"));
+    assert!(out_unclear.contains("Sign in to agy on this machine"));
 
     // 3. Paused: ambiguous target -> target picker
     let repo_a = ws.join("codebase-symlinks/repo-a");
@@ -901,7 +920,8 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
     big_log.push_str("END_OF_LOG\n");
     fs::write(&log_path, &big_log).unwrap();
 
-    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin");
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
     let area = Rect::new(0, 0, 120, 26);
 
     // Main does not capture input; Esc returns BackToDetail
@@ -973,35 +993,20 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
     monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(matches!(monitor.sub_view, RunSubView::Main));
 
-    // Gate closed -> 'a' opens ConsentDialog -> Up/Down/Left/Right + wrong confirm render + Esc
-    append_run_event(
-        &store,
-        &idea_id,
-        &run_id,
-        160.0,
-        EventData::RunPaused {
-            run: run_id.clone(),
-            reason: "the claude gate is closed (no consent).".to_string(),
-            commands: vec![
-                "tandem factory provider consent claude --auth api-key --confirm claude"
-                    .to_string(),
-            ],
-            cap: None,
-            spent: None,
-            limit: None,
-        },
-    );
+    // 'a' opens AssignmentsModal -> Up/Down/Left/Right + Esc
     monitor.reload();
     monitor.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(matches!(monitor.sub_view, RunSubView::ConsentDialog { .. }));
+    assert!(matches!(
+        monitor.sub_view,
+        RunSubView::AssignmentsModal { .. }
+    ));
     monitor.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     monitor.handle_key(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
     monitor.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     monitor.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let mut buf = Buffer::empty(area);
     monitor.render(200.0, area, &mut buf);
-    assert!(buffer_text(&buf, area).contains("confirm consent"));
+    assert!(buffer_text(&buf, area).contains("Stage assignments"));
     monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(matches!(monitor.sub_view, RunSubView::Main));
 
@@ -1036,5 +1041,239 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
     // sync_if_changed with None
     monitor.sync_if_changed(None);
 
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_t006_run_monitor_team_table_assignments_and_sign_in() {
+    let ws = temp_workspace("t006-team-assign");
+    let (store, idea_id, run_id) = setup_run(&ws);
+    let _ = fs::write(ws.join(".tandem-test-tmux-socket"), "");
+    let _ = prepare_stage_job(
+        &store,
+        &run_id,
+        "develop",
+        1,
+        "claude",
+        "sonnet",
+        JobState::Running,
+        None,
+    );
+    let job_dir_path = tandem::factory::broker::job::job_dir(&store, &run_id, "develop", 1);
+    let _ = fs::write(job_dir_path.join("pane_id"), "%42\n");
+    let _ = fs::write(
+        job_dir_path.join("activity.json"),
+        serde_json::json!({
+            "last_stop_at": 820.0,
+            "state": "working",
+            "cli": "claude",
+            "stage": "develop"
+        })
+        .to_string(),
+    );
+
+    tandem::factory::team::assign_stage(
+        &store,
+        tandem::factory::team::AssignStageInput {
+            run_id: &run_id,
+            stage: "develop",
+            cli: "claude",
+            model: "sonnet",
+            role: Some("senior-backend-dev"),
+            by: tandem::factory::team::AssignmentSource::User,
+            actor_id: "alice",
+        },
+    )
+    .expect("assign stage");
+
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
+    let wide = Rect::new(0, 0, 120, 32);
+    let mut buf = Buffer::empty(wide);
+    monitor.render(850.0, wide, &mut buf);
+    let out_wide = buffer_text(&buf, wide);
+    assert!(out_wide.contains("cost: not tracked"), "out:\n{out_wide}");
+    assert!(out_wide.contains("Team"), "out:\n{out_wide}");
+    assert!(
+        out_wide.contains("claude/sonnet") || out_wide.contains("claude / sonnet"),
+        "out:\n{out_wide}"
+    );
+    assert!(out_wide.contains("working"), "out:\n{out_wide}");
+    assert!(
+        out_wide.contains("30s"),
+        "wide layout must show activity time: {out_wide}"
+    );
+    assert!(
+        out_wide.contains("you"),
+        "user override must display 'you' badge: {out_wide}"
+    );
+
+    let narrow = Rect::new(0, 0, 65, 30);
+    let mut nbuf = Buffer::empty(narrow);
+    monitor.render(850.0, narrow, &mut nbuf);
+    let out_narrow = buffer_text(&nbuf, narrow);
+    assert!(out_narrow.contains("Team"), "out:\n{out_narrow}");
+    assert!(
+        !out_narrow.contains("30s ago"),
+        "narrow layout must hide time/by columns: {out_narrow}"
+    );
+
+    // 'a' opens AssignmentsModal and saves a user override for 'review'.
+    let outcome = monitor.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert_eq!(
+        outcome,
+        tandem::status::factory_run::RunKeyOutcome::Consumed
+    );
+    assert!(matches!(
+        monitor.sub_view,
+        RunSubView::AssignmentsModal { .. }
+    ));
+
+    // Paused for sign-in renders SignInNeeded instead of ConsentDialog
+    append_run_event(
+        &store,
+        &idea_id,
+        &run_id,
+        860.0,
+        EventData::RunPaused {
+            run: run_id.clone(),
+            reason: "claude is not signed in".to_string(),
+            commands: vec!["tandem factory login open claude".to_string()],
+            cap: None,
+            spent: None,
+            limit: None,
+        },
+    );
+    monitor.sub_view = RunSubView::Main;
+    monitor.reload();
+    let mut sbuf = Buffer::empty(wide);
+    monitor.render(865.0, wide, &mut sbuf);
+    let out_signin = buffer_text(&sbuf, wide);
+    assert!(
+        out_signin.contains("Sign in") || out_signin.contains("sign in"),
+        "out:\n{out_signin}"
+    );
+    assert!(!out_signin.contains("Give consent"), "out:\n{out_signin}");
+    let signin_outcome = monitor.handle_key(&KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    assert_eq!(
+        signin_outcome,
+        tandem::status::factory_run::RunKeyOutcome::OpenLoginPane {
+            cli: "claude".to_string()
+        }
+    );
+
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_t006_run_monitor_worker_message_stop_and_view_actions() {
+    let ws = temp_workspace("t006-team-actions");
+    let (store, idea_id, run_id) = setup_run(&ws);
+    let _ = prepare_stage_job(
+        &store,
+        &run_id,
+        "develop",
+        1,
+        "claude",
+        "sonnet",
+        JobState::Running,
+        None,
+    );
+    let cid = tandem::factory::broker::job::correlation_id(&run_id, "develop", 1);
+    let jdir = tandem::factory::broker::job::job_dir(&store, &run_id, "develop", 1);
+    let _ = fs::write(jdir.join("pane_id"), "%77\n");
+
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
+    assert_eq!(monitor.team.len(), 1);
+    // Force pane_alive true for view test
+    monitor.team[0].pane_alive = true;
+
+    let view_outcome = monitor.handle_key(&KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    assert_eq!(
+        view_outcome,
+        tandem::status::factory_run::RunKeyOutcome::OpenWorkerPane {
+            pane_id: "%77".to_string()
+        }
+    );
+
+    // 'm' opens MessagePrompt
+    let msg_open = monitor.handle_key(&KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
+    assert_eq!(
+        msg_open,
+        tandem::status::factory_run::RunKeyOutcome::Consumed
+    );
+    assert!(matches!(monitor.sub_view, RunSubView::MessagePrompt { .. }));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(monitor.sub_view, RunSubView::Main));
+
+    // 's' opens ConfirmStop requiring exact job_id confirmation
+    let stop_open = monitor.handle_key(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert_eq!(
+        stop_open,
+        tandem::status::factory_run::RunKeyOutcome::Consumed
+    );
+    assert!(matches!(monitor.sub_view, RunSubView::ConfirmStop { .. }));
+    // Enter with empty confirmation keeps modal open with error
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        monitor.sub_view,
+        RunSubView::ConfirmStop { error: Some(ref e), .. } if e.contains("to confirm stop")
+    ));
+    for ch in cid.chars() {
+        monitor.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    // Matching confirmation passes UI validation and delegates to terminate_agent
+    let _stop_confirm = monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    if let RunSubView::ConfirmStop {
+        error: Some(ref err),
+        ..
+    } = monitor.sub_view
+    {
+        assert!(
+            !err.contains("to confirm stop"),
+            "unexpected validation error: {err}"
+        );
+    }
+
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn test_t006_snapshot_idea_card_team_count_and_needs_sign_in() {
+    let ws = temp_workspace("t006-snap-badges");
+    let (store, idea_id, run_id) = setup_run(&ws);
+    let _ = prepare_stage_job(
+        &store,
+        &run_id,
+        "develop",
+        1,
+        "claude",
+        "sonnet",
+        JobState::Running,
+        None,
+    );
+    append_run_event(
+        &store,
+        &idea_id,
+        &run_id,
+        110.0,
+        EventData::RunPaused {
+            run: run_id.clone(),
+            reason: "claude is not signed in".to_string(),
+            commands: vec![],
+            cap: None,
+            spent: None,
+            limit: None,
+        },
+    );
+    let summary = tandem::snapshot::collect_factory_summary(&ws, &[], 200.0);
+    let card = summary
+        .ideas
+        .iter()
+        .find(|c| c.id == idea_id)
+        .expect("idea card");
+    assert_eq!(card.team_count, 1);
+    assert!(card.needs_sign_in);
     let _ = fs::remove_dir_all(ws);
 }
