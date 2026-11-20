@@ -68,10 +68,17 @@ pub trait Executor {
     }
 }
 
+pub type SharedModelRunner = Arc<
+    dyn Fn(&str) -> Result<Vec<crate::adapters::base::Model>, crate::adapters::base::AdapterError>
+        + Send
+        + Sync,
+>;
+
 pub struct BrokerExecutor {
     pub workspace: PathBuf,
     pub tmux: TmuxClient,
     pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
+    model_runner: SharedModelRunner,
     readiness_cache: Mutex<Option<(Instant, Vec<&'static str>)>>,
 }
 
@@ -90,8 +97,14 @@ impl BrokerExecutor {
             workspace,
             tmux: TmuxClient::new(socket, None),
             login_probe: Arc::new(HostLoginProbe),
+            model_runner: Arc::new(adapter_model_runner),
             readiness_cache: Mutex::new(None),
         }
+    }
+
+    pub fn with_model_runner(mut self, runner: SharedModelRunner) -> Self {
+        self.model_runner = runner;
+        self
     }
 
     pub fn with_tmux(mut self, tmux: TmuxClient) -> Self {
@@ -470,13 +483,8 @@ impl BrokerExecutor {
         } else {
             (None, None)
         };
-        let preferred_provider = if settings.default_worker_cli != "auto" {
-            Some(settings.default_worker_cli.clone())
-        } else {
-            idea.as_ref()
-                .and_then(|i| i.orchestrator.as_ref())
-                .map(|o| o.cli.clone())
-        };
+        let preferred_provider =
+            (settings.default_worker_cli != "auto").then(|| settings.default_worker_cli.clone());
         let (complexity, required_tier) = slice_hints(&store, &job.run);
         let r_ctx = RoutingContext {
             preferred_provider,
@@ -485,7 +493,7 @@ impl BrokerExecutor {
             avoid_model,
             complexity,
             required_tier,
-            catalog: discover_catalogs(&store, &settings, &ready_clis, &adapter_model_runner),
+            catalog: discover_catalogs(&store, &settings, &ready_clis, &*self.model_runner),
         };
         let target_name = run.target.as_deref().unwrap_or("workspace");
         let tool_grant = match super::permissions::grant(

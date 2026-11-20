@@ -911,6 +911,17 @@ pub fn relaunch_agent_with_env(
     job_id: &str,
     env: BTreeMap<String, String>,
 ) -> Result<LaunchedWorker, TeamError> {
+    relaunch_agent_with_runner(store, tmux, run_id, job_id, env, &adapter_model_runner)
+}
+
+pub fn relaunch_agent_with_runner(
+    store: &FactoryStore,
+    tmux: &TmuxClient,
+    run_id: &str,
+    job_id: &str,
+    env: BTreeMap<String, String>,
+    runner: ModelRunner<'_>,
+) -> Result<LaunchedWorker, TeamError> {
     if !is_valid_run_id(run_id) {
         return Err(TeamError::InvalidInput(format!("invalid run id: {run_id}")));
     }
@@ -964,7 +975,7 @@ pub fn relaunch_agent_with_env(
     };
     let mut escalation: Option<Selection> = None;
     let (cli, model) = if source == AssignmentSource::Default {
-        match suggest_escalation(store, run_id, job_id, &adapter_model_runner)? {
+        match suggest_escalation(store, run_id, job_id, runner)? {
             Some(s)
                 if s.applies_automatically && validate_model_for_cli(&s.cli, &s.model).is_ok() =>
             {

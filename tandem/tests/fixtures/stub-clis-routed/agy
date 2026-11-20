@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+BASE="$HERE/../stub-clis"
+CLI="$(basename "$0")"
+
+case " ${STUB_SIGNED_OUT:-} " in
+  *" $CLI "*)
+    if { [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; } \
+      || { [ "${1:-}" = "auth" ] && [ "${2:-}" = "list" ]; } \
+      || [ "${1:-}" = "models" ]; then
+      echo "not signed in" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+case "${1:-}" in
+  --version|auth|login|models)
+    exec "$BASE/$CLI" "$@"
+    ;;
+esac
+
+case "${TANDEM_STAGE:-}" in
+  plan) DELEGATE="agy" ;;
+  create-tests) DELEGATE="opencode" ;;
+  *) DELEGATE="claude" ;;
+esac
+
+rc=0
+"$BASE/$DELEGATE" "$@" || rc=$?
+
+COMPLEXITY_FILE="${TANDEM_JOB_DIR:-.}/../../../../stub-complexity"
+if [ "${TANDEM_STAGE:-}" = "plan" ] && [ -f "$COMPLEXITY_FILE" ]; then
+  COMPLEXITY="$(cat "$COMPLEXITY_FILE")"
+  SLICES="${TANDEM_JOB_DIR:-.}/../../artifacts/slices.json"
+  if [ -f "$SLICES" ]; then
+    sed "s/\"ui\": false/\"ui\": false, \"complexity\": \"$COMPLEXITY\"/" "$SLICES" > "$SLICES.tmp"
+    mv "$SLICES.tmp" "$SLICES"
+  fi
+fi
+exit "$rc"
