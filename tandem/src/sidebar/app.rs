@@ -11,7 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 use crate::config::Config;
 use crate::coordination::store::CoordStore;
 use crate::sidebar::model::{
-    SidebarRow, first_selectable, last_selectable, next_selectable, prev_selectable, rows_from,
+    SidebarRow, first_selectable, last_selectable, next_selectable, prev_selectable, rows_from_for,
 };
 use crate::tmux::SESSION;
 
@@ -89,7 +89,27 @@ impl SidebarApp {
                 .collect()
         };
 
-        self.rows = rows_from(&panes, &sessions, &queries, active, &selected_sessions);
+        let factory_summary = if crate::commands::is_factory_session(&self.workspace) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            Some(crate::snapshot::collect_factory_summary(
+                &self.workspace,
+                &queries,
+                now,
+            ))
+        } else {
+            None
+        };
+        self.rows = rows_from_for(
+            &panes,
+            &sessions,
+            &queries,
+            active,
+            &selected_sessions,
+            factory_summary.as_ref(),
+        );
         if !self.rows.is_empty()
             && !self.rows[self.selected.min(self.rows.len() - 1)].is_selectable()
         {
@@ -315,7 +335,27 @@ impl SidebarApp {
                     ]);
                 }
             }
+            SidebarRow::NewIdea => {
+                self.send_factory_intent(crate::factory::ui_intent::FactoryIntent::NewIdea);
+            }
+            SidebarRow::Run { idea_id, .. } => {
+                let intent = crate::factory::ui_intent::FactoryIntent::OpenIdea {
+                    idea_id: idea_id.clone(),
+                };
+                self.send_factory_intent(intent);
+            }
             _ => {}
+        }
+    }
+
+    fn send_factory_intent(&mut self, intent: crate::factory::ui_intent::FactoryIntent) {
+        if let Err(e) = crate::factory::ui_intent::write_intent(&self.workspace, &intent) {
+            self.status_msg = Some(format!("Factory action failed: {e}"));
+            self.dirty = true;
+            return;
+        }
+        if let Some(ref tmux) = self.tmux {
+            let _ = crate::tmux::layout::Layout::new(tmux).focus("status");
         }
     }
 
@@ -384,7 +424,11 @@ impl SidebarApp {
             let is_selected = idx == self.selected;
             match row {
                 SidebarRow::Header { title, count } => {
-                    let text = format!("{title:<12} [{count}]");
+                    let text = if title == "FACTORY" {
+                        title.clone()
+                    } else {
+                        format!("{title:<12} [{count}]")
+                    };
                     let style = Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::BOLD);
@@ -456,6 +500,38 @@ impl SidebarApp {
                         Style::default().add_modifier(Modifier::REVERSED)
                     } else {
                         Style::default().fg(Color::Cyan)
+                    };
+                    buf.set_string(
+                        area.x,
+                        current_y,
+                        truncate_to_width(&line, area.width as usize),
+                        style,
+                    );
+                }
+                SidebarRow::NewIdea => {
+                    let prefix = if is_selected { "▶ " } else { "  " };
+                    let line = format!("{prefix}[+ New Idea]");
+                    let style = if is_selected {
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    };
+                    buf.set_string(
+                        area.x,
+                        current_y,
+                        truncate_to_width(&line, area.width as usize),
+                        style,
+                    );
+                }
+                SidebarRow::Run { label, .. } => {
+                    let marker = if is_selected { "▶ " } else { "• " };
+                    let line = format!("{marker}{label}");
+                    let style = if is_selected {
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default()
                     };
                     buf.set_string(
                         area.x,

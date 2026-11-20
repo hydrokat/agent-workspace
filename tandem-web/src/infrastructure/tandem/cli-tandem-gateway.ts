@@ -17,6 +17,7 @@ import {
   type FactorySettingsChangeResult,
   type Idea,
   type IdeaDetail,
+  type ModelOption,
   type PrLink,
   type ProviderStatusItem,
   type ReadyResult,
@@ -285,6 +286,17 @@ export class CliTandemGateway implements ITandemGateway {
     args.push("--json");
     const stdout = await this.runFactory(workspacePath, args);
     return JSON.parse(stdout) as Idea;
+  }
+
+  async factoryListModels(workspacePath: string, cli: FactoryCli): Promise<ModelOption[]> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "models",
+      "--cli",
+      cli,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as ModelOption[];
   }
 
   async factoryMarkReady(

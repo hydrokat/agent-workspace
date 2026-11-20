@@ -85,6 +85,7 @@ class MockGateway implements ITandemGateway {
   async factoryShowIdea(): Promise<never> { throw new Error("unused"); }
   async factoryReadArtifact() { return ""; }
   async factoryStartIdea(): Promise<never> { throw new Error("unused"); }
+  async factoryListModels(): Promise<never> { throw new Error("unused"); }
   async factoryMarkReady(): Promise<never> { throw new Error("unused"); }
   async factoryRevokeReady(): Promise<never> { throw new Error("unused"); }
 }

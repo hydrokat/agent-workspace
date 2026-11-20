@@ -65,23 +65,26 @@ impl StatusTab {
         StatusTab::Settings,
     ];
 
-    pub const ALL_FACTORY: [StatusTab; 8] = [
-        StatusTab::Status,
-        StatusTab::Sprint,
-        StatusTab::Spec,
-        StatusTab::Task,
+    pub const FACTORY_TABS: [StatusTab; 4] = [
+        StatusTab::Factory,
         StatusTab::Queries,
         StatusTab::Web,
         StatusTab::Settings,
-        StatusTab::Factory,
     ];
 
     pub fn visible(factory: bool) -> &'static [StatusTab] {
         if factory {
-            &Self::ALL_FACTORY
+            &Self::FACTORY_TABS
         } else {
             &Self::ALL
         }
+    }
+
+    pub fn index_for(&self, factory: bool) -> usize {
+        Self::visible(factory)
+            .iter()
+            .position(|t| t == self)
+            .unwrap_or(0)
     }
 
     pub fn index(&self) -> usize {
@@ -255,7 +258,12 @@ impl StatusApp {
         let notifier = Notifier::new(tmux.clone());
 
         let factory = config.as_ref().is_some_and(|c| c.factory);
-        let tab_bar = TabBar::from_tabs(StatusTab::visible(factory), 0, StatusTab::Status);
+        let initial_tab = if factory {
+            StatusTab::Factory
+        } else {
+            StatusTab::Status
+        };
+        let tab_bar = TabBar::from_tabs(StatusTab::visible(factory), 0, initial_tab);
 
         let factory_ws = workspace.clone();
         let mut app = Self {
@@ -278,7 +286,7 @@ impl StatusApp {
             offer_banner: None,
             ready_grace_banner: None,
 
-            tab: StatusTab::Status,
+            tab: initial_tab,
             tab_bar,
             sessions_state: OptionListState::default(),
             session_items: Vec::new(),
@@ -584,9 +592,31 @@ impl StatusApp {
     }
 
     pub fn set_tab(&mut self, tab: StatusTab) {
+        let factory = self.is_factory();
+        let tab = if factory && !StatusTab::FACTORY_TABS.contains(&tab) {
+            StatusTab::Factory
+        } else {
+            tab
+        };
         self.tab = tab;
-        self.tab_bar.selected = tab.index();
+        self.tab_bar.selected = tab.index_for(factory);
         self.dirty = true;
+    }
+
+    pub fn poll_factory_intent(&mut self) {
+        if !self.is_factory() {
+            return;
+        }
+        let Some(intent) = crate::factory::ui_intent::take_intent(&self.workspace) else {
+            return;
+        };
+        self.set_tab(StatusTab::Factory);
+        match intent {
+            crate::factory::ui_intent::FactoryIntent::NewIdea => self.factory_tab.open_new_idea(),
+            crate::factory::ui_intent::FactoryIntent::OpenIdea { idea_id } => {
+                self.factory_tab.focus_idea(&idea_id);
+            }
+        }
     }
 
     pub fn action_show_status(&mut self) {
@@ -898,7 +928,8 @@ impl StatusApp {
 
     pub fn action_reset_ui(&mut self) {
         if let Some(ref tmux) = self.tmux {
-            let layout = crate::tmux::layout::Layout::new(tmux);
+            let mut layout = crate::tmux::layout::Layout::new(tmux);
+            layout.factory = self.is_factory();
             let _ = layout.reset_ui();
         }
         self.settings_tab.prefs = crate::tmux::grid::GridPrefs::default();
@@ -912,6 +943,7 @@ impl StatusApp {
 
     pub fn tick_timers(&mut self) {
         self.poll_deps_install();
+        self.poll_factory_intent();
         if self.factory_tab.poll_background() {
             self.dirty = true;
         }
@@ -1008,42 +1040,16 @@ impl StatusApp {
 
         let web_captures = self.tab == StatusTab::Web && self.web_tab.captures_input();
         let factory_captures = self.tab == StatusTab::Factory && self.factory_tab.captures_input();
-        if event.modifiers.is_empty() && !web_captures && !factory_captures {
-            match event.code {
-                KeyCode::Char('1') => {
-                    self.set_tab(StatusTab::Status);
-                    return;
-                }
-                KeyCode::Char('2') => {
-                    self.set_tab(StatusTab::Sprint);
-                    return;
-                }
-                KeyCode::Char('3') => {
-                    self.set_tab(StatusTab::Spec);
-                    return;
-                }
-                KeyCode::Char('4') => {
-                    self.set_tab(StatusTab::Task);
-                    return;
-                }
-                KeyCode::Char('5') => {
-                    self.set_tab(StatusTab::Queries);
-                    return;
-                }
-                KeyCode::Char('6') => {
-                    self.set_tab(StatusTab::Web);
-                    return;
-                }
-                KeyCode::Char('7') => {
-                    self.set_tab(StatusTab::Settings);
-                    return;
-                }
-                KeyCode::Char('8') if self.is_factory() => {
-                    self.set_tab(StatusTab::Factory);
-                    return;
-                }
-                _ => {}
+        if event.modifiers.is_empty()
+            && !web_captures
+            && !factory_captures
+            && let KeyCode::Char(c @ '1'..='7') = event.code
+        {
+            let index = c as usize - '1' as usize;
+            if let Some(tab) = StatusTab::from_index_for(index, self.is_factory()) {
+                self.set_tab(tab);
             }
+            return;
         }
 
         if self.tab == StatusTab::Queries {
@@ -1219,6 +1225,12 @@ impl StatusApp {
                     {
                         self.action_refresh_now();
                     }
+                    StatusTab::Factory => {
+                        self.factory_tab.platform = self.platform.clone();
+                        let action = self.factory_tab.handle_mouse(event, &self.snapshot);
+                        self.handle_factory_action(action);
+                        self.dirty = true;
+                    }
                     StatusTab::Web => {
                         let action = self.web_tab.handle_mouse(event, self.body_area);
                         self.handle_web_action(action);
@@ -1282,17 +1294,13 @@ impl StatusApp {
                             .handle_mouse(event.kind, lines.len(), view_h);
                     }
                     StatusTab::Factory => {
-                        let ideas = self
-                            .snapshot
-                            .factory
-                            .as_ref()
-                            .map(|f| f.ideas.as_slice())
-                            .unwrap_or(&[]);
-                        match event.kind {
-                            MouseEventKind::ScrollUp => self.factory_tab.select_prev(ideas),
-                            MouseEventKind::ScrollDown => self.factory_tab.select_next(ideas),
-                            _ => {}
-                        }
+                        self.factory_tab.platform = self.platform.clone();
+                        let action = self.factory_tab.handle_mouse(event, &self.snapshot);
+                        self.handle_factory_action(action);
+                        self.dirty = true;
+                    }
+                    StatusTab::Settings => {
+                        self.settings_tab.handle_mouse(event, self.body_area);
                         self.dirty = true;
                     }
                     _ => {}

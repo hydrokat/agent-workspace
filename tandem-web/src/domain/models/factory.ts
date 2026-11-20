@@ -15,7 +15,14 @@ export type FeasibilityVerdict = "feasible" | "feasible-with-risks" | "infeasibl
 
 export type ActorKind = "user" | "orchestrator" | "system";
 
-export type FactoryCli = "claude" | "agy";
+export const FACTORY_CLIS = ["claude", "agy", "opencode"] as const;
+
+export type FactoryCli = (typeof FACTORY_CLIS)[number];
+
+export interface ModelOption {
+  id: string;
+  label: string;
+}
 
 export type ArtifactKind = "feasibility" | "plan";
 
@@ -373,7 +380,17 @@ export function isPngSignature(bytes: Uint8Array): boolean {
 }
 
 export function isValidCli(cli: string): cli is FactoryCli {
-  return cli === "claude" || cli === "agy";
+  return (FACTORY_CLIS as readonly string[]).includes(cli);
+}
+
+const OPENCODE_PART = "[A-Za-z0-9][A-Za-z0-9._:-]*";
+const OPENCODE_MODEL_RE = new RegExp(`^${OPENCODE_PART}/${OPENCODE_PART}(#${OPENCODE_PART})?$`);
+
+export function isValidModelIdForCli(cli: string, model: string): boolean {
+  if (cli === "opencode") {
+    return model.length <= 100 && OPENCODE_MODEL_RE.test(model);
+  }
+  return isValidModelId(model);
 }
 
 export function isValidModelId(model: string): boolean {

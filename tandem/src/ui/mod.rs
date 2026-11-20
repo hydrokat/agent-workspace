@@ -1,6 +1,7 @@
 pub mod buttons;
 pub mod collapsible;
 pub mod footer;
+pub mod hits;
 pub mod input;
 pub mod link;
 pub mod option_list;

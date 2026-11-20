@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout as RLayout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -22,13 +22,14 @@ use crate::status::factory_detail::{DetailAction, DetailKeyOutcome, FactoryDetai
 use crate::status::factory_run::{FactoryRun, RunKeyOutcome};
 use crate::status::render::age;
 use crate::tmux::keys::{FACTORY_NEW_IDEA_KEY, display_shortcut, matches_crossterm_event};
+use crate::ui::hits::{Hit, HitMap, Resolved};
 use crate::ui::input::TextInput;
 use crate::ui::option_list::{OptionItem, OptionList, OptionListState};
 use crate::ui::text::truncate_to_width;
 use crate::wizard::app::ModelLoader;
 use crate::wizard::runner::{installed_clis, load_models};
 
-const ORCHESTRATOR_CLIS: [&str; 2] = ["claude", "agy"];
+pub const ORCHESTRATOR_CLIS: [&str; 3] = ["claude", "agy", "opencode"];
 pub const BOARD_PAGE_SIZE: usize = 200;
 pub const ARCHIVE_AFTER_SECS: f64 = 30.0 * 86_400.0;
 
@@ -133,6 +134,8 @@ pub struct NewIdeaModal {
     model_rx: Option<Receiver<Result<Vec<Model>, String>>>,
     loader: ModelLoader,
     pub message: String,
+    pub hits: HitMap,
+    pub list_rect: Rect,
 }
 
 impl std::fmt::Debug for NewIdeaModal {
@@ -175,6 +178,8 @@ impl NewIdeaModal {
             model_rx: None,
             loader,
             message: String::new(),
+            hits: HitMap::default(),
+            list_rect: Rect::default(),
         }
     }
 
@@ -249,7 +254,8 @@ impl NewIdeaModal {
                 }
                 KeyCode::Enter => {
                     let Some(idx) = self.cli_state.selected else {
-                        self.message = "No supported CLI is installed (claude or agy).".to_string();
+                        self.message =
+                            "No supported CLI is installed (claude, agy, or opencode).".to_string();
                         return ModalKeyOutcome::Consumed;
                     };
                     let item = &self.cli_items[idx];
@@ -308,7 +314,51 @@ impl NewIdeaModal {
         }
     }
 
+    fn list_item_at(&self, col: u16, row: u16) -> Option<usize> {
+        let r = self.list_rect;
+        if r.width == 0 || col < r.x || col >= r.x + r.width || row < r.y || row >= r.y + r.height {
+            return None;
+        }
+        let (offset, len) = match self.step {
+            NewIdeaStep::Cli => (self.cli_state.scroll_offset, self.cli_items.len()),
+            NewIdeaStep::Model => (self.model_state.scroll_offset, self.model_items.len()),
+        };
+        let idx = offset + (row - r.y) as usize;
+        (idx < len).then_some(idx)
+    }
+
+    fn mouse_key(&mut self, event: &MouseEvent) -> Option<KeyEvent> {
+        let enter = KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some(idx) = self.list_item_at(event.column, event.row)
+        {
+            return match self.step {
+                NewIdeaStep::Cli => {
+                    let item = &self.cli_items[idx];
+                    if item.disabled {
+                        self.message = format!("{} is not installed.", item.id);
+                        None
+                    } else {
+                        self.cli_state.selected = Some(idx);
+                        Some(enter)
+                    }
+                }
+                NewIdeaStep::Model if self.model_state.selected == Some(idx) => Some(enter),
+                NewIdeaStep::Model => {
+                    self.model_state.selected = Some(idx);
+                    None
+                }
+            };
+        }
+        match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
+            Resolved::Key(key) => Some(key),
+            Resolved::Row(_) | Resolved::Cmd(_) => None,
+        }
+    }
+
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        self.hits.clear();
+        self.list_rect = Rect::default();
         if area.height == 0 || area.width == 0 {
             return;
         }
@@ -344,6 +394,7 @@ impl NewIdeaModal {
                     .saturating_sub(u16::from(!self.message.is_empty()));
                 if list_h > 0 {
                     let list_rect = Rect::new(area.x, y, area.width, list_h);
+                    self.list_rect = list_rect;
                     OptionList::new(&self.cli_items).render(list_rect, buf, &mut self.cli_state);
                     y += list_h;
                 }
@@ -377,6 +428,7 @@ impl NewIdeaModal {
                     if list_h > 0 {
                         let list_rect =
                             Rect::new(chunks[1].x, chunks[1].y, chunks[1].width, list_h);
+                        self.list_rect = list_rect;
                         OptionList::new(&self.model_items).render(
                             list_rect,
                             buf,
@@ -410,6 +462,29 @@ impl NewIdeaModal {
                 hint,
                 dim_style,
             );
+            let line = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+            let enter = Hit::key(KeyCode::Enter);
+            let esc = Hit::key(KeyCode::Esc);
+            match self.step {
+                NewIdeaStep::Cli => self.hits.tags(
+                    line,
+                    hint,
+                    &[
+                        ("↑/↓ choose CLI", Hit::key(KeyCode::Down)),
+                        ("Enter next", enter),
+                        ("Esc cancel", esc),
+                    ],
+                ),
+                NewIdeaStep::Model => self.hits.tags(
+                    line,
+                    hint,
+                    &[
+                        ("↑/↓ choose model", Hit::key(KeyCode::Down)),
+                        ("Enter start", enter),
+                        ("Esc back", esc),
+                    ],
+                ),
+            }
         }
     }
 }
@@ -436,6 +511,7 @@ pub struct FactoryTab {
     pub workspace: Option<PathBuf>,
     pub installed: HashMap<String, bool>,
     pub model_loader: ModelLoader,
+    pub hits: HitMap,
 }
 
 impl std::fmt::Debug for FactoryTab {
@@ -477,6 +553,7 @@ impl FactoryTab {
             workspace,
             installed,
             model_loader,
+            hits: HitMap::default(),
         }
     }
 
@@ -510,6 +587,14 @@ impl FactoryTab {
             self.model_loader.clone(),
         ));
         self.view = FactoryView::NewIdea;
+    }
+
+    pub fn focus_idea(&mut self, idea_id: &str) {
+        self.notice.clear();
+        self.new_idea = None;
+        self.view = FactoryView::Board;
+        self.filter = IdeaFilter::All;
+        self.selected_id = Some(idea_id.to_string());
     }
 
     pub fn filtered_ideas<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
@@ -848,7 +933,50 @@ impl FactoryTab {
         }
     }
 
+    pub fn handle_mouse(
+        &mut self,
+        event: &MouseEvent,
+        snapshot: &StatusSnapshot,
+    ) -> Option<FactoryAction> {
+        let key = match self.view {
+            FactoryView::NewIdea => self.new_idea.as_mut().and_then(|m| m.mouse_key(event)),
+            FactoryView::Detail => self.detail.as_mut().and_then(|d| d.mouse_key(event)),
+            FactoryView::RunMonitor => self.run_monitor.as_mut().and_then(|r| r.mouse_key(event)),
+            FactoryView::Audit => self.audit.as_mut().and_then(|a| a.mouse_key(event)),
+            FactoryView::Board => self.board_mouse_key(event, snapshot),
+        }?;
+        self.handle_key(&key, snapshot)
+    }
+
+    fn board_mouse_key(
+        &mut self,
+        event: &MouseEvent,
+        snapshot: &StatusSnapshot,
+    ) -> Option<KeyEvent> {
+        match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
+            Resolved::Key(key) => Some(key),
+            Resolved::Row(idx) => {
+                let (card_id, page) = {
+                    let filtered = self.filtered_ideas(snapshot);
+                    (filtered.get(idx)?.id.clone(), idx / BOARD_PAGE_SIZE)
+                };
+                if self.selected == Some(idx) {
+                    return Some(KeyEvent::new(
+                        KeyCode::Enter,
+                        crossterm::event::KeyModifiers::NONE,
+                    ));
+                }
+                self.selected = Some(idx);
+                self.selected_id = Some(card_id);
+                self.page = page;
+                None
+            }
+            Resolved::Cmd(_) => None,
+        }
+    }
+
     pub fn render(&mut self, snapshot: &StatusSnapshot, area: Rect, buf: &mut Buffer) {
+        self.hits.clear();
         if area.height == 0 || area.width == 0 {
             return;
         }
@@ -922,6 +1050,11 @@ impl FactoryTab {
                 &format!("FACTORY   ideas 0   {new_key} new idea"),
                 header_style,
             );
+            self.hits.tags(
+                Rect::new(area.x, area.y, area.width, 1),
+                &format!("FACTORY   ideas 0   {new_key} new idea"),
+                &[(&format!("{new_key} new idea"), Hit::ch('n'))],
+            );
             if area.height >= 2 {
                 write_clipped(buf, area.x, area.y + 1, max_w, "No ideas yet.", dim_style);
             }
@@ -977,6 +1110,16 @@ impl FactoryTab {
             )
         };
         write_clipped(buf, area.x, area.y, max_w, &header, header_style);
+        self.hits.tags(
+            Rect::new(area.x, area.y, area.width, 1),
+            &header,
+            &[
+                (&format!("filter: {} ▾", self.filter.label()), Hit::ch('f')),
+                (&format!("{new_key} new idea"), Hit::ch('n')),
+                ("Enter open", Hit::key(KeyCode::Enter)),
+                (page_label.trim(), Hit::key(KeyCode::PageDown)),
+            ],
+        );
         if area.height == 1 {
             return;
         }
@@ -1049,6 +1192,16 @@ impl FactoryTab {
                 break;
             }
             let is_sel = page_selected == Some(idx);
+            let row_lines = if narrow { 2 } else { 1 };
+            self.hits.push(
+                Rect::new(
+                    area.x,
+                    y,
+                    area.width,
+                    row_lines.min(bottom.saturating_sub(y)),
+                ),
+                Hit::Row(page_start + idx),
+            );
             let marker = if is_sel { "▶" } else { " " };
             let style = if is_sel {
                 Style::default()
@@ -1147,6 +1300,16 @@ impl FactoryTab {
                 max_w,
                 &hint,
                 dim_style,
+            );
+            self.hits.tags(
+                Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+                &hint,
+                &[
+                    ("↑/↓ move", Hit::key(KeyCode::Down)),
+                    ("f filter", Hit::ch('f')),
+                    (&format!("{new_key} new idea"), Hit::ch('n')),
+                    ("Enter open", Hit::key(KeyCode::Enter)),
+                ],
             );
         }
     }

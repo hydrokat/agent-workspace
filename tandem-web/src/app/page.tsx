@@ -77,6 +77,7 @@ export default function DashboardPage() {
     artifactsLoading,
     refreshDetail,
     startIdea,
+    listModels,
     markReady,
     revokeReady,
   } = useFactoryIdeas({
@@ -633,6 +634,7 @@ export default function DashboardPage() {
           open={newIdeaOpen}
           onOpenChange={setNewIdeaOpen}
           onStartIdea={startIdea}
+          loadModels={listModels}
           orchestratorPaneId={orchestratorPaneId}
           onOpenTerminal={handleInteractPaneId}
         />

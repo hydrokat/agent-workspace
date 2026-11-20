@@ -4,6 +4,7 @@ import type {
   AuditTimelinePayload,
   EvidenceItemContent,
   FactoryCli,
+  ModelOption,
   FactorySettings,
   FactorySettingsChangeResult,
   Idea,
@@ -66,6 +67,7 @@ export interface ITandemGateway {
     model: string,
     title?: string
   ): Promise<Idea>;
+  factoryListModels(workspacePath: string, cli: FactoryCli): Promise<ModelOption[]>;
   factoryMarkReady(
     workspacePath: string,
     ideaId: string,

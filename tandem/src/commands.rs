@@ -288,6 +288,7 @@ pub fn make_layout(workspace: &Path, config: &Config) -> Layout {
     let mut layout = Layout::new(&TmuxClient::new(&socket, None));
     layout.coord = Some(CoordStore::new(coord_dir_for(workspace, config)));
     layout.workspace = Some(workspace.to_string_lossy().to_string());
+    layout.factory = config.factory;
     let _ = layout.write_conf(&conf);
     layout.client = TmuxClient::new(&socket, Some(conf));
     layout
@@ -299,6 +300,7 @@ pub fn inspect_layout(workspace: &Path, config: &Config) -> Layout {
     let mut layout = Layout::new(&TmuxClient::new(&socket, Some(conf)));
     layout.coord = Some(CoordStore::new(coord_dir_for(workspace, config)));
     layout.workspace = Some(workspace.to_string_lossy().to_string());
+    layout.factory = config.factory;
     layout
 }
 
@@ -703,7 +705,19 @@ pub fn save_state_for(
     factory: bool,
 ) -> Result<SavedState, anyhow::Error> {
     let snapshot = capture_state(layout, clean)?;
+    store_snapshot(workspace, snapshot, factory)
+}
+
+pub fn store_snapshot(
+    workspace: &Path,
+    snapshot: SavedState,
+    factory: bool,
+) -> Result<SavedState, anyhow::Error> {
     if snapshot.agents.is_empty() {
+        if factory {
+            let _ = state::discard(&state::state_path_for(workspace, true));
+            return Ok(snapshot);
+        }
         return Err(anyhow::anyhow!("no agents to save"));
     }
     if factory {
@@ -848,8 +862,20 @@ pub fn restart(layout: &mut Layout, pane_id: &str, workspace: &Path, config: &Co
 
 pub fn resume_specs<F>(
     saved: &SavedState,
+    workspace: &Path,
+    which: F,
+) -> (Vec<AgentSpec>, Vec<String>)
+where
+    F: Fn(&str) -> Option<PathBuf>,
+{
+    resume_specs_for(saved, workspace, which, false)
+}
+
+pub fn resume_specs_for<F>(
+    saved: &SavedState,
     _workspace: &Path,
     which: F,
+    factory: bool,
 ) -> (Vec<AgentSpec>, Vec<String>)
 where
     F: Fn(&str) -> Option<PathBuf>,
@@ -857,6 +883,13 @@ where
     let mut specs = Vec::new();
     let mut notes = Vec::new();
     for a in &saved.agents {
+        if factory && a.role != "orchestrator" {
+            notes.push(format!(
+                "Ignored saved {} {}: Factory Mode only restores orchestrators.",
+                a.role, a.index
+            ));
+            continue;
+        }
         if which(&a.cli).is_none() {
             notes.push(format!(
                 "Skipped {} {}: {} is not installed.",

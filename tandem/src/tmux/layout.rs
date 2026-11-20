@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::coordination::store::CoordStore;
 use crate::tmux::client::{TmuxClient, TmuxError};
 use crate::tmux::keys::{
-    bind_commands, default_keymap, launcher_for, mouse_commands, resize_commands, run_shell,
+    bind_commands, default_keymap, launcher_for, mouse_commands_for, resize_commands, run_shell,
     status_left,
 };
 use crate::tmux::tabs::{FORMAT, PaneInfo, agents_in, parse_panes, render_title};
@@ -15,6 +15,21 @@ pub const SIDEBAR_COLS: usize = 26;
 pub const STACK_BELOW_COLS: usize = 100;
 pub const MAX_STATUS_SHARE: f64 = 0.4;
 pub const MIN_STATUS_ROWS: usize = 6;
+pub const FACTORY_STATUS_SHARE: f64 = 0.55;
+pub const FACTORY_MIN_STATUS_ROWS: usize = 14;
+pub const FACTORY_MIN_MAIN_ROWS: usize = 8;
+
+pub fn status_rows_for(factory: bool, height: usize) -> usize {
+    if !factory {
+        return STATUS_ROWS;
+    }
+    let target = (height as f64 * FACTORY_STATUS_SHARE) as usize;
+    let ceiling = height.saturating_sub(FACTORY_MIN_MAIN_ROWS);
+    target
+        .max(FACTORY_MIN_STATUS_ROWS)
+        .min(ceiling)
+        .max(MIN_STATUS_ROWS)
+}
 pub const ROLES: [&str; 2] = ["planner", "implementer"];
 pub const FACTORY_ROLES: [&str; 1] = ["orchestrator"];
 
@@ -95,6 +110,7 @@ pub struct Layout {
     pub self_cmd: Option<Vec<String>>,
     pub coord: Option<CoordStore>,
     pub workspace: Option<String>,
+    pub factory: bool,
 }
 
 impl Layout {
@@ -104,7 +120,30 @@ impl Layout {
             self_cmd: None,
             coord: None,
             workspace: None,
+            factory: false,
         }
+    }
+
+    fn window_height(&self) -> Option<usize> {
+        self.client
+            .run_checked(&[
+                "display-message",
+                "-p",
+                "-t",
+                &format!("{SESSION}:main"),
+                "#{window_height}",
+            ])
+            .ok()
+            .and_then(|out| out.trim().parse::<usize>().ok())
+    }
+
+    fn target_status_rows(&self) -> usize {
+        if !self.factory {
+            return STATUS_ROWS;
+        }
+        self.window_height()
+            .map(|h| status_rows_for(true, h))
+            .unwrap_or(STATUS_ROWS)
     }
 
     pub fn exists(&self) -> bool {
@@ -195,7 +234,7 @@ impl Layout {
     ) -> Result<HashMap<String, String>, TmuxError> {
         let w_str = width.to_string();
         let h_str = height.to_string();
-        let s_rows_str = STATUS_ROWS.to_string();
+        let s_rows_str = status_rows_for(self.factory, height).to_string();
         let sb_cols_str = SIDEBAR_COLS.to_string();
 
         let (sb_launch, main_launch, stash_launch) = if first.role == "sidebar" {
@@ -371,7 +410,13 @@ impl Layout {
         for argv in resize_commands(self_cmd_ref, self.workspace.as_deref()) {
             batch.push(argv);
         }
-        for argv in mouse_commands(self_cmd_ref, self.workspace.as_deref(), platform, &km) {
+        for argv in mouse_commands_for(
+            self_cmd_ref,
+            self.workspace.as_deref(),
+            platform,
+            &km,
+            self.factory,
+        ) {
             batch.push(argv);
         }
 
@@ -1340,7 +1385,11 @@ impl Layout {
             "#{pane_height}",
         ])?;
         let rows = res.trim().parse::<usize>().unwrap_or(0);
-        let limit = MIN_STATUS_ROWS.max((height as f64 * MAX_STATUS_SHARE) as usize);
+        let limit = if self.factory {
+            status_rows_for(true, height).max(MIN_STATUS_ROWS)
+        } else {
+            MIN_STATUS_ROWS.max((height as f64 * MAX_STATUS_SHARE) as usize)
+        };
         if rows > limit {
             let l_str = limit.to_string();
             Ok(Some(vec![
@@ -1401,7 +1450,7 @@ impl Layout {
                         .run_checked(&["resize-pane", "-t", p.id.as_str(), "-x", &def_cols]);
             }
             Some(p) if p.role == "status" => {
-                let s_str = STATUS_ROWS.to_string();
+                let s_str = self.target_status_rows().to_string();
                 let _ =
                     self.client
                         .run_checked(&["resize-pane", "-t", p.id.as_str(), "-y", &s_str]);
@@ -1433,7 +1482,7 @@ impl Layout {
                     .iter()
                     .find(|p| p.role == "status" && p.window == "main")
                 {
-                    let s_str = STATUS_ROWS.to_string();
+                    let s_str = self.target_status_rows().to_string();
                     let _ = self.client.run_checked(&[
                         "resize-pane",
                         "-t",
@@ -1571,7 +1620,7 @@ impl Layout {
             ],
         ];
 
-        let s_str = STATUS_ROWS.to_string();
+        let s_str = self.target_status_rows().to_string();
         if let Some(s) = status {
             batch.push(vec![
                 "resize-pane".into(),
@@ -1624,7 +1673,7 @@ impl Layout {
             .find(|p| p.role == "status" && p.window == "main");
 
         if let Some(s) = status {
-            let s_str = STATUS_ROWS.to_string();
+            let s_str = self.target_status_rows().to_string();
             let _ = self
                 .client
                 .run_checked(&["resize-pane", "-t", s.id.as_str(), "-y", &s_str]);

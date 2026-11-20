@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -29,10 +29,14 @@ use crate::sanitize::clean;
 use crate::snapshot::IdeaCard;
 use crate::status::render::age;
 use crate::tmux::keys::{FACTORY_MARK_READY_KEY, display_shortcut, matches_crossterm_event};
+use crate::ui::hits::{Hit, HitMap, Resolved, plain, seg};
 use crate::ui::input::TextInput;
 use crate::ui::link::{is_github_url, osc8};
 use crate::ui::scroll::ScrollView;
 use crate::ui::text::truncate_to_width;
+
+const CMD_CYCLE_WORKFLOW: u8 = 1;
+const CMD_TOGGLE_DEPLOY: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowOption {
@@ -100,6 +104,7 @@ pub struct FactoryDetail {
     pub loaded_state: Option<IdeaState>,
     pub loaded_blockers: Option<usize>,
     pub loaded_open_questions: Option<usize>,
+    pub hits: HitMap,
 }
 
 impl FactoryDetail {
@@ -130,6 +135,7 @@ impl FactoryDetail {
             loaded_state: None,
             loaded_blockers: None,
             loaded_open_questions: None,
+            hits: HitMap::default(),
         };
         detail.reload(queries, pane_open);
         detail
@@ -718,7 +724,43 @@ impl FactoryDetail {
         None
     }
 
+    pub fn mouse_key(&mut self, event: &MouseEvent) -> Option<KeyEvent> {
+        match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
+            Resolved::Key(key) => Some(key),
+            Resolved::Cmd(CMD_CYCLE_WORKFLOW) => {
+                if let DetailSubView::ConfirmReady {
+                    workflows,
+                    selected_wf,
+                    ..
+                } = &mut self.sub_view
+                {
+                    let valid: Vec<usize> = workflows
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, w)| w.valid)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if let Some(pos) = valid.iter().position(|&i| i == *selected_wf) {
+                        *selected_wf = valid[(pos + 1) % valid.len()];
+                    }
+                }
+                None
+            }
+            Resolved::Cmd(CMD_TOGGLE_DEPLOY) => {
+                if let DetailSubView::ConfirmReady {
+                    deploy_requested, ..
+                } = &mut self.sub_view
+                {
+                    *deploy_requested = !*deploy_requested;
+                }
+                None
+            }
+            Resolved::Cmd(_) | Resolved::Row(_) => None,
+        }
+    }
+
     pub fn render(&mut self, now: f64, area: Rect, buf: &mut Buffer) {
+        self.hits.clear();
         if area.height == 0 || area.width == 0 {
             return;
         }
@@ -742,6 +784,10 @@ impl FactoryDetail {
                     &format!("◀ Detail   {}", clean(title)),
                     header_style,
                 );
+                self.hits.push(
+                    Rect::new(area.x, area.y, area.width.min("◀ Detail".width() as u16), 1),
+                    Hit::key(KeyCode::Esc),
+                );
                 if area.height == 1 {
                     return;
                 }
@@ -752,12 +798,15 @@ impl FactoryDetail {
                 let body_rect = Rect::new(area.x, area.y + 1, area.width, body_h);
                 scroll.render_lines(&lines, body_rect, buf);
                 if show_hint {
-                    write_clipped(
+                    self.hits.put_hints(
                         buf,
-                        area.x,
-                        area.y + area.height - 1,
-                        max_w,
-                        "↑/↓ scroll   PgUp/PgDn page   Esc back",
+                        Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+                        &[
+                            seg("↑/↓ scroll", Hit::key(KeyCode::Down)),
+                            seg("PgUp/PgDn page", Hit::key(KeyCode::PageDown)),
+                            seg("Esc back", Hit::key(KeyCode::Esc)),
+                        ],
+                        "   ",
                         dim_style,
                     );
                 }
@@ -819,6 +868,10 @@ impl FactoryDetail {
                         "Workflow     default-delivery v1   w change".to_string()
                     };
                     write_clipped(buf, area.x, y, max_w, &wf_line, text_style);
+                    self.hits.push(
+                        Rect::new(area.x, y, area.width, 1),
+                        Hit::Cmd(CMD_CYCLE_WORKFLOW),
+                    );
                     y += 1;
                 }
                 for inv in workflows.iter().filter(|w| !w.valid) {
@@ -840,6 +893,10 @@ impl FactoryDetail {
                         "Deployment   not requested (needs a separate approval when requested)   d toggle"
                     };
                     write_clipped(buf, area.x, y, max_w, deploy_line, text_style);
+                    self.hits.push(
+                        Rect::new(area.x, y, area.width, 1),
+                        Hit::Cmd(CMD_TOGGLE_DEPLOY),
+                    );
                     y += 1;
                 }
                 if y < bottom {
@@ -854,12 +911,14 @@ impl FactoryDetail {
                     y += 1;
                 }
                 if y < bottom {
-                    write_clipped(
+                    self.hits.put_hints(
                         buf,
-                        area.x,
-                        area.y + area.height - 1,
-                        max_w,
-                        "Enter confirm   Esc cancel",
+                        Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+                        &[
+                            seg("Enter confirm", Hit::key(KeyCode::Enter)),
+                            seg("Esc cancel", Hit::key(KeyCode::Esc)),
+                        ],
+                        "   ",
                         dim_style,
                     );
                 }
@@ -879,12 +938,14 @@ impl FactoryDetail {
                     header_style,
                 );
                 if area.height >= 2 {
-                    write_clipped(
+                    self.hits.put_hints(
                         buf,
-                        area.x,
-                        area.y + 1,
-                        max_w,
-                        "y / Enter confirm revoke   n / Esc cancel",
+                        Rect::new(area.x, area.y + 1, area.width, 1),
+                        &[
+                            seg("y / Enter confirm revoke", Hit::ch('y')),
+                            seg("n / Esc cancel", Hit::ch('n')),
+                        ],
+                        "   ",
                         dim_style,
                     );
                 }
@@ -904,12 +965,14 @@ impl FactoryDetail {
                     header_style,
                 );
                 if area.height >= 2 {
-                    write_clipped(
+                    self.hits.put_hints(
                         buf,
-                        area.x,
-                        area.y + 1,
-                        max_w,
-                        "y / Enter confirm withdraw   n / Esc cancel",
+                        Rect::new(area.x, area.y + 1, area.width, 1),
+                        &[
+                            seg("y / Enter confirm withdraw", Hit::ch('y')),
+                            seg("n / Esc cancel", Hit::ch('n')),
+                        ],
+                        "   ",
                         dim_style,
                     );
                 }
@@ -936,6 +999,10 @@ impl FactoryDetail {
                 &format!("◀ Ideas   {}   ({err})", self.idea_id),
                 err_style,
             );
+            self.hits.push(
+                Rect::new(area.x, area.y, area.width.min("◀ Ideas".width() as u16), 1),
+                Hit::key(KeyCode::Esc),
+            );
             return;
         }
 
@@ -954,6 +1021,10 @@ impl FactoryDetail {
         let clean_title = clean(&idea.title);
         let mut y = area.y;
         let bottom = area.y + area.height;
+        self.hits.push(
+            Rect::new(area.x, area.y, area.width.min("◀ Ideas".width() as u16), 1),
+            Hit::key(KeyCode::Esc),
+        );
 
         if narrow {
             write_clipped(
@@ -1008,6 +1079,8 @@ impl FactoryDetail {
                 None => "Orchestrator: none".to_string(),
             };
             write_clipped(buf, area.x, y, max_w, &orch_line, text_style);
+            self.hits
+                .push(Rect::new(area.x, y, area.width, 1), Hit::ch('o'));
             y += 1;
         }
 
@@ -1268,20 +1341,66 @@ impl FactoryDetail {
             } else {
                 "resume"
             };
-            let run_hint = if self.run.is_some() {
-                "Enter run   h handoff   e evidence   u audit   r refresh PR status   "
+            let ready_hit = crate::tmux::keys::crossterm_key(FACTORY_MARK_READY_KEY)
+                .map(|k| Hit::Key(k.code, k.modifiers))
+                .unwrap_or(Hit::ch('m'));
+            let has_run = self.run.is_some();
+            let mut segments = vec![seg(format!("{ready_key} {action_label}"), ready_hit)];
+            if narrow {
+                if has_run {
+                    segments.extend([
+                        seg("h", Hit::ch('h')),
+                        plain("/"),
+                        seg("e", Hit::ch('e')),
+                        plain("/"),
+                        seg("r", Hit::ch('r')),
+                        plain("   "),
+                    ]);
+                }
+                segments.extend([
+                    seg("f", Hit::ch('f')),
+                    plain("/"),
+                    seg("p", Hit::ch('p')),
+                    plain("/"),
+                    seg("a", Hit::ch('a')),
+                    plain(" read   "),
+                    seg("Esc back", Hit::key(KeyCode::Esc)),
+                ]);
+                let first = segments.remove(0);
+                let mut spaced = vec![first, plain("   ")];
+                spaced.extend(segments);
+                self.hits.put_hints(
+                    buf,
+                    Rect::new(area.x, bottom - 1, area.width, 1),
+                    &spaced,
+                    "",
+                    dim_style,
+                );
             } else {
-                ""
-            };
-            let hints = if narrow {
-                let short_run = if self.run.is_some() { "h/e/r   " } else { "" };
-                format!("{ready_key} {action_label}   {short_run}f/p/a read   Esc back")
-            } else {
-                format!(
-                    "{ready_key} {action_label}   {run_hint}f feasibility   p plan   a assumptions   o {orch_label}   Esc back"
-                )
-            };
-            write_clipped(buf, area.x, bottom - 1, max_w, &hints, dim_style);
+                if has_run {
+                    segments.extend([
+                        seg("Enter run", Hit::key(KeyCode::Enter)),
+                        seg("h handoff", Hit::ch('h')),
+                        seg("e evidence", Hit::ch('e')),
+                        seg("u audit", Hit::ch('u')),
+                        seg("r refresh PR status", Hit::ch('r')),
+                    ]);
+                }
+                segments.extend([
+                    seg("f feasibility", Hit::ch('f')),
+                    seg("p plan", Hit::ch('p')),
+                    seg("a assumptions", Hit::ch('a')),
+                    seg(format!("o {orch_label}"), Hit::ch('o')),
+                    seg("Esc back", Hit::key(KeyCode::Esc)),
+                ]);
+                self.hits.put_hints(
+                    buf,
+                    Rect::new(area.x, bottom - 1, area.width, 1),
+                    &segments,
+                    "   ",
+                    dim_style,
+                );
+            }
         }
     }
 

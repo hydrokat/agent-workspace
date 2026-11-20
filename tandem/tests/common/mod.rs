@@ -2,6 +2,7 @@ pub mod factory_fixture;
 pub mod golden;
 pub mod parity;
 pub mod ready_deps;
+pub mod run_fixture;
 pub mod tools;
 pub mod topology;
 

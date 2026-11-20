@@ -3,6 +3,7 @@ use std::path::Path;
 
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
+use crate::adapters::AgentSpec;
 use crate::config::Config;
 use crate::state::SavedState;
 use crate::tmux::client::TmuxClient;
@@ -360,7 +361,8 @@ pub fn dispatch(cli: &Cli) -> Result<(), CliError> {
             std::process::exit(code);
         }
         Some(Command::AddAgent) => {
-            let spec = crate::wizard::runner::run_add_agent(None, None)?;
+            let factory = crate::commands::is_factory_session(&workspace);
+            let spec = crate::wizard::runner::run_add_agent_for_session(None, None, factory)?;
             if let Some(s) = spec {
                 crate::commands::add_agent(&s, &workspace, &config)?;
             }
@@ -557,8 +559,12 @@ pub fn launch(
 
     let mut specs = None;
     if resume && let Some(ref st) = saved {
-        let (resumed_specs, notes) =
-            crate::commands::resume_specs(st, workspace, crate::versions::default_which);
+        let (resumed_specs, notes) = crate::commands::resume_specs_for(
+            st,
+            workspace,
+            crate::versions::default_which,
+            factory,
+        );
         for note in notes {
             eprintln!("{note}");
         }
@@ -572,18 +578,36 @@ pub fn launch(
 
     if specs.is_none() {
         saved = None;
-        specs = crate::wizard::runner::run_launch_wizard(None, None)?;
     }
-
-    let final_specs = match specs {
-        Some(s) if !s.is_empty() => s,
-        _ => {
+    let final_specs = match select_launch_specs(factory, specs, || {
+        crate::wizard::runner::run_launch_wizard(None, None)
+    })? {
+        Some(s) => s,
+        None => {
             eprintln!("Cancelled.");
             std::process::exit(1);
         }
     };
 
     crate::commands::start(&final_specs, workspace, &effective_config, saved.as_ref())
+}
+
+pub fn select_launch_specs<F>(
+    factory: bool,
+    resumed: Option<Vec<AgentSpec>>,
+    wizard: F,
+) -> Result<Option<Vec<AgentSpec>>, std::io::Error>
+where
+    F: FnOnce() -> Result<Option<Vec<AgentSpec>>, std::io::Error>,
+{
+    if factory {
+        return Ok(Some(resumed.unwrap_or_default()));
+    }
+    let specs = match resumed {
+        Some(s) => Some(s),
+        None => wizard()?,
+    };
+    Ok(specs.filter(|s| !s.is_empty()))
 }
 
 pub fn note_legacy_session() {

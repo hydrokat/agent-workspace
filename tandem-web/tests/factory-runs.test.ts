@@ -72,6 +72,7 @@ function makeGateway(overrides?: Partial<ITandemGateway>): ITandemGateway {
     factoryStartIdea: async () => {
       throw new Error("unused");
     },
+    factoryListModels: async () => [],
     factoryMarkReady: async () => {
       throw new Error("unused");
     },

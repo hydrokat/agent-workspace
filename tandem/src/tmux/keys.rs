@@ -589,7 +589,7 @@ pub fn launcher_for(self_cmd: Option<&[&str]>, workspace: Option<&str>) -> Strin
     }
 }
 
-fn mouse3_menu_cmd(launcher: &str, km: &[Binding]) -> String {
+fn mouse3_menu_cmd(launcher: &str, km: &[Binding], factory: bool) -> String {
     let close_idx = action_index("close").unwrap();
     let add_idx = action_index("add-agent").unwrap();
     let help_idx = action_index("help").unwrap();
@@ -609,10 +609,18 @@ fn mouse3_menu_cmd(launcher: &str, km: &[Binding]) -> String {
         ),
         format!("{} w {}", q("Close agent…"), q(&close_cmd)),
         "\"\"".to_string(),
-        format!("{} n {}", q("New agent"), q(&add_agent_cmd)),
+        format!(
+            "{} n {}",
+            q(if factory {
+                "New orchestrator"
+            } else {
+                "New agent"
+            }),
+            q(&add_agent_cmd)
+        ),
         format!(
             "{} s {}",
-            q("Status"),
+            q(if factory { "Factory" } else { "Status" }),
             q(&run_shell(launcher, "focus status"))
         ),
         format!(
@@ -637,8 +645,18 @@ fn mouse3_menu_cmd(launcher: &str, km: &[Binding]) -> String {
 pub fn mouse_commands(
     self_cmd: Option<&[&str]>,
     workspace: Option<&str>,
+    platform: &str,
+    km: &[Binding],
+) -> Vec<Vec<String>> {
+    mouse_commands_for(self_cmd, workspace, platform, km, false)
+}
+
+pub fn mouse_commands_for(
+    self_cmd: Option<&[&str]>,
+    workspace: Option<&str>,
     _platform: &str,
     km: &[Binding],
+    factory: bool,
 ) -> Vec<Vec<String>> {
     let launcher = launcher_for(self_cmd, workspace);
 
@@ -656,7 +674,7 @@ pub fn mouse_commands(
         "bind-key".to_string(),
         "-n".to_string(),
         "MouseDown3Pane".to_string(),
-        mouse3_menu_cmd(&launcher, km),
+        mouse3_menu_cmd(&launcher, km, factory),
     ];
 
     let click1_border = vec![
@@ -840,12 +858,24 @@ pub fn help_lines(platform: &str, km: &[Binding]) -> Vec<String> {
 pub fn help_lines_with_factory(platform: &str, km: &[Binding], factory: bool) -> Vec<String> {
     let d = |raw: &str| display_shortcut(raw, platform).unwrap_or_else(|_| raw.to_string());
     let resize_k = d(&key_for("resize", km));
-    let tab_range = if factory { "1-8 direct" } else { "1-7 direct" };
+    let tab_range = if factory { "1-4 direct" } else { "1-7 direct" };
     let mut lines = vec![
         "tandem keys (agents in sidebar, main grid, status below)".to_string(),
         String::new(),
     ];
-    lines.extend(global_help_lines(platform, km));
+    if factory {
+        let planner_idx = action_index("planner");
+        let implementer_idx = action_index("implementer");
+        let factory_km: Vec<Binding> = km
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| Some(*i) != planner_idx && Some(*i) != implementer_idx)
+            .map(|(_, b)| b.clone())
+            .collect();
+        lines.extend(global_help_lines(platform, &factory_km));
+    } else {
+        lines.extend(global_help_lines(platform, km));
+    }
     lines.push(String::new());
     lines.extend([
         "Sidebar & Grid".to_string(),
