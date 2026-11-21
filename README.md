@@ -365,7 +365,7 @@ Factory Mode workers run interactively in tmux panes (`claude`, `agy`, `opencode
 
 Make sure these four prerequisites are in place before starting a run:
 
-1. **A Factory Mode session**: Launch with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share the same workspace at the same time.
+1. **A Factory Mode session**: Launch with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share the same workspace at the same time; if the other mode is active on an interactive terminal, tandem asks whether to save and terminate it before switching modes or attach to it so you can terminate it manually (non-TTY invocations exit `2`).
 2. **At least one signed-in AI CLI**: Verify `claude`, `agy`, or `opencode` is installed and signed in via **Settings → Agents & sign-in** or `tandem factory login status --json` (and `tandem factory login open <cli>`).
 3. **`gh` authenticated by you**: Run `gh auth login` on your machine so tandem can open a pull request on GitHub using your existing CLI session.
 4. **Confirmed check commands**: Inspect proposed `test` and `lint` commands with `tandem factory checks discover` and confirm them as the user with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`.

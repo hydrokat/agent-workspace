@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added: Interactive mode-switch prompt when Factory or Tandem is already active (`p-029` / `s-021`)
+- **Interactive mode-conflict prompt**: Attempting to launch Factory Mode (`./run.sh --factory` / `tandem --factory`) while a normal Tandem session is active—or symmetrically launching normal Tandem while Factory Mode is active—on an interactive terminal now prompts `[T]erminate <running> (saving state) and launch <target>`, `[l]aunch <running> to terminate it manually`, or `[q]uit`.
+- **Safe save-and-switch & attach isolation**: Terminating saves the active session's agents to its mode-specific state file (`tandem-session.json` or `tandem-session-factory.json`), removes the registry entry, kills the tmux session (including zero-agent sessions cleanly), and launches the target mode. Attaching or cancelling preserves the running session's mode configuration, and non-TTY invocations still print the mismatch message and exit with code `2`.
+
 ## [1.25.0] — 2026-11-21
 
 ### Added: Factory kanban board, global Agents view, and description at idea creation (`p-027` / `s-020`)

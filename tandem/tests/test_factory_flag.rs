@@ -1,12 +1,17 @@
 mod common;
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::Cursor;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use common::TempDir;
 use tandem::adapters::AgentSpec;
 use tandem::commands::{
-    agent_launch, mode_mismatch_message, sidebar_launch, status_launch, with_factory_env,
+    ModeConflictChoice, agent_launch, ask_mode_conflict_with, mode_mismatch_message,
+    mode_mismatch_prompt, parse_mode_conflict_choice, sidebar_launch, status_launch,
+    terminate_for_mode_switch, with_factory_env,
 };
 use tandem::config::Config;
 use tandem::registry::{
@@ -14,6 +19,8 @@ use tandem::registry::{
     register_or_heartbeat_with_mode,
 };
 use tandem::state::{SavedState, discard, load, save, state_path, state_path_for};
+use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
+use tandem::tmux::layout::Layout;
 
 #[test]
 fn test_config_factory_only_when_exact_one() {
@@ -217,4 +224,244 @@ fn test_mode_mismatch_messages() {
     );
     assert_eq!(mode_mismatch_message(true, true), None);
     assert_eq!(mode_mismatch_message(false, false), None);
+}
+
+struct MockSwitchTmuxRunner {
+    alive: AtomicBool,
+    panes_output: String,
+    calls: Mutex<Vec<Vec<String>>>,
+}
+
+impl MockSwitchTmuxRunner {
+    fn new(panes_output: &str) -> Self {
+        Self {
+            alive: AtomicBool::new(true),
+            panes_output: panes_output.to_string(),
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn calls(&self) -> Vec<Vec<String>> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl TmuxRunner for MockSwitchTmuxRunner {
+    fn run(&self, argv: &[String]) -> TmuxResult {
+        self.calls.lock().unwrap().push(argv.to_vec());
+        if argv.iter().any(|a| a == "has-session") {
+            let code = if self.alive.load(Ordering::SeqCst) {
+                0
+            } else {
+                1
+            };
+            return TmuxResult {
+                code,
+                out: String::new(),
+                err: String::new(),
+            };
+        }
+        if argv.iter().any(|a| a == "kill-session") {
+            self.alive.store(false, Ordering::SeqCst);
+            return TmuxResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            };
+        }
+        let out = if argv.iter().any(|a| a == "list-panes") {
+            self.panes_output.clone()
+        } else {
+            String::new()
+        };
+        TmuxResult {
+            code: 0,
+            out,
+            err: String::new(),
+        }
+    }
+}
+
+fn agent_spec_for(role: &str, cli: &str, model: &str) -> AgentSpec {
+    AgentSpec {
+        cli: cli.to_string(),
+        role: role.to_string(),
+        model: model.to_string(),
+        index: 1,
+        skip_permissions: false,
+        cwd: None,
+        conversation: Some(format!("conv-{role}")),
+        name: None,
+        idea: None,
+    }
+}
+
+#[test]
+fn test_mode_conflict_prompt_and_aliases() {
+    assert_eq!(mode_mismatch_prompt(true, true), None);
+    assert_eq!(mode_mismatch_prompt(false, false), None);
+
+    let to_factory = mode_mismatch_prompt(true, false).expect("tandem -> factory");
+    assert!(to_factory.contains("[T]erminate tandem"));
+    assert!(to_factory.contains("[l]aunch tandem"));
+
+    let to_tandem = mode_mismatch_prompt(false, true).expect("factory -> tandem");
+    assert!(to_tandem.contains("[T]erminate Factory Mode"));
+    assert!(to_tandem.contains("[l]aunch Factory Mode"));
+
+    for raw in ["", "t", "terminate", "y", "yes", "1"] {
+        assert_eq!(
+            parse_mode_conflict_choice(raw),
+            Some(ModeConflictChoice::TerminateAndLaunch)
+        );
+    }
+    for raw in ["l", "launch", "a", "attach", "m", "manual", "2"] {
+        assert_eq!(
+            parse_mode_conflict_choice(raw),
+            Some(ModeConflictChoice::AttachRunning)
+        );
+    }
+    for raw in ["q", "quit", "n", "no", "c", "cancel", "3"] {
+        assert_eq!(
+            parse_mode_conflict_choice(raw),
+            Some(ModeConflictChoice::Cancel)
+        );
+    }
+    assert_eq!(parse_mode_conflict_choice("invalid"), None);
+
+    let mut non_tty_out = Vec::new();
+    let mut non_tty_in = Cursor::new(b"t\n");
+    assert_eq!(
+        ask_mode_conflict_with(true, false, false, &mut non_tty_in, &mut non_tty_out),
+        None
+    );
+    assert!(non_tty_out.is_empty());
+
+    let mut tty_out = Vec::new();
+    let mut tty_in = Cursor::new(b"oops\n\n");
+    assert_eq!(
+        ask_mode_conflict_with(true, false, true, &mut tty_in, &mut tty_out),
+        Some(ModeConflictChoice::TerminateAndLaunch)
+    );
+    let rendered = String::from_utf8(tty_out).unwrap();
+    assert_eq!(rendered.matches("[T]erminate tandem").count(), 2);
+
+    let mut attach_out = Vec::new();
+    let mut attach_in = Cursor::new(b"launch\n");
+    assert_eq!(
+        ask_mode_conflict_with(false, true, true, &mut attach_in, &mut attach_out),
+        Some(ModeConflictChoice::AttachRunning)
+    );
+}
+
+#[test]
+fn test_terminate_for_mode_switch_saves_active_mode_without_cross_contaminating() {
+    let ws_tmp = TempDir::new();
+    let state_tmp = TempDir::new();
+    let ws = ws_tmp.path();
+    let state_dir = state_tmp.path();
+
+    register_or_heartbeat_with_mode(state_dir, ws, Some(101), false).unwrap();
+
+    let existing_factory_state = SavedState::new(
+        vec![agent_spec_for("orchestrator", "claude", "opus")],
+        BTreeMap::from([("orchestrator".to_string(), 1)]),
+        Some(26),
+        Some(14),
+        100.0,
+    );
+    save(&state_path_for(ws, true), &existing_factory_state).unwrap();
+
+    let panes = "%1\tmain\tagent\tplanner\t1\tclaude·sonnet\t0\t\tplanner-1\t{\"cli\":\"claude\",\"model\":\"sonnet\"}\t1.0";
+    let runner = Arc::new(MockSwitchTmuxRunner::new(panes));
+    let client = TmuxClient::with_runner("tandem-test", None, runner.clone());
+    let layout = Layout::new(&client);
+
+    let saved = terminate_for_mode_switch(&layout, ws, state_dir, false).unwrap();
+    assert_eq!(saved, 1);
+    assert!(!layout.exists());
+
+    let saved_normal = load(&state_path_for(ws, false)).expect("normal state saved");
+    assert_eq!(saved_normal.agents.len(), 1);
+    assert_eq!(saved_normal.agents[0].role, "planner");
+    assert_eq!(saved_normal.agents[0].model, "sonnet");
+
+    let preserved_factory = load(&state_path_for(ws, true)).expect("factory state untouched");
+    assert_eq!(preserved_factory.agents[0].role, "orchestrator");
+    assert_eq!(preserved_factory.agents[0].model, "opus");
+
+    assert!(
+        load_registry(&default_registry_path(state_dir))
+            .unwrap()
+            .workspaces
+            .is_empty()
+    );
+    let calls = runner.calls();
+    assert!(
+        calls
+            .iter()
+            .any(|args| args.windows(2).any(|w| w == ["@tandem_closing", "1"]))
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|args| args.iter().any(|a| a == "kill-session"))
+    );
+}
+
+#[test]
+fn test_terminate_for_mode_switch_reverse_direction_and_zero_agents() {
+    let ws_tmp = TempDir::new();
+    let state_tmp = TempDir::new();
+    let ws = ws_tmp.path();
+    let state_dir = state_tmp.path();
+
+    register_or_heartbeat_with_mode(state_dir, ws, Some(202), true).unwrap();
+    let existing_normal_state = SavedState::new(
+        vec![agent_spec_for("planner", "agy", "flash")],
+        BTreeMap::from([("planner".to_string(), 1)]),
+        Some(26),
+        Some(10),
+        100.0,
+    );
+    save(&state_path_for(ws, false), &existing_normal_state).unwrap();
+
+    let factory_panes = "%2\tmain\tagent\torchestrator\t1\tclaude·opus\t0\t\torchestrator-1\t{\"cli\":\"claude\",\"model\":\"opus\"}\t1.0";
+    let factory_runner = Arc::new(MockSwitchTmuxRunner::new(factory_panes));
+    let factory_layout = Layout::new(&TmuxClient::with_runner(
+        "tandem-test",
+        None,
+        factory_runner,
+    ));
+
+    let saved = terminate_for_mode_switch(&factory_layout, ws, state_dir, true).unwrap();
+    assert_eq!(saved, 1);
+    assert!(!factory_layout.exists());
+
+    let saved_factory = load(&state_path_for(ws, true)).expect("factory state saved");
+    assert_eq!(saved_factory.agents[0].role, "orchestrator");
+    assert_eq!(saved_factory.agents[0].model, "opus");
+
+    let preserved_normal = load(&state_path_for(ws, false)).expect("normal state untouched");
+    assert_eq!(preserved_normal.agents[0].role, "planner");
+    assert_eq!(preserved_normal.agents[0].model, "flash");
+
+    register_or_heartbeat_with_mode(state_dir, ws, Some(303), false).unwrap();
+    let placeholder_only = "%3\tmain\town\tsidebar\t0\tsidebar\t0\t\t\t\t1.0";
+    let empty_runner = Arc::new(MockSwitchTmuxRunner::new(placeholder_only));
+    let empty_layout = Layout::new(&TmuxClient::with_runner("tandem-test", None, empty_runner));
+
+    let zero_saved = terminate_for_mode_switch(&empty_layout, ws, state_dir, true).unwrap();
+    assert_eq!(zero_saved, 0);
+    assert!(!empty_layout.exists());
+    assert!(
+        load(&state_path_for(ws, true)).is_some(),
+        "zero-agent switch must not discard previously saved factory state"
+    );
+    assert!(
+        load_registry(&default_registry_path(state_dir))
+            .unwrap()
+            .workspaces
+            .is_empty()
+    );
 }

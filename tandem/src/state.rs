@@ -18,6 +18,10 @@ pub const FACTORY_ROLES: [&str; 1] = ["orchestrator"];
 pub fn roles(factory: bool) -> &'static [&'static str] {
     if factory { &FACTORY_ROLES } else { &ROLES }
 }
+
+fn is_supported_role(role: &str) -> bool {
+    ROLES.contains(&role) || FACTORY_ROLES.contains(&role)
+}
 pub const MAX_AGENTS: usize = 40;
 pub const DEFAULT_SIDEBAR_COLS: usize = 26;
 pub const DEFAULT_STATUS_ROWS: usize = 10;
@@ -105,7 +109,7 @@ impl SavedState {
     ) -> Self {
         let status_r = status_rows.unwrap_or(DEFAULT_STATUS_ROWS as u32) as usize;
         let mut selected = Vec::new();
-        for role in ["planner", "implementer"] {
+        for role in ["planner", "implementer", "orchestrator"] {
             if let Some(&idx) = active.get(role)
                 && let Some(agent) = agents.iter().find(|a| a.role == role && a.index == idx)
             {
@@ -164,6 +168,9 @@ pub fn to_json(state: &SavedState) -> serde_json::Value {
             });
             if let Some(ref name) = a.name {
                 obj["name"] = serde_json::json!(name);
+            }
+            if let Some(ref idea) = a.idea {
+                obj["idea"] = serde_json::json!(idea);
             }
             obj
         })
@@ -253,7 +260,7 @@ fn parse_agent(raw: &serde_json::Value) -> Option<AgentSpec> {
     let model = obj.get("model")?.as_str()?;
     let index = obj.get("index")?.as_u64()?;
 
-    if !CLIS.contains(&cli) || !ROLES.contains(&role) || !(1..=99).contains(&index) {
+    if !CLIS.contains(&cli) || !is_supported_role(role) || !(1..=99).contains(&index) {
         return None;
     }
 
@@ -347,7 +354,7 @@ pub fn parse(data: &serde_json::Value) -> Option<SavedState> {
     let mut active = BTreeMap::new();
     if let Some(raw_active) = obj.get("active").and_then(|v| v.as_object()) {
         for (r, i_val) in raw_active {
-            if ROLES.contains(&r.as_str())
+            if is_supported_role(r.as_str())
                 && let Some(idx) = i_val.as_u64()
             {
                 let key = (r.clone(), idx as usize);
@@ -399,7 +406,7 @@ pub fn parse(data: &serde_json::Value) -> Option<SavedState> {
     } else {
         let status_r = status_rows.unwrap_or(DEFAULT_STATUS_ROWS as u32) as usize;
         let mut selected = Vec::new();
-        for role in ["planner", "implementer"] {
+        for role in ["planner", "implementer", "orchestrator"] {
             if let Some(&idx) = active.get(role)
                 && let Some(agent) = agents.iter().find(|a| a.role == role && a.index == idx)
             {

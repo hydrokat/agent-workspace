@@ -31,6 +31,17 @@ pub fn with_factory_env(mut launch: Launch, factory: bool) -> Launch {
     launch
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeConflictChoice {
+    TerminateAndLaunch,
+    AttachRunning,
+    Cancel,
+}
+
+pub fn mode_label(factory: bool) -> &'static str {
+    if factory { "Factory Mode" } else { "tandem" }
+}
+
 pub fn mode_mismatch_message(
     requested_factory: bool,
     running_factory: bool,
@@ -44,6 +55,119 @@ pub fn mode_mismatch_message(
         ),
         _ => None,
     }
+}
+
+pub fn mode_mismatch_prompt(requested_factory: bool, running_factory: bool) -> Option<String> {
+    if requested_factory == running_factory {
+        return None;
+    }
+    let running = mode_label(running_factory);
+    let target = mode_label(requested_factory);
+    let heading = if running_factory {
+        "A Factory Mode session"
+    } else {
+        "A normal tandem session"
+    };
+    Some(format!(
+        "{heading} is active in this workspace.\n\
+         [T]erminate {running} (saving state) and launch {target}, [l]aunch {running} to terminate it manually, or [q]uit? "
+    ))
+}
+
+pub fn parse_mode_conflict_choice(input: &str) -> Option<ModeConflictChoice> {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "" | "t" | "terminate" | "y" | "yes" | "1" => Some(ModeConflictChoice::TerminateAndLaunch),
+        "l" | "launch" | "a" | "attach" | "m" | "manual" | "2" => {
+            Some(ModeConflictChoice::AttachRunning)
+        }
+        "q" | "quit" | "n" | "no" | "c" | "cancel" | "3" => Some(ModeConflictChoice::Cancel),
+        _ => None,
+    }
+}
+
+pub fn ask_mode_conflict_with<R: io::BufRead, W: Write>(
+    requested_factory: bool,
+    running_factory: bool,
+    is_tty: bool,
+    reader: &mut R,
+    writer: &mut W,
+) -> Option<ModeConflictChoice> {
+    if !is_tty {
+        return None;
+    }
+    let prompt = mode_mismatch_prompt(requested_factory, running_factory)?;
+    let (header, question) = prompt.split_once('\n').unwrap_or(("", prompt.as_str()));
+    if !header.is_empty() {
+        let _ = writeln!(writer, "{header}");
+    }
+    loop {
+        let _ = write!(writer, "{question}");
+        let _ = writer.flush();
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => return Some(ModeConflictChoice::Cancel),
+            Ok(_) => {
+                if let Some(choice) = parse_mode_conflict_choice(&line) {
+                    return Some(choice);
+                }
+            }
+        }
+    }
+}
+
+pub fn ask_mode_conflict(
+    requested_factory: bool,
+    running_factory: bool,
+) -> Option<ModeConflictChoice> {
+    let stdin = io::stdin();
+    let is_tty = stdin.is_terminal();
+    let mut reader = stdin.lock();
+    let mut writer = io::stdout();
+    ask_mode_conflict_with(
+        requested_factory,
+        running_factory,
+        is_tty,
+        &mut reader,
+        &mut writer,
+    )
+}
+
+pub fn terminate_for_mode_switch(
+    layout: &Layout,
+    workspace: &Path,
+    state_dir: &Path,
+    running_factory: bool,
+) -> Result<usize, anyhow::Error> {
+    let _ = layout
+        .client
+        .run_checked(&["set-option", "-t", SESSION, CLOSING, "1"]);
+
+    let mut saved_agents = 0usize;
+    if let Ok(snapshot) = capture_state(layout, true)
+        && !snapshot.agents.is_empty()
+    {
+        saved_agents = snapshot.agents.len();
+        if let Err(err) = store_snapshot(workspace, snapshot, running_factory) {
+            let _ = layout
+                .client
+                .run_checked(&["set-option", "-u", "-t", SESSION, CLOSING]);
+            return Err(err);
+        }
+    }
+
+    let _ = crate::registry::remove(state_dir, workspace);
+    let _ = layout.client.run_checked(&["kill-session", "-t", SESSION]);
+    for _ in 0..50 {
+        if !layout.exists() {
+            return Ok(saved_agents);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    Err(anyhow::anyhow!(
+        "timed out waiting for the running {} session to terminate",
+        mode_label(running_factory)
+    ))
 }
 
 pub fn is_factory_session(workspace: &Path) -> bool {
@@ -2134,4 +2258,82 @@ pub fn web_qr_cmd(workspace: &Path, _config: &Config) -> io::Result<()> {
     render_qr_popup(&mut out, &content, cols)?;
     out.flush()?;
     wait_for_dismiss_key()
+}
+
+#[cfg(test)]
+mod mode_switch_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn parse_mode_conflict_choice_handles_aliases_and_unknowns() {
+        for raw in ["", "   ", "t", "T", "terminate", "y", "YES", "1"] {
+            assert_eq!(
+                parse_mode_conflict_choice(raw),
+                Some(ModeConflictChoice::TerminateAndLaunch),
+                "expected TerminateAndLaunch for {raw:?}"
+            );
+        }
+        for raw in ["l", "L", "launch", "a", "attach", "m", "manual", "2"] {
+            assert_eq!(
+                parse_mode_conflict_choice(raw),
+                Some(ModeConflictChoice::AttachRunning),
+                "expected AttachRunning for {raw:?}"
+            );
+        }
+        for raw in ["q", "Q", "quit", "n", "no", "c", "cancel", "3"] {
+            assert_eq!(
+                parse_mode_conflict_choice(raw),
+                Some(ModeConflictChoice::Cancel),
+                "expected Cancel for {raw:?}"
+            );
+        }
+        for raw in ["invalid", "foo", "x", "0"] {
+            assert_eq!(
+                parse_mode_conflict_choice(raw),
+                None,
+                "expected None for {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mode_mismatch_prompt_only_emits_on_conflict() {
+        assert_eq!(mode_mismatch_prompt(true, true), None);
+        assert_eq!(mode_mismatch_prompt(false, false), None);
+
+        let to_factory = mode_mismatch_prompt(true, false).expect("tandem -> factory prompt");
+        assert!(to_factory.contains("normal tandem session"));
+        assert!(to_factory.contains("[T]erminate tandem"));
+        assert!(to_factory.contains("[l]aunch tandem"));
+
+        let to_tandem = mode_mismatch_prompt(false, true).expect("factory -> tandem prompt");
+        assert!(to_tandem.contains("Factory Mode session"));
+        assert!(to_tandem.contains("[T]erminate Factory Mode"));
+        assert!(to_tandem.contains("[l]aunch Factory Mode"));
+    }
+
+    #[test]
+    fn ask_mode_conflict_with_retries_and_respects_tty() {
+        let mut out = Vec::new();
+        let mut reader = Cursor::new(b"t\n");
+        assert_eq!(
+            ask_mode_conflict_with(true, false, false, &mut reader, &mut out),
+            None
+        );
+        assert!(out.is_empty());
+
+        let mut reader = Cursor::new(b"bogus\nl\n");
+        let choice = ask_mode_conflict_with(true, false, true, &mut reader, &mut out);
+        assert_eq!(choice, Some(ModeConflictChoice::AttachRunning));
+        let rendered = String::from_utf8(out).unwrap();
+        assert_eq!(rendered.matches("[T]erminate tandem").count(), 2);
+
+        let mut empty_out = Vec::new();
+        let mut eof_reader = Cursor::new(b"");
+        assert_eq!(
+            ask_mode_conflict_with(false, true, true, &mut eof_reader, &mut empty_out),
+            Some(ModeConflictChoice::Cancel)
+        );
+    }
 }
