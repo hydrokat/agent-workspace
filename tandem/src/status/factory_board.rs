@@ -12,6 +12,7 @@ use crate::ui::text::truncate_to_width;
 
 pub const MIN_COLUMNS_WIDTH: u16 = 110;
 pub const COLUMN_MIN_WIDTH: u16 = 22;
+pub const PICKER_CMD_BASE: u8 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BoardLayout {
@@ -145,7 +146,11 @@ impl MovePicker {
 
 pub fn picker_hits(line_area: Rect, text: &str, spans: &[(String, usize)], hits: &mut HitMap) {
     for (needle, idx) in spans {
-        hits.tags(line_area, text, &[(needle.as_str(), Hit::Cmd(*idx as u8))]);
+        hits.tags(
+            line_area,
+            text,
+            &[(needle.as_str(), Hit::Cmd(PICKER_CMD_BASE + *idx as u8))],
+        );
     }
 }
 

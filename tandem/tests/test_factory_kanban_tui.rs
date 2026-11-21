@@ -516,3 +516,45 @@ fn the_start_action_carries_title_and_description() {
         })
     );
 }
+
+#[test]
+fn clicking_a_column_header_while_the_picker_is_open_does_not_choose_a_move() {
+    let snap = snapshot(ideas());
+    let mut tab = tab_for(&snap);
+    tab.focus_idea("i-plan0001");
+    tab.sync_snapshot(&snap, false);
+    tab.handle_key(&ch('m'), &snap);
+    let out = render(&mut tab, &snap, 160, 14);
+    let (row, col) = out
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Planning (2)").map(|x| (y as u16, x as u16)))
+        .expect("header visible");
+
+    assert_eq!(tab.handle_mouse(&click(col, row), &snap), None);
+    assert!(tab.move_picker.is_some(), "the picker stays open");
+    assert!(tab.cancel_confirm.is_none());
+    assert_eq!(tab.view, FactoryView::Board);
+}
+
+#[test]
+fn clicking_a_picker_option_chooses_that_move() {
+    let snap = snapshot(ideas());
+    let mut tab = tab_for(&snap);
+    tab.focus_idea("i-plan0001");
+    tab.sync_snapshot(&snap, false);
+    tab.handle_key(&ch('m'), &snap);
+    let out = render(&mut tab, &snap, 160, 14);
+    let (row, col) = out
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Cancel idea").map(|x| (y as u16, x as u16)))
+        .expect("option visible");
+
+    let enter = tab.handle_mouse(&click(col, row), &snap);
+    assert_eq!(enter, None, "the click is turned into Enter internally");
+    assert!(
+        tab.cancel_confirm.is_some(),
+        "choosing Cancel asks for confirmation"
+    );
+}

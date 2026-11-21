@@ -21,8 +21,8 @@ use crate::status::factory_agents::{AgentsKeyOutcome, FactoryAgents};
 use crate::status::factory_audit::{AuditKeyOutcome, FactoryAudit};
 use crate::status::factory_board::{
     BoardLayout, ColumnView, ColumnsRender, MIN_COLUMNS_WIDTH, MoveOutcome, MovePicker,
-    PickerOutcome, column_states, first_visible, move_outcome, picker_hits, render_columns,
-    short_label, visible_column_count,
+    PICKER_CMD_BASE, PickerOutcome, column_states, first_visible, move_outcome, picker_hits,
+    render_columns, short_label, visible_column_count,
 };
 use crate::status::factory_detail::{DetailAction, DetailKeyOutcome, FactoryDetail};
 use crate::status::factory_run::{FactoryRun, RunKeyOutcome};
@@ -1427,10 +1427,18 @@ impl FactoryTab {
                 }
                 None
             }
+            Resolved::Cmd(c) if c >= PICKER_CMD_BASE => {
+                let picker = self.move_picker.as_mut()?;
+                let idx = (c - PICKER_CMD_BASE) as usize;
+                if idx >= picker.moves.len() {
+                    return None;
+                }
+                picker.selected = idx;
+                Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            }
             Resolved::Cmd(c) => {
-                if let Some(ref mut picker) = self.move_picker {
-                    picker.selected = (c as usize).min(picker.moves.len().saturating_sub(1));
-                    return Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                if self.move_picker.is_some() {
+                    return None;
                 }
                 let states = column_states(snapshot.factory.as_ref()?);
                 let state = *states.get(c as usize)?;
