@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added: Factory Mode `/idea` skill integration (`p-028` / `s-019`)
+- **Orchestrator-driven idea creation & pane binding**: `tandem factory idea new` now supports `--start-discovery`, `--bind-current`, `--cli`, `--model`, and `--conversation` so an Orchestrator session can create a new Factory idea in `Ideation`, bind `Idea.orchestrator`, and update `@tandem_idea` on the calling tmux pane. Added `tandem factory idea current [--json]` to resolve the calling pane's live `@tandem_idea` before falling back to `TANDEM_FACTORY_IDEA`. Storing a `feasibility` artifact on an `Inbox` idea now automatically emits `IdeaDiscoveryStarted` (`Inbox` -> `Ideation`).
+- **`factory.py` wrapper enhancements**: Added `--idea <id>` override, `factory.py new`, and `factory.py ensure-idea` (which reuses a bound blank `Inbox` placeholder via `describe` or creates and binds a new Factory idea via `new --start-discovery --bind-current`), plus live `@tandem_idea` pane lookup when `TMUX_PANE` is set.
+- **Factory-aware `/idea` skill and `idea.py` helpers**: Added `idea.py mode [--factory]` (auto-detecting Factory Mode via `--factory`, `TANDEM_FACTORY=1`, `TANDEM_ROLE=orchestrator`, `TANDEM_FACTORY_IDEA`, or `tandem factory status --json`), `idea.py factory-map` (mapping `/feasibility` verdicts and effort/unknowns to Factory `FeasibilityVerdict` and `Risk`), and `idea.py result --idea <id>`. In Factory Mode, `/idea` drives the idea through `ensure-idea`, `/feasibility --save`, `factory.py feasibility`, `idea.py gate` / `factory.py assume`, `factory.py select-direction` (Gate 1), and the 5-section `factory.py plan`, stopping at user-only Gate 2 (`Planning`).
+
 ## [1.23.0] — 2026-11-21
 
 ### Added: Cost-aware model routing for the interactive team (`p-025` / `s-018`)

@@ -167,9 +167,22 @@ describe('script-first skills ship their scripts and templates', () => {
 
   it('idea chains feasibility and spec-planner with unattended defaults and machine-readable output', () => {
     const ideaText = skill('idea');
-    for (const token of ['/feasibility', '/spec-planner', 'idea.py gate', '--auto', 'idea_result']) {
+    for (const token of [
+      '/feasibility',
+      '/spec-planner',
+      'idea.py gate',
+      '--auto',
+      'idea_result',
+      'idea.py mode',
+      'factory.py ensure-idea',
+      'factory-map',
+      'select-direction',
+    ]) {
       assert.ok(ideaText.includes(token), `idea SKILL.md includes ${token}`);
     }
+    const orchText = skill('factory-orchestrator');
+    assert.ok(orchText.includes('/idea'), 'factory-orchestrator SKILL.md references /idea');
+    assert.ok(orchText.includes('ensure-idea'), 'factory-orchestrator SKILL.md references ensure-idea');
     const plannerText = skill('spec-planner');
     assert.ok(plannerText.includes('Unattended Mode'));
     assert.ok(plannerText.includes('Always ask the user to choose the working branch'));

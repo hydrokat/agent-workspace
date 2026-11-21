@@ -1,5 +1,7 @@
 import ast
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -10,8 +12,26 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[2] / "templates/skills/idea/scripts/idea.py"
 
 
-def run(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, cwd=cwd)
+def run(cwd: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    base_env = dict(os.environ)
+    for k in (
+        "TANDEM_FACTORY",
+        "TANDEM_ROLE",
+        "TANDEM_FACTORY_IDEA",
+        "TANDEM_SELF",
+        "TANDEM_BIN",
+        "XDG_STATE_HOME",
+    ):
+        base_env.pop(k, None)
+    if env:
+        base_env.update(env)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env=base_env,
+    )
 
 
 def out(proc: subprocess.CompletedProcess[str]) -> dict[str, Any]:
@@ -151,6 +171,136 @@ def test_result_formatting_and_validation(tmp_path: Path) -> None:
     assert failed["idea_result"]["status"] == "failed"
     assert failed["idea_result"]["error"] == "boom"
     assert failed["idea_result"].get("next") is None
+
+
+def test_mode_detection(tmp_path: Path) -> None:
+    empty_state = tmp_path / "empty-state"
+    clean_env = {"XDG_STATE_HOME": str(empty_state), "PATH": "/usr/bin:/bin"}
+
+    d_default = out(run(tmp_path, "mode", env=clean_env))
+    assert d_default == {"mode": "classic", "reason": "default"}
+
+    d_flag = out(run(tmp_path, "mode", "--factory", env=clean_env))
+    assert d_flag == {"mode": "factory", "reason": "flag"}
+
+    d_env_f = out(run(tmp_path, "mode", env={**clean_env, "TANDEM_FACTORY": "1"}))
+    assert d_env_f == {"mode": "factory", "reason": "env"}
+
+    d_env_role = out(run(tmp_path, "mode", env={**clean_env, "TANDEM_ROLE": "orchestrator"}))
+    assert d_env_role == {"mode": "factory", "reason": "env"}
+
+    d_env_idea = out(run(tmp_path, "mode", env={**clean_env, "TANDEM_FACTORY_IDEA": "i-12345678"}))
+    assert d_env_idea == {"mode": "factory", "reason": "env"}
+
+    stub_enabled = tmp_path / "tandem-enabled"
+    stub_enabled.write_text(
+        '#!/usr/bin/env python3\nimport json\nprint(json.dumps({"enabled": True}))\n',
+        encoding="utf-8",
+    )
+    stub_enabled.chmod(stub_enabled.stat().st_mode | stat.S_IXUSR)
+    d_status_on = out(run(tmp_path, "mode", env={**clean_env, "TANDEM_SELF": str(stub_enabled)}))
+    assert d_status_on == {"mode": "factory", "reason": "status"}
+
+    stub_disabled = tmp_path / "tandem-disabled"
+    stub_disabled.write_text(
+        '#!/usr/bin/env python3\nimport json\nprint(json.dumps({"enabled": False}))\n',
+        encoding="utf-8",
+    )
+    stub_disabled.chmod(stub_disabled.stat().st_mode | stat.S_IXUSR)
+    d_status_off = out(run(tmp_path, "mode", env={**clean_env, "TANDEM_SELF": str(stub_disabled)}))
+    assert d_status_off == {"mode": "classic", "reason": "default"}
+
+
+@pytest.mark.parametrize(
+    "verdict,effort,unknowns,expected_verdict,expected_risk",
+    [
+        ("feasible", "S", 0, "feasible", "low"),
+        ("feasible", "M", 0, "feasible", "low"),
+        ("feasible", "M", 1, "feasible", "medium"),
+        ("feasible", "L", 0, "feasible", "medium"),
+        ("feasible", "XL", 0, "feasible", "high"),
+        ("feasible-with-caveats", "S", 0, "feasible-with-risks", "medium"),
+        ("feasible-with-caveats", "XL", 0, "feasible-with-risks", "high"),
+        ("needs-spike", "S", 1, "infeasible", "high"),
+        ("not-feasible", "S", 0, "infeasible", "high"),
+    ],
+)
+def test_factory_map_verdict_and_risk(
+    tmp_path: Path,
+    verdict: str,
+    effort: str,
+    unknowns: int,
+    expected_verdict: str,
+    expected_risk: str,
+) -> None:
+    mapped = out(
+        run(
+            tmp_path,
+            "factory-map",
+            "--verdict",
+            verdict,
+            "--effort",
+            effort,
+            "--unknowns",
+            str(unknowns),
+        )
+    )
+    assert mapped["factory_verdict"] == expected_verdict
+    assert mapped["factory_risk"] == expected_risk
+
+
+def test_result_supports_factory_idea(tmp_path: Path) -> None:
+    proc = run(
+        tmp_path,
+        "result",
+        "--status",
+        "planned",
+        "--idea",
+        "i-7k2m9q4d",
+        "--report",
+        "specs/feasibility/2026-11-21-export-audit-log.md",
+        "--verdict",
+        "feasible",
+        "--effort",
+        "M",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    payload = json.loads(proc.stdout.strip())
+    res = payload["idea_result"]
+    assert res["status"] == "planned"
+    assert res["mode"] == "factory"
+    assert res["idea"] == "i-7k2m9q4d"
+    assert res["next"] == "tandem factory idea ready i-7k2m9q4d --confirm i-7k2m9q4d"
+    assert res["slug"] == "export-audit-log"
+
+    err(run(tmp_path, "factory-map", "--verdict", "bogus", "--effort", "M"), 1)
+    err(run(tmp_path, "factory-map", "--verdict", "feasible", "--effort", "XXL"), 1)
+    err(
+        run(
+            tmp_path,
+            "factory-map",
+            "--verdict",
+            "feasible",
+            "--effort",
+            "M",
+            "--unknowns",
+            "-1",
+        ),
+        1,
+    )
+    err(
+        run(
+            tmp_path,
+            "result",
+            "--status",
+            "planned",
+            "--idea",
+            "i-7k2m9q4d",
+            "--mode",
+            "bogus",
+        ),
+        1,
+    )
 
 
 def test_idea_script_uses_stdlib_only() -> None:

@@ -607,7 +607,11 @@ pub fn decide(
                 conversation,
             },
         ) if !state.is_terminal() => {
-            ensure_actor(cmd, actor, &[ActorKind::User, ActorKind::System])?;
+            ensure_actor(
+                cmd,
+                actor,
+                &[ActorKind::User, ActorKind::Orchestrator, ActorKind::System],
+            )?;
             Ok(vec![EventData::IdeaOrchestratorBound {
                 cli: cli.clone(),
                 model: model.clone(),
@@ -665,14 +669,19 @@ pub fn decide(
                     "invalid artifact kind: {kind}"
                 )));
             }
-            Ok(vec![EventData::ArtifactStored {
+            let mut out = Vec::new();
+            if kind == "feasibility" && state == IdeaState::Inbox {
+                out.push(EventData::IdeaDiscoveryStarted {});
+            }
+            out.push(EventData::ArtifactStored {
                 kind: kind.clone(),
                 artifact: artifact.clone(),
                 verdict: *verdict,
                 risk: *risk,
                 workflow: workflow.clone(),
                 missing_sections: missing_sections.clone(),
-            }])
+            });
+            Ok(out)
         }
 
         (

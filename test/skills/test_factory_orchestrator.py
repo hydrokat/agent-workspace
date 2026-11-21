@@ -235,3 +235,190 @@ def test_recommend_minimal_and_validates_choices(tmp_path: Path) -> None:
     ]
     bad = run_factory("recommend", "--run", "r-7k2m9x4q", "--stage", "review", "--complexity", "huge", env=env)
     assert bad.returncode == 2
+
+
+def test_idea_flag_overrides_env_before_or_after_subcommand(tmp_path: Path) -> None:
+    stub = make_stub_tandem(tmp_path / "bin")
+    env = {"TANDEM_SELF": str(stub), "TANDEM_FACTORY_IDEA": "i-oldidea1"}
+
+    p_before = run_factory("--idea", "i-newidea2", "show", env=env)
+    assert p_before.returncode == 0, p_before.stderr
+    assert json.loads(p_before.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "show",
+        "i-newidea2",
+        "--json",
+    ]
+
+    p_after = run_factory("select-direction", "--idea", "i-newidea3", env={"TANDEM_SELF": str(stub)})
+    assert p_after.returncode == 0, p_after.stderr
+    assert json.loads(p_after.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "select-direction",
+        "i-newidea3",
+        "--json",
+    ]
+
+
+def test_new_subcommand_builds_idea_new_argv_without_requiring_idea_env(tmp_path: Path) -> None:
+    stub = make_stub_tandem(tmp_path / "bin")
+    env = {"TANDEM_SELF": str(stub)}
+
+    p_bind = run_factory("new", "--title", "Fresh Idea", "--text-file", "desc.md", env=env)
+    assert p_bind.returncode == 0, p_bind.stderr
+    assert json.loads(p_bind.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "new",
+        "--title",
+        "Fresh Idea",
+        "--text-file",
+        "desc.md",
+        "--start-discovery",
+        "--bind-current",
+        "--json",
+    ]
+
+    p_nobind = run_factory(
+        "new", "--title", "Unbound Idea", "--text-file", "desc.md", "--no-bind", env=env
+    )
+    assert p_nobind.returncode == 0, p_nobind.stderr
+    assert json.loads(p_nobind.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "new",
+        "--title",
+        "Unbound Idea",
+        "--text-file",
+        "desc.md",
+        "--start-discovery",
+        "--json",
+    ]
+
+
+def make_stateful_stub_tandem(directory: Path, show_payload: dict | None = None, current_payload: dict | None = None) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    bin_path = directory / "tandem"
+    show_repr = repr(show_payload)
+    current_repr = repr(current_payload)
+    bin_path.write_text(
+        f"""#!/usr/bin/env python3
+import json
+import sys
+
+argv = sys.argv[1:]
+show_payload = {show_repr}
+current_payload = {current_repr}
+
+if argv[:3] == ["factory", "idea", "current"]:
+    if current_payload is not None:
+        print(json.dumps(current_payload))
+        sys.exit(0)
+    print(json.dumps({{"idea": None, "source": "none"}}))
+    sys.exit(0)
+
+if argv[:3] == ["factory", "idea", "show"] and show_payload is not None:
+    print(json.dumps(show_payload))
+    sys.exit(0)
+
+if argv[:3] == ["factory", "idea", "describe"]:
+    idea_id = argv[3]
+    print(json.dumps({{"id": idea_id, "title": "Updated Title", "text": "Updated body", "state": "ideation", "argv": argv}}))
+    sys.exit(0)
+
+if argv[:3] == ["factory", "idea", "new"]:
+    print(json.dumps({{"id": "i-created9", "title": "Created Title", "text": "Created body", "state": "ideation", "argv": argv}}))
+    sys.exit(0)
+
+print(json.dumps({{"argv": argv}}))
+sys.exit(0)
+""",
+        encoding="utf-8",
+    )
+    bin_path.chmod(bin_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return bin_path
+
+
+def test_ensure_idea_reuses_blank_inbox_and_creates_when_described_or_unbound(tmp_path: Path) -> None:
+    blank_show = {
+        "idea": {
+            "id": "i-blank111",
+            "title": "New idea",
+            "text": "   ",
+            "state": "inbox",
+            "feasibility": None,
+            "plan": None,
+        }
+    }
+    stub_blank = make_stateful_stub_tandem(tmp_path / "bin-blank", show_payload=blank_show)
+    p_reuse = run_factory(
+        "ensure-idea",
+        "--title",
+        "Export CSV",
+        "--text-file",
+        "body.md",
+        env={"TANDEM_SELF": str(stub_blank), "TANDEM_FACTORY_IDEA": "i-blank111"},
+    )
+    assert p_reuse.returncode == 0, p_reuse.stderr
+    reuse_out = json.loads(p_reuse.stdout)
+    assert reuse_out["action"] == "reused"
+    assert reuse_out["idea_id"] == "i-blank111"
+    assert reuse_out["idea"]["state"] == "ideation"
+
+    described_show = {
+        "idea": {
+            "id": "i-active22",
+            "title": "Existing Idea",
+            "text": "Already has a description",
+            "state": "planning",
+            "feasibility": {"version": 1},
+            "plan": {"version": 1},
+        }
+    }
+    stub_active = make_stateful_stub_tandem(tmp_path / "bin-active", show_payload=described_show)
+    p_create = run_factory(
+        "ensure-idea",
+        "--title",
+        "Second Idea",
+        "--text-file",
+        "body2.md",
+        env={"TANDEM_SELF": str(stub_active), "TANDEM_FACTORY_IDEA": "i-active22"},
+    )
+    assert p_create.returncode == 0, p_create.stderr
+    create_out = json.loads(p_create.stdout)
+    assert create_out["action"] == "created"
+    assert create_out["idea_id"] == "i-created9"
+
+    p_unbound = run_factory(
+        "ensure-idea",
+        "--title",
+        "First Chat Idea",
+        "--text-file",
+        "body3.md",
+        env={"TANDEM_SELF": str(stub_active)},
+    )
+    assert p_unbound.returncode == 0, p_unbound.stderr
+    unbound_out = json.loads(p_unbound.stdout)
+    assert unbound_out["action"] == "created"
+    assert unbound_out["idea_id"] == "i-created9"
+
+
+def test_pane_current_idea_resolves_when_tmux_pane_set(tmp_path: Path) -> None:
+    stub = make_stateful_stub_tandem(
+        tmp_path / "bin-pane",
+        current_payload={"idea": "i-panebnd1", "source": "pane"},
+    )
+    proc = run_factory(
+        "show",
+        env={"TANDEM_SELF": str(stub), "TMUX_PANE": "%4", "TANDEM_FACTORY_IDEA": "i-stale000"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "show",
+        "i-panebnd1",
+        "--json",
+    ]
