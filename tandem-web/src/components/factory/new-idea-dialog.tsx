@@ -13,9 +13,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   FACTORY_CLIS,
   isValidCli,
+  IDEA_TEXT_MAX_LEN,
+  isValidIdeaText,
   isValidIdeaTitle,
   isValidModelIdForCli,
   type FactoryCli,
@@ -26,7 +29,12 @@ import {
 interface NewIdeaDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStartIdea: (input: { cli: FactoryCli; model: string; title?: string }) => Promise<Idea>;
+  onStartIdea: (input: {
+    cli: FactoryCli;
+    model: string;
+    title?: string;
+    text?: string;
+  }) => Promise<Idea>;
   loadModels?: (cli: FactoryCli) => Promise<ModelOption[]>;
   orchestratorPaneId?: string | null;
   onOpenTerminal?: (paneId: string) => void;
@@ -45,6 +53,7 @@ export function NewIdeaDialog({
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "error">("idle");
   const [title, setTitle] = useState<string>("");
+  const [text, setText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -103,14 +112,24 @@ export function NewIdeaDialog({
       return;
     }
 
+    const trimmedText = text.trim();
+    if (trimmedText && !isValidIdeaText(trimmedText)) {
+      setError(
+        `Description must be ${IDEA_TEXT_MAX_LEN} characters or fewer without control characters.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       await onStartIdea({
         cli,
         model: trimmedModel,
         title: trimmedTitle || undefined,
+        text: trimmedText || undefined,
       });
       setTitle("");
+      setText("");
       onOpenChange(false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to start idea.");
@@ -216,6 +235,23 @@ export function NewIdeaDialog({
               maxLength={120}
               disabled={submitting}
               className="h-11"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="factory-text-input" className="text-xs font-medium text-foreground">
+              Description (optional)
+              <span className="ml-1 font-normal text-muted-foreground">
+                {[...text].length}/{IDEA_TEXT_MAX_LEN}
+              </span>
+            </label>
+            <Textarea
+              id="factory-text-input"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="What should be built, and why?"
+              rows={4}
+              disabled={submitting}
             />
           </div>
 

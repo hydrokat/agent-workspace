@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import type { BoardMove, IdeaCard } from "@/domain/models/factory";
 import { ResponsiveAppShell } from "@/components/layout/responsive-app-shell";
 import { type NavTabId } from "@/components/layout/mobile-bottom-nav";
 import { AgentGrid } from "@/components/agents/agent-grid";
@@ -80,10 +81,25 @@ export default function DashboardPage() {
     listModels,
     markReady,
     revokeReady,
+    moveIdea,
   } = useFactoryIdeas({
     workspaceId: activeWorkspace?.id ?? null,
     streamIdeas: factorySummary?.ideas,
   });
+
+  const [readyRequestIdeaId, setReadyRequestIdeaId] = useState<string | null>(null);
+  const handleMoveIdea = useCallback(
+    async (idea: IdeaCard, move: BoardMove) => {
+      if (move.via === "ready") {
+        setReadyRequestIdeaId(idea.id);
+        selectIdea(idea.id);
+        return;
+      }
+      await moveIdea(idea, move);
+    },
+    [moveIdea, selectIdea]
+  );
+  const clearReadyRequest = useCallback(() => setReadyRequestIdeaId(null), []);
 
   useEffect(() => {
     if (!factoryEnabled && (activeTab === "factory" || desktopTab === "factory")) {
@@ -604,12 +620,15 @@ export default function DashboardPage() {
               }}
               onMarkReady={(confirm) => markReady(selectedIdeaId, confirm)}
               onRevokeReady={() => revokeReady(selectedIdeaId)}
+              openReadyRequested={readyRequestIdeaId === selectedIdeaId}
+              onOpenReadyHandled={clearReadyRequest}
             />
           ) : (
             <IdeasBoard
               factory={factorySummary}
               onSelectIdea={(id) => selectIdea(id)}
               onNewIdea={() => setNewIdeaOpen(true)}
+              onMoveIdea={handleMoveIdea}
             />
           ))}
 

@@ -294,6 +294,12 @@ export interface IdeaDetail {
   run?: RunSummary | null;
 }
 
+export interface CancelIdeaResult {
+  idea: Idea;
+  cancelled_runs: unknown[];
+  stopped_jobs: unknown[];
+}
+
 export interface ReadyResult {
   idea: Idea;
   snapshot: SnapshotVerification;

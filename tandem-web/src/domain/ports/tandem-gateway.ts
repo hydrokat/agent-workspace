@@ -12,6 +12,7 @@ import type {
   LoginPaneResult,
   LoginStatusItem,
   AgentSummary,
+  CancelIdeaResult,
   AllAgentsOptions,
   GlobalAgentSummary,
   RelaunchAgentResult,
@@ -82,6 +83,11 @@ export interface ITandemGateway {
     options?: { workflow?: string; deploy?: boolean }
   ): Promise<ReadyResult>;
   factoryRevokeReady(workspacePath: string, ideaId: string): Promise<Idea>;
+  factoryCancelIdea?(
+    workspacePath: string,
+    ideaId: string,
+    confirm: string
+  ): Promise<CancelIdeaResult>;
   factoryListWorkflows(workspacePath: string): Promise<WorkflowListItem[]>;
   factoryWithdrawRun(workspacePath: string, runId: string): Promise<RunSummary>;
   factoryGetRun(workspacePath: string, runId: string): Promise<RunSummary | null>;

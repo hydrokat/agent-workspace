@@ -40,6 +40,7 @@ import {
   type RunSummary,
   type StageAssignment,
   type AgentSummary,
+  type CancelIdeaResult,
   type AllAgentsOptions,
   type GlobalAgentSummary,
   type WorkflowListItem,
@@ -371,6 +372,23 @@ export class CliTandemGateway implements ITandemGateway {
       "--json",
     ]);
     return JSON.parse(stdout) as Idea;
+  }
+
+  async factoryCancelIdea(
+    workspacePath: string,
+    ideaId: string,
+    confirm: string
+  ): Promise<CancelIdeaResult> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "idea",
+      "cancel",
+      ideaId,
+      "--confirm",
+      confirm,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as CancelIdeaResult;
   }
 
   async factoryListWorkflows(workspacePath: string): Promise<WorkflowListItem[]> {

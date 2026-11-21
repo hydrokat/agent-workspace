@@ -8,6 +8,7 @@ import {
   isValidIdeaTitle,
   isValidModelIdForCli,
   isValidWorkflowName,
+  type CancelIdeaResult,
   type Idea,
   type IdeaDetail,
   type ModelOption,
@@ -165,6 +166,25 @@ export class MarkFactoryIdeaReadyUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     return this.gateway.factoryMarkReady(workspace.path, ideaId, options);
+  }
+}
+
+export class CancelFactoryIdeaUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(workspaceId: string, ideaId: string, confirm: string): Promise<CancelIdeaResult> {
+    requireIdeaId(ideaId);
+    if (confirm !== ideaId) {
+      throw new FactoryGatewayError("invalid_input", "Confirmation must match idea ID");
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    if (!this.gateway.factoryCancelIdea) {
+      throw new FactoryGatewayError("internal_error", "Idea cancellation unavailable");
+    }
+    return this.gateway.factoryCancelIdea(workspace.path, ideaId, confirm);
   }
 }
 
