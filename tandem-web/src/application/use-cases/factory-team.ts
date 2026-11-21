@@ -6,7 +6,9 @@ import {
   isValidCli,
   isValidModelName,
   isValidRunId,
+  isListableGlobalAgent,
   isValidStageName,
+  type AllAgentsPayload,
   type RunAgentsPayload,
   type RelaunchAgentResult,
   type StageAssignment,
@@ -42,6 +44,26 @@ export class GetRunAgentsUseCase {
         : Promise.resolve({}),
     ]);
     return { run_id: runId, agents, assignments };
+  }
+}
+
+export class ListAllAgentsUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(
+    workspaceId: string,
+    options: { activeOnly?: boolean } = {}
+  ): Promise<AllAgentsPayload> {
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    const listed = this.gateway.factoryListAllAgents
+      ? await this.gateway.factoryListAllAgents(workspace.path, {
+          activeOnly: options.activeOnly ?? false,
+        })
+      : [];
+    return { agents: listed.filter(isListableGlobalAgent) };
   }
 }
 

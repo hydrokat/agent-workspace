@@ -188,6 +188,8 @@ pub struct FactorySummary {
     pub by_state: HashMap<String, usize>,
     #[serde(default)]
     pub columns: Vec<String>,
+    #[serde(default)]
+    pub agents_active: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -505,12 +507,14 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                     moves,
                 });
             }
+            let agents_active = cards.iter().map(|c| c.team_count).sum();
             FactorySummary {
                 enabled: true,
                 ideas: cards,
                 needs_you,
                 by_state,
                 columns: column_keys().into_iter().map(String::from).collect(),
+                agents_active,
                 error: None,
             }
         }
@@ -527,6 +531,7 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                 needs_you: 0,
                 by_state: HashMap::new(),
                 columns: Vec::new(),
+                agents_active: 0,
                 error: Some(reason),
             }
         }

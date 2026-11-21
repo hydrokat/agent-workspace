@@ -99,6 +99,7 @@ fn snapshot(ideas: Vec<IdeaCard>) -> StatusSnapshot {
             needs_you: 0,
             by_state: Default::default(),
             columns: Vec::new(),
+            agents_active: 0,
             error: None,
         }),
         now: 1_000.0,

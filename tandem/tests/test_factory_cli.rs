@@ -513,3 +513,39 @@ fn test_factory_default_owner_falls_back_when_user_invalid() {
     let idea = parse_single_line_json(&out.stdout);
     assert_eq!(idea["owner"], "you");
 }
+
+#[test]
+fn test_factory_agent_list_all_returns_an_empty_list_without_runs() {
+    let ws = TestWorkspace::new("agent-list-all-empty");
+    let env = &[("TANDEM_FACTORY", "1")];
+
+    let all = ws.run(&["factory", "agent", "list", "--all", "--json"], env, None);
+    assert_eq!(all.status.code(), Some(0));
+    assert_eq!(parse_single_line_json(&all.stdout), serde_json::json!([]));
+
+    let active = ws.run(
+        &["factory", "agent", "list", "--all", "--active", "--json"],
+        env,
+        None,
+    );
+    assert_eq!(active.status.code(), Some(0));
+    assert_eq!(
+        parse_single_line_json(&active.stdout),
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn test_factory_agent_list_requires_a_run_unless_all() {
+    let ws = TestWorkspace::new("agent-list-args");
+    let env = &[("TANDEM_FACTORY", "1")];
+
+    for args in [
+        &["factory", "agent", "list", "--json"][..],
+        &["factory", "agent", "list", "--active", "--json"][..],
+        &["factory", "agent", "list", "r-12345678", "--all", "--json"][..],
+    ] {
+        let out = ws.run(args, env, None);
+        assert_eq!(out.status.code(), Some(2), "{args:?} must be a usage error");
+    }
+}

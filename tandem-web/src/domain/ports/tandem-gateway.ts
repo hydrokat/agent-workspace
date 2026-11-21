@@ -12,6 +12,8 @@ import type {
   LoginPaneResult,
   LoginStatusItem,
   AgentSummary,
+  AllAgentsOptions,
+  GlobalAgentSummary,
   RelaunchAgentResult,
   StageAssignment,
   PrLink,
@@ -123,6 +125,10 @@ export interface ITandemGateway {
   factoryLoginStatus(workspacePath: string): Promise<LoginStatusItem[]>;
   factoryLoginOpen(workspacePath: string, cli: FactoryCli): Promise<LoginPaneResult>;
   factoryListAgents?(workspacePath: string, runId: string): Promise<AgentSummary[]>;
+  factoryListAllAgents?(
+    workspacePath: string,
+    options: AllAgentsOptions
+  ): Promise<GlobalAgentSummary[]>;
   factoryGetAssignments?(
     workspacePath: string,
     runId: string

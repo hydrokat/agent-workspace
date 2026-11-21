@@ -192,6 +192,7 @@ fn summary() -> FactorySummary {
         needs_you: 0,
         by_state: Default::default(),
         columns: Vec::new(),
+        agents_active: 0,
         error: None,
     }
 }

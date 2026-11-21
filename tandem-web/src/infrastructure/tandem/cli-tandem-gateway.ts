@@ -31,6 +31,8 @@ import {
   type RunSummary,
   type StageAssignment,
   type AgentSummary,
+  type AllAgentsOptions,
+  type GlobalAgentSummary,
   type WorkflowListItem,
 } from "../../domain/models/factory";
 import type { WorkspaceSnapshotPayload } from "../../domain/models/snapshot";
@@ -623,6 +625,20 @@ export class CliTandemGateway implements ITandemGateway {
       "--json",
     ]);
     return JSON.parse(stdout) as AgentSummary[];
+  }
+
+  async factoryListAllAgents(
+    workspacePath: string,
+    options: AllAgentsOptions
+  ): Promise<GlobalAgentSummary[]> {
+    const args = ["factory", "agent", "list", "--all"];
+    if (options.activeOnly) args.push("--active");
+    args.push("--json");
+    const parsed: unknown = JSON.parse(await this.runFactory(workspacePath, args));
+    if (!Array.isArray(parsed)) {
+      throw new FactoryGatewayError("internal_error", "Agent list returned unexpected output");
+    }
+    return parsed as GlobalAgentSummary[];
   }
 
   async factoryGetAssignments(

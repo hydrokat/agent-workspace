@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use super::FactoryError;
+use super::board::run_is_active;
 use super::broker::job::{
     JobInput, JobState, correlation_id, job_dir, jobs_dir, read_job_state, set_job_state,
 };
@@ -19,7 +20,7 @@ use super::routing::{
     CliCatalog, Complexity, ModelTier, Route, RoutingContext, Selection, Unroutable, escalate,
     interactive_map_tool, map_agent_definition, route_interactive_selected,
 };
-use super::run::{RunError, get_run};
+use super::run::{RunError, get_run, list_runs};
 use super::store::{FactoryStore, current_time, write_atomic};
 use super::worker::{LaunchedWorker, WorkerAssignment, WorkerError, WorkerLaunchSpec, launch};
 use super::workflow::parse::load_workflow_file;
@@ -30,6 +31,8 @@ use crate::tmux::client::{PaneKind, TmuxClient, TmuxError};
 use crate::tmux::tabs::parse_panes;
 
 pub const MAX_SEND_MESSAGE_BYTES: usize = 64 * 1024;
+pub const MAX_RUNS_SCANNED: usize = 200;
+pub const MAX_FINISHED_RUNS: usize = 25;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -734,19 +737,35 @@ pub fn list_agents(
     }
     let _ = get_run(store, run_id)?
         .ok_or_else(|| TeamError::NotFound(format!("run {run_id} not found")))?;
-    let assignments = load_assignments(store, run_id)?;
+    let live_panes = worker_panes(tmux).remove(run_id).unwrap_or_default();
+    agents_for_run(store, run_id, &live_panes)
+}
 
-    let mut live_panes: BTreeMap<String, (String, bool)> = BTreeMap::new();
+type RunPanes = BTreeMap<String, (String, bool)>;
+
+fn worker_panes(tmux: &TmuxClient) -> HashMap<String, RunPanes> {
+    let mut by_run: HashMap<String, RunPanes> = HashMap::new();
     if let Ok(res) = tmux.run(&["list-panes", "-a", "-F", crate::tmux::tabs::FORMAT])
         && res.code == 0
     {
         for p in parse_panes(&res.out) {
-            if PaneKind::from_tag(&p.kind) == PaneKind::FactoryWorker && p.run == run_id {
-                live_panes.insert(p.job.clone(), (p.id, !p.dead));
+            if PaneKind::from_tag(&p.kind) == PaneKind::FactoryWorker {
+                by_run
+                    .entry(p.run.clone())
+                    .or_default()
+                    .insert(p.job.clone(), (p.id, !p.dead));
             }
         }
     }
+    by_run
+}
 
+fn agents_for_run(
+    store: &FactoryStore,
+    run_id: &str,
+    live_panes: &RunPanes,
+) -> Result<Vec<AgentSummary>, TeamError> {
+    let assignments = load_assignments(store, run_id)?;
     let j_root = jobs_dir(store, run_id);
     let mut out = Vec::new();
     if j_root.is_dir() {
@@ -838,6 +857,76 @@ pub fn list_agents(
                 activity,
                 has_result,
                 result_status,
+            });
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GlobalAgentSummary {
+    pub idea_id: String,
+    pub idea_title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<ModelTier>,
+    #[serde(flatten)]
+    pub agent: AgentSummary,
+}
+
+pub fn select_runs(runs: &[Run], active_only: bool) -> Vec<&Run> {
+    let mut active: Vec<&Run> = runs.iter().filter(|r| run_is_active(r.state)).collect();
+    active.sort_by(|a, b| b.updated.total_cmp(&a.updated));
+    active.truncate(MAX_RUNS_SCANNED);
+    if active_only {
+        return active;
+    }
+    let mut finished: Vec<&Run> = runs.iter().filter(|r| !run_is_active(r.state)).collect();
+    finished.sort_by(|a, b| b.updated.total_cmp(&a.updated));
+    finished.truncate(MAX_FINISHED_RUNS.min(MAX_RUNS_SCANNED.saturating_sub(active.len())));
+    active.extend(finished);
+    active
+}
+
+pub fn list_all_agents(
+    store: &FactoryStore,
+    tmux: &TmuxClient,
+    active_only: bool,
+) -> Result<Vec<GlobalAgentSummary>, TeamError> {
+    let runs = list_runs(store, None)?;
+    let selected = select_runs(&runs, active_only);
+    let mut panes = if selected.iter().any(|r| run_is_active(r.state)) {
+        worker_panes(tmux)
+    } else {
+        HashMap::new()
+    };
+    let mut titles: HashMap<String, String> = HashMap::new();
+    let mut out = Vec::new();
+    for run in selected {
+        let live = if run_is_active(run.state) {
+            panes.remove(&run.id).unwrap_or_default()
+        } else {
+            RunPanes::new()
+        };
+        let title = titles
+            .entry(run.idea.clone())
+            .or_insert_with(|| {
+                store
+                    .get_idea(&run.idea)
+                    .ok()
+                    .flatten()
+                    .map(|i| i.title)
+                    .unwrap_or_default()
+            })
+            .clone();
+        for agent in agents_for_run(store, &run.id, &live)? {
+            if active_only && agent.job_state != JobState::Running.as_str() {
+                continue;
+            }
+            out.push(GlobalAgentSummary {
+                idea_id: run.idea.clone(),
+                idea_title: title.clone(),
+                tier: agent.selection.as_ref().map(|s| s.selected_tier),
+                agent,
             });
         }
     }

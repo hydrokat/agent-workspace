@@ -133,8 +133,16 @@ pub struct FactoryAgentAssignArgs {
 
 #[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryAgentListArgs {
-    #[arg(help = "run ID (r-...)")]
-    pub run: String,
+    #[arg(
+        help = "run ID (r-...)",
+        required_unless_present = "all",
+        conflicts_with = "all"
+    )]
+    pub run: Option<String>,
+    #[arg(long, help = "list worker agents across every idea and run")]
+    pub all: bool,
+    #[arg(long, requires = "all", help = "with --all, only running jobs")]
+    pub active: bool,
     #[arg(long, help = "output JSON")]
     pub json: bool,
 }
@@ -2968,8 +2976,34 @@ fn handle_agent_command(
                 ))
             }
         }
+        FactoryAgentCommand::List(a) if a.all => {
+            let list =
+                super::team::list_all_agents(store, &tmux, a.active).map_err(map_team_error)?;
+            if a.json {
+                serialize_compact(&list)
+            } else if list.is_empty() {
+                Ok("No worker agents.".to_string())
+            } else {
+                Ok(list
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "{}\t{}\t{}/{}\t{}\t{}",
+                            item.idea_id,
+                            item.agent.job_id,
+                            item.agent.cli,
+                            item.agent.model,
+                            item.agent.job_state,
+                            item.agent.pane_id.as_deref().unwrap_or("-")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
         FactoryAgentCommand::List(a) => {
-            let list = super::team::list_agents(store, &tmux, &a.run).map_err(map_team_error)?;
+            let run = a.run.as_deref().unwrap_or_default();
+            let list = super::team::list_agents(store, &tmux, run).map_err(map_team_error)?;
             if a.json {
                 serialize_compact(&list)
             } else if list.is_empty() {

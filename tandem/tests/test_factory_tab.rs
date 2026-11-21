@@ -53,6 +53,7 @@ fn sample_snapshot(now: f64, ideas: Vec<IdeaCard>) -> StatusSnapshot {
             needs_you: 0,
             by_state,
             columns: Vec::new(),
+            agents_active: 0,
             error: None,
         }),
         ..StatusSnapshot::default()
@@ -216,6 +217,7 @@ fn test_factory_tab_render_empty_and_error() {
             needs_you: 0,
             by_state: HashMap::new(),
             columns: Vec::new(),
+            agents_active: 0,
             error: Some("permission denied".to_string()),
         }),
         ..StatusSnapshot::default()
