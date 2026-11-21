@@ -87,6 +87,7 @@ fn card(id: &str, title: &str, state: IdeaState) -> IdeaCard {
         run: None,
         team_count: 0,
         needs_sign_in: false,
+        moves: Vec::new(),
     }
 }
 
@@ -97,6 +98,7 @@ fn snapshot(ideas: Vec<IdeaCard>) -> StatusSnapshot {
             ideas,
             needs_you: 0,
             by_state: Default::default(),
+            columns: Vec::new(),
             error: None,
         }),
         now: 1_000.0,

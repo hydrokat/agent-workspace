@@ -140,6 +140,15 @@ export interface Idea {
   cancelled_from?: IdeaState | null;
 }
 
+export type MoveVia = "ready" | "revoke_ready" | "cancel";
+
+export interface BoardMove {
+  to: IdeaState;
+  via: MoveVia;
+  needs_confirm: boolean;
+  gate?: "user_only";
+}
+
 export interface IdeaCard {
   id: string;
   title: string;
@@ -150,6 +159,7 @@ export interface IdeaCard {
   updated: number;
   team_count?: number;
   needs_sign_in?: boolean;
+  moves?: BoardMove[];
 }
 
 export interface FactorySummary {
@@ -157,6 +167,7 @@ export interface FactorySummary {
   ideas: IdeaCard[];
   needs_you: number;
   by_state: Record<string, number>;
+  columns?: string[];
   error?: string | null;
 }
 

@@ -23,6 +23,7 @@
   ".agent-workspace/tandem/src/factory/approval.rs",
   ".agent-workspace/tandem/src/factory/artifacts.rs",
   ".agent-workspace/tandem/src/factory/audit.rs",
+  ".agent-workspace/tandem/src/factory/board.rs",
   ".agent-workspace/tandem/src/factory/broker/browser.rs",
   ".agent-workspace/tandem/src/factory/broker/checks.rs",
   ".agent-workspace/tandem/src/factory/broker/context.rs",

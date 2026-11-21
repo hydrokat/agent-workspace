@@ -52,6 +52,7 @@ fn sample_snapshot(now: f64, ideas: Vec<IdeaCard>) -> StatusSnapshot {
             ideas,
             needs_you: 0,
             by_state,
+            columns: Vec::new(),
             error: None,
         }),
         ..StatusSnapshot::default()
@@ -71,6 +72,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             run: None,
             team_count: 0,
             needs_sign_in: false,
+            moves: Vec::new(),
         },
         IdeaCard {
             id: "i-b81xw0pe".to_string(),
@@ -83,6 +85,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             run: None,
             team_count: 0,
             needs_sign_in: false,
+            moves: Vec::new(),
         },
         IdeaCard {
             id: "i-c92yz1qf".to_string(),
@@ -95,6 +98,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             run: None,
             team_count: 0,
             needs_sign_in: false,
+            moves: Vec::new(),
         },
     ]
 }
@@ -211,6 +215,7 @@ fn test_factory_tab_render_empty_and_error() {
             ideas: Vec::new(),
             needs_you: 0,
             by_state: HashMap::new(),
+            columns: Vec::new(),
             error: Some("permission denied".to_string()),
         }),
         ..StatusSnapshot::default()
@@ -245,6 +250,7 @@ fn test_factory_tab_selection_follows_idea_id_across_refresh() {
         run: None,
         team_count: 0,
         needs_sign_in: false,
+        moves: Vec::new(),
     }];
     reordered.extend(ideas);
 

@@ -1836,7 +1836,11 @@ pub fn count_workspace_running_jobs(store: &FactoryStore) -> usize {
         .sum()
 }
 
-fn idea_within_grace_period(idea: &crate::factory::model::Idea, grace_secs: u64, now: f64) -> bool {
+pub fn idea_within_grace_period(
+    idea: &crate::factory::model::Idea,
+    grace_secs: u64,
+    now: f64,
+) -> bool {
     if grace_secs == 0 {
         return false;
     }

@@ -233,16 +233,7 @@ impl FactoryStore {
         let Ok(runs) = super::run::list_runs(self, Some(idea_id)) else {
             return false;
         };
-        runs.iter().any(|r| {
-            matches!(
-                r.state,
-                super::model::RunState::Pending
-                    | super::model::RunState::Queued
-                    | super::model::RunState::Running
-                    | super::model::RunState::Paused
-                    | super::model::RunState::Review
-            )
-        })
+        runs.iter().any(|r| super::board::run_is_active(r.state))
     }
 
     pub fn list_ideas(&self) -> Result<Vec<Idea>, FactoryError> {

@@ -1,5 +1,6 @@
 pub use crate::coordination::schema::{Claim, Query, STALE_SECONDS, Session};
 use crate::coordination::store::CoordStore;
+use crate::factory::board::{Move, column_keys, legal_moves, state_key};
 use crate::factory::model::{IdeaState, Risk};
 use crate::factory::store::FactoryStore;
 use crate::sources::codebases::{Codebase, list_codebases};
@@ -163,6 +164,8 @@ pub struct IdeaCard {
     pub team_count: usize,
     #[serde(default)]
     pub needs_sign_in: bool,
+    #[serde(default)]
+    pub moves: Vec<Move>,
 }
 
 pub fn pause_reason_needs_sign_in(reason: &str) -> bool {
@@ -183,6 +186,8 @@ pub struct FactorySummary {
     pub needs_you: usize,
     #[serde(default)]
     pub by_state: HashMap<String, usize>,
+    #[serde(default)]
+    pub columns: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -235,20 +240,6 @@ impl StatusSnapshot {
             .iter()
             .filter(|c| self.stale(c.heartbeat))
             .collect()
-    }
-}
-
-fn state_key(state: IdeaState) -> &'static str {
-    match state {
-        IdeaState::Inbox => "inbox",
-        IdeaState::Ideation => "ideation",
-        IdeaState::Planning => "planning",
-        IdeaState::ReadyForDevelopment => "ready_for_development",
-        IdeaState::Queued => "queued",
-        IdeaState::InDevelopment => "in_development",
-        IdeaState::Review => "review",
-        IdeaState::Delivered => "delivered",
-        IdeaState::Cancelled => "cancelled",
     }
 }
 
@@ -432,6 +423,10 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
             let mut needs_you = 0usize;
             let mut job_limit_cache: Option<usize> = None;
             let mut workspace_running_cache: Option<usize> = None;
+            let grace_secs = fstore
+                .settings()
+                .map(|s| s.approval_grace_secs)
+                .unwrap_or_default();
             for idea in ideas {
                 *by_state
                     .entry(state_key(idea.state).to_string())
@@ -493,6 +488,9 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                 if iq.open > 0 || run_paused {
                     needs_you += 1;
                 }
+                let within_grace = idea.state == IdeaState::ReadyForDevelopment
+                    && crate::factory::runner::idea_within_grace_period(&idea, grace_secs, now);
+                let moves = legal_moves(idea.state, run.as_ref().map(|r| r.state), within_grace);
                 cards.push(IdeaCard {
                     id: idea.id,
                     title: idea.title,
@@ -504,6 +502,7 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                     run,
                     team_count,
                     needs_sign_in,
+                    moves,
                 });
             }
             FactorySummary {
@@ -511,6 +510,7 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                 ideas: cards,
                 needs_you,
                 by_state,
+                columns: column_keys().into_iter().map(String::from).collect(),
                 error: None,
             }
         }
@@ -526,6 +526,7 @@ pub fn collect_factory_summary(workspace: &Path, queries: &[Query], now: f64) ->
                 ideas: Vec::new(),
                 needs_you: 0,
                 by_state: HashMap::new(),
+                columns: Vec::new(),
                 error: Some(reason),
             }
         }
