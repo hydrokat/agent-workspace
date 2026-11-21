@@ -39,3 +39,8 @@ tandem/dist/
 tandem/build/
 *.profraw
 tandem/*.profraw
+
+# Test watchers (bacon, watch.py)
+.bacon-locations
+.bacon.socket
+.agent-workspace/test-watch/
