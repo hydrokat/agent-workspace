@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.25.0] — 2026-11-21
+
 ### Added: Factory kanban board, global Agents view, and description at idea creation (`p-027` / `s-020`)
 - **Board moves in core**: `factory/board.rs` (`legal_moves`) computes the moves each idea offers (`ready` for Gate 2, `revoke_ready`, `cancel`) and a parity test checks every move against the state machine. `IdeaCard.moves`, `FactorySummary.columns`, and `FactorySummary.agents_active` are additive snapshot fields.
 - **Kanban in the TUI and `tandem-web`**: Columns per idea state with guarded moves. The TUI adds `h/l`, `j/k`, `m` (move picker), `v` (board or list), and `g` (Agents); below 110 columns it shows the focused column as a list. `tandem-web` adds drag-and-drop to legal columns, a keyboard `Move to...` menu, a `Board | List` toggle, and `POST /factory/ideas/:id/cancel`. Gate 2 and revoke still go through their existing confirmation; cancel asks first.
