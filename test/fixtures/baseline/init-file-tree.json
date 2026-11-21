@@ -107,6 +107,7 @@
   ".agent-workspace/tandem/src/status/app.rs",
   ".agent-workspace/tandem/src/status/banners.rs",
   ".agent-workspace/tandem/src/status/factory_audit.rs",
+  ".agent-workspace/tandem/src/status/factory_board.rs",
   ".agent-workspace/tandem/src/status/factory_detail.rs",
   ".agent-workspace/tandem/src/status/factory_run.rs",
   ".agent-workspace/tandem/src/status/factory_tab.rs",

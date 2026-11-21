@@ -541,7 +541,10 @@ fn test_factory_tab_archived_filter_hides_old_finished_ideas() {
     let mut snap = collect_with_factory(ws, &coord, Duration::from_millis(200), true);
     snap.now = now;
 
-    let mut tab = FactoryTab::default();
+    let mut tab = FactoryTab {
+        layout: tandem::status::factory_board::BoardLayout::List,
+        ..FactoryTab::default()
+    };
     tab.sync_snapshot(&snap, false);
 
     let default_filtered = tab.filtered_ideas(&snap);
@@ -581,7 +584,10 @@ fn test_factory_tab_pages_over_200_ideas() {
     let coord = CoordStore::new(ws.join(".agent-workspace/coordination"));
     let snap = collect_with_factory(ws, &coord, Duration::from_millis(200), true);
 
-    let mut tab = FactoryTab::default();
+    let mut tab = FactoryTab {
+        layout: tandem::status::factory_board::BoardLayout::List,
+        ..FactoryTab::default()
+    };
     tab.sync_snapshot(&snap, false);
 
     assert_eq!(BOARD_PAGE_SIZE, 200);

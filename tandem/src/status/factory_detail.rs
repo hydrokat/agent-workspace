@@ -557,6 +557,10 @@ impl FactoryDetail {
             .collect()
     }
 
+    pub fn request_ready_or_revoke(&mut self) {
+        self.trigger_mark_ready_or_revoke();
+    }
+
     fn trigger_mark_ready_or_revoke(&mut self) {
         let Some(ref idea) = self.idea else {
             return;

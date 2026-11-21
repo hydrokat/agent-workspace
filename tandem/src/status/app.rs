@@ -709,13 +709,19 @@ impl StatusApp {
         };
         let cfg = self.config.clone().unwrap_or_default();
         match action {
-            FactoryAction::StartIdea { cli, model } => {
-                match crate::factory::commands::start_idea(
+            FactoryAction::StartIdea {
+                cli,
+                model,
+                title,
+                text,
+            } => {
+                match crate::factory::commands::start_idea_with_text(
                     &self.workspace,
                     &cfg,
                     &cli,
                     &model,
-                    None,
+                    title.as_deref(),
+                    &text,
                 ) {
                     Ok(idea) => {
                         self.factory_tab.selected_id = Some(idea.id);
@@ -724,6 +730,32 @@ impl StatusApp {
                     }
                     Err(err) => {
                         self.factory_tab.notice = err;
+                    }
+                }
+            }
+            FactoryAction::CancelIdea { idea_id } => {
+                use crate::factory::approval::Caller;
+                use crate::factory::model::{Actor, ActorKind};
+                let store = crate::factory::store::FactoryStore::new(&self.workspace);
+                let owner = std::env::var("USER")
+                    .or_else(|_| std::env::var("LOGNAME"))
+                    .unwrap_or_else(|_| "you".to_string());
+                let actor = Actor {
+                    kind: ActorKind::User,
+                    id: owner,
+                };
+                let env_fn = |var: &str| std::env::var(var).ok();
+                let no_pane = |_: &str| None;
+                let caller = Caller::tui(&env_fn, &no_pane);
+                match crate::factory::runner::cancel_idea(
+                    &store, &idea_id, &idea_id, &actor, &caller,
+                ) {
+                    Ok(_) => {
+                        self.factory_tab.notice = format!("Cancelled {idea_id}.");
+                        self.action_refresh_now();
+                    }
+                    Err(err) => {
+                        self.factory_tab.notice = err.to_string();
                     }
                 }
             }
