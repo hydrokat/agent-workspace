@@ -112,7 +112,7 @@ Caveman rule:
 
 ## 6. Validate Immediately
 - After change:
-  - Run tests (if exist) through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>`; read only the failures it reports, and open the log or use `show <test name>` only when a block is not enough
+  - Run tests (if exist) with a background watcher during development (`python3 .agents/skills/test-failures/scripts/watch.py start`, then `wait` and `results` after each edit) and through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` at gates; read only the failures they report, and open the log or use `run_tests.py show <test name>` only when a block is not enough
   - Run app
   - Check logs
 - Confirm:

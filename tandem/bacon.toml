@@ -1,0 +1,18 @@
+default_job = "test"
+
+[jobs.test]
+command = ["cargo", "test", "--color", "always"]
+need_stdout = true
+default_watch = true
+ignore = ["target", ".bacon-locations", ".bacon.socket", "*.profraw"]
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--all-targets", "--color", "always"]
+need_stdout = false
+default_watch = true
+ignore = ["target", ".bacon-locations", ".bacon.socket", "*.profraw"]
+
+[exports.locations]
+auto = true
+path = ".bacon-locations"
+line_format = "{kind} {path}:{line}:{column} {message}"
