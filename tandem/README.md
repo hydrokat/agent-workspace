@@ -180,6 +180,12 @@ bacon --headless test    # no TUI, for agents and background use
 
 Each run writes diagnostics to `tandem/.bacon-locations` (`[exports.locations] auto = true`), so an agent can read failures without attaching to the terminal. Keep the watcher running while you edit, and run the full `cargo test` before committing; CI always runs the one-shot suite.
 
+## Factory board and agents (CLI)
+
+- `tandem factory idea start --cli <cli> --model <id> [--title <t>] [--text-file <path|-> | --text-stdin]` stores the description with the idea at creation (8000 characters, no control characters; the event log redacts secrets like `idea describe`).
+- `tandem factory agent list --all [--active] [--json]` lists worker agents across every idea: active runs plus the 25 most recent finished ones (`--active` keeps running jobs only). Each entry is the per-run agent summary plus `idea_id`, `idea_title`, and `tier`. It makes one `tmux list-panes` call, and none when only finished runs are scanned. `tandem factory agent list <run-id>` is unchanged.
+- The status snapshot's `IdeaCard.moves` lists the moves a card offers (`ready`, `revoke_ready`, `cancel`, with `needs_confirm` and a `user_only` gate for Gate 2), `FactorySummary.columns` the column order, and `FactorySummary.agents_active` the running-worker count. The TUI board and `tandem-web` render only these moves; the commands still enforce the gates.
+
 ## Coordination
 
 Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_COORD_DIR`): `sessions/`, `claims/`, `queries/`. The schema and state machines are in `templates/skills/agent-coordination/references/protocol.md`. Questions an agent asks appear in the **Queries** tab; your answer is written to the query file and the agent picks it up at its next checkpoint. Nothing is typed into a pane.
