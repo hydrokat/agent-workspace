@@ -511,15 +511,63 @@ pub fn launch(
     let mut effective_config = config.clone();
     effective_config.factory = factory;
 
-    let layout = crate::commands::make_layout(workspace, &effective_config);
-    if layout.exists() {
+    let inspect = crate::commands::inspect_layout(workspace, &effective_config);
+    if inspect.exists() {
         let running_factory =
             crate::registry::factory_enabled(&effective_config.state_dir, workspace);
-        if let Some(msg) = crate::commands::mode_mismatch_message(factory, running_factory) {
-            eprintln!("{msg}");
-            std::process::exit(2);
+        if crate::commands::mode_mismatch_prompt(factory, running_factory).is_some() {
+            match crate::commands::ask_mode_conflict(factory, running_factory) {
+                Some(crate::commands::ModeConflictChoice::TerminateAndLaunch) => {
+                    let running_label = crate::commands::mode_label(running_factory);
+                    let target_label = crate::commands::mode_label(factory);
+                    match crate::commands::terminate_for_mode_switch(
+                        &inspect,
+                        workspace,
+                        &effective_config.state_dir,
+                        running_factory,
+                    ) {
+                        Ok(0) => eprintln!(
+                            "Ending the running {running_label} session and launching {target_label}…"
+                        ),
+                        Ok(1) => eprintln!(
+                            "Saved 1 agent from the running {running_label} session. Launching {target_label}…"
+                        ),
+                        Ok(n) => eprintln!(
+                            "Saved {n} agents from the running {running_label} session. Launching {target_label}…"
+                        ),
+                        Err(e) => {
+                            eprintln!("Could not switch modes: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Some(crate::commands::ModeConflictChoice::AttachRunning) => {
+                    let mut running_config = effective_config.clone();
+                    running_config.factory = running_factory;
+                    let running_layout = crate::commands::make_layout(workspace, &running_config);
+                    if let Some(notice) = crate::notice::read_notice(workspace)
+                        && !notice.seen
+                    {
+                        crate::commands::reload_in_fresh_process(workspace, &running_layout);
+                    }
+                    crate::commands::attach(workspace);
+                }
+                Some(crate::commands::ModeConflictChoice::Cancel) => {
+                    eprintln!("Cancelled.");
+                    std::process::exit(2);
+                }
+                None => {
+                    if let Some(msg) =
+                        crate::commands::mode_mismatch_message(factory, running_factory)
+                    {
+                        eprintln!("{msg}");
+                    }
+                    std::process::exit(2);
+                }
+            }
         }
     }
+    let layout = crate::commands::make_layout(workspace, &effective_config);
     if fresh && layout.exists() {
         eprintln!("Ending the running tandem session so --fresh starts from a clean state…");
         crate::commands::discard_exit_for(&layout, workspace, factory);

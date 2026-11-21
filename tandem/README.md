@@ -194,8 +194,8 @@ Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_
 
 Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share one workspace at the same time:
 
-- Starting in Factory Mode while a normal session runs exits with code `2`: `A normal tandem session is running in this workspace. Quit it first (Settings → Quit), then run ./run.sh --factory.`
-- Starting in normal mode while a Factory Mode session runs exits with code `2`: `A Factory Mode session is running in this workspace. Quit it first, or run ./run.sh --factory to attach.`
+- On an interactive terminal, launching either mode while the other mode is active asks whether to save and terminate the active session and launch the requested mode (`T` / `Enter`), attach to the active session to terminate it manually (`l` / `a`), or quit (`q`, exits `2`).
+- In non-interactive environments (stdin not a TTY), starting Factory Mode while a normal session runs—or normal mode while a Factory Mode session runs—exits with code `2` and prints the mode mismatch message.
 - Factory sessions save to `.agent-workspace/tandem-session-factory.json` instead of `tandem-session.json`.
 - In Factory Mode, the Status window adds an eighth **Factory** tab (`Alt+f` / `8`) showing a read-only ideas board, and `tandem snapshot --json` includes a `factory` block (omitted in normal mode).
 
