@@ -571,6 +571,18 @@ npx hydrokat/agent-workspace init --no-link
 4. To add a new agent or skill, add it under `templates/agents/` or `templates/skills/` and update `src/data/models.json` with its model assignments.
 5. Run `npm test` before submitting.
 
+### Watch mode while developing
+
+Keep one watcher running per suite and wait for its re-run instead of repeating full runs (see `knowledgebase/guidelines/watch-mode-testing.md`). Run the full suites before committing and in CI.
+
+| Suite | Watcher |
+| --- | --- |
+| Rust (`tandem/`) | `cd tandem && bacon` (`bacon --headless test` for agents; results land in `tandem/.bacon-locations`) |
+| Node (`test/`) | `npm run test:watch` |
+| Bun (`tandem-web/`) | `cd tandem-web && bun run test:watch` |
+
+Agents use `python3 .agents/skills/test-failures/scripts/watch.py start|wait|results|stop`, which picks the right runner automatically. Install bacon with `cargo install --locked bacon`.
+
 ## License
 
 MIT

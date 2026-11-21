@@ -7,6 +7,13 @@
 - **`factory.py` wrapper enhancements**: Added `--idea <id>` override, `factory.py new`, and `factory.py ensure-idea` (which reuses a bound blank `Inbox` placeholder via `describe` or creates and binds a new Factory idea via `new --start-discovery --bind-current`), plus live `@tandem_idea` pane lookup when `TMUX_PANE` is set.
 - **Factory-aware `/idea` skill and `idea.py` helpers**: Added `idea.py mode [--factory]` (auto-detecting Factory Mode via `--factory`, `TANDEM_FACTORY=1`, `TANDEM_ROLE=orchestrator`, `TANDEM_FACTORY_IDEA`, or `tandem factory status --json`), `idea.py factory-map` (mapping `/feasibility` verdicts and effort/unknowns to Factory `FeasibilityVerdict` and `Risk`), and `idea.py result --idea <id>`. In Factory Mode, `/idea` drives the idea through `ensure-idea`, `/feasibility --save`, `factory.py feasibility`, `idea.py gate` / `factory.py assume`, `factory.py select-direction` (Gate 1), and the 5-section `factory.py plan`, stopping at user-only Gate 2 (`Planning`).
 
+## [1.24.0] — 2026-11-21
+
+### Added: Watch-mode testing guideline and `watch.py` (`p-026` / `s-018`)
+- **Guideline**: `watch-mode-testing.md` (package template and workspace) tells agents to keep one background watcher per suite during development, wait for its re-run, read failures only, and run full suites only at gates.
+- **`watch.py`**: `test-failures/scripts/watch.py` (`start`, `wait`, `results`, `status`, `stop`) wraps bacon, `node --test --watch`, `bun test --watch`, vitest, jest, phpunit-watcher, and ptw, with runner auto-detection and failures-only output. Agent rules, `spec-implement`, `pm-sprint-implement`, and the Factory implementer and test-engineer playbooks point at it.
+- **Dogfooding**: `tandem/bacon.toml` (`test` and `clippy` jobs, `.bacon-locations` export), `npm run test:watch` (root) and `bun run test:watch` (`tandem-web`), and `.gitignore` entries for watcher output. `npm test`, `cargo test`, `bun test`, and CI are unchanged.
+
 ## [1.23.0] — 2026-11-21
 
 ### Added: Cost-aware model routing for the interactive team (`p-025` / `s-018`)

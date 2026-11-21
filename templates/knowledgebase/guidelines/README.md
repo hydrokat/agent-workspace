@@ -11,5 +11,6 @@ Enforced rules that every contributor must follow. Each file covers one concern 
 | `database-migrations.md` | Migration immutability, destructive change policy, backfill |
 | `architecture-and-code-quality.md` | Clean arch, KISS, DRY, file/line limits, god-object prohibition |
 | `testing-and-knowledgebase.md` | Coverage targets, test patterns, KB update triggers |
+| `watch-mode-testing.md` | Watch-mode runners (bacon, node, bun, vitest, jest, phpunit-watcher, ptw), full-run gates, and hygiene |
 | `security.md` | OWASP review, feature audit, data privacy |
 | `release-versioning.md` | SemVer impact on PRs, merge tags, build metadata |

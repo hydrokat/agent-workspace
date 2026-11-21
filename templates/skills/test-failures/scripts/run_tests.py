@@ -25,7 +25,7 @@ KEEP_LOGS = 20
 DEFAULT_MAX_LINES = 120
 PER_TEST_LINES = 25
 TAIL_LINES = 40
-FORMATS = ("auto", "cargo", "pytest", "node", "jest", "vitest", "go", "phpunit", "tap", "generic")
+FORMATS = ("auto", "cargo", "pytest", "node", "jest", "vitest", "bun", "go", "phpunit", "tap", "generic")
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -273,6 +273,28 @@ def parse_vitest(lines: list[str]) -> Outcome:
     return out
 
 
+def parse_bun(lines: list[str]) -> Outcome:
+    out = Outcome()
+    text = "\n".join(lines)
+    for key, attr in (("pass", "passed"), ("fail", "failed"), ("skip", "skipped")):
+        found = re.search(rf"^\s*(\d+) {key}$", text, re.M)
+        if found:
+            setattr(out, attr, int(found.group(1)))
+    buffer: list[str] = []
+    for line in lines:
+        found = re.match(r"^(?:✗|\(fail\)) (.+?)(?: \[[\d.]+m?s\])?$", line)
+        if found:
+            out.failures.append(Failure(found.group(1), block=buffer))
+            buffer = []
+        elif re.match(r"^(?:✓|\(pass\)|\(skip\)) |^\S+:$|^\s*\d+ (?:pass|fail|skip)$|^Ran \d+ ", line):
+            buffer = []
+        else:
+            buffer.append(line)
+    for failure in out.failures:
+        failure.location = first_match(failure.block, r"\((\S+:\d+:\d+)\)")
+    return out
+
+
 def parse_jest_family(lines: list[str]) -> Outcome:
     text = "\n".join(lines)
     if "Test Files" in text or re.search(r"^\s*FAIL\s+\S+ > ", text, re.M):
@@ -370,7 +392,7 @@ def parse_generic(lines: list[str]) -> Outcome:
 
 PARSERS = {
     "cargo": parse_cargo, "pytest": parse_pytest, "node": parse_node, "jest": parse_jest_family,
-    "vitest": parse_jest_family, "go": parse_go, "phpunit": parse_phpunit, "tap": parse_tap, "generic": parse_generic,
+    "vitest": parse_jest_family, "bun": parse_bun, "go": parse_go, "phpunit": parse_phpunit, "tap": parse_tap, "generic": parse_generic,
 }
 
 
@@ -391,12 +413,16 @@ def detect_format(argv: list[str], text: str) -> str:
         return "phpunit"
     if "node" in names and "--test" in names:
         return "node"
+    if "bun" in names and "test" in names:
+        return "bun"
     if re.search(r"^test result: ", text, re.M) or re.search(r"^---- .+ stdout ----$", text, re.M):
         return "cargo"
     if re.search(r"^(={3,} .* in [\d.]+s|_{3,} .+ _{3,})", text, re.M) or re.search(r"\d+ (passed|failed).* in [\d.]+s", text):
         return "pytest"
     if "failing tests:" in text or re.search(r"^ℹ tests \d+", text, re.M):
         return "node"
+    if re.search(r"^Ran \d+ tests? across \d+ files?", text, re.M):
+        return "bun"
     if re.search(r"^\s*(not )?ok \d+ - ", text, re.M):
         return "tap"
     if "Test Files" in text or re.search(r"^\s*FAIL\s+\S+ > ", text, re.M):

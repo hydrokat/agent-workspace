@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "bun run server.ts",
     "test": "bun test",
+    "test:watch": "bun test --watch",
     "lint": "next lint"
   },
   "dependencies": {

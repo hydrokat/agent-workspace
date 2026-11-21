@@ -16,7 +16,7 @@ description: "Interactive Factory Mode create-tests stage playbook. Reads prompt
 
 1. **Read the slices and plan context.** Read `$TANDEM_FACTORY_RUN_DIR/artifacts/slices.json` and `plan-snapshot.md` from the stage context.
 2. **Write failing tests within slice paths.** Add or update test files inside the slice `paths` that verify the acceptance criteria.
-   - Run test commands through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` and confirm the new tests **fail** against the unimplemented code.
+   - Run test commands through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` and confirm the new tests **fail** against the unimplemented code. Use `run_tests.py` (not a watcher) for this red run so the failing result is recorded once; if you started a watcher while drafting tests, `python3 .agents/skills/test-failures/scripts/watch.py stop --all` before finishing.
    - If the change is a pure refactor with no behaviour change, set `"no_behaviour_change": true` and provide a clear `"rationale"` in `result.json`.
 3. **Write `result.json`.** Write `$TANDEM_JOB_DIR/result.json` with:
    - `"status": "succeeded"` (or `"failed"` with `"rationale"` if blocked)

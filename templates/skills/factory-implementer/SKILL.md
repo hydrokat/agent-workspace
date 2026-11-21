@@ -17,7 +17,7 @@ description: "Interactive Factory Mode develop stage playbook. Reads prompt.md a
 
 1. **Read the slices and plan context.** Read `$TANDEM_FACTORY_RUN_DIR/artifacts/slices.json` and `plan-snapshot.md` from the stage context, plus any failure summary if retrying.
 2. **Implement within slice paths.** Write clean, minimal implementation code inside the declared slice `paths`.
-   - Run relevant test commands through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` to verify behaviour.
+   - Run relevant test commands through `python3 .agents/skills/test-failures/scripts/run_tests.py -- <test command>` to verify behaviour. Optionally start one `python3 .agents/skills/test-failures/scripts/watch.py start` watcher while iterating (`wait`, then `results`), run the final verification through `run_tests.py`, and `watch.py stop --all` before writing `result.json`.
 3. **Write `result.json`.** Write `$TANDEM_JOB_DIR/result.json` with:
    - `"status": "succeeded"` (or `"failed"` with `"rationale"` if blocked)
    - `"summary"` describing the implementation

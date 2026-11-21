@@ -1,0 +1,20 @@
+bun test v1.1.20 (abc12345)
+
+cart.test.ts:
+1 | import { test, expect } from "bun:test";
+2 | test("applies the discount", () => {
+3 |   expect(100 * 0.9).toBe(91);
+                        ^
+error: expect(received).toBe(expected)
+
+Expected: 91
+Received: 90
+
+      at <anonymous> (/app/cart.test.ts:3:25)
+✗ applies the discount [0.52ms]
+✓ adds items [0.10ms]
+
+ 1 pass
+ 1 fail
+ 2 expect() calls
+Ran 2 tests across 1 files. [14.00ms]

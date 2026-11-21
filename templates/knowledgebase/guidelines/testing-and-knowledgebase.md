@@ -12,6 +12,11 @@ red-green-refactor cycle:
 Do not write implementation code before the test exists. A test that has never
 failed is not a valid test.
 
+The red-green-refactor cycle runs through a background watcher during development.
+See [`watch-mode-testing.md`](./watch-mode-testing.md) for the per-language watcher
+commands and hygiene rules. Full-suite gates (before done, before commit, in CI)
+still use `run_tests.py` even when a watcher is running.
+
 ## Refactoring — Preserve Existing Tests
 
 When refactoring, existing tests are the safety net that defines a refactor:

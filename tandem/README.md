@@ -168,6 +168,18 @@ The second row of tmux's bottom bar shows subscription quota for the CLIs that h
 - **opencode:** always `quota not available`. tandem does not read opencode's usage.
 - **What tandem does not do:** read or type into a pane, read an OAuth token, or call a usage endpoint.
 
+## Development: watch mode with bacon
+
+`tandem/bacon.toml` defines two jobs: `test` (`cargo test`, the default) and `clippy` (`cargo clippy --all-targets`). Install bacon once with `cargo install --locked bacon`, then run it from this directory:
+
+```bash
+bacon                    # interactive TUI, default job: test
+bacon clippy             # lint on every save
+bacon --headless test    # no TUI, for agents and background use
+```
+
+Each run writes diagnostics to `tandem/.bacon-locations` (`[exports.locations] auto = true`), so an agent can read failures without attaching to the terminal. Keep the watcher running while you edit, and run the full `cargo test` before committing; CI always runs the one-shot suite.
+
 ## Coordination
 
 Agents and tandem share `.agent-workspace/coordination/` (override with `TANDEM_COORD_DIR`): `sessions/`, `claims/`, `queries/`. The schema and state machines are in `templates/skills/agent-coordination/references/protocol.md`. Questions an agent asks appear in the **Queries** tab; your answer is written to the query file and the agent picks it up at its next checkpoint. Nothing is typed into a pane.
