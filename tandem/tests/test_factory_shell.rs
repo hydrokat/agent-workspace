@@ -157,6 +157,7 @@ fn card(id: &str, title: &str, state: IdeaState, run: Option<RunSummary>) -> Ide
         run,
         team_count: 0,
         needs_sign_in: false,
+        moves: Vec::new(),
     }
 }
 
@@ -190,6 +191,8 @@ fn summary() -> FactorySummary {
         ],
         needs_you: 0,
         by_state: Default::default(),
+        columns: Vec::new(),
+        agents_active: 0,
         error: None,
     }
 }

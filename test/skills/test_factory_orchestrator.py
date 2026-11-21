@@ -405,6 +405,34 @@ def test_ensure_idea_reuses_blank_inbox_and_creates_when_described_or_unbound(tm
     assert unbound_out["idea_id"] == "i-created9"
 
 
+def test_ensure_idea_keeps_a_description_the_user_wrote_when_starting_the_idea(tmp_path: Path) -> None:
+    described_inbox = {
+        "idea": {
+            "id": "i-userdesc",
+            "title": "Export reports",
+            "text": "Weekly CSV export with totals.",
+            "state": "inbox",
+            "feasibility": None,
+            "plan": None,
+        }
+    }
+    stub = make_stateful_stub_tandem(tmp_path / "bin-described", show_payload=described_inbox)
+    proc = run_factory(
+        "ensure-idea",
+        "--title",
+        "Different title",
+        "--text-file",
+        "body.md",
+        env={"TANDEM_SELF": str(stub), "TANDEM_FACTORY_IDEA": "i-userdesc"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["action"] == "reused"
+    assert out["idea_id"] == "i-userdesc"
+    assert out["kept_description"] is True
+    assert out["idea"]["text"] == "Weekly CSV export with totals."
+
+
 def test_pane_current_idea_resolves_when_tmux_pane_set(tmp_path: Path) -> None:
     stub = make_stateful_stub_tandem(
         tmp_path / "bin-pane",

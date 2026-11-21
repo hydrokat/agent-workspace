@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use common::TempDir;
 use common::run_fixture::setup_run;
-use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use tandem::config::Config;
@@ -87,6 +87,7 @@ fn card(id: &str, title: &str, state: IdeaState) -> IdeaCard {
         run: None,
         team_count: 0,
         needs_sign_in: false,
+        moves: Vec::new(),
     }
 }
 
@@ -97,6 +98,8 @@ fn snapshot(ideas: Vec<IdeaCard>) -> StatusSnapshot {
             ideas,
             needs_you: 0,
             by_state: Default::default(),
+            columns: Vec::new(),
+            agents_active: 0,
             error: None,
         }),
         now: 1_000.0,
@@ -113,11 +116,13 @@ fn installed(claude: bool, agy: bool) -> HashMap<String, bool> {
 }
 
 fn tab_for(ws: &std::path::Path) -> FactoryTab {
-    FactoryTab::new(
+    let mut tab = FactoryTab::new(
         Some(ws.to_path_buf()),
         installed(true, false),
         Arc::new(|_| Ok(Vec::new())),
-    )
+    );
+    tab.layout = tandem::status::factory_board::BoardLayout::List;
+    tab
 }
 
 fn workspace() -> TempDir {
@@ -219,6 +224,17 @@ fn test_new_idea_modal_cli_rows_back_and_cancel() {
     let snap = three_ideas();
     let mut tab = tab_for(ws.path());
     tab.open_new_idea();
+    assert_eq!(tab.new_idea.as_ref().unwrap().step, NewIdeaStep::Title);
+    for c in "Idea".chars() {
+        tab.handle_key(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE), &snap);
+    }
+    click_text(&mut tab, &snap, AREA, "Enter next");
+    assert_eq!(
+        tab.new_idea.as_ref().unwrap().step,
+        NewIdeaStep::Description
+    );
+    click_text(&mut tab, &snap, AREA, "Ctrl+Enter done");
+    assert_eq!(tab.new_idea.as_ref().unwrap().step, NewIdeaStep::Cli);
 
     click_text(&mut tab, &snap, AREA, "agy");
     assert_eq!(tab.new_idea.as_ref().unwrap().step, NewIdeaStep::Cli);
@@ -235,6 +251,14 @@ fn test_new_idea_modal_cli_rows_back_and_cancel() {
 
     click_text(&mut tab, &snap, AREA, "Esc back");
     assert_eq!(tab.new_idea.as_ref().unwrap().step, NewIdeaStep::Cli);
+
+    click_text(&mut tab, &snap, AREA, "Esc back");
+    assert_eq!(
+        tab.new_idea.as_ref().unwrap().step,
+        NewIdeaStep::Description
+    );
+    click_text(&mut tab, &snap, AREA, "Esc back");
+    assert_eq!(tab.new_idea.as_ref().unwrap().step, NewIdeaStep::Title);
 
     click_text(&mut tab, &snap, AREA, "Esc cancel");
     assert_eq!(tab.view, FactoryView::Board);
@@ -408,7 +432,7 @@ fn test_status_app_routes_factory_mouse_events() {
     let area = Rect::new(0, 0, 140, 20);
     let mut buf = Buffer::empty(area);
     app.render(area, &mut buf);
-    let (x, y) = find(&buf, area, "i-");
+    let (x, y) = find(&buf, area, "Export team");
     app.handle_mouse(&click(x, y));
     app.handle_mouse(&click(x, y));
     assert_eq!(app.factory_tab.view, FactoryView::Detail);

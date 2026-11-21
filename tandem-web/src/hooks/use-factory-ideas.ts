@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  BoardMove,
   FactoryCli,
   ModelOption,
   Idea,
@@ -126,7 +127,12 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
   }, [selectedIdeaId, fetchDetailAndArtifacts]);
 
   const startIdea = useCallback(
-    async (input: { cli: FactoryCli; model: string; title?: string }): Promise<Idea> => {
+    async (input: {
+      cli: FactoryCli;
+      model: string;
+      title?: string;
+      text?: string;
+    }): Promise<Idea> => {
       if (!workspaceId) {
         throw new Error("No active workspace selected.");
       }
@@ -202,6 +208,37 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
     [workspaceId, fetchDetailAndArtifacts]
   );
 
+  const cancelIdea = useCallback(
+    async (ideaId: string): Promise<void> => {
+      if (!workspaceId) {
+        throw new Error("No active workspace selected.");
+      }
+      const res = await fetch(`/api/workspaces/${workspaceId}/factory/ideas/${ideaId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: ideaId }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Unable to cancel idea (${res.status})`);
+      }
+    },
+    [workspaceId]
+  );
+
+  const moveIdea = useCallback(
+    async (idea: IdeaCard, move: BoardMove): Promise<void> => {
+      if (move.via === "revoke_ready") {
+        await revokeReady(idea.id);
+      } else if (move.via === "cancel") {
+        await cancelIdea(idea.id);
+      } else {
+        throw new Error("Marking an idea ready needs the Gate 2 confirmation dialog.");
+      }
+    },
+    [revokeReady, cancelIdea]
+  );
+
   return {
     selectedIdeaId,
     selectIdea: setSelectedIdeaId,
@@ -216,5 +253,7 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
     listModels,
     markReady,
     revokeReady,
+    cancelIdea,
+    moveIdea,
   };
 }

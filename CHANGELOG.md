@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added: Factory kanban board, global Agents view, and description at idea creation (`p-027` / `s-020`)
+- **Board moves in core**: `factory/board.rs` (`legal_moves`) computes the moves each idea offers (`ready` for Gate 2, `revoke_ready`, `cancel`) and a parity test checks every move against the state machine. `IdeaCard.moves`, `FactorySummary.columns`, and `FactorySummary.agents_active` are additive snapshot fields.
+- **Kanban in the TUI and `tandem-web`**: Columns per idea state with guarded moves. The TUI adds `h/l`, `j/k`, `m` (move picker), `v` (board or list), and `g` (Agents); below 110 columns it shows the focused column as a list. `tandem-web` adds drag-and-drop to legal columns, a keyboard `Move to...` menu, a `Board | List` toggle, and `POST /factory/ideas/:id/cancel`. Gate 2 and revoke still go through their existing confirmation; cancel asks first.
+- **Agents across ideas**: `tandem factory agent list --all [--active]`, a TUI Agents view (`g`), a `tandem-web` `Ideas | Agents` switch with `GET /factory/agents`, and a `Factory (N)` tab title. Actions reuse the per-run team guards. The Run Monitor's team formatting is shared.
+- **Description at creation**: `tandem factory idea start` accepts `--text-file` and `--text-stdin`, the TUI modal gains Title and Description steps, and the web dialog a description field. `factory.py ensure-idea` keeps a user-written description on an unstarted Inbox idea instead of creating a second one.
+- **Tests and docs**: a real-tmux E2E (`test_factory_ui_e2e.rs`), README walkthrough and key tables, and the `ui-state-rules-in-core` knowledgebase note.
+
 ### Added: Factory Mode `/idea` skill integration (`p-028` / `s-019`)
 - **Orchestrator-driven idea creation & pane binding**: `tandem factory idea new` now supports `--start-discovery`, `--bind-current`, `--cli`, `--model`, and `--conversation` so an Orchestrator session can create a new Factory idea in `Ideation`, bind `Idea.orchestrator`, and update `@tandem_idea` on the calling tmux pane. Added `tandem factory idea current [--json]` to resolve the calling pane's live `@tandem_idea` before falling back to `TANDEM_FACTORY_IDEA`. Storing a `feasibility` artifact on an `Inbox` idea now automatically emits `IdeaDiscoveryStarted` (`Inbox` -> `Ideation`).
 - **`factory.py` wrapper enhancements**: Added `--idea <id>` override, `factory.py new`, and `factory.py ensure-idea` (which reuses a bound blank `Inbox` placeholder via `describe` or creates and binds a new Factory idea via `new --start-discovery --bind-current`), plus live `@tandem_idea` pane lookup when `TMUX_PANE` is set.

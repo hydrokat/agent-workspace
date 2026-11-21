@@ -140,6 +140,15 @@ export interface Idea {
   cancelled_from?: IdeaState | null;
 }
 
+export type MoveVia = "ready" | "revoke_ready" | "cancel";
+
+export interface BoardMove {
+  to: IdeaState;
+  via: MoveVia;
+  needs_confirm: boolean;
+  gate?: "user_only";
+}
+
 export interface IdeaCard {
   id: string;
   title: string;
@@ -150,6 +159,7 @@ export interface IdeaCard {
   updated: number;
   team_count?: number;
   needs_sign_in?: boolean;
+  moves?: BoardMove[];
 }
 
 export interface FactorySummary {
@@ -157,6 +167,8 @@ export interface FactorySummary {
   ideas: IdeaCard[];
   needs_you: number;
   by_state: Record<string, number>;
+  columns?: string[];
+  agents_active?: number;
   error?: string | null;
 }
 
@@ -280,6 +292,12 @@ export interface IdeaDetail {
   questions: IdeaQuestions;
   plan_snapshot?: SnapshotVerification | null;
   run?: RunSummary | null;
+}
+
+export interface CancelIdeaResult {
+  idea: Idea;
+  cancelled_runs: unknown[];
+  stopped_jobs: unknown[];
 }
 
 export interface ReadyResult {
@@ -413,6 +431,12 @@ export function isValidIdeaTitle(title: string): boolean {
     return false;
   }
   return !/[\x00-\x1f\x7f]/.test(trimmed);
+}
+
+export const IDEA_TEXT_MAX_LEN = 8000;
+
+export function isValidIdeaText(text: string): boolean {
+  return [...text].length <= IDEA_TEXT_MAX_LEN && !/[\x00-\x08\x0b-\x1f\x7f]/.test(text);
 }
 
 export function isValidArtifactKind(kind: string): kind is ArtifactKind {
@@ -620,6 +644,34 @@ export interface AgentSummary {
   activity?: WorkerActivity | null;
   has_result: boolean;
   result_status?: string | null;
+}
+
+export interface GlobalAgentSummary extends AgentSummary {
+  idea_id: string;
+  idea_title: string;
+  tier?: ModelTierName | null;
+}
+
+export interface AllAgentsOptions {
+  activeOnly: boolean;
+}
+
+export interface AllAgentsPayload {
+  agents: GlobalAgentSummary[];
+}
+
+export function isListableGlobalAgent(value: unknown): value is GlobalAgentSummary {
+  if (value === null || typeof value !== "object") return false;
+  const agent = value as Partial<GlobalAgentSummary>;
+  return (
+    typeof agent.idea_id === "string" &&
+    isValidIdeaId(agent.idea_id) &&
+    typeof agent.run_id === "string" &&
+    isValidRunId(agent.run_id) &&
+    typeof agent.job_id === "string" &&
+    isValidAgentJobId(agent.job_id) &&
+    agent.job_id.startsWith(`${agent.run_id}.`)
+  );
 }
 
 export interface RelaunchAgentResult {

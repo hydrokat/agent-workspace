@@ -389,6 +389,29 @@ Using the example idea *"Export team activity as CSV for the last 90 days"*:
    - `demo` (conditional): runs when `ui_changed` is set, capturing local PNG screenshots for UI acceptance criteria.
    - **Pull request & handoff**: once review approves and required evidence is complete, tandem pushes the feature branch and opens **one pull request per run** on GitHub via `gh`, then hands off the PR link, evidence summary (`tandem factory run evidence <run-id>`), and `tandem factory run prs <run-id>` status to you for review and merge. Clean up the worktree afterward with `tandem factory run cleanup <run-id> --confirm <run-id>`.
 
+#### The ideas board and the Agents view
+
+The Factory tab shows ideas as a kanban board (one column per state, in lifecycle order) in both the TUI and `tandem-web`. Only the moves the Factory offers for an idea appear, and Gate 2 still needs you: choosing *Ready for development* opens the same confirmation as in the detail view, and nothing changes state from the board itself.
+
+| Move | From | Does |
+|---|---|---|
+| Ready for development (Gate 2) | Planning | Opens the Gate 2 confirmation (typed idea id). |
+| Back to Planning | Ready for development | Revokes ready; asks to confirm once the approval grace window has passed, and is refused while a run is active. |
+| Cancel idea | Any open state | Asks for confirmation, then cancels the idea and stops its workers. |
+
+Queued, In development, Review, and Delivered are driven by the Factory and are read-only. Give an idea a description when you create it (the new-idea dialog and modal have Title and Description fields; `tandem factory idea start --text-file <path>` or `--text-stdin` from the shell).
+
+| Key (TUI Factory tab) | Action |
+|---|---|
+| `h` / `l` (or Left / Right) | Previous / next column |
+| `j` / `k` (or Down / Up) | Next / previous card |
+| `m` | Move picker for the selected card |
+| `v` | Toggle board columns and the list |
+| `g` | Agents view (all workers across ideas) |
+| `f`, `n`, `Enter` | Filter, new idea, open (unchanged) |
+
+Below 110 columns the board shows one column at a time as a list with a `Planning (3) h/l` indicator. In the Agents view: `f` Running/All, `Enter` the run's monitor, `v` view the pane, `m` message, `s` stop (type the job id), `r` relaunch, `Esc` back. In `tandem-web`, the board supports drag-and-drop to legal columns and a keyboard `Move to...` menu on every card, a `Board | List` toggle, and an `Ideas | Agents` switch with a running-agent count.
+
 #### The three gates
 
 | Gate | What it authorizes | Who can pass it | How to undo |

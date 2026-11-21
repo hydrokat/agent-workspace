@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 
-use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout as RLayout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -13,11 +13,17 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::adapters::base::Model;
 use crate::coordination::schema::Query;
-use crate::factory::model::{IdeaState, Risk};
+use crate::factory::model::{IdeaState, Risk, validate_text, validate_title};
 use crate::factory::questions;
 use crate::sanitize::clean;
 use crate::snapshot::{FactorySummary, IdeaCard, StatusSnapshot};
+use crate::status::factory_agents::{AgentsKeyOutcome, FactoryAgents};
 use crate::status::factory_audit::{AuditKeyOutcome, FactoryAudit};
+use crate::status::factory_board::{
+    BoardLayout, ColumnView, ColumnsRender, MIN_COLUMNS_WIDTH, MoveOutcome, MovePicker,
+    PICKER_CMD_BASE, PickerOutcome, column_states, first_visible, move_outcome, picker_hits,
+    render_columns, short_label, visible_column_count,
+};
 use crate::status::factory_detail::{DetailAction, DetailKeyOutcome, FactoryDetail};
 use crate::status::factory_run::{FactoryRun, RunKeyOutcome};
 use crate::status::render::age;
@@ -47,6 +53,7 @@ pub enum FactoryView {
     Detail,
     RunMonitor,
     Audit,
+    Agents,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -109,21 +116,39 @@ impl IdeaFilter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NewIdeaStep {
+    Title,
+    Description,
     Cli,
     Model,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FactoryAction {
-    StartIdea { cli: String, model: String },
-    OpenOrResumeOrchestrator { idea_id: String },
-    OpenWorkerPane { pane_id: String },
-    OpenLoginPane { cli: String },
+    StartIdea {
+        cli: String,
+        model: String,
+        title: Option<String>,
+        text: String,
+    },
+    CancelIdea {
+        idea_id: String,
+    },
+    OpenOrResumeOrchestrator {
+        idea_id: String,
+    },
+    OpenWorkerPane {
+        pane_id: String,
+    },
+    OpenLoginPane {
+        cli: String,
+    },
     Refresh,
 }
 
 pub struct NewIdeaModal {
     pub step: NewIdeaStep,
+    pub title_input: TextInput,
+    pub description: String,
     pub installed: HashMap<String, bool>,
     pub cli_items: Vec<OptionItem>,
     pub cli_state: OptionListState,
@@ -166,8 +191,13 @@ impl NewIdeaModal {
         let mut model_input = TextInput::with_placeholder("filter or type model id");
         model_input.focused = true;
 
+        let mut title_input = TextInput::with_placeholder("short summary");
+        title_input.focused = true;
+
         Self {
-            step: NewIdeaStep::Cli,
+            step: NewIdeaStep::Title,
+            title_input,
+            description: String::new(),
             installed,
             cli_items,
             cli_state,
@@ -244,8 +274,51 @@ impl NewIdeaModal {
 
     fn handle_key(&mut self, event: &KeyEvent) -> ModalKeyOutcome {
         match self.step {
-            NewIdeaStep::Cli => match event.code {
+            NewIdeaStep::Title => match event.code {
                 KeyCode::Esc => ModalKeyOutcome::Cancel,
+                KeyCode::Enter => {
+                    let title = self.title_input.value.trim().to_string();
+                    if title.is_empty() {
+                        self.message = "Title is required.".to_string();
+                        return ModalKeyOutcome::Consumed;
+                    }
+                    if let Err(err) = validate_title(&title) {
+                        self.message = clean(&err.0);
+                        return ModalKeyOutcome::Consumed;
+                    }
+                    self.message.clear();
+                    self.step = NewIdeaStep::Description;
+                    ModalKeyOutcome::Consumed
+                }
+                _ => {
+                    self.title_input.handle_key(event);
+                    ModalKeyOutcome::Consumed
+                }
+            },
+            NewIdeaStep::Description => {
+                let ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+                match event.code {
+                    KeyCode::Esc => {
+                        self.message.clear();
+                        self.step = NewIdeaStep::Title;
+                    }
+                    KeyCode::Enter if ctrl => return self.finish_description(),
+                    KeyCode::Char('d') if ctrl => return self.finish_description(),
+                    KeyCode::Enter => self.description.push('\n'),
+                    KeyCode::Backspace => {
+                        self.description.pop();
+                    }
+                    KeyCode::Char(c) if !ctrl => self.description.push(c),
+                    _ => {}
+                }
+                ModalKeyOutcome::Consumed
+            }
+            NewIdeaStep::Cli => match event.code {
+                KeyCode::Esc => {
+                    self.message.clear();
+                    self.step = NewIdeaStep::Description;
+                    ModalKeyOutcome::Consumed
+                }
                 KeyCode::Up => {
                     self.cli_state.select_prev(&self.cli_items);
                     ModalKeyOutcome::Consumed
@@ -303,7 +376,12 @@ impl NewIdeaModal {
                         return ModalKeyOutcome::Consumed;
                     }
                     let cli = self.chosen_cli.clone().unwrap_or_default();
-                    ModalKeyOutcome::Confirm { cli, model }
+                    ModalKeyOutcome::Confirm {
+                        cli,
+                        model,
+                        title: self.title_input.value.trim().to_string(),
+                        text: self.description.trim().to_string(),
+                    }
                 }
                 _ => {
                     if self.model_input.handle_key(event) {
@@ -316,12 +394,23 @@ impl NewIdeaModal {
         }
     }
 
+    fn finish_description(&mut self) -> ModalKeyOutcome {
+        if let Err(err) = validate_text(self.description.trim()) {
+            self.message = clean(&err.0);
+            return ModalKeyOutcome::Consumed;
+        }
+        self.message.clear();
+        self.step = NewIdeaStep::Cli;
+        ModalKeyOutcome::Consumed
+    }
+
     fn list_item_at(&self, col: u16, row: u16) -> Option<usize> {
         let r = self.list_rect;
         if r.width == 0 || col < r.x || col >= r.x + r.width || row < r.y || row >= r.y + r.height {
             return None;
         }
         let (offset, len) = match self.step {
+            NewIdeaStep::Title | NewIdeaStep::Description => return None,
             NewIdeaStep::Cli => (self.cli_state.scroll_offset, self.cli_items.len()),
             NewIdeaStep::Model => (self.model_state.scroll_offset, self.model_items.len()),
         };
@@ -335,6 +424,7 @@ impl NewIdeaModal {
             && let Some(idx) = self.list_item_at(event.column, event.row)
         {
             return match self.step {
+                NewIdeaStep::Title | NewIdeaStep::Description => None,
                 NewIdeaStep::Cli => {
                     let item = &self.cli_items[idx];
                     if item.disabled {
@@ -386,6 +476,54 @@ impl NewIdeaModal {
         let mut y = area.y + 1;
 
         match self.step {
+            NewIdeaStep::Title => {
+                if y < body_bottom {
+                    write_clipped(buf, area.x, y, max_w, "Title", label_style);
+                    y += 1;
+                }
+                if y < body_bottom {
+                    self.title_input.render_with_block(
+                        Rect::new(area.x, y, area.width, 1),
+                        buf,
+                        None,
+                    );
+                    y += 1;
+                }
+                if !self.message.is_empty() && y < body_bottom {
+                    write_clipped(buf, area.x, y, max_w, &self.message, warn_style);
+                }
+            }
+            NewIdeaStep::Description => {
+                if y < body_bottom {
+                    let count = self.description.chars().count();
+                    write_clipped(
+                        buf,
+                        area.x,
+                        y,
+                        max_w,
+                        &format!("Description (optional)   {count}/8000"),
+                        label_style,
+                    );
+                    y += 1;
+                }
+                let message_rows = u16::from(!self.message.is_empty());
+                let text_rows = body_bottom.saturating_sub(y).saturating_sub(message_rows);
+                let lines: Vec<&str> = self.description.split('\n').collect();
+                let first = lines.len().saturating_sub(text_rows as usize);
+                for (row, line) in lines.iter().skip(first).enumerate() {
+                    let last = first + row + 1 == lines.len();
+                    let shown = if last {
+                        format!("{}▏", clean(line))
+                    } else {
+                        clean(line)
+                    };
+                    write_clipped(buf, area.x, y + row as u16, max_w, &shown, Style::default());
+                }
+                y += text_rows;
+                if !self.message.is_empty() && y < body_bottom {
+                    write_clipped(buf, area.x, y, max_w, &self.message, warn_style);
+                }
+            }
             NewIdeaStep::Cli => {
                 if y < body_bottom {
                     write_clipped(buf, area.x, y, max_w, "Orchestrator CLI", label_style);
@@ -453,7 +591,11 @@ impl NewIdeaModal {
 
         if show_hint {
             let hint = match self.step {
-                NewIdeaStep::Cli => "↑/↓ choose CLI   Enter next   Esc cancel",
+                NewIdeaStep::Title => "type a title   Enter next   Esc cancel",
+                NewIdeaStep::Description => {
+                    "type a description   Enter new line   Ctrl+Enter done   Esc back"
+                }
+                NewIdeaStep::Cli => "↑/↓ choose CLI   Enter next   Esc back",
                 NewIdeaStep::Model => "↑/↓ choose model   type to filter   Enter start   Esc back",
             };
             write_clipped(
@@ -468,13 +610,28 @@ impl NewIdeaModal {
             let enter = Hit::key(KeyCode::Enter);
             let esc = Hit::key(KeyCode::Esc);
             match self.step {
+                NewIdeaStep::Title => {
+                    self.hits
+                        .tags(line, hint, &[("Enter next", enter), ("Esc cancel", esc)])
+                }
+                NewIdeaStep::Description => self.hits.tags(
+                    line,
+                    hint,
+                    &[
+                        (
+                            "Ctrl+Enter done",
+                            Hit::Key(KeyCode::Enter, KeyModifiers::CONTROL),
+                        ),
+                        ("Esc back", esc),
+                    ],
+                ),
                 NewIdeaStep::Cli => self.hits.tags(
                     line,
                     hint,
                     &[
                         ("↑/↓ choose CLI", Hit::key(KeyCode::Down)),
                         ("Enter next", enter),
-                        ("Esc cancel", esc),
+                        ("Esc back", esc),
                     ],
                 ),
                 NewIdeaStep::Model => self.hits.tags(
@@ -494,7 +651,12 @@ impl NewIdeaModal {
 enum ModalKeyOutcome {
     Consumed,
     Cancel,
-    Confirm { cli: String, model: String },
+    Confirm {
+        cli: String,
+        model: String,
+        title: String,
+        text: String,
+    },
 }
 
 pub struct FactoryTab {
@@ -504,9 +666,18 @@ pub struct FactoryTab {
     pub page: usize,
     pub view: FactoryView,
     pub filter: IdeaFilter,
+    pub layout: BoardLayout,
+    pub column: IdeaState,
+    pub column_touched: bool,
+    pub first_column: usize,
+    pub last_width: u16,
+    pub move_picker: Option<MovePicker>,
+    pub cancel_confirm: Option<(String, String)>,
     pub detail: Option<FactoryDetail>,
     pub run_monitor: Option<FactoryRun>,
     pub audit: Option<FactoryAudit>,
+    pub agents: Option<FactoryAgents>,
+    pub return_to_agents: bool,
     pub new_idea: Option<NewIdeaModal>,
     pub notice: String,
     pub platform: String,
@@ -546,9 +717,18 @@ impl FactoryTab {
             page: 0,
             view: FactoryView::Board,
             filter: IdeaFilter::All,
+            layout: BoardLayout::default(),
+            column: IdeaState::Inbox,
+            column_touched: false,
+            first_column: 0,
+            last_width: 0,
+            move_picker: None,
+            cancel_confirm: None,
             detail: None,
             run_monitor: None,
             audit: None,
+            agents: None,
+            return_to_agents: false,
             new_idea: None,
             notice: String::new(),
             platform: std::env::consts::OS.to_string(),
@@ -562,16 +742,19 @@ impl FactoryTab {
     pub fn captures_input(&self) -> bool {
         match self.view {
             FactoryView::Board => false,
-            FactoryView::NewIdea => self
-                .new_idea
-                .as_ref()
-                .is_some_and(|m| m.step == NewIdeaStep::Model),
+            FactoryView::NewIdea => self.new_idea.as_ref().is_some_and(|m| {
+                matches!(
+                    m.step,
+                    NewIdeaStep::Title | NewIdeaStep::Description | NewIdeaStep::Model
+                )
+            }),
             FactoryView::Detail => self.detail.as_ref().is_some_and(|d| d.captures_input()),
             FactoryView::RunMonitor => self
                 .run_monitor
                 .as_ref()
                 .is_some_and(|m| m.captures_input()),
             FactoryView::Audit => false,
+            FactoryView::Agents => self.agents.as_ref().is_some_and(|a| a.captures_input()),
         }
     }
 
@@ -599,7 +782,13 @@ impl FactoryTab {
         self.selected_id = Some(idea_id.to_string());
     }
 
-    pub fn filtered_ideas<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
+    pub fn column_restricted(&self) -> bool {
+        self.layout == BoardLayout::Columns
+            && self.last_width != 0
+            && self.last_width < MIN_COLUMNS_WIDTH
+    }
+
+    fn all_filtered<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
         let Some(summary) = snapshot.factory.as_ref() else {
             return Vec::new();
         };
@@ -611,6 +800,119 @@ impl FactoryTab {
                     .matches_at(idea, &snapshot.queries, snapshot.now)
             })
             .collect()
+    }
+
+    pub fn column_members<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
+        let mut members: Vec<&IdeaCard> = self
+            .all_filtered(snapshot)
+            .into_iter()
+            .filter(|idea| idea.state == self.column)
+            .collect();
+        members.sort_by(|a, b| b.updated.total_cmp(&a.updated));
+        members
+    }
+
+    pub fn filtered_ideas<'a>(&self, snapshot: &'a StatusSnapshot) -> Vec<&'a IdeaCard> {
+        if self.column_restricted() {
+            return self.column_members(snapshot);
+        }
+        self.all_filtered(snapshot)
+    }
+
+    fn select_id(&mut self, snapshot: &StatusSnapshot, id: Option<String>) {
+        self.selected_id = id;
+        let list = self.filtered_ideas(snapshot);
+        self.selected = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| list.iter().position(|i| &i.id == id));
+        if let Some(pos) = self.selected {
+            self.page = pos / BOARD_PAGE_SIZE;
+        }
+    }
+
+    fn shift_column(&mut self, delta: isize, snapshot: &StatusSnapshot) {
+        let Some(summary) = snapshot.factory.as_ref() else {
+            return;
+        };
+        let states = column_states(summary);
+        let current = states.iter().position(|s| *s == self.column).unwrap_or(0) as isize;
+        let next = (current + delta).clamp(0, states.len() as isize - 1) as usize;
+        self.column = states[next];
+        self.column_touched = true;
+        let first = self.column_members(snapshot).first().map(|i| i.id.clone());
+        self.select_id(snapshot, first);
+    }
+
+    fn shift_card(&mut self, delta: isize, snapshot: &StatusSnapshot) {
+        let members = self.column_members(snapshot);
+        if members.is_empty() {
+            return;
+        }
+        let current = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| members.iter().position(|i| &i.id == id))
+            .map_or(0, |p| p as isize);
+        let next = (current + delta).clamp(0, members.len() as isize - 1) as usize;
+        let id = members[next].id.clone();
+        self.select_id(snapshot, Some(id));
+    }
+
+    fn selected_card<'a>(&self, snapshot: &'a StatusSnapshot) -> Option<&'a IdeaCard> {
+        let id = self.selected_id.as_ref()?;
+        self.all_filtered(snapshot)
+            .into_iter()
+            .find(|i| &i.id == id)
+    }
+
+    fn open_detail_for(&mut self, idea_id: &str, snapshot: &StatusSnapshot) -> bool {
+        let Some(ref ws) = self.workspace else {
+            self.notice = "Workspace path unavailable for detail view.".to_string();
+            return false;
+        };
+        let mut detail = FactoryDetail::load(ws, idea_id, &snapshot.queries, false);
+        detail.platform = self.platform.clone();
+        self.detail = Some(detail);
+        self.view = FactoryView::Detail;
+        true
+    }
+
+    fn open_move_picker(&mut self, snapshot: &StatusSnapshot) {
+        let Some(card) = self.selected_card(snapshot) else {
+            self.notice = "Select an idea first.".to_string();
+            return;
+        };
+        if card.moves.is_empty() {
+            self.notice = format!(
+                "{} has no moves from {}.",
+                clean(card.title.trim()),
+                card.state.label()
+            );
+            return;
+        }
+        self.notice.clear();
+        self.move_picker = Some(MovePicker::new(card));
+    }
+
+    fn apply_move(
+        &mut self,
+        picker: MovePicker,
+        mv: crate::factory::board::Move,
+        snapshot: &StatusSnapshot,
+    ) {
+        match move_outcome(&mv) {
+            MoveOutcome::OpenReadyFlow | MoveOutcome::OpenRevokeFlow => {
+                if self.open_detail_for(&picker.idea_id, snapshot)
+                    && let Some(ref mut detail) = self.detail
+                {
+                    detail.request_ready_or_revoke();
+                }
+            }
+            MoveOutcome::ConfirmCancel => {
+                self.cancel_confirm = Some((picker.idea_id, picker.title));
+            }
+        }
     }
 
     pub fn current_page(&self) -> usize {
@@ -687,6 +989,10 @@ impl FactoryTab {
             self.page = 0;
             return;
         }
+        if self.layout == BoardLayout::Columns {
+            self.sync_columns(summary, &filtered);
+            return;
+        }
         if let Some(ref target_id) = self.selected_id
             && let Some(pos) = filtered.iter().position(|idea| &idea.id == target_id)
         {
@@ -697,6 +1003,46 @@ impl FactoryTab {
         self.selected = Some(0);
         self.selected_id = Some(filtered[0].id.clone());
         self.page = 0;
+    }
+
+    fn sync_columns(&mut self, summary: &FactorySummary, filtered: &[&IdeaCard]) {
+        let followed = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| filtered.iter().find(|i| &i.id == id))
+            .map(|card| card.state);
+        if let Some(state) = followed {
+            self.column = state;
+        } else {
+            if !self.column_touched {
+                let states = column_states(summary);
+                if let Some(first) = states
+                    .iter()
+                    .find(|s| filtered.iter().any(|i| i.state == **s))
+                {
+                    self.column = *first;
+                }
+            }
+            let mut members: Vec<&&IdeaCard> =
+                filtered.iter().filter(|i| i.state == self.column).collect();
+            members.sort_by(|a, b| b.updated.total_cmp(&a.updated));
+            self.selected_id = members.first().map(|i| i.id.clone());
+        }
+        let list: Vec<&&IdeaCard> = if self.column_restricted() {
+            let mut members: Vec<&&IdeaCard> =
+                filtered.iter().filter(|i| i.state == self.column).collect();
+            members.sort_by(|a, b| b.updated.total_cmp(&a.updated));
+            members
+        } else {
+            filtered.iter().collect()
+        };
+        self.selected = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| list.iter().position(|i| &i.id == id));
+        if let Some(pos) = self.selected {
+            self.page = pos / BOARD_PAGE_SIZE;
+        }
     }
 
     pub fn select_next(&mut self, ideas: &[IdeaCard]) {
@@ -767,10 +1113,20 @@ impl FactoryTab {
                         self.view = FactoryView::Board;
                         None
                     }
-                    ModalKeyOutcome::Confirm { cli, model } => {
+                    ModalKeyOutcome::Confirm {
+                        cli,
+                        model,
+                        title,
+                        text,
+                    } => {
                         self.new_idea = None;
                         self.view = FactoryView::Board;
-                        Some(FactoryAction::StartIdea { cli, model })
+                        Some(FactoryAction::StartIdea {
+                            cli,
+                            model,
+                            title: (!title.is_empty()).then_some(title),
+                            text,
+                        })
                     }
                 }
             }
@@ -827,6 +1183,11 @@ impl FactoryTab {
                 match monitor.handle_key(event) {
                     RunKeyOutcome::BackToDetail => {
                         self.run_monitor = None;
+                        if self.return_to_agents && self.agents.is_some() {
+                            self.return_to_agents = false;
+                            self.view = FactoryView::Agents;
+                            return None;
+                        }
                         if let Some(ref mut detail) = self.detail {
                             let pane_open = detail.pane_open;
                             detail.reload(&snapshot.queries, pane_open);
@@ -864,12 +1225,101 @@ impl FactoryTab {
                     AuditKeyOutcome::Consumed | AuditKeyOutcome::Ignored => None,
                 }
             }
+            FactoryView::Agents => {
+                let Some(ref mut agents) = self.agents else {
+                    self.view = FactoryView::Board;
+                    return None;
+                };
+                match agents.handle_key(event) {
+                    AgentsKeyOutcome::Back => {
+                        self.agents = None;
+                        self.view = FactoryView::Board;
+                        None
+                    }
+                    AgentsKeyOutcome::OpenRun { idea_id, run_id } => {
+                        if let Some(ref ws) = self.workspace {
+                            self.run_monitor =
+                                Some(FactoryRun::load(ws, &idea_id, &run_id, &self.platform));
+                            self.return_to_agents = true;
+                            self.view = FactoryView::RunMonitor;
+                        }
+                        None
+                    }
+                    AgentsKeyOutcome::OpenWorkerPane { pane_id } => {
+                        Some(FactoryAction::OpenWorkerPane { pane_id })
+                    }
+                    AgentsKeyOutcome::Refresh => Some(FactoryAction::Refresh),
+                    AgentsKeyOutcome::Consumed | AgentsKeyOutcome::Ignored => None,
+                }
+            }
             FactoryView::Board => {
+                if let Some((idea_id, _)) = self.cancel_confirm.take() {
+                    return matches!(event.code, KeyCode::Char('y') | KeyCode::Char('Y'))
+                        .then_some(FactoryAction::CancelIdea { idea_id });
+                }
+                if let Some(mut picker) = self.move_picker.take() {
+                    match picker.handle_key(event) {
+                        PickerOutcome::Consumed => self.move_picker = Some(picker),
+                        PickerOutcome::Cancel => {}
+                        PickerOutcome::Choose(mv) => self.apply_move(picker, mv, snapshot),
+                    }
+                    return None;
+                }
                 if matches_crossterm_event(FACTORY_NEW_IDEA_KEY, event, &self.platform) {
                     if snapshot.factory.is_some() {
                         self.open_new_idea();
                     }
                     return None;
+                }
+                let columns = self.layout == BoardLayout::Columns;
+                match event.code {
+                    KeyCode::Char('v') => {
+                        self.layout = match self.layout {
+                            BoardLayout::Columns => BoardLayout::List,
+                            BoardLayout::List => BoardLayout::Columns,
+                        };
+                        self.sync_list_at(
+                            snapshot.factory.as_ref(),
+                            &snapshot.queries,
+                            snapshot.now,
+                        );
+                        return None;
+                    }
+                    KeyCode::Char('m') => {
+                        self.open_move_picker(snapshot);
+                        return None;
+                    }
+                    KeyCode::Char('g') => {
+                        match self.workspace {
+                            Some(ref ws) => {
+                                self.notice.clear();
+                                self.agents = Some(FactoryAgents::load(ws));
+                                self.view = FactoryView::Agents;
+                            }
+                            None => {
+                                self.notice =
+                                    "Workspace path unavailable for agents view.".to_string();
+                            }
+                        }
+                        return None;
+                    }
+                    KeyCode::Char('h') | KeyCode::Left if columns => {
+                        self.shift_column(-1, snapshot);
+                        return None;
+                    }
+                    KeyCode::Char('l') | KeyCode::Right if columns => {
+                        self.shift_column(1, snapshot);
+                        return None;
+                    }
+                    KeyCode::Char('k') | KeyCode::Up if columns => {
+                        self.shift_card(-1, snapshot);
+                        return None;
+                    }
+                    KeyCode::Char('j') | KeyCode::Down if columns => {
+                        self.shift_card(1, snapshot);
+                        return None;
+                    }
+                    _ => {}
                 }
                 let filtered = self.filtered_ideas(snapshot);
                 match event.code {
@@ -923,16 +1373,8 @@ impl FactoryTab {
                     }
                     KeyCode::Enter => {
                         let idx = self.selected?;
-                        let card = filtered.get(idx)?;
-                        let Some(ref ws) = self.workspace else {
-                            self.notice = "Workspace path unavailable for detail view.".to_string();
-                            return None;
-                        };
-                        let mut detail =
-                            FactoryDetail::load(ws, &card.id, &snapshot.queries, false);
-                        detail.platform = self.platform.clone();
-                        self.detail = Some(detail);
-                        self.view = FactoryView::Detail;
+                        let card_id = filtered.get(idx)?.id.clone();
+                        self.open_detail_for(&card_id, snapshot);
                         None
                     }
                     _ => None,
@@ -951,6 +1393,7 @@ impl FactoryTab {
             FactoryView::Detail => self.detail.as_mut().and_then(|d| d.mouse_key(event)),
             FactoryView::RunMonitor => self.run_monitor.as_mut().and_then(|r| r.mouse_key(event)),
             FactoryView::Audit => self.audit.as_mut().and_then(|a| a.mouse_key(event)),
+            FactoryView::Agents => self.agents.as_mut().and_then(|a| a.mouse_key(event)),
             FactoryView::Board => self.board_mouse_key(event, snapshot),
         }?;
         self.handle_key(&key, snapshot)
@@ -964,9 +1407,10 @@ impl FactoryTab {
         match self.hits.resolve(event, KeyCode::Up, KeyCode::Down)? {
             Resolved::Key(key) => Some(key),
             Resolved::Row(idx) => {
-                let (card_id, page) = {
+                let (card_id, card_state, page) = {
                     let filtered = self.filtered_ideas(snapshot);
-                    (filtered.get(idx)?.id.clone(), idx / BOARD_PAGE_SIZE)
+                    let card = filtered.get(idx)?;
+                    (card.id.clone(), card.state, idx / BOARD_PAGE_SIZE)
                 };
                 if self.selected == Some(idx) {
                     return Some(KeyEvent::new(
@@ -977,9 +1421,33 @@ impl FactoryTab {
                 self.selected = Some(idx);
                 self.selected_id = Some(card_id);
                 self.page = page;
+                if self.layout == BoardLayout::Columns {
+                    self.column = card_state;
+                    self.column_touched = true;
+                }
                 None
             }
-            Resolved::Cmd(_) => None,
+            Resolved::Cmd(c) if c >= PICKER_CMD_BASE => {
+                let picker = self.move_picker.as_mut()?;
+                let idx = (c - PICKER_CMD_BASE) as usize;
+                if idx >= picker.moves.len() {
+                    return None;
+                }
+                picker.selected = idx;
+                Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            }
+            Resolved::Cmd(c) => {
+                if self.move_picker.is_some() {
+                    return None;
+                }
+                let states = column_states(snapshot.factory.as_ref()?);
+                let state = *states.get(c as usize)?;
+                self.column = state;
+                self.column_touched = true;
+                let first = self.column_members(snapshot).first().map(|i| i.id.clone());
+                self.select_id(snapshot, first);
+                None
+            }
         }
     }
 
@@ -1011,6 +1479,12 @@ impl FactoryTab {
             FactoryView::Audit => {
                 if let Some(ref mut audit) = self.audit {
                     audit.render(area, buf);
+                }
+                return;
+            }
+            FactoryView::Agents => {
+                if let Some(ref mut agents) = self.agents {
+                    agents.render(snapshot.now, area, buf);
                 }
                 return;
             }
@@ -1049,6 +1523,12 @@ impl FactoryTab {
         let new_key = display_shortcut(FACTORY_NEW_IDEA_KEY, &self.platform)
             .unwrap_or_else(|_| FACTORY_NEW_IDEA_KEY.to_string());
 
+        let was_restricted = self.column_restricted();
+        self.last_width = area.width;
+        if was_restricted != self.column_restricted() {
+            self.sync_list_at(snapshot.factory.as_ref(), &snapshot.queries, snapshot.now);
+        }
+
         if summary.ideas.is_empty() {
             write_clipped(
                 buf,
@@ -1079,6 +1559,11 @@ impl FactoryTab {
             return;
         }
 
+        if self.layout == BoardLayout::Columns && area.width >= MIN_COLUMNS_WIDTH {
+            self.render_columns_view(snapshot, summary, area, buf, &new_key);
+            return;
+        }
+
         let filtered = self.filtered_ideas(snapshot);
         let archived_count = summary
             .ideas
@@ -1104,15 +1589,24 @@ impl FactoryTab {
         } else {
             String::new()
         };
+        let column_tag = if self.column_restricted() {
+            format!(
+                "   {} ({}) h/l",
+                short_label(self.column, 40),
+                filtered.len()
+            )
+        } else {
+            String::new()
+        };
         let header = if area.width >= 100 {
             format!(
-                "FACTORY   {ideas_label}   needs you {}   filter: {} ▾{page_label}   {new_key} new idea   Enter open",
+                "FACTORY   {ideas_label}   needs you {}   filter: {} ▾{page_label}{column_tag}   {new_key} new idea   Enter open",
                 summary.needs_you,
                 self.filter.label(),
             )
         } else {
             format!(
-                "FACTORY   {ideas_label}   needs you {}   filter: {} ▾{page_label}",
+                "FACTORY   {ideas_label}   needs you {}   filter: {} ▾{page_label}{column_tag}",
                 summary.needs_you,
                 self.filter.label(),
             )
@@ -1302,29 +1796,162 @@ impl FactoryTab {
         }
 
         if show_hint {
-            let hint = if self.notice.is_empty() {
-                format!(" ↑/↓ move   f filter   {new_key} new idea   Enter open")
-            } else {
-                format!(" {}", clean(&self.notice))
-            };
+            self.render_hint_line(area, buf, &new_key);
+        }
+    }
+
+    fn render_hint_line(&mut self, area: Rect, buf: &mut Buffer, new_key: &str) {
+        let max_w = area.width as usize;
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let y = area.y + area.height - 1;
+        let line = Rect::new(area.x, y, area.width, 1);
+        if let Some((ref idea_id, ref title)) = self.cancel_confirm {
+            let text = format!(
+                " Cancel idea {idea_id} \"{title}\"?   y confirm   n keep (any other key keeps it)"
+            );
             write_clipped(
                 buf,
                 area.x,
-                area.y + area.height - 1,
+                y,
                 max_w,
-                &hint,
-                dim_style,
+                &text,
+                Style::default().fg(Color::Yellow),
             );
             self.hits.tags(
-                Rect::new(area.x, area.y + area.height - 1, area.width, 1),
-                &hint,
-                &[
-                    ("↑/↓ move", Hit::key(KeyCode::Down)),
-                    ("f filter", Hit::ch('f')),
-                    (&format!("{new_key} new idea"), Hit::ch('n')),
-                    ("Enter open", Hit::key(KeyCode::Enter)),
-                ],
+                line,
+                &text,
+                &[("y confirm", Hit::ch('y')), ("n keep", Hit::ch('n'))],
             );
+            return;
+        }
+        if let Some(ref picker) = self.move_picker {
+            let (text, spans) = picker.line();
+            write_clipped(
+                buf,
+                area.x,
+                y,
+                max_w,
+                &text,
+                Style::default().fg(Color::Yellow),
+            );
+            picker_hits(line, &text, &spans, &mut self.hits);
+            return;
+        }
+        let columns = self.layout == BoardLayout::Columns;
+        let hint = if !self.notice.is_empty() {
+            format!(" {}", clean(&self.notice))
+        } else if columns {
+            format!(
+                " h/l column   j/k card   m move   v list   g agents   f filter   {new_key} new idea   Enter open"
+            )
+        } else {
+            format!(
+                " ↑/↓ move   f filter   {new_key} new idea   Enter open   m move   v board   g agents"
+            )
+        };
+        write_clipped(buf, area.x, y, max_w, &hint, dim_style);
+        if self.notice.is_empty() {
+            let new_label = format!("{new_key} new idea");
+            let mut tags: Vec<(&str, Hit)> = vec![
+                ("f filter", Hit::ch('f')),
+                (new_label.as_str(), Hit::ch('n')),
+                ("Enter open", Hit::key(KeyCode::Enter)),
+                ("m move", Hit::ch('m')),
+            ];
+            if columns {
+                tags.push(("h/l column", Hit::key(KeyCode::Right)));
+                tags.push(("j/k card", Hit::key(KeyCode::Down)));
+                tags.push(("v list", Hit::ch('v')));
+                tags.push(("g agents", Hit::ch('g')));
+            } else {
+                tags.push(("↑/↓ move", Hit::key(KeyCode::Down)));
+                tags.push(("v board", Hit::ch('v')));
+                tags.push(("g agents", Hit::ch('g')));
+            }
+            self.hits.tags(line, &hint, &tags);
+        }
+    }
+
+    fn render_columns_view(
+        &mut self,
+        snapshot: &StatusSnapshot,
+        summary: &FactorySummary,
+        area: Rect,
+        buf: &mut Buffer,
+        new_key: &str,
+    ) {
+        let max_w = area.width as usize;
+        let header_style = Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD);
+        let filtered = self.filtered_ideas(snapshot);
+        let header = format!(
+            "FACTORY   ideas {}   needs you {}   filter: {} ▾   {new_key} new idea   Enter open",
+            summary.ideas.len(),
+            summary.needs_you,
+            self.filter.label(),
+        );
+        write_clipped(buf, area.x, area.y, max_w, &header, header_style);
+        let line = Rect::new(area.x, area.y, area.width, 1);
+        let new_label = format!("{new_key} new idea");
+        self.hits.tags(
+            line,
+            &header,
+            &[
+                (&format!("filter: {} ▾", self.filter.label()), Hit::ch('f')),
+                (new_label.as_str(), Hit::ch('n')),
+                ("Enter open", Hit::key(KeyCode::Enter)),
+            ],
+        );
+        if area.height < 3 {
+            return;
+        }
+
+        let states = column_states(summary);
+        let mut views: Vec<ColumnView<'_>> = states
+            .iter()
+            .map(|state| ColumnView {
+                state: *state,
+                ideas: Vec::new(),
+            })
+            .collect();
+        for (index, idea) in filtered.iter().enumerate() {
+            if let Some(view) = views.iter_mut().find(|v| v.state == idea.state) {
+                view.ideas.push((index, idea));
+            }
+        }
+        for view in &mut views {
+            view.ideas
+                .sort_by(|a, b| b.1.updated.total_cmp(&a.1.updated));
+        }
+        let focus_idx = states.iter().position(|s| *s == self.column).unwrap_or(0);
+        let visible = visible_column_count(area.width, states.len());
+        self.first_column = first_visible(self.first_column, focus_idx, visible, states.len());
+        let body_bottom = if area.height >= 4 {
+            area.y + area.height - 1
+        } else {
+            area.y + area.height
+        };
+        let body = Rect::new(
+            area.x,
+            area.y + 1,
+            area.width,
+            body_bottom.saturating_sub(area.y + 1),
+        );
+        let selected_id = self.selected_id.clone();
+        render_columns(
+            body,
+            buf,
+            &ColumnsRender {
+                columns: &views,
+                first: self.first_column,
+                focus: self.column,
+                selected_id: selected_id.as_deref(),
+            },
+            &mut self.hits,
+        );
+        if area.height >= 4 {
+            self.render_hint_line(area, buf, new_key);
         }
     }
 }

@@ -1,14 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { LayoutGrid, List, Plus, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { FactorySummary } from "@/domain/models/factory";
+import type { BoardMove, FactorySummary, IdeaCard as IdeaCardModel } from "@/domain/models/factory";
 import { ALL_IDEA_STATES, formatIdeaState } from "./format";
 import { IdeaCard } from "./idea-card";
+import { KanbanBoard } from "./kanban-board";
+
+const VIEW_STORAGE_KEY = "tandem.factory.ideas.view";
+
+type BoardView = "board" | "list";
+
+function readStoredView(): BoardView {
+  try {
+    return window.localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "board";
+  } catch {
+    return "board";
+  }
+}
 
 interface IdeasBoardProps {
   factory: FactorySummary;
@@ -17,6 +30,7 @@ interface IdeasBoardProps {
   onRetry?: () => void;
   onSelectIdea: (ideaId: string) => void;
   onNewIdea: () => void;
+  onMoveIdea?: (idea: IdeaCardModel, move: BoardMove) => void | Promise<void>;
 }
 
 export function IdeasBoard({
@@ -26,8 +40,23 @@ export function IdeasBoard({
   onRetry,
   onSelectIdea,
   onNewIdea,
+  onMoveIdea,
 }: IdeasBoardProps) {
   const [filter, setFilter] = useState<string>("all");
+  const [view, setView] = useState<BoardView>("board");
+
+  useEffect(() => {
+    setView(readStoredView());
+  }, []);
+
+  const chooseView = (next: BoardView) => {
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // Storage can be unavailable (private mode); the choice then lasts for this session only.
+    }
+  };
 
   const visibleIdeas = useMemo(() => {
     if (filter === "all") return factory.ideas;
@@ -67,6 +96,29 @@ export function IdeasBoard({
             ))}
           </Select>
 
+          <div role="group" aria-label="View" className="flex rounded-md border">
+            <Button
+              type="button"
+              variant={view === "board" ? "secondary" : "ghost"}
+              aria-pressed={view === "board"}
+              onClick={() => chooseView("board")}
+              className="min-h-11 gap-1.5 rounded-r-none px-3 text-xs"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span>Board</span>
+            </Button>
+            <Button
+              type="button"
+              variant={view === "list" ? "secondary" : "ghost"}
+              aria-pressed={view === "list"}
+              onClick={() => chooseView("list")}
+              className="min-h-11 gap-1.5 rounded-l-none px-3 text-xs"
+            >
+              <List className="h-4 w-4" />
+              <span>List</span>
+            </Button>
+          </div>
+
           <Button
             type="button"
             onClick={onNewIdea}
@@ -99,7 +151,17 @@ export function IdeasBoard({
         </div>
       )}
 
-      {loading ? (
+      {view === "board" && (loading || factory.ideas.length > 0) ? (
+        <KanbanBoard
+          ideas={visibleIdeas}
+          columns={factory.columns}
+          loading={loading}
+          onSelectIdea={onSelectIdea}
+          onNewIdea={onNewIdea}
+          onMove={onMoveIdea ?? (() => undefined)}
+          movesEnabled={onMoveIdea !== undefined}
+        />
+      ) : loading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[0, 1, 2].map((idx) => (
             <div key={idx} className="flex flex-col gap-2 rounded-lg border p-3.5">

@@ -53,6 +53,8 @@ interface IdeaDetailViewProps {
   onRevokeReady: () => Promise<Idea>;
   onWithdrawRun?: (runId: string) => Promise<void>;
   workflows?: WorkflowListItem[];
+  openReadyRequested?: boolean;
+  onOpenReadyHandled?: () => void;
 }
 
 function SafeMarkdownText({ text }: { text: string }) {
@@ -108,6 +110,8 @@ export function IdeaDetailView({
   onRevokeReady,
   onWithdrawRun,
   workflows,
+  openReadyRequested = false,
+  onOpenReadyHandled,
 }: IdeaDetailViewProps) {
   const [readyOpen, setReadyOpen] = useState(false);
   const [feasibilityOpen, setFeasibilityOpen] = useState(false);
@@ -116,6 +120,14 @@ export function IdeaDetailView({
   const [revoking, setRevoking] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const detailIdea = detail?.idea;
+  useEffect(() => {
+    if (!openReadyRequested || loading || !detailIdea) return;
+    if (detailIdea.state === "planning") {
+      setReadyOpen(true);
+    }
+    onOpenReadyHandled?.();
+  }, [openReadyRequested, loading, detailIdea, onOpenReadyHandled]);
   const {
     run: activeRun,
     providers,

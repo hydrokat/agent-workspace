@@ -12,6 +12,9 @@ import type {
   LoginPaneResult,
   LoginStatusItem,
   AgentSummary,
+  CancelIdeaResult,
+  AllAgentsOptions,
+  GlobalAgentSummary,
   RelaunchAgentResult,
   StageAssignment,
   PrLink,
@@ -70,7 +73,8 @@ export interface ITandemGateway {
     workspacePath: string,
     cli: FactoryCli,
     model: string,
-    title?: string
+    title?: string,
+    text?: string
   ): Promise<Idea>;
   factoryListModels(workspacePath: string, cli: FactoryCli): Promise<ModelOption[]>;
   factoryMarkReady(
@@ -79,6 +83,11 @@ export interface ITandemGateway {
     options?: { workflow?: string; deploy?: boolean }
   ): Promise<ReadyResult>;
   factoryRevokeReady(workspacePath: string, ideaId: string): Promise<Idea>;
+  factoryCancelIdea?(
+    workspacePath: string,
+    ideaId: string,
+    confirm: string
+  ): Promise<CancelIdeaResult>;
   factoryListWorkflows(workspacePath: string): Promise<WorkflowListItem[]>;
   factoryWithdrawRun(workspacePath: string, runId: string): Promise<RunSummary>;
   factoryGetRun(workspacePath: string, runId: string): Promise<RunSummary | null>;
@@ -123,6 +132,10 @@ export interface ITandemGateway {
   factoryLoginStatus(workspacePath: string): Promise<LoginStatusItem[]>;
   factoryLoginOpen(workspacePath: string, cli: FactoryCli): Promise<LoginPaneResult>;
   factoryListAgents?(workspacePath: string, runId: string): Promise<AgentSummary[]>;
+  factoryListAllAgents?(
+    workspacePath: string,
+    options: AllAgentsOptions
+  ): Promise<GlobalAgentSummary[]>;
   factoryGetAssignments?(
     workspacePath: string,
     runId: string

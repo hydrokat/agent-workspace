@@ -13,7 +13,7 @@ If the user invokes `/idea <idea text>`, run the `/idea` skill in Factory Mode (
 
 ## Procedure
 
-1. **Orient / Create Idea.** Run `python3 .agents/skills/factory-orchestrator/scripts/factory.py show` when an idea is already bound. If no idea is bound yet, if the bound idea has no description, or if the user asks to start a new idea (via `/idea <idea text>` or in chat), write the description to a temporary file and run `factory.py ensure-idea --title "<title>" --text-file <path>` (which reuses a blank `Inbox` placeholder via `describe`, or creates and binds a new Factory idea via `new --bind-current --start-discovery`). Pass `--idea <idea-id>` on subsequent commands whenever working with a newly created idea.
+1. **Orient / Create Idea.** Run `python3 .agents/skills/factory-orchestrator/scripts/factory.py show` when an idea is already bound. If the bound idea already has a description (the user wrote it when starting the idea), treat it as the idea text and do not overwrite it; `ensure-idea` keeps it and reuses that idea. If no idea is bound yet, if the bound idea has no description, or if the user asks to start a new idea (via `/idea <idea text>` or in chat), write the description to a temporary file and run `factory.py ensure-idea --title "<title>" --text-file <path>` (which reuses a blank `Inbox` placeholder via `describe`, or creates and binds a new Factory idea via `new --bind-current --start-discovery`). Pass `--idea <idea-id>` on subsequent commands whenever working with a newly created idea.
 2. **Feasibility.** Follow the feasibility procedure of the `/idea` skill (which builds on `/feasibility` and `locate.py`; reuse it rather than copying its steps). Write the study to a temporary file (or `specs/feasibility/YYYY-MM-DD-<slug>.md` via `/feasibility --save`) and store it with `factory.py [--idea <id>] feasibility --file <path> --verdict <verdict> --risk <risk>`.
 3. **Questions.** Ask only what changes the plan. Before asking, run `factory.py [--idea <id>] question-check`. Ask with `python3 .agents/skills/agent-coordination/scripts/coord.py ask --task "idea:<idea-id>" --blocking-scope "<scope>" "<question>"`. Keep working on everything a question does not block. When the ceiling is reached, or the answer would not change the plan, record an assumption with `factory.py [--idea <id>] assume --text "<text>"` instead.
 4. **Direction.** When the user has chosen a feasible direction (or `idea.py gate` returns `proceed`), run `factory.py [--idea <id>] select-direction`.
@@ -40,7 +40,7 @@ If the user invokes `/idea <idea text>`, run the `/idea` skill in Factory Mode (
 | Command | Purpose |
 |---|---|
 | `show [--idea <id>]` | Show the current (or specified) idea and its events |
-| `ensure-idea --title <t> --text-file <f> [--idea <id>]` | Reuse a bound blank Inbox placeholder via `describe`, or create and bind a new Factory idea |
+| `ensure-idea --title <t> --text-file <f> [--idea <id>]` | Reuse a bound blank Inbox placeholder via `describe`, keep a bound Inbox idea that already has a user-written description, or create and bind a new Factory idea |
 | `new --title <t> --text-file <f> [--no-bind]` | Create a new Factory idea in Ideation and bind the current orchestrator |
 | `describe --title <t> --text-file <f> [--idea <id>]` | Set or update idea title and description |
 | `feasibility --file <f> [--verdict <v>] [--risk <r>] [--idea <id>]` | Store a feasibility study artifact |

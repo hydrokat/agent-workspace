@@ -52,6 +52,8 @@ fn sample_snapshot(now: f64, ideas: Vec<IdeaCard>) -> StatusSnapshot {
             ideas,
             needs_you: 0,
             by_state,
+            columns: Vec::new(),
+            agents_active: 0,
             error: None,
         }),
         ..StatusSnapshot::default()
@@ -71,6 +73,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             run: None,
             team_count: 0,
             needs_sign_in: false,
+            moves: Vec::new(),
         },
         IdeaCard {
             id: "i-b81xw0pe".to_string(),
@@ -83,6 +86,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             run: None,
             team_count: 0,
             needs_sign_in: false,
+            moves: Vec::new(),
         },
         IdeaCard {
             id: "i-c92yz1qf".to_string(),
@@ -95,6 +99,7 @@ fn sample_ideas(now: f64) -> Vec<IdeaCard> {
             run: None,
             team_count: 0,
             needs_sign_in: false,
+            moves: Vec::new(),
         },
     ]
 }
@@ -145,7 +150,10 @@ fn test_status_app_tabs_normal_vs_factory() {
 fn test_factory_tab_render_wide_medium_narrow_short() {
     let now = 1_700_000_000.0;
     let snap = sample_snapshot(now, sample_ideas(now));
-    let mut tab = FactoryTab::default();
+    let mut tab = FactoryTab {
+        layout: tandem::status::factory_board::BoardLayout::List,
+        ..FactoryTab::default()
+    };
     tab.sync(snap.factory.as_ref());
 
     // Wide (>= 120)
@@ -211,6 +219,8 @@ fn test_factory_tab_render_empty_and_error() {
             ideas: Vec::new(),
             needs_you: 0,
             by_state: HashMap::new(),
+            columns: Vec::new(),
+            agents_active: 0,
             error: Some("permission denied".to_string()),
         }),
         ..StatusSnapshot::default()
@@ -245,6 +255,7 @@ fn test_factory_tab_selection_follows_idea_id_across_refresh() {
         run: None,
         team_count: 0,
         needs_sign_in: false,
+        moves: Vec::new(),
     }];
     reordered.extend(ideas);
 
@@ -298,7 +309,10 @@ fn test_factory_tab_filter_cycles_and_renders_blockers_marker() {
         answered_via: String::new(),
     });
 
-    let mut tab = FactoryTab::default();
+    let mut tab = FactoryTab {
+        layout: tandem::status::factory_board::BoardLayout::List,
+        ..FactoryTab::default()
+    };
     tab.sync_snapshot(&snap, false);
 
     let area = Rect::new(0, 0, 125, 10);
@@ -376,6 +390,26 @@ fn test_factory_tab_new_idea_picker_cli_then_model_returns_start_action() {
         &snap,
     );
     assert_eq!(tab.view, FactoryView::NewIdea);
+    assert_eq!(
+        tab.new_idea.as_ref().map(|m| m.step),
+        Some(NewIdeaStep::Title)
+    );
+    for c in "Export".chars() {
+        tab.handle_key(
+            &KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty()),
+            &snap,
+        );
+    }
+    tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()), &snap);
+    assert_eq!(
+        tab.new_idea.as_ref().map(|m| m.step),
+        Some(NewIdeaStep::Description)
+    );
+    tab.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL), &snap);
+    assert_eq!(
+        tab.new_idea.as_ref().map(|m| m.step),
+        Some(NewIdeaStep::Cli)
+    );
 
     let area = Rect::new(0, 0, 80, 14);
     let mut buf = Buffer::empty(area);
@@ -412,6 +446,8 @@ fn test_factory_tab_new_idea_picker_cli_then_model_returns_start_action() {
         Some(FactoryAction::StartIdea {
             cli: "claude".to_string(),
             model: "opus".to_string(),
+            title: Some("Export".to_string()),
+            text: String::new(),
         })
     );
     assert_eq!(tab.view, FactoryView::Board);

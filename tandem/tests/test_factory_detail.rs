@@ -380,6 +380,7 @@ fn test_factory_detail_responsive_narrow_short_and_snapshot_reload() {
                 run: None,
                 team_count: 0,
                 needs_sign_in: false,
+                moves: Vec::new(),
             }],
             needs_you: 0,
             ..FactorySummary::default()

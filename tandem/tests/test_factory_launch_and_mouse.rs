@@ -51,6 +51,7 @@ fn app_for(ws: &Path, factory: bool) -> StatusApp {
             ..Config::default()
         }),
     );
+    app.factory_tab.layout = tandem::status::factory_board::BoardLayout::List;
     app.action_refresh_now();
     app
 }
@@ -207,7 +208,7 @@ fn gate_full_mouse_journey_board_detail_run_audit_settings() {
     let modal = app.factory_tab.new_idea.as_ref().unwrap();
     let ids: Vec<&str> = modal.cli_items.iter().map(|i| i.id.as_str()).collect();
     assert_eq!(ids, vec!["claude", "agy", "opencode"]);
-    assert_eq!(modal.step, NewIdeaStep::Cli);
+    assert_eq!(modal.step, NewIdeaStep::Title);
     click_on(&mut app, "Esc cancel");
     assert_eq!(app.factory_tab.view, FactoryView::Board);
 

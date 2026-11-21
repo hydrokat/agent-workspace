@@ -1,18 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import type { AgentSummary, AssignmentSource } from "@/domain/models/factory";
+import { AgentActions } from "./agent-actions";
 import { describeSelection, formatShortTime } from "./format";
 
 interface TeamPanelProps {
@@ -38,27 +28,6 @@ export function TeamPanel({
   onTerminate,
   onRelaunch,
 }: TeamPanelProps) {
-  const [messageTarget, setMessageTarget] = useState<string | null>(null);
-  const [messageText, setMessageText] = useState("");
-  const [stopTarget, setStopTarget] = useState<string | null>(null);
-  const [stopConfirm, setStopConfirm] = useState("");
-
-  const handleMessageSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!messageTarget || !messageText.trim()) return;
-    await onSendMessage(messageTarget, messageText);
-    setMessageTarget(null);
-    setMessageText("");
-  };
-
-  const handleStopSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stopTarget || stopConfirm.trim() !== stopTarget) return;
-    await onTerminate(stopTarget, stopTarget);
-    setStopTarget(null);
-    setStopConfirm("");
-  };
-
   return (
     <div className="rounded-md border p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -116,127 +85,20 @@ export function TeamPanel({
                     : null}
                 </p>
 
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {agent.pane_id && agent.pane_alive && onViewPane && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => onViewPane(agent.pane_id!)}
-                      className="min-h-9"
-                    >
-                      View
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => {
-                      setMessageText("");
-                      setMessageTarget(agent.job_id);
-                    }}
-                    className="min-h-9"
-                  >
-                    Message
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => {
-                      setStopConfirm("");
-                      setStopTarget(agent.job_id);
-                    }}
-                    className="min-h-9"
-                  >
-                    Stop
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void onRelaunch(agent.job_id)}
-                    className="min-h-9"
-                  >
-                    Relaunch
-                  </Button>
-                </div>
+                <AgentActions
+                  agent={agent}
+                  busy={busy}
+                  onViewPane={onViewPane}
+                  onSendMessage={onSendMessage}
+                  onTerminate={onTerminate}
+                  onRelaunch={onRelaunch}
+                />
               </li>
             );
           })}
         </ul>
       )}
 
-      <Dialog open={messageTarget !== null} onOpenChange={(open) => !open && setMessageTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Message worker</DialogTitle>
-            <DialogDescription>
-              Deliver an instruction to <span className="font-mono">{messageTarget}</span> via tmux paste-buffer.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={(e) => void handleMessageSubmit(e)} className="flex flex-col gap-3">
-            <label htmlFor="worker-message-input" className="text-xs font-medium">
-              Message
-            </label>
-            <textarea
-              id="worker-message-input"
-              rows={3}
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              placeholder="Instruction for the worker..."
-              className="w-full rounded-md border bg-background px-3 py-2 text-xs text-foreground"
-            />
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setMessageTarget(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={busy || !messageText.trim()}>
-                Send
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={stopTarget !== null} onOpenChange={(open) => !open && setStopTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Stop worker</DialogTitle>
-            <DialogDescription>
-              This kills the worker pane and marks the attempt interrupted.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={(e) => void handleStopSubmit(e)} className="flex flex-col gap-3">
-            <label htmlFor="stop-confirm-input" className="text-xs font-medium">
-              Type the job id ({stopTarget}) to confirm
-            </label>
-            <Input
-              id="stop-confirm-input"
-              value={stopConfirm}
-              onChange={(e) => setStopConfirm(e.target.value)}
-              placeholder={stopTarget ?? ""}
-            />
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setStopTarget(null)}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="destructive"
-                disabled={busy || stopConfirm.trim() !== stopTarget}
-              >
-                Confirm stop
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
