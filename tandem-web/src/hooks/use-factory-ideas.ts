@@ -126,7 +126,12 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
   }, [selectedIdeaId, fetchDetailAndArtifacts]);
 
   const startIdea = useCallback(
-    async (input: { cli: FactoryCli; model: string; title?: string }): Promise<Idea> => {
+    async (input: {
+      cli: FactoryCli;
+      model: string;
+      title?: string;
+      text?: string;
+    }): Promise<Idea> => {
       if (!workspaceId) {
         throw new Error("No active workspace selected.");
       }

@@ -896,6 +896,19 @@ pub struct FactoryIdeaStartArgs {
     #[arg(long, help = "optional idea title")]
     pub title: Option<String>,
 
+    #[arg(
+        long = "text-file",
+        conflicts_with = "text_stdin",
+        help = "read the idea description from a file, or '-' for stdin"
+    )]
+    pub text_file: Option<String>,
+
+    #[arg(
+        long = "text-stdin",
+        help = "read the idea description from stdin (same as --text-file -)"
+    )]
+    pub text_stdin: bool,
+
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
 }
@@ -1832,8 +1845,23 @@ fn execute_with_probe(
                 if !enabled {
                     return Err(CmdError::factory_disabled());
                 }
-                let bound =
-                    start_idea_cmd(workspace, config, &a.cli, &a.model, a.title.as_deref())?;
+                let text_source = if a.text_stdin {
+                    Some("-")
+                } else {
+                    a.text_file.as_deref()
+                };
+                let text = match text_source {
+                    Some(source) => read_text_input(None, Some(source), stdin)?,
+                    None => String::new(),
+                };
+                let bound = start_idea_cmd(
+                    workspace,
+                    config,
+                    &a.cli,
+                    &a.model,
+                    a.title.as_deref(),
+                    &text,
+                )?;
                 serialize_compact(&bound)
             }
             FactoryIdeaCommand::Resume(a) => {
@@ -3456,7 +3484,18 @@ pub fn start_idea(
     model: &str,
     title: Option<&str>,
 ) -> Result<Idea, String> {
-    start_idea_cmd(workspace, config, cli, model, title).map_err(|e| e.message)
+    start_idea_with_text(workspace, config, cli, model, title, "")
+}
+
+pub fn start_idea_with_text(
+    workspace: &Path,
+    config: &Config,
+    cli: &str,
+    model: &str,
+    title: Option<&str>,
+    text: &str,
+) -> Result<Idea, String> {
+    start_idea_cmd(workspace, config, cli, model, title, text).map_err(|e| e.message)
 }
 
 pub fn resume_idea(workspace: &Path, config: &Config, idea_id: &str) -> Result<Idea, String> {
@@ -3469,6 +3508,7 @@ fn start_idea_cmd(
     cli: &str,
     model: &str,
     title: Option<&str>,
+    text: &str,
 ) -> Result<Idea, CmdError> {
     if !crate::state::CLIS.contains(&cli) {
         return Err(CmdError::invalid_input(format!(
@@ -3479,11 +3519,12 @@ fn start_idea_cmd(
         .map_err(|e| CmdError::invalid_input(e.to_string()))?;
     let raw_title = title.unwrap_or("New idea");
     let validated_title = validate_title(raw_title).map_err(|e| CmdError::invalid_input(e.0))?;
+    let validated_text = validate_text(text).map_err(|e| CmdError::invalid_input(e.0))?;
     let owner = resolve_owner(None)?;
     let actor = resolve_actor(config);
     let store = FactoryStore::new(workspace);
     let idea = store
-        .create_idea(&validated_title, "", &owner, &actor)
+        .create_idea(&validated_title, &validated_text, &owner, &actor)
         .map_err(map_factory_error)?;
     let bound = store
         .execute(

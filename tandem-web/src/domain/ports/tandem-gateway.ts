@@ -72,7 +72,8 @@ export interface ITandemGateway {
     workspacePath: string,
     cli: FactoryCli,
     model: string,
-    title?: string
+    title?: string,
+    text?: string
   ): Promise<Idea>;
   factoryListModels(workspacePath: string, cli: FactoryCli): Promise<ModelOption[]>;
   factoryMarkReady(

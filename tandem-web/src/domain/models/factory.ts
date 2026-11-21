@@ -427,6 +427,12 @@ export function isValidIdeaTitle(title: string): boolean {
   return !/[\x00-\x1f\x7f]/.test(trimmed);
 }
 
+export const IDEA_TEXT_MAX_LEN = 8000;
+
+export function isValidIdeaText(text: string): boolean {
+  return [...text].length <= IDEA_TEXT_MAX_LEN && !/[\x00-\x08\x0b-\x1f\x7f]/.test(text);
+}
+
 export function isValidArtifactKind(kind: string): kind is ArtifactKind {
   return kind === "feasibility" || kind === "plan";
 }

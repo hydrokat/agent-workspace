@@ -190,6 +190,22 @@ def is_blank_inbox_idea(show_payload: object) -> bool:
     return True
 
 
+def is_described_unstarted_inbox_idea(show_payload: object) -> bool:
+    if not isinstance(show_payload, dict):
+        return False
+    idea = show_payload.get("idea")
+    if not isinstance(idea, dict):
+        return False
+    text = idea.get("text")
+    return (
+        idea.get("state") == "inbox"
+        and isinstance(text, str)
+        and bool(text.strip())
+        and idea.get("feasibility") is None
+        and idea.get("plan") is None
+    )
+
+
 def run_ensure_idea(tandem_bin: str, current_idea_id: str, args: argparse.Namespace) -> int:
     if current_idea_id:
         show_proc = subprocess.run(
@@ -202,6 +218,18 @@ def run_ensure_idea(tandem_bin: str, current_idea_id: str, args: argparse.Namesp
                 show_payload = json.loads(show_proc.stdout)
             except json.JSONDecodeError:
                 show_payload = None
+            if is_described_unstarted_inbox_idea(show_payload):
+                print(
+                    json.dumps(
+                        {
+                            "idea_id": current_idea_id,
+                            "action": "reused",
+                            "kept_description": True,
+                            "idea": show_payload["idea"],
+                        }
+                    )
+                )
+                return 0
             if is_blank_inbox_idea(show_payload):
                 desc_proc = subprocess.run(
                     [

@@ -31,7 +31,7 @@ export async function POST(
   try {
     const { workspaceId } = await props.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { cli, model, title } = body;
+    const { cli, model, title, text } = body;
 
     if (typeof cli !== "string" || typeof model !== "string") {
       return NextResponse.json(
@@ -46,11 +46,18 @@ export async function POST(
       );
     }
 
+    if (text !== undefined && typeof text !== "string") {
+      return NextResponse.json(
+        { error: { code: "BAD_REQUEST", message: "text must be a string" } },
+        { status: 400 }
+      );
+    }
+
     const useCase = new StartFactoryIdeaUseCase(
       new FileWorkspaceRegistry(),
       new CliTandemGateway()
     );
-    const idea = await useCase.execute(workspaceId, { cli, model, title });
+    const idea = await useCase.execute(workspaceId, { cli, model, title, text });
     return NextResponse.json({ idea }, { status: 201 });
   } catch (error: unknown) {
     return factoryErrorResponse(error);

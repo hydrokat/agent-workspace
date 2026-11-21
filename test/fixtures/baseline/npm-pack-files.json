@@ -201,6 +201,7 @@
   "tandem-web/tests/domain-models.test.ts",
   "tandem-web/tests/factory-agents-all.test.ts",
   "tandem-web/tests/factory-board-contract.test.ts",
+  "tandem-web/tests/factory-idea-text.test.ts",
   "tandem-web/tests/factory-login.test.ts",
   "tandem-web/tests/factory-orchestrator-clis.test.ts",
   "tandem-web/tests/factory-runs.test.ts",

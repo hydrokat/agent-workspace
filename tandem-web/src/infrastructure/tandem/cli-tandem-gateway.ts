@@ -1,6 +1,15 @@
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
@@ -303,15 +312,26 @@ export class CliTandemGateway implements ITandemGateway {
     workspacePath: string,
     cli: FactoryCli,
     model: string,
-    title?: string
+    title?: string,
+    text?: string
   ): Promise<Idea> {
     const args = ["factory", "idea", "start", "--cli", cli, "--model", model];
     if (title !== undefined) {
       args.push("--title", title);
     }
-    args.push("--json");
-    const stdout = await this.runFactory(workspacePath, args);
-    return JSON.parse(stdout) as Idea;
+    if (text === undefined || text.trim() === "") {
+      args.push("--json");
+      return JSON.parse(await this.runFactory(workspacePath, args)) as Idea;
+    }
+    const dir = mkdtempSync(join(tmpdir(), "tandem-idea-"));
+    try {
+      const textPath = join(dir, "description.txt");
+      writeFileSync(textPath, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      args.push("--text-file", textPath, "--json");
+      return JSON.parse(await this.runFactory(workspacePath, args)) as Idea;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   async factoryListModels(workspacePath: string, cli: FactoryCli): Promise<ModelOption[]> {

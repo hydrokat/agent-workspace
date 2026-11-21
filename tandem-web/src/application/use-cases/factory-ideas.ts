@@ -4,6 +4,7 @@ import {
   isValidArtifactVersion,
   isValidCli,
   isValidIdeaId,
+  isValidIdeaText,
   isValidIdeaTitle,
   isValidModelIdForCli,
   isValidWorkflowName,
@@ -89,6 +90,7 @@ export interface StartFactoryIdeaInput {
   cli: string;
   model: string;
   title?: string;
+  text?: string;
 }
 
 export class StartFactoryIdeaUseCase {
@@ -111,8 +113,19 @@ export class StartFactoryIdeaUseCase {
       }
       normalizedTitle = input.title.trim();
     }
+    if (input.text !== undefined && !isValidIdeaText(input.text)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid idea description");
+    }
     const workspace = await requireWorkspace(this.registry, workspaceId);
-    return this.gateway.factoryStartIdea(workspace.path, input.cli, input.model, normalizedTitle);
+    return input.text === undefined
+      ? this.gateway.factoryStartIdea(workspace.path, input.cli, input.model, normalizedTitle)
+      : this.gateway.factoryStartIdea(
+          workspace.path,
+          input.cli,
+          input.model,
+          normalizedTitle,
+          input.text
+        );
   }
 }
 
