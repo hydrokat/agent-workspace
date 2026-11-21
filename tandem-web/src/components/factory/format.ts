@@ -63,7 +63,7 @@ export function formatShortTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-const TIER_LABELS: Record<ModelTierName, string> = {
+export const TIER_LABELS: Record<ModelTierName, string> = {
   economy: "Economy",
   standard: "Standard",
   premium: "Premium",

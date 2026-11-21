@@ -11,6 +11,8 @@ import { SpecProgressPanel } from "@/components/views/spec-progress-panel";
 import { TaskProgressPanel } from "@/components/views/task-progress-panel";
 import { QueriesInboxList } from "@/components/queries/queries-inbox-list";
 import { FilesPanel } from "@/components/files/files-panel";
+import { AgentsView } from "@/components/factory/agents-view";
+import { FactorySectionTabs, type FactorySection } from "@/components/factory/factory-section-tabs";
 import { IdeasBoard } from "@/components/factory/ideas-board";
 import { IdeaDetailView } from "@/components/factory/idea-detail";
 import { NewIdeaDialog } from "@/components/factory/new-idea-dialog";
@@ -20,6 +22,7 @@ import { HostConnectionDialog } from "@/components/connection/host-connection-di
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceStream } from "@/hooks/use-workspace-stream";
 import { useTerminalSizeMode } from "@/hooks/use-terminal-size-mode";
+import { useFactoryAgents } from "@/hooks/use-factory-agents";
 import { useFactoryIdeas } from "@/hooks/use-factory-ideas";
 import { resolveActiveWorkspace } from "@/lib/workspace-selection";
 import { buildSprintDrilldown } from "@/lib/sprint-drilldown";
@@ -87,6 +90,22 @@ export default function DashboardPage() {
     streamIdeas: factorySummary?.ideas,
   });
 
+  const [factorySection, setFactorySection] = useState<FactorySection>("ideas");
+  const {
+    agents: globalAgents,
+    loading: globalAgentsLoading,
+    error: globalAgentsError,
+    busy: globalAgentsBusy,
+    actionError: globalAgentsActionError,
+    refresh: refreshGlobalAgents,
+    sendMessage: sendAgentMessage,
+    terminate: terminateAgent,
+    relaunch: relaunchAgent,
+  } = useFactoryAgents({
+    workspaceId: activeWorkspace?.id ?? null,
+    enabled: factoryEnabled && factorySection === "agents" && selectedIdeaId === null,
+    refreshKey: factorySummary?.agents_active,
+  });
   const [readyRequestIdeaId, setReadyRequestIdeaId] = useState<string | null>(null);
   const handleMoveIdea = useCallback(
     async (idea: IdeaCard, move: BoardMove) => {
@@ -624,12 +643,38 @@ export default function DashboardPage() {
               onOpenReadyHandled={clearReadyRequest}
             />
           ) : (
-            <IdeasBoard
-              factory={factorySummary}
-              onSelectIdea={(id) => selectIdea(id)}
-              onNewIdea={() => setNewIdeaOpen(true)}
-              onMoveIdea={handleMoveIdea}
-            />
+            <div className="flex w-full min-w-0 flex-col gap-4">
+              <FactorySectionTabs
+                section={factorySection}
+                agentsActive={factorySummary.agents_active ?? 0}
+                onChange={setFactorySection}
+              />
+              {factorySection === "agents" ? (
+                <AgentsView
+                  agents={globalAgents}
+                  loading={globalAgentsLoading}
+                  busy={globalAgentsBusy}
+                  error={globalAgentsError}
+                  actionError={globalAgentsActionError}
+                  onRetry={() => void refreshGlobalAgents()}
+                  onOpenRun={(ideaId) => {
+                    setFactorySection("ideas");
+                    selectIdea(ideaId);
+                  }}
+                  onViewPane={(paneId) => void handleInteractPaneId(paneId)}
+                  onSendMessage={sendAgentMessage}
+                  onTerminate={terminateAgent}
+                  onRelaunch={relaunchAgent}
+                />
+              ) : (
+                <IdeasBoard
+                  factory={factorySummary}
+                  onSelectIdea={(id) => selectIdea(id)}
+                  onNewIdea={() => setNewIdeaOpen(true)}
+                  onMoveIdea={handleMoveIdea}
+                />
+              )}
+            </div>
           ))}
 
         {/* Settings tab */}
