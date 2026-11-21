@@ -460,6 +460,7 @@ impl StatusApp {
             self.snapshot.open_queries(),
             self.tab,
         );
+        self.apply_agent_count_to_titles();
 
         self.notifier.notify(&self.snapshot.queries);
         self.dirty = true;
@@ -684,6 +685,32 @@ impl StatusApp {
                 self.dirty = true;
             }
             None => {}
+        }
+    }
+
+    fn apply_agent_count_to_titles(&mut self) {
+        let running = self
+            .snapshot
+            .factory
+            .as_ref()
+            .map_or(0, |f| f.agents_active);
+        if running == 0 {
+            return;
+        }
+        let Some(idx) = StatusTab::visible(self.is_factory())
+            .iter()
+            .position(|t| *t == StatusTab::Factory)
+        else {
+            return;
+        };
+        if let Some(title) = self.tab_bar.titles.get_mut(idx) {
+            *title = format!("Factory ({running})");
+        }
+        if let Some(title) = self.tab_bar.short_titles.get_mut(idx) {
+            *title = format!("Fac {running}");
+        }
+        if let Some(title) = self.tab_bar.number_titles.get_mut(idx) {
+            *title = format!("8 ({running})");
         }
     }
 

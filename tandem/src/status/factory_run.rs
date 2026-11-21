@@ -2350,6 +2350,24 @@ fn selection_detail(selection: Option<&crate::factory::routing::Selection>) -> O
     ))
 }
 
+pub fn agent_state_text(agent: &AgentSummary) -> String {
+    agent
+        .activity
+        .as_ref()
+        .and_then(|act| act.state.as_deref())
+        .unwrap_or(&agent.job_state)
+        .to_string()
+}
+
+pub fn agent_age_text(agent: &AgentSummary, now: f64) -> String {
+    agent
+        .activity
+        .as_ref()
+        .and_then(|act| act.last_stop_at)
+        .map(|ts| format!("{} ago", age((now - ts).max(0.0))))
+        .unwrap_or_else(|| "-".to_string())
+}
+
 fn assignment_source_badge(source: AssignmentSource) -> &'static str {
     match source {
         AssignmentSource::User => "you",
@@ -2410,31 +2428,22 @@ impl FactoryRun {
             let is_sel = idx == self.selected_agent;
             let marker = if is_sel { "▸ " } else { "  " };
             let cli_model = format!("{}/{}", clean(&agent.cli), clean(&agent.model));
-            let state = agent
-                .activity
-                .as_ref()
-                .and_then(|act| act.state.as_deref())
-                .unwrap_or(&agent.job_state);
+            let state = agent_state_text(agent);
             let row = if narrow {
                 format!(
                     "{marker}{:<16} {:<10} {}",
                     truncate_to_width(&cli_model, 16),
                     truncate_to_width(&clean(&agent.stage), 10),
-                    clean(state),
+                    clean(&state),
                 )
             } else {
-                let time_col = agent
-                    .activity
-                    .as_ref()
-                    .and_then(|act| act.last_stop_at)
-                    .map(|ts| format!("{} ago", age((now - ts).max(0.0))))
-                    .unwrap_or_else(|| "-".to_string());
+                let time_col = agent_age_text(agent, now);
                 let by = assignment_source_badge(agent.source);
                 format!(
                     "{marker}{:<22} {:<12} {:<10} {:<8} {}",
                     truncate_to_width(&cli_model, 22),
                     truncate_to_width(&clean(&agent.stage), 12),
-                    truncate_to_width(&clean(state), 10),
+                    truncate_to_width(&clean(&state), 10),
                     truncate_to_width(&time_col, 8),
                     by,
                 )

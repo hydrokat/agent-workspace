@@ -17,6 +17,7 @@ use crate::factory::model::{IdeaState, Risk, validate_text, validate_title};
 use crate::factory::questions;
 use crate::sanitize::clean;
 use crate::snapshot::{FactorySummary, IdeaCard, StatusSnapshot};
+use crate::status::factory_agents::{AgentsKeyOutcome, FactoryAgents};
 use crate::status::factory_audit::{AuditKeyOutcome, FactoryAudit};
 use crate::status::factory_board::{
     BoardLayout, ColumnView, ColumnsRender, MIN_COLUMNS_WIDTH, MoveOutcome, MovePicker,
@@ -52,6 +53,7 @@ pub enum FactoryView {
     Detail,
     RunMonitor,
     Audit,
+    Agents,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -674,6 +676,8 @@ pub struct FactoryTab {
     pub detail: Option<FactoryDetail>,
     pub run_monitor: Option<FactoryRun>,
     pub audit: Option<FactoryAudit>,
+    pub agents: Option<FactoryAgents>,
+    pub return_to_agents: bool,
     pub new_idea: Option<NewIdeaModal>,
     pub notice: String,
     pub platform: String,
@@ -723,6 +727,8 @@ impl FactoryTab {
             detail: None,
             run_monitor: None,
             audit: None,
+            agents: None,
+            return_to_agents: false,
             new_idea: None,
             notice: String::new(),
             platform: std::env::consts::OS.to_string(),
@@ -748,6 +754,7 @@ impl FactoryTab {
                 .as_ref()
                 .is_some_and(|m| m.captures_input()),
             FactoryView::Audit => false,
+            FactoryView::Agents => self.agents.as_ref().is_some_and(|a| a.captures_input()),
         }
     }
 
@@ -1176,6 +1183,11 @@ impl FactoryTab {
                 match monitor.handle_key(event) {
                     RunKeyOutcome::BackToDetail => {
                         self.run_monitor = None;
+                        if self.return_to_agents && self.agents.is_some() {
+                            self.return_to_agents = false;
+                            self.view = FactoryView::Agents;
+                            return None;
+                        }
                         if let Some(ref mut detail) = self.detail {
                             let pane_open = detail.pane_open;
                             detail.reload(&snapshot.queries, pane_open);
@@ -1213,6 +1225,33 @@ impl FactoryTab {
                     AuditKeyOutcome::Consumed | AuditKeyOutcome::Ignored => None,
                 }
             }
+            FactoryView::Agents => {
+                let Some(ref mut agents) = self.agents else {
+                    self.view = FactoryView::Board;
+                    return None;
+                };
+                match agents.handle_key(event) {
+                    AgentsKeyOutcome::Back => {
+                        self.agents = None;
+                        self.view = FactoryView::Board;
+                        None
+                    }
+                    AgentsKeyOutcome::OpenRun { idea_id, run_id } => {
+                        if let Some(ref ws) = self.workspace {
+                            self.run_monitor =
+                                Some(FactoryRun::load(ws, &idea_id, &run_id, &self.platform));
+                            self.return_to_agents = true;
+                            self.view = FactoryView::RunMonitor;
+                        }
+                        None
+                    }
+                    AgentsKeyOutcome::OpenWorkerPane { pane_id } => {
+                        Some(FactoryAction::OpenWorkerPane { pane_id })
+                    }
+                    AgentsKeyOutcome::Refresh => Some(FactoryAction::Refresh),
+                    AgentsKeyOutcome::Consumed | AgentsKeyOutcome::Ignored => None,
+                }
+            }
             FactoryView::Board => {
                 if let Some((idea_id, _)) = self.cancel_confirm.take() {
                     return matches!(event.code, KeyCode::Char('y') | KeyCode::Char('Y'))
@@ -1248,6 +1287,20 @@ impl FactoryTab {
                     }
                     KeyCode::Char('m') => {
                         self.open_move_picker(snapshot);
+                        return None;
+                    }
+                    KeyCode::Char('g') => {
+                        match self.workspace {
+                            Some(ref ws) => {
+                                self.notice.clear();
+                                self.agents = Some(FactoryAgents::load(ws));
+                                self.view = FactoryView::Agents;
+                            }
+                            None => {
+                                self.notice =
+                                    "Workspace path unavailable for agents view.".to_string();
+                            }
+                        }
                         return None;
                     }
                     KeyCode::Char('h') | KeyCode::Left if columns => {
@@ -1340,6 +1393,7 @@ impl FactoryTab {
             FactoryView::Detail => self.detail.as_mut().and_then(|d| d.mouse_key(event)),
             FactoryView::RunMonitor => self.run_monitor.as_mut().and_then(|r| r.mouse_key(event)),
             FactoryView::Audit => self.audit.as_mut().and_then(|a| a.mouse_key(event)),
+            FactoryView::Agents => self.agents.as_mut().and_then(|a| a.mouse_key(event)),
             FactoryView::Board => self.board_mouse_key(event, snapshot),
         }?;
         self.handle_key(&key, snapshot)
@@ -1417,6 +1471,12 @@ impl FactoryTab {
             FactoryView::Audit => {
                 if let Some(ref mut audit) = self.audit {
                     audit.render(area, buf);
+                }
+                return;
+            }
+            FactoryView::Agents => {
+                if let Some(ref mut agents) = self.agents {
+                    agents.render(snapshot.now, area, buf);
                 }
                 return;
             }
@@ -1774,10 +1834,12 @@ impl FactoryTab {
             format!(" {}", clean(&self.notice))
         } else if columns {
             format!(
-                " h/l column   j/k card   m move   v list   f filter   {new_key} new idea   Enter open"
+                " h/l column   j/k card   m move   v list   g agents   f filter   {new_key} new idea   Enter open"
             )
         } else {
-            format!(" ↑/↓ move   f filter   {new_key} new idea   Enter open   m move   v board")
+            format!(
+                " ↑/↓ move   f filter   {new_key} new idea   Enter open   m move   v board   g agents"
+            )
         };
         write_clipped(buf, area.x, y, max_w, &hint, dim_style);
         if self.notice.is_empty() {
@@ -1792,9 +1854,11 @@ impl FactoryTab {
                 tags.push(("h/l column", Hit::key(KeyCode::Right)));
                 tags.push(("j/k card", Hit::key(KeyCode::Down)));
                 tags.push(("v list", Hit::ch('v')));
+                tags.push(("g agents", Hit::ch('g')));
             } else {
                 tags.push(("↑/↓ move", Hit::key(KeyCode::Down)));
                 tags.push(("v board", Hit::ch('v')));
+                tags.push(("g agents", Hit::ch('g')));
             }
             self.hits.tags(line, &hint, &tags);
         }

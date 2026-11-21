@@ -350,6 +350,7 @@
   "tandem/src/state.rs",
   "tandem/src/status/app.rs",
   "tandem/src/status/banners.rs",
+  "tandem/src/status/factory_agents.rs",
   "tandem/src/status/factory_audit.rs",
   "tandem/src/status/factory_board.rs",
   "tandem/src/status/factory_detail.rs",
