@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -27,33 +28,79 @@ def resolve_tandem_binary() -> str | None:
     return shutil.which("tandem")
 
 
+def add_idea_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--idea",
+        dest="idea_override",
+        default=None,
+        help="Explicit idea ID (i-...) overriding pane and TANDEM_FACTORY_IDEA.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="factory.py",
         description="Wrapper for tandem factory ideation commands.",
     )
+    parser.add_argument(
+        "--idea",
+        dest="top_idea",
+        default=None,
+        help="Explicit idea ID (i-...) overriding pane and TANDEM_FACTORY_IDEA.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("show", help="Show the current idea and its events.")
+    p_show = sub.add_parser("show", help="Show the current idea and its events.")
+    add_idea_arg(p_show)
+
+    p_new = sub.add_parser(
+        "new",
+        help="Create a new Factory idea in Ideation and bind the current orchestrator.",
+    )
+    p_new.add_argument("--title", required=True, help="Idea title.")
+    p_new.add_argument("--text-file", required=True, help="Path to description file.")
+    p_new.add_argument(
+        "--no-bind",
+        action="store_true",
+        help="Do not pass --bind-current when creating the idea.",
+    )
+    add_idea_arg(p_new)
+
+    p_ensure = sub.add_parser(
+        "ensure-idea",
+        help="Reuse a bound blank Inbox placeholder via describe, or create and bind a new idea.",
+    )
+    p_ensure.add_argument("--title", required=True, help="Idea title.")
+    p_ensure.add_argument("--text-file", required=True, help="Path to description file.")
+    add_idea_arg(p_ensure)
 
     p_desc = sub.add_parser("describe", help="Set or update idea title and description.")
     p_desc.add_argument("--title", required=True, help="Idea title.")
     p_desc.add_argument("--text-file", required=True, help="Path to description file.")
+    add_idea_arg(p_desc)
 
     p_feas = sub.add_parser("feasibility", help="Store a feasibility study artifact.")
     p_feas.add_argument("--file", required=True, help="Path to feasibility study file.")
     p_feas.add_argument("--verdict", help="Feasibility verdict.")
     p_feas.add_argument("--risk", help="Risk level.")
+    add_idea_arg(p_feas)
 
     p_plan = sub.add_parser("plan", help="Store a plan artifact.")
     p_plan.add_argument("--file", required=True, help="Path to plan file.")
     p_plan.add_argument("--workflow", help="Workflow recommendation.")
+    add_idea_arg(p_plan)
 
     p_assume = sub.add_parser("assume", help="Record an assumption on the idea.")
     p_assume.add_argument("--text", required=True, help="Assumption text.")
+    add_idea_arg(p_assume)
 
-    sub.add_parser("question-check", help="Check whether the open-question ceiling is reached.")
-    sub.add_parser("select-direction", help="Advance idea from Ideation to Planning.")
+    p_qcheck = sub.add_parser(
+        "question-check", help="Check whether the open-question ceiling is reached."
+    )
+    add_idea_arg(p_qcheck)
+
+    p_sel = sub.add_parser("select-direction", help="Advance idea from Ideation to Planning.")
+    add_idea_arg(p_sel)
 
     p_assign = sub.add_parser("assign", help="Assign a CLI and model to a run stage.")
     p_assign.add_argument("--run", required=True, help="Run ID (r-...).")
@@ -62,11 +109,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_assign.add_argument("--model", required=True, help="Model ID.")
     p_assign.add_argument("--role", help="Optional worker role label.")
 
-    p_rec = sub.add_parser("recommend", help="Recommend the least-cost capable CLI and model for a run stage.")
+    p_rec = sub.add_parser(
+        "recommend",
+        help="Recommend the least-cost capable CLI and model for a run stage.",
+    )
     p_rec.add_argument("--run", required=True, help="Run ID (r-...).")
     p_rec.add_argument("--stage", required=True, help="Workflow stage name.")
     p_rec.add_argument("--complexity", choices=("low", "medium", "high"), help="Task complexity hint.")
-    p_rec.add_argument("--required-tier", choices=("economy", "standard", "premium"), help="Minimum model tier.")
+    p_rec.add_argument(
+        "--required-tier",
+        choices=("economy", "standard", "premium"),
+        help="Minimum model tier.",
+    )
 
     p_agents = sub.add_parser("agents", help="List worker agents for a run.")
     p_agents.add_argument("--run", required=True, help="Run ID (r-...).")
@@ -93,8 +147,152 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_idea_id(tandem_bin: str | None, args: argparse.Namespace) -> str:
+    explicit = getattr(args, "idea_override", None) or getattr(args, "top_idea", None)
+    if explicit and explicit.strip():
+        return explicit.strip()
+
+    if os.environ.get("TMUX_PANE", "").strip() and tandem_bin:
+        try:
+            proc = subprocess.run(
+                [tandem_bin, "factory", "idea", "current", "--json"],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                payload = json.loads(proc.stdout)
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("source") == "pane"
+                    and isinstance(payload.get("idea"), str)
+                    and payload["idea"].strip()
+                ):
+                    return payload["idea"].strip()
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    return os.environ.get("TANDEM_FACTORY_IDEA", "").strip()
+
+
+def is_blank_inbox_idea(show_payload: object) -> bool:
+    if not isinstance(show_payload, dict):
+        return False
+    idea = show_payload.get("idea")
+    if not isinstance(idea, dict):
+        return False
+    if idea.get("state") != "inbox":
+        return False
+    text = idea.get("text")
+    if isinstance(text, str) and text.strip():
+        return False
+    if idea.get("feasibility") is not None or idea.get("plan") is not None:
+        return False
+    return True
+
+
+def run_ensure_idea(tandem_bin: str, current_idea_id: str, args: argparse.Namespace) -> int:
+    if current_idea_id:
+        show_proc = subprocess.run(
+            [tandem_bin, "factory", "idea", "show", current_idea_id, "--json"],
+            capture_output=True,
+            text=True,
+        )
+        if show_proc.returncode == 0 and show_proc.stdout.strip():
+            try:
+                show_payload = json.loads(show_proc.stdout)
+            except json.JSONDecodeError:
+                show_payload = None
+            if is_blank_inbox_idea(show_payload):
+                desc_proc = subprocess.run(
+                    [
+                        tandem_bin,
+                        "factory",
+                        "idea",
+                        "describe",
+                        current_idea_id,
+                        "--title",
+                        args.title,
+                        "--text-file",
+                        args.text_file,
+                        "--json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if desc_proc.returncode != 0:
+                    if desc_proc.stderr:
+                        sys.stderr.write(desc_proc.stderr)
+                    elif desc_proc.stdout:
+                        sys.stdout.write(desc_proc.stdout)
+                    return desc_proc.returncode
+                updated = json.loads(desc_proc.stdout)
+                print(
+                    json.dumps(
+                        {
+                            "idea_id": current_idea_id,
+                            "action": "reused",
+                            "idea": updated,
+                        }
+                    )
+                )
+                return 0
+
+    new_proc = subprocess.run(
+        [
+            tandem_bin,
+            "factory",
+            "idea",
+            "new",
+            "--title",
+            args.title,
+            "--text-file",
+            args.text_file,
+            "--start-discovery",
+            "--bind-current",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if new_proc.returncode != 0:
+        if new_proc.stderr:
+            sys.stderr.write(new_proc.stderr)
+        elif new_proc.stdout:
+            sys.stdout.write(new_proc.stdout)
+        return new_proc.returncode
+
+    created = json.loads(new_proc.stdout)
+    new_id = created.get("id", "") if isinstance(created, dict) else ""
+    print(
+        json.dumps(
+            {
+                "idea_id": new_id,
+                "action": "created",
+                "idea": created,
+            }
+        )
+    )
+    return 0
+
+
 def build_argv(tandem_bin: str, idea_id: str, args: argparse.Namespace) -> list[str]:
     cmd = args.command
+    if cmd == "new":
+        argv = [
+            tandem_bin,
+            "factory",
+            "idea",
+            "new",
+            "--title",
+            args.title,
+            "--text-file",
+            args.text_file,
+            "--start-discovery",
+        ]
+        if not args.no_bind:
+            argv.append("--bind-current")
+        argv.append("--json")
+        return argv
     if cmd == "assign":
         argv = [
             tandem_bin,
@@ -233,16 +431,29 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    team_cmds = {"assign", "agents", "send", "capture", "terminate", "relaunch"}
-    idea_id = os.environ.get("TANDEM_FACTORY_IDEA", "").strip()
-    if args.command not in team_cmds and not idea_id:
+    tandem_bin = resolve_tandem_binary()
+    no_idea_required = {
+        "new",
+        "ensure-idea",
+        "assign",
+        "recommend",
+        "agents",
+        "send",
+        "capture",
+        "terminate",
+        "relaunch",
+    }
+    idea_id = resolve_idea_id(tandem_bin, args)
+    if args.command not in no_idea_required and not idea_id:
         print("TANDEM_FACTORY_IDEA environment variable is not set.", file=sys.stderr)
         return 2
 
-    tandem_bin = resolve_tandem_binary()
     if not tandem_bin:
         print("tandem binary not found on PATH or configured locations.", file=sys.stderr)
         return 2
+
+    if args.command == "ensure-idea":
+        return run_ensure_idea(tandem_bin, idea_id, args)
 
     proc = subprocess.run(build_argv(tandem_bin, idea_id, args))
     return proc.returncode

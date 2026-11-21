@@ -198,7 +198,8 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | Command | Purpose |
 |---|---|
 | `tandem factory status --json` | Report `enabled`, idea counts by state, settings, and log status |
-| `tandem factory idea new --title T --text X [--text-file PATH] [--owner O] --json` | Create a new idea in Inbox |
+| `tandem factory idea new --title T --text X [--text-file PATH] [--owner O] [--start-discovery] [--bind-current] [--cli C] [--model M] [--conversation ID] --json` | Create a new idea in Inbox (or immediately advance to Ideation and bind the active Orchestrator pane when `--start-discovery` / `--bind-current` are set) |
+| `tandem factory idea current [--json]` | Resolve the active idea ID bound to the calling tmux pane (`@tandem_idea`), falling back to `TANDEM_FACTORY_IDEA` |
 | `tandem factory idea start --cli <claude\|agy> --model M [--title T] --json` | Create an idea and launch its bound Orchestrator pane |
 | `tandem factory idea resume ID --json` | Reopen or focus a non-terminal idea's Orchestrator pane |
 | `tandem factory idea describe ID --title T --text-file F --json` | Set title and description (moves Inbox → Ideation) |

@@ -386,6 +386,15 @@ pub enum FactoryIdeaCommand {
 
     #[command(about = "cancel an idea and any active run")]
     Cancel(FactoryIdeaCancelArgs),
+
+    #[command(about = "resolve the currently bound idea id for this pane or environment")]
+    Current(FactoryIdeaCurrentArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaCurrentArgs {
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -916,6 +925,30 @@ pub struct FactoryIdeaNewArgs {
     #[arg(long, help = "idea owner (defaults to OS user or 'you')")]
     pub owner: Option<String>,
 
+    #[arg(
+        long = "start-discovery",
+        help = "immediately transition the new idea from Inbox to Ideation"
+    )]
+    pub start_discovery: bool,
+
+    #[arg(
+        long = "bind-current",
+        help = "bind the active orchestrator metadata and current tmux pane to the new idea"
+    )]
+    pub bind_current: bool,
+
+    #[arg(
+        long,
+        help = "orchestrator CLI provider (claude, agy, or opencode) when binding"
+    )]
+    pub cli: Option<String>,
+
+    #[arg(long, help = "orchestrator model id when binding")]
+    pub model: Option<String>,
+
+    #[arg(long, help = "optional orchestrator conversation id when binding")]
+    pub conversation: Option<String>,
+
     #[arg(long, help = "output JSON (including structured errors)")]
     pub json: bool,
 }
@@ -1146,6 +1179,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryIdeaCommand::Ready(a) => a.json,
             FactoryIdeaCommand::RevokeReady(a) => a.json,
             FactoryIdeaCommand::Cancel(a) => a.json,
+            FactoryIdeaCommand::Current(a) => a.json,
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => a.json,
@@ -1339,7 +1373,7 @@ fn run_simulate(
     }
 }
 
-fn lookup_tmux_pane_role(workspace: &Path, pane_id: &str) -> Option<String> {
+fn lookup_tmux_pane_option(workspace: &Path, pane_id: &str, option: &str) -> Option<String> {
     let is_valid_pane =
         pane_id.starts_with('%') && pane_id[1..].chars().all(|c| c.is_ascii_digit());
     if !is_valid_pane {
@@ -1356,14 +1390,162 @@ fn lookup_tmux_pane_role(workspace: &Path, pane_id: &str) -> Option<String> {
         })
         .unwrap_or_else(|| crate::tmux::client::socket_for(workspace));
     let client = crate::tmux::client::TmuxClient::new(socket, None);
+    let fmt = format!("#{{{option}}}");
     let res = client
-        .run(&["display-message", "-p", "-t", pane_id, "#{@tandem_role}"])
+        .run(&["display-message", "-p", "-t", pane_id, &fmt])
         .ok()?;
     if res.code != 0 {
         return None;
     }
-    let role = res.out.trim().to_string();
-    if role.is_empty() { None } else { Some(role) }
+    let val = res.out.trim().to_string();
+    if val.is_empty() { None } else { Some(val) }
+}
+
+fn lookup_tmux_pane_role(workspace: &Path, pane_id: &str) -> Option<String> {
+    lookup_tmux_pane_option(workspace, pane_id, "@tandem_role")
+}
+
+fn resolve_active_pane_id(config: &Config, caller: &super::approval::Caller<'_>) -> Option<String> {
+    if let Some(p) = (caller.env)("TMUX_PANE")
+        && !p.trim().is_empty()
+    {
+        return Some(p.trim().to_string());
+    }
+    if !config.tmux_pane.trim().is_empty() {
+        return Some(config.tmux_pane.trim().to_string());
+    }
+    None
+}
+
+fn resolve_orchestrator_binding(
+    workspace: &Path,
+    config: &Config,
+    caller: &super::approval::Caller<'_>,
+    explicit_cli: Option<&str>,
+    explicit_model: Option<&str>,
+    explicit_conv: Option<&str>,
+) -> Result<Option<(String, String, Option<String>)>, CmdError> {
+    let pane_spec = resolve_active_pane_id(config, caller)
+        .and_then(|pane_id| lookup_tmux_pane_option(workspace, &pane_id, "@tandem_spec"))
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+
+    let cli = explicit_cli
+        .map(str::to_string)
+        .or_else(|| {
+            pane_spec
+                .as_ref()
+                .and_then(|v| v.get("cli").and_then(|c| c.as_str()).map(str::to_string))
+        })
+        .or_else(|| (caller.env)("TANDEM_CLI"))
+        .or_else(|| std::env::var("TANDEM_CLI").ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let model = explicit_model
+        .map(str::to_string)
+        .or_else(|| {
+            pane_spec
+                .as_ref()
+                .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(str::to_string))
+        })
+        .or_else(|| (caller.env)("TANDEM_MODEL"))
+        .or_else(|| std::env::var("TANDEM_MODEL").ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let conversation = explicit_conv
+        .map(str::to_string)
+        .or_else(|| {
+            pane_spec.as_ref().and_then(|v| {
+                v.get("conversation")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string)
+            })
+        })
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    match (cli, model) {
+        (Some(c), Some(m)) => {
+            if !crate::state::CLIS.contains(&c.as_str()) {
+                return Err(CmdError::invalid_input(format!(
+                    "unsupported orchestrator cli: {c} (expected claude, agy, or opencode)"
+                )));
+            }
+            let valid_model = crate::adapters::base::validate_model_for_cli(&c, &m)
+                .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+            Ok(Some((c, valid_model, conversation)))
+        }
+        (Some(c), None) if explicit_cli.is_some() => Err(CmdError::invalid_input(format!(
+            "--model is required when --cli {c} is specified"
+        ))),
+        (None, Some(m)) if explicit_model.is_some() => Err(CmdError::invalid_input(format!(
+            "--cli is required when --model {m} is specified"
+        ))),
+        _ => Ok(None),
+    }
+}
+
+fn rebind_tmux_pane_idea(
+    workspace: &Path,
+    pane_id: &str,
+    idea_id: &str,
+    binding: Option<&(String, String, Option<String>)>,
+) {
+    let is_valid_pane =
+        pane_id.starts_with('%') && pane_id[1..].chars().all(|c| c.is_ascii_digit());
+    if !is_valid_pane {
+        return;
+    }
+    let socket = std::env::var("TMUX")
+        .ok()
+        .and_then(|v| {
+            let sock_path = v.split(',').next()?;
+            Path::new(sock_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| crate::tmux::client::socket_for(workspace));
+    let client = crate::tmux::client::TmuxClient::new(socket, None);
+    let mut batch = vec![vec![
+        "set-option".to_string(),
+        "-p".to_string(),
+        "-t".to_string(),
+        pane_id.to_string(),
+        "@tandem_idea".to_string(),
+        idea_id.to_string(),
+    ]];
+    if let Some((cli, model, _)) = binding {
+        batch.push(vec![
+            "set-option".to_string(),
+            "-p".to_string(),
+            "-t".to_string(),
+            pane_id.to_string(),
+            "@tandem_label".to_string(),
+            format!("{idea_id} {cli}·{model}"),
+        ]);
+    }
+    if let Some(raw_spec) = lookup_tmux_pane_option(workspace, pane_id, "@tandem_spec")
+        && let Ok(mut spec_val) = serde_json::from_str::<serde_json::Value>(&raw_spec)
+        && let Some(obj) = spec_val.as_object_mut()
+    {
+        obj.insert(
+            "idea".to_string(),
+            serde_json::Value::String(idea_id.to_string()),
+        );
+        if let Ok(updated_spec) = serde_json::to_string(&spec_val) {
+            batch.push(vec![
+                "set-option".to_string(),
+                "-p".to_string(),
+                "-t".to_string(),
+                pane_id.to_string(),
+                "@tandem_spec".to_string(),
+                updated_spec,
+            ]);
+        }
+    }
+    let _ = client.run_batch_checked(&batch);
 }
 
 fn is_authenticated_web_gateway(config: &Config) -> bool {
@@ -1561,9 +1743,44 @@ fn execute_with_probe(
                 let text = validate_text(&raw_text).map_err(|e| CmdError::invalid_input(e.0))?;
                 let owner = resolve_owner(a.owner.as_deref())?;
                 let actor = resolve_actor(config);
-                let idea = store
+                let binding = if a.bind_current || a.cli.is_some() || a.model.is_some() {
+                    resolve_orchestrator_binding(
+                        workspace,
+                        config,
+                        caller,
+                        a.cli.as_deref(),
+                        a.model.as_deref(),
+                        a.conversation.as_deref(),
+                    )?
+                } else {
+                    None
+                };
+                let mut idea = store
                     .create_idea(&title, &text, &owner, &actor)
                     .map_err(map_factory_error)?;
+                if a.start_discovery || (a.bind_current && !text.trim().is_empty()) {
+                    idea = store
+                        .execute(&idea.id, super::machine::Command::StartDiscovery, &actor)
+                        .map_err(map_factory_error)?;
+                }
+                if let Some((ref cli, ref model, ref conversation)) = binding {
+                    idea = store
+                        .execute(
+                            &idea.id,
+                            super::machine::Command::BindOrchestrator {
+                                cli: cli.clone(),
+                                model: model.clone(),
+                                conversation: conversation.clone(),
+                            },
+                            &actor,
+                        )
+                        .map_err(map_factory_error)?;
+                }
+                if a.bind_current
+                    && let Some(pane_id) = resolve_active_pane_id(config, caller)
+                {
+                    rebind_tmux_pane_idea(workspace, &pane_id, &idea.id, binding.as_ref());
+                }
                 serialize_compact(&idea)
             }
             FactoryIdeaCommand::List(a) => {
@@ -1734,6 +1951,31 @@ fn execute_with_probe(
                     serialize_compact(&res)
                 } else {
                     Ok(format_cancel_idea_text(&res))
+                }
+            }
+            FactoryIdeaCommand::Current(a) => {
+                let pane_idea = resolve_active_pane_id(config, caller)
+                    .and_then(|pane_id| {
+                        lookup_tmux_pane_option(workspace, &pane_id, "@tandem_idea")
+                    })
+                    .filter(|id| is_valid_idea_id(id));
+                let env_idea = (caller.env)("TANDEM_FACTORY_IDEA")
+                    .map(|s| s.trim().to_string())
+                    .filter(|id| is_valid_idea_id(id));
+                let (idea_opt, source) = if let Some(id) = pane_idea {
+                    (Some(id), "pane")
+                } else if let Some(id) = env_idea {
+                    (Some(id), "env")
+                } else {
+                    (None, "none")
+                };
+                if a.json {
+                    serialize_compact(&serde_json::json!({
+                        "idea": idea_opt,
+                        "source": source,
+                    }))
+                } else {
+                    Ok(idea_opt.unwrap_or_default())
                 }
             }
         },
