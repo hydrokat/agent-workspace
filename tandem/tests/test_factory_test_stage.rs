@@ -13,7 +13,6 @@ use common::factory_fixture::{StubEnvLoginProbe, StubWorkerTmuxRunner};
 use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::checks::{CheckOutcome, MAX_CHECK_LOG_BYTES, run_checks};
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::jobs_dir;
 use tandem::factory::checks::{CheckKind, ChecksConfig, ConfirmedChecks, set_checks};
 use tandem::factory::events::read_all;
@@ -344,15 +343,6 @@ fn test_stage_passing_checks_succeeds_without_starting_agent_job() {
     let ws = temp_ws("pass-no-agent");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
     let caller = Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     set_checks(
         &store,
         "workspace",
@@ -394,15 +384,6 @@ fn test_stage_failing_checks_invokes_economy_verifier_and_records_diagnosis() {
     let ws = temp_ws("fail-verifier");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
     let caller = Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     set_checks(
         &store,
         "workspace",
@@ -508,15 +489,6 @@ fn runner_reopens_develop_on_test_failure_and_pauses_when_develop_retries_exhaus
     let ws = temp_ws("reopen-develop");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
     let caller = Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     set_checks(
         &store,
         "workspace",
@@ -591,15 +563,6 @@ fn baseline_failure_pauses_run_before_any_work() {
     let ws = temp_ws("baseline-fail");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
     let caller = Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     set_checks(
         &store,
         "workspace",

@@ -18,7 +18,6 @@ import type {
   RelaunchAgentResult,
   StageAssignment,
   PrLink,
-  ProviderStatusItem,
   ReadyResult,
   RunControlAction,
   RunControlOptions,
@@ -104,7 +103,6 @@ export interface ITandemGateway {
     action: RunControlAction,
     options?: RunControlOptions
   ): Promise<RunSummary>;
-  factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]>;
   factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle>;
   factoryRunData(workspacePath: string, runId: string): Promise<RunDataView>;
   factoryEvidenceItem(

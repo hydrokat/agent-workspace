@@ -186,8 +186,8 @@ fn shipped_binary_exposes_no_gate_bypass_or_clock_override() {
 
     for args in [
         &["factory", "--help"][..],
-        &["factory", "provider", "--help"][..],
-        &["factory", "provider", "consent", "--help"][..],
+        &["factory", "login", "--help"][..],
+        &["factory", "login", "acknowledge-risk", "--help"][..],
         &["factory", "run", "--help"][..],
     ] {
         let out = StdCommand::new(bin).args(args).output().unwrap();
@@ -209,10 +209,10 @@ fn shipped_binary_exposes_no_gate_bypass_or_clock_override() {
     let rejected = StdCommand::new(bin)
         .args([
             "factory",
-            "provider",
-            "consent",
+            "login",
+            "acknowledge-risk",
             "claude",
-            "--auth",
+            "--method",
             "api-key",
             "--confirm",
             "claude",

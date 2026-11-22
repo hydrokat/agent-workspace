@@ -8,8 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tandem::factory::approval::Caller;
-use tandem::factory::broker::gate::{AuthType, ProviderTermsRow, consent_provider_with_terms};
-use tandem::factory::broker::terms::{TERMS_RECORD_PATH, TermsVerdict};
+use tandem::factory::broker::terms::{AuthType, ProviderTermsRow, TERMS_RECORD_PATH, TermsVerdict};
 use tandem::factory::checks::set_checks;
 use tandem::factory::executor::{BrokerExecutor, Executor, StageJob, StageOutcome};
 use tandem::factory::login::LoginProbe;
@@ -478,18 +477,6 @@ impl FactoryFixture {
             "workspace",
             "user",
             &caller,
-        )
-        .unwrap();
-
-        consent_provider_with_terms(
-            &store,
-            "claude",
-            AuthType::ApiKey,
-            "claude",
-            "user",
-            &caller,
-            FIXED_TODAY,
-            TEST_TERMS,
         )
         .unwrap();
 

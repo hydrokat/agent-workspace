@@ -48,9 +48,6 @@ pub enum FactoryCommand {
     #[command(about = "manage workflow runs")]
     Run(FactoryRunArgs),
 
-    #[command(about = "manage headless provider gates and consent")]
-    Provider(FactoryProviderArgs),
-
     #[command(about = "discover, confirm, and inspect project test and lint commands")]
     Checks(FactoryChecksArgs),
 
@@ -816,46 +813,6 @@ pub struct FactoryRunUsageArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderArgs {
-    #[command(subcommand)]
-    pub command: FactoryProviderCommand,
-}
-
-#[derive(Subcommand, Debug, PartialEq, Eq)]
-pub enum FactoryProviderCommand {
-    #[command(about = "show provider terms verdicts and gate state")]
-    Status(FactoryProviderStatusArgs),
-    #[command(about = "record user consent to open a provider gate")]
-    Consent(FactoryProviderConsentArgs),
-    #[command(about = "close a provider gate")]
-    Revoke(FactoryProviderRevokeArgs),
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderStatusArgs {
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderConsentArgs {
-    pub provider: String,
-    #[arg(long)]
-    pub auth: String,
-    #[arg(long)]
-    pub confirm: String,
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderRevokeArgs {
-    pub provider: String,
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryChecksArgs {
     #[command(subcommand)]
     pub command: FactoryChecksCommand,
@@ -1256,11 +1213,6 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Usage(a) => a.json,
             FactoryRunCommand::Data(a) => a.json,
             FactoryRunCommand::Approve(a) => a.json,
-        },
-        FactoryCommand::Provider(p_args) => match &p_args.command {
-            FactoryProviderCommand::Status(a) => a.json,
-            FactoryProviderCommand::Consent(a) => a.json,
-            FactoryProviderCommand::Revoke(a) => a.json,
         },
         FactoryCommand::Checks(c_args) => match &c_args.command {
             FactoryChecksCommand::Discover(a) => a.json,
@@ -2633,61 +2585,6 @@ fn execute_with_probe(
                 }
             }
         },
-        FactoryCommand::Provider(p_args) => {
-            if !enabled {
-                return Err(CmdError::factory_disabled());
-            }
-            match &p_args.command {
-                FactoryProviderCommand::Status(_) => {
-                    let settings = if store.exists() {
-                        store.settings().map_err(map_factory_error)?
-                    } else {
-                        FactorySettings::default()
-                    };
-                    let today = super::broker::gate::today_iso_date();
-                    let items = super::broker::gate::provider_statuses(&settings, &today);
-                    serialize_compact(&items)
-                }
-                FactoryProviderCommand::Consent(a) => {
-                    let auth_type = super::broker::gate::AuthType::parse(&a.auth).ok_or_else(|| {
-                        CmdError::invalid_input(format!(
-                            "invalid --auth value: {} (expected subscription, api-key, or cloud)",
-                            a.auth
-                        ))
-                    })?;
-                    let consented_by = resolve_owner(None)?;
-                    let gate = super::broker::gate::consent_provider(
-                        &store,
-                        &a.provider,
-                        auth_type,
-                        &a.confirm,
-                        &consented_by,
-                        caller,
-                    )
-                    .map_err(|e| CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    })?;
-                    serialize_compact(&gate)
-                }
-                FactoryProviderCommand::Revoke(a) => {
-                    let revoked_by = resolve_owner(None)?;
-                    let gate = super::broker::gate::revoke_provider(
-                        &store,
-                        &a.provider,
-                        &revoked_by,
-                        caller,
-                    )
-                    .map_err(|e| CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    })?;
-                    serialize_compact(&gate)
-                }
-            }
-        }
         FactoryCommand::Checks(c_args) => {
             if !enabled {
                 return Err(CmdError::factory_disabled());

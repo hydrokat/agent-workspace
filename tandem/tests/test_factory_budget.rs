@@ -8,7 +8,6 @@ use tandem::cli::Cli;
 use tandem::config::Config;
 use tandem::factory::approval::{ApprovalError, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::budget::{
     BudgetCheck, EstimateHistory, EstimateRange, HistoricalRun, RunBudget, Spent,
     StageTokenEstimate, check, cost_cap_label, effective_stage_budget, estimate,
@@ -173,15 +172,6 @@ fn setup_queued_run_with_budget(
     settings.approval_grace_secs = 0;
     save_settings(&store, &settings).unwrap();
     let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
 
     let ready = mark_ready_with_options(
         &store,
@@ -761,12 +751,6 @@ fn estimate_routes_cover_every_stage_without_any_provider_consent() {
     use tandem::factory::workflow::validate::validate;
 
     let settings = tandem::factory::model::FactorySettings::default();
-    assert!(
-        settings
-            .provider_gates
-            .iter()
-            .all(|g| g.state != tandem::factory::model::ProviderGateState::Open)
-    );
     let raw = parse_workflow_str(DEFAULT_WORKFLOW_YAML).unwrap();
     let wf = validate(&raw, &settings).unwrap();
 

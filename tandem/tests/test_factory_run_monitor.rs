@@ -638,16 +638,6 @@ impl LoginProbe for ReadyClaudeProbe {
 fn test_pause_resume_cancel_and_retry_controls() {
     let ws = temp_workspace("controls");
     let (store, idea_id, run_id) = setup_run(&ws);
-    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
-    tandem::factory::broker::gate::consent_provider(
-        &store,
-        "claude",
-        tandem::factory::broker::gate::AuthType::ApiKey,
-        "claude",
-        "argie",
-        &caller,
-    )
-    .unwrap();
     let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
         .with_login_probe(Arc::new(ReadyClaudeProbe));
 
@@ -895,16 +885,6 @@ fn test_monitor_navigation_dialogs_errors_and_esc_paths() {
 
     let ws = temp_workspace("nav-esc");
     let (store, idea_id, run_id) = setup_run(&ws);
-    let caller = tandem::factory::approval::Caller::tui(&no_agent_env, &|_| None);
-    tandem::factory::broker::gate::consent_provider(
-        &store,
-        "claude",
-        tandem::factory::broker::gate::AuthType::ApiKey,
-        "claude",
-        "argie",
-        &caller,
-    )
-    .unwrap();
 
     let log_path = prepare_stage_job(
         &store,

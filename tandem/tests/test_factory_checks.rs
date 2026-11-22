@@ -4,7 +4,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tandem::factory::approval::mark_ready_with_workflow;
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::checks::{
     CheckKind, ChecksConfig, ChecksError, ConfirmedChecks, DEFAULT_CHECK_TIMEOUT_SECS,
     discover_checks, require_confirmed_checks, set_checks, show_checks, validate_checks_config,
@@ -435,16 +434,6 @@ fn runner_pauses_at_test_stage_when_checks_unconfirmed_then_resumes_after_confir
     )
     .unwrap();
     let run_id = ready.run.unwrap().id;
-
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &user_caller,
-    )
-    .unwrap();
 
     let mut exec = ScriptedExecutor { calls: vec![] };
     drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();

@@ -6,7 +6,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::result::{JobResult, JobResultStatus};
 use tandem::factory::checks::{set_checks, set_deploy_command};
 use tandem::factory::events::read_all;
@@ -180,15 +179,6 @@ fn setup_ready_idea_and_run(
     tandem::factory::settings::save(&store, &settings).unwrap();
 
     let caller = Caller::cli(true, &no_env, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
 
     let actor = user_actor();
     let orch = orch_actor();

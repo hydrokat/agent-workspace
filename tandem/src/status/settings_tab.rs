@@ -7,15 +7,10 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::factory::broker::gate::{
-    AuthType, ProviderStatusItem, consent_provider, provider_statuses, revoke_provider,
-    today_iso_date,
-};
-use crate::factory::broker::terms::{TermsVerdict, lookup as lookup_terms};
 use crate::factory::login::{
     HostLoginProbe, LoginProbe, LoginStatusItem, all_statuses, default_login_items, open_login_pane,
 };
-use crate::factory::model::{FactorySettings, ProviderGateState};
+use crate::factory::model::FactorySettings;
 use crate::factory::settings as factory_settings;
 use crate::factory::store::FactoryStore;
 use crate::factory::workflow::{parse as wf_parse, validate as wf_validate};
@@ -55,8 +50,6 @@ pub const SIDEBAR_OPTIONS: [SidebarMode; 4] = [
 
 pub const QUIT_ROW: usize = 6;
 
-const AUTH_TYPES: [AuthType; 3] = [AuthType::Subscription, AuthType::ApiKey, AuthType::Cloud];
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsAction {
     Changed,
@@ -73,7 +66,6 @@ pub enum FactoryRow {
     DefaultWorkflow,
     RunBudget,
     ApprovalGraceSecs,
-    Provider(usize),
     ModelTier(usize),
     CheckCommands,
     DeployCommand,
@@ -98,20 +90,6 @@ pub struct FactoryEditState {
 }
 
 #[derive(Debug, Clone)]
-pub struct FactoryConsentState {
-    pub provider: String,
-    pub auth_idx: usize,
-    pub input: String,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FactoryRevokeState {
-    pub provider: String,
-    pub confirm_yes: bool,
-}
-
-#[derive(Debug, Clone)]
 struct StyledLine {
     text: String,
     style: Style,
@@ -130,14 +108,11 @@ pub struct SettingsTab {
     pub factory_enabled: bool,
     pub workspace: Option<PathBuf>,
     pub factory_settings: FactorySettings,
-    pub factory_providers: Vec<ProviderStatusItem>,
     pub factory_logins: Vec<LoginStatusItem>,
     pub factory_workflows: Vec<String>,
     pub budget_sub_field: usize,
     pub tier_sub_field: usize,
     pub factory_edit: Option<FactoryEditState>,
-    pub factory_consent: Option<FactoryConsentState>,
-    pub factory_revoke: Option<FactoryRevokeState>,
     pub factory_login_pane: Option<FactoryLoginPaneState>,
     pub logins_probed: bool,
     pub scroll_offset: usize,
@@ -147,7 +122,6 @@ pub struct SettingsTab {
 impl Default for SettingsTab {
     fn default() -> Self {
         let defaults = FactorySettings::default();
-        let providers = provider_statuses(&defaults, &today_iso_date());
         Self {
             prefs: GridPrefs::default(),
             sidebar_mode: SidebarMode::default(),
@@ -160,14 +134,11 @@ impl Default for SettingsTab {
             factory_enabled: false,
             workspace: None,
             factory_settings: defaults,
-            factory_providers: providers,
             factory_logins: default_login_items(),
             factory_workflows: Vec::new(),
             budget_sub_field: 0,
             tier_sub_field: 0,
             factory_edit: None,
-            factory_consent: None,
-            factory_revoke: None,
             factory_login_pane: None,
             logins_probed: false,
             scroll_offset: 0,
@@ -189,8 +160,6 @@ impl SettingsTab {
         self.confirm_reset
             || self.editing_workspace_name.is_some()
             || self.factory_edit.is_some()
-            || self.factory_consent.is_some()
-            || self.factory_revoke.is_some()
             || self.factory_login_pane.is_some()
     }
 
@@ -227,7 +196,6 @@ impl SettingsTab {
         };
         let store = FactoryStore::new(ws);
         let settings = factory_settings::load(&store).unwrap_or_default();
-        let providers = provider_statuses(&settings, &today_iso_date());
 
         let mut workflows = Vec::new();
         let wf_dir = ws.join("workflows");
@@ -250,7 +218,6 @@ impl SettingsTab {
         workflows.dedup();
 
         self.factory_settings = settings;
-        self.factory_providers = providers;
         self.factory_workflows = workflows;
     }
 
@@ -266,9 +233,6 @@ impl SettingsTab {
             FactoryRow::RunBudget,
             FactoryRow::ApprovalGraceSecs,
         ];
-        for i in 0..self.factory_providers.len() {
-            rows.push(FactoryRow::Provider(i));
-        }
         let tier_count = self.factory_settings.model_tiers.len();
         for i in 0..tier_count {
             rows.push(FactoryRow::ModelTier(i));
@@ -309,20 +273,6 @@ impl SettingsTab {
         }
     }
 
-    pub fn focus_factory_provider(&mut self, provider: &str) {
-        if let Some(p_idx) = self
-            .factory_providers
-            .iter()
-            .position(|p| p.provider == provider)
-            && let Some(row_idx) = self
-                .factory_rows()
-                .iter()
-                .position(|r| matches!(r, FactoryRow::Provider(i) if *i == p_idx))
-        {
-            self.focused_row = QUIT_ROW + 1 + row_idx;
-        }
-    }
-
     pub fn flash(&mut self, msg: &str) {
         self.flash_message = Some((msg.to_string(), Instant::now()));
     }
@@ -345,8 +295,6 @@ impl SettingsTab {
         match factory_settings::set(&store, key, value, &owner, &caller) {
             Ok(res) => {
                 self.factory_settings = res.settings;
-                self.factory_providers =
-                    provider_statuses(&self.factory_settings, &today_iso_date());
                 self.flash(&format!("{} = {}", res.key, res.new_value));
                 Ok(())
             }
@@ -357,12 +305,6 @@ impl SettingsTab {
     pub fn handle_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
         if self.factory_login_pane.is_some() {
             return self.handle_login_pane_key(key);
-        }
-        if self.factory_consent.is_some() {
-            return self.handle_consent_key(key);
-        }
-        if self.factory_revoke.is_some() {
-            return self.handle_revoke_key(key);
         }
         if self.factory_edit.is_some() {
             return self.handle_factory_edit_key(key);
@@ -736,23 +678,6 @@ impl SettingsTab {
                     error: None,
                 });
             }
-            FactoryRow::Provider(idx) => {
-                if let Some(p) = self.factory_providers.get(idx).cloned() {
-                    if p.gate == ProviderGateState::Open {
-                        self.factory_revoke = Some(FactoryRevokeState {
-                            provider: p.provider,
-                            confirm_yes: false,
-                        });
-                    } else {
-                        self.factory_consent = Some(FactoryConsentState {
-                            provider: p.provider,
-                            auth_idx: 0,
-                            input: String::new(),
-                            error: None,
-                        });
-                    }
-                }
-            }
             FactoryRow::ModelTier(idx) => {
                 if let Some((provider, tiers)) = self.factory_settings.model_tiers.iter().nth(idx) {
                     let (tier_name, cur_val) = match self.tier_sub_field {
@@ -819,125 +744,6 @@ impl SettingsTab {
                 None
             }
             _ => None,
-        }
-    }
-
-    fn handle_consent_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
-        let state = self.factory_consent.as_mut()?;
-        match key.code {
-            KeyCode::Esc => {
-                self.factory_consent = None;
-                None
-            }
-            KeyCode::Left => {
-                state.auth_idx = if state.auth_idx == 0 {
-                    AUTH_TYPES.len() - 1
-                } else {
-                    state.auth_idx - 1
-                };
-                state.error = None;
-                None
-            }
-            KeyCode::Right => {
-                state.auth_idx = (state.auth_idx + 1) % AUTH_TYPES.len();
-                state.error = None;
-                None
-            }
-            KeyCode::Backspace => {
-                state.input.pop();
-                state.error = None;
-                None
-            }
-            KeyCode::Char(c) if !c.is_control() => {
-                state.input.push(c);
-                state.error = None;
-                None
-            }
-            KeyCode::Enter => {
-                let provider = state.provider.clone();
-                let auth = AUTH_TYPES[state.auth_idx];
-                let confirm = state.input.trim().to_string();
-                if confirm != provider {
-                    state.error = Some(format!("Type {provider} to confirm consent."));
-                    return None;
-                }
-                let Some(ref ws) = self.workspace else {
-                    state.error = Some("Workspace not configured".to_string());
-                    return None;
-                };
-                let store = FactoryStore::new(ws);
-                let owner = Self::owner_name();
-                let env_fn = |k: &str| std::env::var(k).ok();
-                let no_pane = |_: &str| None;
-                let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
-                match consent_provider(&store, &provider, auth, &confirm, &owner, &caller) {
-                    Ok(_) => {
-                        self.factory_consent = None;
-                        self.reload_factory();
-                        self.flash(&format!("Consented to {provider} ({})", auth.as_str()));
-                    }
-                    Err(err) => {
-                        if let Some(ref mut st) = self.factory_consent {
-                            st.error = Some(clean(&err.to_string()));
-                        }
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn handle_revoke_key(&mut self, key: &KeyEvent) -> Option<SettingsAction> {
-        let state = self.factory_revoke.as_mut()?;
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                self.factory_revoke = None;
-                None
-            }
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let provider = state.provider.clone();
-                self.perform_revoke(&provider);
-                None
-            }
-            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
-                state.confirm_yes = !state.confirm_yes;
-                None
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                let yes = state.confirm_yes;
-                let provider = state.provider.clone();
-                if yes {
-                    self.perform_revoke(&provider);
-                } else {
-                    self.factory_revoke = None;
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn perform_revoke(&mut self, provider: &str) {
-        let Some(ref ws) = self.workspace else {
-            self.factory_revoke = None;
-            return;
-        };
-        let store = FactoryStore::new(ws);
-        let owner = Self::owner_name();
-        let env_fn = |k: &str| std::env::var(k).ok();
-        let no_pane = |_: &str| None;
-        let caller = crate::factory::approval::Caller::tui(&env_fn, &no_pane);
-        match revoke_provider(&store, provider, &owner, &caller) {
-            Ok(_) => {
-                self.factory_revoke = None;
-                self.reload_factory();
-                self.flash(&format!("Revoked consent for {provider}"));
-            }
-            Err(err) => {
-                self.factory_revoke = None;
-                self.flash(&clean(&err.to_string()));
-            }
         }
     }
 
@@ -1034,37 +840,6 @@ impl SettingsTab {
                     ],
                 );
             }
-        } else if let Some(ref state) = self.factory_consent {
-            let r = modal_rect(area, CONSENT_MODAL_SIZE);
-            if r.width >= 12 && r.height >= 6 {
-                let auth = AUTH_TYPES[state.auth_idx].as_str();
-                let auth_line = format!("Auth: < {auth} >");
-                let line_w = r.width.saturating_sub(3);
-                hits.tags(
-                    Rect::new(r.x + 2, r.y + 1, line_w, 1),
-                    &auth_line,
-                    &[
-                        ("<", Hit::key(KeyCode::Left)),
-                        (auth, Hit::key(KeyCode::Right)),
-                        (">", Hit::key(KeyCode::Right)),
-                    ],
-                );
-                hits.tags(
-                    Rect::new(r.x + 2, r.y + 4, line_w, 1),
-                    CONSENT_MODAL_HINT,
-                    &[
-                        ("Left/Right auth", Hit::key(KeyCode::Right)),
-                        ("Enter consent", Hit::key(KeyCode::Enter)),
-                        ("Esc cancel", Hit::key(KeyCode::Esc)),
-                    ],
-                );
-            }
-        } else if self.factory_revoke.is_some() {
-            let r = modal_rect(area, REVOKE_MODAL_SIZE);
-            if r.width >= 12 && r.height >= 5 {
-                hits.push(Rect::new(r.x + 12, r.y + 3, 7, 1), Hit::ch('y'));
-                hits.push(Rect::new(r.x + 24, r.y + 3, 6, 1), Hit::ch('n'));
-            }
         } else if self.factory_login_pane.is_some() {
             let r = modal_rect(area, LOGIN_MODAL_SIZE);
             if r.width >= 16 && r.height >= 5 {
@@ -1092,11 +867,7 @@ impl SettingsTab {
             _ => return None,
         }
 
-        if self.factory_edit.is_some()
-            || self.factory_consent.is_some()
-            || self.factory_revoke.is_some()
-            || self.factory_login_pane.is_some()
-        {
+        if self.factory_edit.is_some() || self.factory_login_pane.is_some() {
             return self.handle_factory_modal_click(mouse, area);
         }
 
@@ -1508,29 +1279,6 @@ impl SettingsTab {
                     "Approval grace period".to_string(),
                     format!("{} s  (0-600 s)", s.approval_grace_secs),
                 ),
-                FactoryRow::Provider(p_idx) => {
-                    let p = &self.factory_providers[p_idx];
-                    let state_str = if p.gate == ProviderGateState::Open {
-                        let date = s
-                            .provider_gates
-                            .iter()
-                            .find(|g| g.provider == p.provider)
-                            .and_then(|g| g.verified_on.as_deref())
-                            .unwrap_or(&p.verified_on);
-                        format!("open (consent {date})  [revoke]")
-                    } else {
-                        let reason = p.reason.as_deref().unwrap_or("gate closed");
-                        format!("closed ({reason})  [consent]")
-                    };
-                    (
-                        if p_idx == 0 {
-                            "Providers".to_string()
-                        } else {
-                            String::new()
-                        },
-                        format!("{:<8} {state_str}", p.provider),
-                    )
-                }
                 FactoryRow::ModelTier(t_idx) => {
                     let (provider, tiers) = s
                         .model_tiers
@@ -1667,10 +1415,6 @@ impl SettingsTab {
             render_modal(area, buf, self.modal_focus);
         } else if let Some(ref edit) = self.factory_edit {
             render_factory_edit_modal(area, buf, edit);
-        } else if let Some(ref consent) = self.factory_consent {
-            render_factory_consent_modal(area, buf, consent);
-        } else if let Some(ref revoke) = self.factory_revoke {
-            render_factory_revoke_modal(area, buf, revoke);
         } else if let Some(ref login_pane) = self.factory_login_pane {
             render_factory_login_pane_modal(area, buf, login_pane);
         }
@@ -1703,11 +1447,8 @@ fn clear_box(buf: &mut Buffer, x: u16, y: u16, width: u16, height: u16) {
 }
 
 const EDIT_MODAL_SIZE: (u16, u16) = (62, 6);
-const CONSENT_MODAL_SIZE: (u16, u16) = (66, 7);
-const REVOKE_MODAL_SIZE: (u16, u16) = (54, 5);
 const LOGIN_MODAL_SIZE: (u16, u16) = (64, 5);
 const EDIT_MODAL_HINT: &str = "Enter save · Esc cancel";
-const CONSENT_MODAL_HINT: &str = "Left/Right auth · Enter consent · Esc cancel";
 const LOGIN_MODAL_HINT: &str = "[Done] refresh · [Cancel] close login pane";
 
 fn modal_rect(area: Rect, size: (u16, u16)) -> Rect {
@@ -1849,126 +1590,6 @@ fn render_factory_edit_modal(area: Rect, buf: &mut Buffer, edit: &FactoryEditSta
         format!("└{:─<pad$}┘", "", pad = w.saturating_sub(2)),
         w,
         Style::default().fg(Color::Cyan),
-    );
-}
-
-fn render_factory_consent_modal(area: Rect, buf: &mut Buffer, state: &FactoryConsentState) {
-    let Rect {
-        x,
-        y,
-        width,
-        height,
-    } = modal_rect(area, CONSENT_MODAL_SIZE);
-    clear_box(buf, x, y, width, height);
-    if width < 12 || height < 6 {
-        return;
-    }
-
-    let w = width as usize;
-    let auth = AUTH_TYPES[state.auth_idx];
-    buf.set_stringn(
-        x,
-        y,
-        format!("┌ Provider Consent: {} ", state.provider),
-        w,
-        Style::default().fg(Color::Yellow),
-    );
-    let verdict = lookup_terms(&state.provider, auth)
-        .map(|r| match r.verdict {
-            TermsVerdict::Allowed => "allowed",
-            TermsVerdict::AllowedWithConditions => "allowed with conditions",
-            TermsVerdict::NotAllowed => "not allowed",
-            TermsVerdict::Unclear => "unclear",
-        })
-        .unwrap_or("unclear");
-    buf.set_stringn(
-        x + 2,
-        y + 1,
-        format!("Auth: < {} >  Terms: {verdict}", auth.as_str()),
-        w.saturating_sub(3),
-        Style::default(),
-    );
-    buf.set_stringn(
-        x + 2,
-        y + 2,
-        format!("Type '{}' to confirm: {}_", state.provider, state.input),
-        w.saturating_sub(3),
-        Style::default().fg(Color::Yellow),
-    );
-    if let Some(ref err) = state.error {
-        buf.set_stringn(
-            x + 2,
-            y + 3,
-            err,
-            w.saturating_sub(3),
-            Style::default().fg(Color::Red),
-        );
-    }
-    buf.set_stringn(
-        x + 2,
-        y + 4,
-        CONSENT_MODAL_HINT,
-        w.saturating_sub(3),
-        Style::default().fg(Color::DarkGray),
-    );
-    buf.set_stringn(
-        x,
-        y + height - 1,
-        format!("└{:─<pad$}┘", "", pad = w.saturating_sub(2)),
-        w,
-        Style::default().fg(Color::Yellow),
-    );
-}
-
-fn render_factory_revoke_modal(area: Rect, buf: &mut Buffer, state: &FactoryRevokeState) {
-    let Rect {
-        x,
-        y,
-        width,
-        height,
-    } = modal_rect(area, REVOKE_MODAL_SIZE);
-    clear_box(buf, x, y, width, height);
-    if width < 12 || height < 5 {
-        return;
-    }
-
-    let w = width as usize;
-    buf.set_stringn(
-        x,
-        y,
-        format!("┌ Revoke Provider: {} ", state.provider),
-        w,
-        Style::default().fg(Color::Red),
-    );
-    buf.set_stringn(
-        x + 2,
-        y + 1,
-        format!("Close gate for {}? (y/n)", state.provider),
-        w.saturating_sub(3),
-        Style::default().add_modifier(Modifier::BOLD),
-    );
-    let yes_style = if state.confirm_yes {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::REVERSED)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-    let no_style = if !state.confirm_yes {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::REVERSED)
-    } else {
-        Style::default().fg(Color::White)
-    };
-    buf.set_stringn(x + 12, y + 3, "[ Yes ]", w.saturating_sub(12), yes_style);
-    buf.set_stringn(x + 24, y + 3, "[ No ]", w.saturating_sub(24), no_style);
-    buf.set_stringn(
-        x,
-        y + height - 1,
-        format!("└{:─<pad$}┘", "", pad = w.saturating_sub(2)),
-        w,
-        Style::default().fg(Color::Red),
     );
 }
 

@@ -31,7 +31,6 @@ import {
   type LoginStatusItem,
   type ModelOption,
   type PrLink,
-  type ProviderStatusItem,
   type ReadyResult,
   type RelaunchAgentResult,
   type RunControlAction,
@@ -460,16 +459,6 @@ export class CliTandemGateway implements ITandemGateway {
     const stdout = await this.runFactory(workspacePath, args);
     const parsed = JSON.parse(stdout) as RunSummary | { run: RunSummary };
     return "run" in parsed ? parsed.run : parsed;
-  }
-
-  async factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]> {
-    const stdout = await this.runFactory(workspacePath, [
-      "factory",
-      "provider",
-      "status",
-      "--json",
-    ]);
-    return JSON.parse(stdout) as ProviderStatusItem[];
   }
 
   async factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle> {

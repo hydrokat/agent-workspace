@@ -10,7 +10,6 @@ use tandem::config::Config;
 use tandem::coordination::store::CoordStore;
 use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::job_dir;
 use tandem::factory::broker::result::JobUsage;
 use tandem::factory::budget::{
@@ -117,15 +116,6 @@ fn setup_queued_run(ws: &Path, budget: Budget) -> (FactoryStore, String, String)
     };
     save_settings(&store, &settings).unwrap();
     let caller = Caller::cli(true, &no_agent_env, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
 
     let orch = Actor {
         kind: ActorKind::Orchestrator,

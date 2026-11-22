@@ -236,10 +236,4 @@ fn gate_full_mouse_journey_board_detail_run_audit_settings() {
     assert!(app.settings_tab.factory_edit.is_some());
     click_on(&mut app, "Esc cancel");
     assert!(app.settings_tab.factory_edit.is_none());
-
-    let provider = app.settings_tab.factory_providers[0].provider.clone();
-    click_on(&mut app, &provider);
-    assert!(
-        app.settings_tab.factory_consent.is_some() || app.settings_tab.factory_revoke.is_some()
-    );
 }

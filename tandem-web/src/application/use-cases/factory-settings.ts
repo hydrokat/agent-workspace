@@ -12,7 +12,6 @@ import type { ITandemGateway } from "@/domain/ports/tandem-gateway";
 import type { IWorkspaceRegistry } from "@/domain/ports/workspace-registry";
 
 const PROTECTED_KEYS = new Set([
-  "provider_gates",
   "providers",
   "checks",
   "deploy",
@@ -207,14 +206,12 @@ export class GetFactorySettingsUseCase {
 
   async execute(workspaceId: string): Promise<FactorySettingsPayload> {
     const workspace = await requireWorkspace(this.registry, workspaceId);
-    const [settings, providers, workflows] = await Promise.all([
+    const [settings, workflows] = await Promise.all([
       this.gateway.factoryGetSettings(workspace.path),
-      this.gateway.factoryProviderStatus(workspace.path),
       this.gateway.factoryListWorkflows(workspace.path),
     ]);
     return {
       settings,
-      providers,
       workflows: workflows.map((w) => ({
         name: w.name,
         version: w.version,

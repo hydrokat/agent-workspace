@@ -268,29 +268,6 @@ pub struct Idea {
     pub cancelled_from: Option<IdeaState>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderGateState {
-    Closed,
-    Open,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProviderGate {
-    pub provider: String,
-    pub state: ProviderGateState,
-    #[serde(default)]
-    pub auth_type: Option<String>,
-    #[serde(default)]
-    pub verified_on: Option<String>,
-    #[serde(default)]
-    pub terms_record: Option<String>,
-    #[serde(default)]
-    pub consented_at: Option<f64>,
-    #[serde(default)]
-    pub consented_by: Option<String>,
-}
-
 fn default_max_parallel_agents() -> usize {
     3
 }
@@ -330,21 +307,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_provider_gates() -> Vec<ProviderGate> {
-    KNOWN_PROVIDERS
-        .iter()
-        .map(|provider| ProviderGate {
-            provider: (*provider).to_string(),
-            state: ProviderGateState::Closed,
-            auth_type: None,
-            verified_on: None,
-            terms_record: None,
-            consented_at: None,
-            consented_by: None,
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FactorySettings {
     #[serde(default = "default_settings_version")]
@@ -357,8 +319,6 @@ pub struct FactorySettings {
     pub default_workflow: String,
     #[serde(default = "default_max_review_rounds")]
     pub max_review_rounds: u32,
-    #[serde(default = "default_provider_gates")]
-    pub provider_gates: Vec<ProviderGate>,
     #[serde(default)]
     pub default_budget: Budget,
     #[serde(default)]
@@ -397,7 +357,6 @@ impl Default for FactorySettings {
             default_temperature: default_temperature(),
             default_workflow: default_workflow(),
             max_review_rounds: default_max_review_rounds(),
-            provider_gates: default_provider_gates(),
             default_budget: Budget::default(),
             checks: BTreeMap::new(),
             deploy_commands: BTreeMap::new(),

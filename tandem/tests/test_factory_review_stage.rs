@@ -8,7 +8,6 @@ use tandem::factory::artifacts;
 use tandem::factory::broker::context::{
     ContextInputs, ReviewContextExtras, assemble_review_context,
 };
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::result::{JobResult, JobResultStatus};
 use tandem::factory::checks::set_checks;
 use tandem::factory::events::read_all;
@@ -175,15 +174,6 @@ stages:
         Some(30),
         vec![],
         "workspace",
-        "alice",
-        &caller,
-    )
-    .unwrap();
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
         "alice",
         &caller,
     )

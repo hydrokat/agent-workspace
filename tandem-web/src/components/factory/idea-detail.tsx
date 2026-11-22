@@ -130,7 +130,6 @@ export function IdeaDetailView({
   }, [openReadyRequested, loading, detailIdea, onOpenReadyHandled]);
   const {
     run: activeRun,
-    providers,
     logText,
     logLoading,
     logError,
@@ -796,7 +795,6 @@ export function IdeaDetailView({
           {activeRun && (
             <RunMonitor
               run={activeRun}
-              providers={providers}
               logText={logText}
               logLoading={logLoading}
               logError={logError}

@@ -13,15 +13,15 @@ use super::broker::context::{
     ContextError, ContextInputs, ReviewContextExtras, assemble_context_with_policy,
     assemble_review_context_with_policy,
 };
-use super::broker::gate::{ProviderTermsRow, today_iso_date};
 use super::broker::git::{AllowedGitSubcommand, run_git};
 use super::broker::job::{
     JobError, JobInput, JobSpec, JobState, correlation_id, job_dir, run_job_idempotent,
     set_job_state,
 };
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
-use super::broker::terms::{AuthType, PROVIDER_TERMS};
+use super::broker::terms::{AuthType, PROVIDER_TERMS, ProviderTermsRow};
 use super::data_policy::{format_readable_scope, load_exclusions};
+use super::dates::today_iso_date;
 use super::login::interactive_ready;
 use super::login::{HostLoginProbe, LOGIN_SPECS, LoginProbe};
 use super::model::{Actor, ActorKind};

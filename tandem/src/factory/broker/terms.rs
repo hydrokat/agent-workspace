@@ -15,10 +15,6 @@ pub enum TermsVerdict {
 }
 
 impl TermsVerdict {
-    pub fn allows_headless(self) -> bool {
-        matches!(self, Self::Allowed | Self::AllowedWithConditions)
-    }
-
     pub fn needs_acknowledgement(self) -> bool {
         matches!(self, Self::NotAllowed | Self::Unclear)
     }

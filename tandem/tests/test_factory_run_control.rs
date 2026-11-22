@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 use tandem::config::Config;
 use tandem::factory::approval::{mark_ready_with_workflow, revoke_ready};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::{JobState, job_dir, read_job_state, set_job_state};
 use tandem::factory::commands::{FactoryArgs, run_with_io};
 use tandem::factory::events::read_all;
@@ -179,15 +178,6 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
         )
         .unwrap();
     let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     let ready = mark_ready_with_workflow(
         &store, ws, &idea.id, &idea.id, "alice", None, false, &caller,
     )
@@ -734,152 +724,6 @@ fn run_tandem_cli(
 }
 
 #[test]
-fn cli_binary_provider_status_consent_and_revoke() {
-    let ws = temp_ws("cli-bin-provider");
-    let state_dir = ws.join(".state");
-    fs::create_dir_all(&state_dir).unwrap();
-    let factory_env = &[("TANDEM_FACTORY", "1")];
-
-    // Disabled factory mode -> exit 2
-    let disabled = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &["factory", "provider", "status", "--json"],
-        &[],
-    );
-    assert_eq!(disabled.status.code(), Some(2));
-
-    // Status --json -> exit 0
-    let status = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &["factory", "provider", "status", "--json"],
-        factory_env,
-    );
-    assert_eq!(
-        status.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&status.stderr)
-    );
-    let status_json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert!(
-        status_json
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|p| p["provider"] == "claude")
-    );
-
-    // Invalid --auth -> exit 1 + JSON error envelope
-    let bad_auth = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &[
-            "factory",
-            "provider",
-            "consent",
-            "claude",
-            "--auth",
-            "invalid",
-            "--confirm",
-            "claude",
-            "--json",
-        ],
-        factory_env,
-    );
-    assert_eq!(bad_auth.status.code(), Some(1));
-    let err_json: serde_json::Value = serde_json::from_slice(&bad_auth.stdout).unwrap();
-    assert!(err_json["error"]["code"].is_string());
-
-    // Mismatched --confirm -> exit 1
-    let bad_confirm = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &[
-            "factory",
-            "provider",
-            "consent",
-            "claude",
-            "--auth",
-            "subscription",
-            "--confirm",
-            "wrong",
-            "--json",
-        ],
-        factory_env,
-    );
-    assert_eq!(bad_confirm.status.code(), Some(1));
-
-    // Subscription auth for claude is not-allowed by terms -> exit 3
-    let sub_denied = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &[
-            "factory",
-            "provider",
-            "consent",
-            "claude",
-            "--auth",
-            "subscription",
-            "--confirm",
-            "claude",
-            "--json",
-        ],
-        factory_env,
-    );
-    assert_eq!(sub_denied.status.code(), Some(3));
-
-    // Valid api-key consent -> exit 0
-    let consent = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &[
-            "factory",
-            "provider",
-            "consent",
-            "claude",
-            "--auth",
-            "api-key",
-            "--confirm",
-            "claude",
-            "--json",
-        ],
-        factory_env,
-    );
-    assert_eq!(
-        consent.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&consent.stderr)
-    );
-    let consent_json: serde_json::Value = serde_json::from_slice(&consent.stdout).unwrap();
-    assert_eq!(consent_json["state"], "open");
-
-    // Revoke -> exit 0
-    let revoke = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &["factory", "provider", "revoke", "claude", "--json"],
-        factory_env,
-    );
-    assert_eq!(revoke.status.code(), Some(0));
-    let revoke_json: serde_json::Value = serde_json::from_slice(&revoke.stdout).unwrap();
-    assert_eq!(revoke_json["state"], "closed");
-
-    // Revoke unknown provider -> exit 1
-    let bad_revoke = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &["factory", "provider", "revoke", "unknown-provider"],
-        factory_env,
-    );
-    assert_eq!(bad_revoke.status.code(), Some(1));
-
-    let _ = fs::remove_dir_all(&ws);
-}
-
-#[test]
 fn cli_binary_run_target_retry_pause_resume_cancel_and_cleanup() {
     let ws = temp_ws("cli-bin-run");
     let state_dir = ws.join(".state");
@@ -894,24 +738,6 @@ fn cli_binary_run_target_retry_pause_resume_cancel_and_cleanup() {
 
     let factory_env = &[("TANDEM_FACTORY", "1")];
     let agent_env = &[("TANDEM_FACTORY", "1"), ("TANDEM_ROLE", "orchestrator")];
-
-    // Open gate via CLI (non-json)
-    let consent = run_tandem_cli(
-        &ws,
-        &state_dir,
-        &[
-            "factory",
-            "provider",
-            "consent",
-            "claude",
-            "--auth",
-            "api-key",
-            "--confirm",
-            "claude",
-        ],
-        factory_env,
-    );
-    assert_eq!(consent.status.code(), Some(0));
 
     // Target: agent caller forbidden -> exit 3
     let target_agent = run_tandem_cli(

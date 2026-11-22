@@ -10,7 +10,6 @@ import {
   isValidStageName,
   type EvidenceItemContent,
   type PrLink,
-  type ProviderStatusItem,
   type RunControlOptions,
   type RunDataView,
   type RunEvidenceBundle,
@@ -132,18 +131,6 @@ export class ControlFactoryRunUseCase {
 
     const workspace = await requireWorkspace(this.registry, workspaceId);
     return this.gateway.factoryRunControl(workspace.path, runId, action, sanitizedOptions);
-  }
-}
-
-export class ListFactoryProvidersUseCase {
-  constructor(
-    private readonly registry: IWorkspaceRegistry,
-    private readonly gateway: ITandemGateway
-  ) {}
-
-  async execute(workspaceId: string): Promise<ProviderStatusItem[]> {
-    const workspace = await requireWorkspace(this.registry, workspaceId);
-    return this.gateway.factoryProviderStatus(workspace.path);
   }
 }
 
