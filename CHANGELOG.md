@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.26.0] — 2026-11-23
+
 ### Changed: Factory Mode is interactive-only; the headless design is removed (`p-030` / `s-022`)
 - **Interactive workers only**: Every worker stage and the Orchestrator run as interactive CLIs in their own tmux pane. The runner has one routing path and one usage path; the executor refuses to start a worker without a reachable tandem tmux session and pauses the run with `tmux is required for Factory workers`. Source guards (`tos_guard.rs`) fail on `-p`/`--print`/`--output-format`/`stream-json`/`--bare`/`opencode run` argv and on any reintroduced headless symbol; a real-tmux E2E proves one pane per agent stage and no headless flag. The demo stage's Chrome screenshots are unchanged.
 - **Gate 2 estimate**: the cost estimate now routes over the known CLIs with the interactive route instead of consented provider gates; `allowed_models` is enforced in the interactive tier fallback.
