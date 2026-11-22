@@ -237,6 +237,14 @@ pub enum EventData {
     },
     #[serde(rename = "provider.revoked")]
     ProviderRevoked { provider: String },
+    #[serde(rename = "auth.risk_acknowledged")]
+    AuthRiskAcknowledged {
+        cli: String,
+        method: String,
+        verdict: String,
+        terms_verified_on: String,
+        acknowledged_by: String,
+    },
     #[serde(rename = "workspace.prepared")]
     WorkspacePrepared {
         run: String,

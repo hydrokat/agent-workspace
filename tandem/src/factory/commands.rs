@@ -205,6 +205,28 @@ pub enum FactoryLoginCommand {
     Status(FactoryLoginStatusArgs),
     #[command(about = "open a CLI's own sign-in flow in a login pane")]
     Open(FactoryLoginOpenArgs),
+    #[command(about = "show whether each CLI's sign-in method is risky for orchestrated use")]
+    Risk(FactoryLoginStatusArgs),
+    #[command(about = "confirm you accept the risk of a CLI's current sign-in method (user only)")]
+    AcknowledgeRisk(FactoryLoginAcknowledgeRiskArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryLoginAcknowledgeRiskArgs {
+    #[arg(help = "CLI name (claude, agy, or opencode)")]
+    pub cli: String,
+
+    #[arg(
+        long,
+        help = "sign-in method being acknowledged (as shown by `login risk`)"
+    )]
+    pub method: String,
+
+    #[arg(long, help = "type the CLI name to confirm")]
+    pub confirm: String,
+
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -1272,6 +1294,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Login(l_args) => match &l_args.command {
             FactoryLoginCommand::Status(a) => a.json,
             FactoryLoginCommand::Open(a) => a.json,
+            FactoryLoginCommand::Risk(a) => a.json,
+            FactoryLoginCommand::AcknowledgeRisk(a) => a.json,
         },
         FactoryCommand::Agent(a_args) => match &a_args.command {
             FactoryAgentCommand::Assign(a) => a.json,
@@ -2825,13 +2849,38 @@ fn execute_with_probe(
         }
         FactoryCommand::Login(l_args) => match &l_args.command {
             FactoryLoginCommand::Status(a) => {
-                let items = super::login::all_statuses(&super::login::HostLoginProbe);
+                let items = super::login::all_statuses(probe);
+                let today = super::dates::today_iso_date();
+                let risks = super::auth_risk::risk_report(
+                    &store,
+                    &items,
+                    &today,
+                    super::broker::terms::PROVIDER_TERMS,
+                );
                 if a.json {
                     #[derive(Serialize)]
-                    struct LoginStatusEnvelope {
-                        clis: Vec<super::login::LoginStatusItem>,
+                    struct LoginStatusRow {
+                        #[serde(flatten)]
+                        item: super::login::LoginStatusItem,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        risk: Option<String>,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        verdict: Option<String>,
                     }
-                    serialize_compact(&LoginStatusEnvelope { clis: items })
+                    #[derive(Serialize)]
+                    struct LoginStatusEnvelope {
+                        clis: Vec<LoginStatusRow>,
+                    }
+                    let clis = items
+                        .into_iter()
+                        .zip(risks)
+                        .map(|(item, r)| LoginStatusRow {
+                            item,
+                            risk: r.risk,
+                            verdict: r.verdict,
+                        })
+                        .collect();
+                    serialize_compact(&LoginStatusEnvelope { clis })
                 } else {
                     Ok(items
                         .iter()
@@ -2859,6 +2908,79 @@ fn execute_with_probe(
                         })
                         .collect::<Vec<_>>()
                         .join("\n"))
+                }
+            }
+            FactoryLoginCommand::Risk(a) => {
+                let items = super::login::all_statuses(probe);
+                let today = super::dates::today_iso_date();
+                let risks = super::auth_risk::risk_report(
+                    &store,
+                    &items,
+                    &today,
+                    super::broker::terms::PROVIDER_TERMS,
+                );
+                if a.json {
+                    serialize_compact(&risks)
+                } else {
+                    Ok(risks
+                        .iter()
+                        .map(|r| {
+                            let state = match r.risk.as_deref() {
+                                None => "not signed in".to_string(),
+                                Some("ok") => "ok".to_string(),
+                                Some("acknowledged") => "acknowledged".to_string(),
+                                Some(_) => "RISKY".to_string(),
+                            };
+                            let verdict = r.verdict.as_deref().unwrap_or("no verified terms");
+                            let mut line =
+                                format!("{}\t{}\t{}\t{}", r.cli, r.method, verdict, state);
+                            if let Some(cmd) = &r.acknowledge_command {
+                                line.push_str(&format!("\t{cmd}"));
+                            }
+                            line
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+            FactoryLoginCommand::AcknowledgeRisk(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                let detected = if super::auth_risk::KNOWN_CLIS.contains(&a.cli.as_str()) {
+                    let item = super::login::check_status(&a.cli, probe);
+                    if item.installed && item.signed_in {
+                        super::auth_risk::detected_method(&item)
+                    } else {
+                        return Err(CmdError::invalid_input(format!(
+                            "{} is not signed in; sign in first with `tandem factory login open {}`",
+                            a.cli, a.cli
+                        )));
+                    }
+                } else {
+                    None
+                };
+                let by = resolve_owner(None)?;
+                let ack = super::auth_risk::acknowledge(
+                    &store, &a.cli, detected, &a.method, &a.confirm, &by, caller,
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&ack)
+                } else {
+                    Ok(format!(
+                        "Acknowledged: {} sign-in via {} (terms verdict {}). Asked again if the terms are re-verified, expire, or the sign-in method changes.",
+                        ack.cli, ack.method, ack.verdict
+                    ))
                 }
             }
             FactoryLoginCommand::Open(a) => {
