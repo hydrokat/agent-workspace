@@ -4,14 +4,12 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use tandem::config::Config;
 use tandem::factory::approval::{mark_ready_with_workflow, revoke_ready};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, check, consent_provider, today_iso_date};
+use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::{JobState, job_dir, read_job_state, set_job_state};
-use tandem::factory::broker::spawn::{ProviderCommand, WaitOutcome, spawn_provider};
 use tandem::factory::commands::{FactoryArgs, run_with_io};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
@@ -260,63 +258,6 @@ fn pause_at_stage_boundary_lets_running_stage_finish_and_starts_no_new_stage() {
 fn pause_now_stops_running_child_process_and_interrupted_attempt_does_not_consume_retry() {
     let ws = temp_ws("pause-now");
     let (store, _idea_id, run_id) = setup_queued_run(&ws);
-
-    // Test RunningJob::wait_with_stop stops a long-running child process promptly
-    let worktrees_dir = ws.join("worktrees");
-    fs::create_dir_all(&worktrees_dir).unwrap();
-    let wt = worktrees_dir.join("stop-test");
-    fs::create_dir_all(&wt).unwrap();
-    let log_path = ws.join("child.log");
-    let pass = check("claude", &store.settings().unwrap(), &today_iso_date()).unwrap();
-    let mut parent_env = std::collections::BTreeMap::new();
-    parent_env.insert(
-        "PATH".to_string(),
-        std::env::var("PATH").unwrap_or_default(),
-    );
-    // Create a fake `claude` script in temp bin so spawn_provider resolves it
-    let bin_dir = ws.join("bin");
-    fs::create_dir_all(&bin_dir).unwrap();
-    let fake_claude = bin_dir.join("claude");
-    fs::write(&fake_claude, "#!/bin/sh\nexec sleep 30\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&fake_claude, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    parent_env.insert(
-        "PATH".to_string(),
-        format!(
-            "{}:{}",
-            bin_dir.display(),
-            std::env::var("PATH").unwrap_or_default()
-        ),
-    );
-
-    let mut job = spawn_provider(
-        pass,
-        ProviderCommand {
-            program: "claude".to_string(),
-            args: vec![],
-            workspace_root: ws.clone(),
-            cwd: wt.clone(),
-            log_path,
-            stdin_prompt: None,
-            factory_env: std::collections::BTreeMap::new(),
-            parent_env,
-        },
-    )
-    .unwrap();
-
-    let started = Instant::now();
-    let outcome = job
-        .wait_with_stop(
-            Duration::from_secs(30),
-            &|| started.elapsed() >= Duration::from_millis(80),
-            Duration::from_millis(150),
-        )
-        .unwrap();
-    assert!(matches!(outcome, WaitOutcome::Stopped(_)));
-    assert!(started.elapsed() < Duration::from_secs(5));
 
     // Now test runner pause --now + resume + retry budget preservation
     let calls = Arc::new(Mutex::new(Vec::new()));

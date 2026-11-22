@@ -16,7 +16,7 @@ use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command as MachineCommand, EventData};
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, RunState};
 use tandem::factory::permissions::{DeniedReason, ToolGrant, grant};
-use tandem::factory::routing::{RoutingContext, route};
+use tandem::factory::routing::{RoutingContext, route_interactive as route};
 use tandem::factory::run::get_run;
 use tandem::factory::runner::{drive_run_step, resume_paused_run_with_probe};
 

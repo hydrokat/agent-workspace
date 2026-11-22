@@ -5,9 +5,8 @@ use std::time::Duration;
 use crate::conversations::valid_id;
 
 use super::base::{
-    Adapter, AdapterError, AgentSpec, Capabilities, HeadlessAdapter, HeadlessRequest,
-    InteractiveWorkerAdapter, Model, ToolFlag, WorkerCommandSpec, WorkerLaunchRequest,
-    validate_model_id, validate_tool_name,
+    Adapter, AdapterError, AgentSpec, InteractiveWorkerAdapter, Model, ToolFlag, WorkerCommandSpec,
+    WorkerLaunchRequest, validate_model_id, validate_tool_name,
 };
 
 pub type RunnerFn =
@@ -126,29 +125,6 @@ impl Adapter for AgyAdapter {
             return Err(AdapterError::ModelList("agy models failed".to_string()));
         }
         Ok(parse_models(&stdout))
-    }
-}
-
-impl HeadlessAdapter for AgyAdapter {
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            prompt_on_stdin: true,
-            structured_output: true,
-            usage_reporting: false,
-            temperature: false,
-        }
-    }
-
-    fn build_headless_argv(&self, request: &HeadlessRequest) -> Result<Vec<String>, AdapterError> {
-        let valid_model = validate_model_id(&request.model)?;
-        Ok(vec![
-            "agy".to_string(),
-            "--print".to_string(),
-            "--model".to_string(),
-            valid_model,
-            "--output-format".to_string(),
-            request.output.as_str().to_string(),
-        ])
     }
 }
 

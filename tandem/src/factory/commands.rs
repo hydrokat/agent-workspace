@@ -3264,7 +3264,7 @@ fn run_models_recommend(
     let ready: Vec<&str> = super::login::LOGIN_SPECS
         .iter()
         .map(|spec| spec.cli)
-        .filter(|cli| super::broker::gate::interactive_ready(cli, &probe).ready)
+        .filter(|cli| super::login::interactive_ready(cli, &probe).ready)
         .collect();
     if ready.is_empty() {
         return Err(CmdError {

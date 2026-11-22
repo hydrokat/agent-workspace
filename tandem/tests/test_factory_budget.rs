@@ -745,3 +745,38 @@ fn honest_limits_labels_cost_cap_unenforceable_for_provider_without_usage() {
     );
     assert_eq!(res, BudgetCheck::Ok);
 }
+
+#[test]
+fn estimate_routes_cover_every_stage_without_any_provider_consent() {
+    use tandem::factory::budget::{provider_reports_usage, routes_for_workflow};
+    use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
+    use tandem::factory::workflow::parse::parse_workflow_str;
+    use tandem::factory::workflow::validate::validate;
+
+    let settings = tandem::factory::model::FactorySettings::default();
+    assert!(
+        settings
+            .provider_gates
+            .iter()
+            .all(|g| g.state != tandem::factory::model::ProviderGateState::Open)
+    );
+    let raw = parse_workflow_str(DEFAULT_WORKFLOW_YAML).unwrap();
+    let wf = validate(&raw, &settings).unwrap();
+
+    let (routes, primary) = routes_for_workflow(
+        &wf,
+        &settings,
+        &["claude", "agy", "opencode"],
+        Some("claude".into()),
+    );
+    assert_eq!(primary.as_deref(), Some("claude"));
+    for stage in ["plan", "develop", "review"] {
+        assert!(
+            routes.contains_key(stage),
+            "no route for {stage}: {routes:?}"
+        );
+    }
+    assert!(provider_reports_usage("claude"));
+    assert!(!provider_reports_usage("agy"));
+    assert!(!provider_reports_usage("opencode"));
+}

@@ -1064,7 +1064,7 @@ pub fn relaunch_agent_with_runner(
     let canon_ws = ws_root.canonicalize()?;
     let canon_cwd = cwd_path.canonicalize()?;
     if run.worktree_path.is_some() || canon_cwd != canon_ws {
-        super::broker::spawn::validate_worktree(ws_root, &cwd_path)
+        super::worker::env::validate_worktree(ws_root, &cwd_path)
             .map_err(|e| TeamError::InvalidInput(e.to_string()))?;
     }
 

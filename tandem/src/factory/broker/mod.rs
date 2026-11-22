@@ -6,7 +6,6 @@ pub mod gh;
 pub mod git;
 pub mod job;
 pub mod result;
-pub mod spawn;
 pub mod terms;
 
 use std::io::{self, Read};

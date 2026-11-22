@@ -15,7 +15,7 @@ use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
 use tandem::factory::machine::Command;
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, IdeaState, RunState, StageState};
-use tandem::factory::routing::{ModelTier, RoutingContext, route};
+use tandem::factory::routing::{ModelTier, RoutingContext, route_interactive};
 use tandem::factory::run::get_run;
 use tandem::factory::runner::drive_run_step;
 use tandem::factory::stages::review::{
@@ -371,7 +371,7 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         "workspace",
         stage.tools.clone(),
     );
-    let routed = route(
+    let routed = route_interactive(
         stage,
         &stage_grant,
         &wf,
@@ -391,7 +391,7 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         avoid_model: Some("claude-haiku-4-5".into()),
         ..RoutingContext::default()
     };
-    let routed_single = route(
+    let routed_single = route_interactive(
         stage,
         &stage_grant,
         &wf,

@@ -487,7 +487,6 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
     let spawn_markers = ["std::process", "Command::new"];
     let allowed_broker_spawners: &[(&str, Option<&[&str]>)] = &[
         ("mod.rs", Some(&[])),
-        ("spawn.rs", Some(&["claude", "agy", "opencode"])),
         ("git.rs", Some(&["git"])),
         ("gh.rs", Some(&["gh"])),
         (
@@ -608,27 +607,6 @@ pub fn check_factory_spawn_sites(src_dir: &Path) -> Vec<String> {
                     line_no + 1
                 ));
             }
-        }
-    }
-
-    // Rule 3: spawn_provider in factory/broker/spawn.rs must take a GatePass parameter
-    let spawn_rs = broker_dir.join("spawn.rs");
-    if spawn_rs.exists() {
-        let content = fs::read_to_string(&spawn_rs).unwrap_or_default();
-        let has_valid_sig = content.find("fn spawn_provider(").is_some_and(|start| {
-            let sig_rest = &content[start..];
-            let sig_end = sig_rest
-                .find('{')
-                .or_else(|| sig_rest.find("->"))
-                .unwrap_or(sig_rest.len());
-            let params = &sig_rest[..sig_end];
-            params.contains("GatePass") && !params.contains("Option<GatePass>")
-        });
-        if !has_valid_sig {
-            violations.push(
-                "factory/broker/spawn.rs: spawn_provider must take a required GatePass parameter"
-                    .to_string(),
-            );
         }
     }
 
@@ -929,12 +907,6 @@ fn test_negative_tos_violations_are_detected() {
         "pub fn spawn() { let _ = std::process::Command::new(\"curl\"); }",
     )
     .unwrap();
-    // Rule 3: spawn_provider without GatePass
-    fs::write(
-        tmp_broker.join("spawn.rs"),
-        "pub fn spawn_provider(cmd: ProviderCommand) {}",
-    )
-    .unwrap();
     // Rule 4: GatePass constructed outside gate.rs
     fs::write(
         tmp_broker.join("forged.rs"),
@@ -976,11 +948,6 @@ fn test_negative_tos_violations_are_detected() {
         v6.iter()
             .any(|v| v.contains("rogue.rs") && v.contains("unlisted broker file")),
         "expected Rule 2 violation, got {v6:?}"
-    );
-    assert!(
-        v6.iter()
-            .any(|v| v.contains("spawn.rs") && v.contains("GatePass parameter")),
-        "expected Rule 3 violation, got {v6:?}"
     );
     assert!(
         v6.iter()

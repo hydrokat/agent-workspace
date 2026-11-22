@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::agy::AgyAdapter;
-use crate::adapters::base::{HeadlessAdapter, ToolFlag, validate_model_id};
-use crate::adapters::claude::ClaudeAdapter;
+use crate::adapters::base::ToolFlag;
 use crate::factory::model::FactorySettings;
 use crate::factory::model_catalog::{CatalogModel, CostBasis, ModelSource};
 use crate::factory::permissions::ToolGrant;
@@ -147,9 +145,9 @@ pub struct Route {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Unroutable {
-    #[error("no provider gate is open")]
+    #[error("no signed-in CLI is ready")]
     NoOpenProvider,
-    #[error("provider {provider} has no headless adapter")]
+    #[error("provider {provider} has no interactive worker adapter")]
     UnsupportedProvider { provider: String },
     #[error("provider {provider} has no safe flag mapping for tool {tool:?}")]
     UnsupportedTool {
@@ -285,36 +283,6 @@ pub fn escalate(models: &[CatalogModel], failed_model: &str) -> Option<(CatalogM
     Some((chosen.clone(), selection))
 }
 
-fn choose_provider<'a>(
-    open_providers: &[&'a str],
-    preferred: Option<&str>,
-    avoid: Option<&str>,
-) -> Result<&'a str, Unroutable> {
-    if open_providers.is_empty() {
-        return Err(Unroutable::NoOpenProvider);
-    }
-    let candidates: Vec<&'a str> = if let Some(av) = avoid {
-        let filtered: Vec<&'a str> = open_providers
-            .iter()
-            .copied()
-            .filter(|&p| p != av)
-            .collect();
-        if filtered.is_empty() {
-            open_providers.to_vec()
-        } else {
-            filtered
-        }
-    } else {
-        open_providers.to_vec()
-    };
-    if let Some(pref) = preferred
-        && let Some(&found) = candidates.iter().find(|&&p| p == pref)
-    {
-        return Ok(found);
-    }
-    Ok(candidates[0])
-}
-
 fn map_tool_for_provider(
     provider: &str,
     tool: WorkflowTool,
@@ -359,136 +327,10 @@ fn map_tool_for_provider(
                 tool,
             }),
         },
-        "agy" => match tool {
-            WorkflowTool::RepoRead | WorkflowTool::IssueContext | WorkflowTool::DiffReview => {
-                Ok(())
-            }
-            _ => Err(Unroutable::UnsupportedTool {
-                provider: provider.to_string(),
-                tool,
-            }),
-        },
         _ => Err(Unroutable::UnsupportedProvider {
             provider: provider.to_string(),
         }),
     }
-}
-
-pub fn route(
-    stage: &StageDef,
-    grant: &ToolGrant,
-    workflow: &Workflow,
-    settings: &FactorySettings,
-    open_providers: &[&str],
-    attempt: u32,
-    ctx: &RoutingContext,
-) -> Result<Route, Unroutable> {
-    let provider = choose_provider(
-        open_providers,
-        ctx.preferred_provider.as_deref(),
-        ctx.avoid_provider.as_deref(),
-    )?;
-    let caps = match provider {
-        "claude" => ClaudeAdapter::default().capabilities(),
-        "agy" => AgyAdapter::default().capabilities(),
-        other => {
-            return Err(Unroutable::UnsupportedProvider {
-                provider: other.to_string(),
-            });
-        }
-    };
-
-    let base_tier = base_tier_for_stage(stage);
-    let mut tier = base_tier;
-    for _ in 1..attempt {
-        if let Some(next_tier) = tier.upgrade() {
-            tier = next_tier;
-        }
-    }
-
-    let default_tiers = default_model_tiers();
-    let provider_tiers = settings
-        .model_tiers
-        .get(provider)
-        .or_else(|| default_tiers.get(provider))
-        .ok_or_else(|| Unroutable::UnsupportedProvider {
-            provider: provider.to_string(),
-        })?;
-    if let Some(ref avoid_model) = ctx.avoid_model
-        && provider_tiers.for_tier(tier) == avoid_model.as_str()
-        && let Some(next_tier) = tier.upgrade()
-    {
-        tier = next_tier;
-    }
-
-    if let Some(allowed) = settings.allowed_models.get(provider) {
-        let tier_is_allowed = |t: ModelTier| {
-            let candidate = provider_tiers.for_tier(t);
-            allowed.iter().any(|m| m == candidate)
-        };
-        if !tier_is_allowed(tier) {
-            let candidates = [
-                tier.upgrade(),
-                Some(ModelTier::Standard),
-                Some(ModelTier::Premium),
-                Some(ModelTier::Economy),
-            ];
-            let found = candidates
-                .into_iter()
-                .flatten()
-                .find(|&t| {
-                    tier_is_allowed(t)
-                        && ctx.avoid_model.as_deref() != Some(provider_tiers.for_tier(t))
-                })
-                .or_else(|| {
-                    [ModelTier::Economy, ModelTier::Standard, ModelTier::Premium]
-                        .into_iter()
-                        .find(|&t| tier_is_allowed(t))
-                });
-            match found {
-                Some(t) => tier = t,
-                None => {
-                    return Err(Unroutable::NoAllowedModel {
-                        provider: provider.to_string(),
-                    });
-                }
-            }
-        }
-    }
-
-    let upgraded_from = if tier != base_tier {
-        Some(base_tier)
-    } else {
-        None
-    };
-    let model = provider_tiers.for_tier(tier).to_string();
-    validate_model_id(&model).map_err(|reason| Unroutable::InvalidModel {
-        provider: provider.to_string(),
-        model: model.clone(),
-        reason: reason.to_string(),
-    })?;
-
-    let mut tool_flags = Vec::new();
-    for tool in &grant.tools {
-        map_tool_for_provider(provider, *tool, &mut tool_flags)?;
-    }
-
-    let eff = crate::factory::settings::effective(&workflow.policy, settings);
-    let temperature = if caps.temperature {
-        TemperatureSupport::Supported(eff.default_temperature as f32)
-    } else {
-        TemperatureSupport::Unsupported
-    };
-
-    Ok(Route {
-        agent_definition: map_agent_definition(stage.agent, ctx.is_ui_work),
-        provider: provider.to_string(),
-        tier,
-        upgraded_from,
-        model,
-        tool_flags,
-        temperature,
-    })
 }
 
 pub(crate) fn interactive_map_tool(
@@ -667,6 +509,41 @@ pub fn route_interactive_selected(
             && let Some(next_tier) = tier.upgrade()
         {
             tier = next_tier;
+        }
+        if let Some(allowed) = settings.allowed_models.get(provider) {
+            let tier_is_allowed = |t: ModelTier| {
+                let candidate = provider_tiers.for_tier(t);
+                allowed.iter().any(|m| m == candidate)
+            };
+            if !tier_is_allowed(tier) {
+                let candidates = [
+                    tier.upgrade(),
+                    Some(ModelTier::Standard),
+                    Some(ModelTier::Premium),
+                    Some(ModelTier::Economy),
+                ];
+                let found = candidates
+                    .into_iter()
+                    .flatten()
+                    .find(|&t| {
+                        tier_is_allowed(t)
+                            && ctx.avoid_model.as_deref() != Some(provider_tiers.for_tier(t))
+                    })
+                    .or_else(|| {
+                        [ModelTier::Economy, ModelTier::Standard, ModelTier::Premium]
+                            .into_iter()
+                            .find(|&t| tier_is_allowed(t))
+                    });
+                match found {
+                    Some(t) => tier = t,
+                    None => {
+                        last_err = Some(Unroutable::NoAllowedModel {
+                            provider: provider.to_string(),
+                        });
+                        continue;
+                    }
+                }
+            }
         }
         let upgraded_from = (tier != base_tier).then_some(base_tier);
         let model = provider_tiers.for_tier(tier).to_string();

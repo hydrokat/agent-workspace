@@ -10,7 +10,7 @@ use tandem::factory::data_policy::{
 };
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, ProviderGateState};
 use tandem::factory::permissions::ToolGrant;
-use tandem::factory::routing::{RoutingContext, Unroutable, route};
+use tandem::factory::routing::{RoutingContext, Unroutable, route_interactive as route};
 use tandem::factory::settings::{save as save_settings, validate as validate_settings};
 use tandem::factory::store::FactoryStore;
 use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;

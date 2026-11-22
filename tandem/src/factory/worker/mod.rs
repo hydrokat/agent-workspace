@@ -1,4 +1,5 @@
 pub mod argv;
+pub mod env;
 pub mod watch;
 
 use std::collections::{BTreeMap, HashSet};
@@ -10,7 +11,6 @@ use crate::adapters::base::{AdapterError, ToolFlag, WorkerLaunchRequest};
 use crate::coordination::filelock::exclusive_lock;
 use crate::factory::broker::job::{JobState, correlation_id, job_dir, read_job_state};
 use crate::factory::broker::result::JobResult;
-use crate::factory::broker::spawn::build_env;
 use crate::factory::events::{reject_if_symlink, set_private_file_mode};
 use crate::factory::model::RunState;
 use crate::factory::run::get_run;
@@ -18,6 +18,7 @@ use crate::factory::store::{FactoryStore, write_atomic};
 use crate::tmux::SESSION;
 use crate::tmux::client::{PaneKind, TmuxClient, TmuxError, ToSViolation};
 use crate::tmux::tabs::parse_panes;
+use env::build_env;
 
 pub use argv::build_worker_command;
 pub use watch::{DEFAULT_WATCH_INTERVAL, watch_with_interval};

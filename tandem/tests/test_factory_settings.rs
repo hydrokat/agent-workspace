@@ -10,7 +10,9 @@ use tandem::factory::approval::ApprovalError;
 use tandem::factory::events::read_all;
 use tandem::factory::machine::EventData;
 use tandem::factory::model::{Budget, FactorySettings, ModelPrice, Stage, StageState};
-use tandem::factory::routing::{ProviderModelTiers, RoutingContext, TemperatureSupport, route};
+use tandem::factory::routing::{
+    ProviderModelTiers, RoutingContext, TemperatureSupport, route_interactive as route,
+};
 use tandem::factory::settings::{
     SETTINGS_VERSION, effective, load as load_settings, save as save_settings, set as set_setting,
     validate as validate_settings,

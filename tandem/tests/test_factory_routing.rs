@@ -2,11 +2,12 @@ use tandem::adapters::base::ToolFlag;
 use tandem::factory::model::FactorySettings;
 use tandem::factory::permissions::ToolGrant;
 use tandem::factory::routing::{
-    ModelTier, RoutingContext, TemperatureSupport, Unroutable, map_agent_definition, route,
+    ModelTier, RoutingContext, TemperatureSupport, Unroutable, map_agent_definition,
+    route_interactive as route,
 };
 use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
 use tandem::factory::workflow::parse::parse_workflow_str;
-use tandem::factory::workflow::schema::WorkflowAgent;
+use tandem::factory::workflow::schema::{WorkflowAgent, WorkflowTool};
 use tandem::factory::workflow::validate::validate;
 
 fn default_wf() -> tandem::factory::workflow::schema::Workflow {
@@ -147,12 +148,12 @@ fn unmappable_tool_makes_stage_unroutable_instead_of_widening_permissions() {
     let settings = FactorySettings::default();
     let develop_stage = wf.stages.iter().find(|s| s.name == "develop").unwrap();
 
-    // agy has no tool-scoping flags; requesting RepoWrite/Shell must fail closed as Unroutable
+    // agy interactive workers cannot be granted CI/deployment tooling; it must fail closed as Unroutable
     let dev_grant = ToolGrant::from_tools(
         develop_stage.agent,
         &develop_stage.name,
         "workspace",
-        develop_stage.tools.clone(),
+        vec![WorkflowTool::RepoWrite, WorkflowTool::Ci],
     );
     let err = route(
         develop_stage,

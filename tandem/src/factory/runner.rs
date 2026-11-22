@@ -11,7 +11,7 @@ use crate::factory::FactoryError;
 use crate::factory::approval::{
     ApprovalError, Caller, require_user, take_pending_run, verify_snapshot,
 };
-use crate::factory::broker::gate::{check, interactive_ready, today_iso_date};
+use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, job_dir, jobs_dir, read_job_state, set_job_state};
 use crate::factory::broker::result::JobResult;
@@ -24,13 +24,14 @@ use crate::factory::events::{
 };
 use crate::factory::executor::{Executor, StageJob, StageOutcome, last_stage_provider_model};
 use crate::factory::ids::{is_valid_idea_id, is_valid_run_id};
+use crate::factory::login::interactive_ready;
 use crate::factory::login::{HostLoginProbe, LOGIN_SPECS, LoginProbe};
 use crate::factory::machine::{self, Command, EventData, Facts};
 use crate::factory::model::{
     Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
 };
 use crate::factory::redact::RedactContext;
-use crate::factory::routing::{RoutingContext, route};
+use crate::factory::routing::{RoutingContext, route_interactive};
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
@@ -877,7 +878,7 @@ pub fn drive_run_step_with_gh(
             .map(|resolved| (resolved.route, Vec::new()))
             .map_err(|e| e.to_string())
         } else {
-            route(
+            route_interactive(
                 stage_def,
                 &tool_grant,
                 &wf,
