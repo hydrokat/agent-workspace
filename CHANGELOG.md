@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed: Factory Mode is interactive-only; the headless design is removed (`p-030` / `s-022`)
+- **Interactive workers only**: Every worker stage and the Orchestrator run as interactive CLIs in their own tmux pane. The runner has one routing path and one usage path; the executor refuses to start a worker without a reachable tandem tmux session and pauses the run with `tmux is required for Factory workers`. Source guards (`tos_guard.rs`) fail on `-p`/`--print`/`--output-format`/`stream-json`/`--bare`/`opencode run` argv and on any reintroduced headless symbol; a real-tmux E2E proves one pane per agent stage and no headless flag. The demo stage's Chrome screenshots are unchanged.
+- **Gate 2 estimate**: the cost estimate now routes over the known CLIs with the interactive route instead of consented provider gates; `allowed_models` is enforced in the interactive tier fallback.
+
+### Added: Warning and confirmation for risky sign-in methods (`p-030` / `s-022`)
+- **Risk check**: `tandem factory login risk [--json]` classifies each signed-in CLI's method against the provider terms (`not-allowed`, `unclear`, no verified row, undetectable method, or expired terms are risky); `login status --json` gains additive `risk` and `verdict` fields.
+- **User decides**: `tandem factory login acknowledge-risk <cli> --method <m> --confirm <cli>` (user-only; agents are refused with exit `3`) records one `auth.risk_acknowledged` event per CLI and method; it lapses when terms are re-verified or expire, or when the method changes.
+- **Where it shows**: a typed-confirmation dialog in the TUI and `tandem-web` (`GET /factory/login/risk`, `POST /factory/login/risk/acknowledge`), risk badges under Agents & sign-in, a blocked Start in the new-idea flow until confirmed, warnings in the assignment editors and the Gate 2 dialog. The broker executor, `idea start`/`resume`, and `agent relaunch` refuse an unconfirmed risky CLI (stage pauses with the exact command).
+
+### Removed: Headless provider consent gate (`p-030` / `s-022`)
+- `HeadlessAdapter`/`HeadlessRequest`/`build_headless_argv` (`claude -p`, `agy --print`), `spawn_provider` and the broker spawn module, `routing::route`, `tandem factory provider status|consent|revoke`, `FactorySettings.provider_gates`, the Settings Providers rows and consent/revoke modals, and the `tandem-web` providers route, gateway method, hook state, and "Providers (reference terms)" section. A legacy `provider_gates` key in an existing `settings.json` still loads and is dropped on the next save; old `provider.consented`/`provider.revoked` events remain readable in the log. Worker env allow-listing and worktree validation moved to `factory::worker::env`.
+
+
 ### Added: Interactive mode-switch prompt when Factory or Tandem is already active (`p-029` / `s-021`)
 - **Interactive mode-conflict prompt**: Attempting to launch Factory Mode (`./run.sh --factory` / `tandem --factory`) while a normal Tandem session is active—or symmetrically launching normal Tandem while Factory Mode is active—on an interactive terminal now prompts `[T]erminate <running> (saving state) and launch <target>`, `[l]aunch <running> to terminate it manually`, or `[q]uit`.
 - **Safe save-and-switch & attach isolation**: Terminating saves the active session's agents to its mode-specific state file (`tandem-session.json` or `tandem-session-factory.json`), removes the registry entry, kills the tmux session (including zero-agent sessions cleanly), and launches the target mode. Attaching or cancelling preserves the running session's mode configuration, and non-TTY invocations still print the mismatch message and exit with code `2`.
