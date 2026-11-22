@@ -27,6 +27,8 @@ import {
   type FactorySettingsChangeResult,
   type Idea,
   type IdeaDetail,
+  type AuthRiskAcknowledgement,
+  type AuthRiskItem,
   type LoginPaneResult,
   type LoginStatusItem,
   type ModelOption,
@@ -630,6 +632,30 @@ export class CliTandemGateway implements ITandemGateway {
     ]);
     const parsed = JSON.parse(stdout) as { clis?: LoginStatusItem[] };
     return parsed.clis ?? [];
+  }
+
+  async factoryLoginRisk(workspacePath: string): Promise<AuthRiskItem[]> {
+    const stdout = await this.runFactory(workspacePath, ["factory", "login", "risk", "--json"]);
+    return JSON.parse(stdout) as AuthRiskItem[];
+  }
+
+  async factoryAcknowledgeRisk(
+    workspacePath: string,
+    cli: FactoryCli,
+    method: string
+  ): Promise<AuthRiskAcknowledgement> {
+    const stdout = await this.runFactory(workspacePath, [
+      "factory",
+      "login",
+      "acknowledge-risk",
+      cli,
+      "--method",
+      method,
+      "--confirm",
+      cli,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as AuthRiskAcknowledgement;
   }
 
   async factoryLoginOpen(workspacePath: string, cli: FactoryCli): Promise<LoginPaneResult> {

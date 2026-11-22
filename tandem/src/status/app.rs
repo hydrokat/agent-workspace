@@ -222,6 +222,8 @@ pub struct StatusApp {
     pub settings_tab: crate::status::settings_tab::SettingsTab,
     pub web_tab: crate::status::web_tab::WebTab,
     pub factory_tab: crate::status::factory_tab::FactoryTab,
+    pub risks: Vec<crate::factory::auth_risk::RiskItem>,
+    pub risk_confirm: Option<crate::status::risk_confirm::RiskConfirm>,
     pub web_daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
     pub web_state_dir: Option<PathBuf>,
     pub deps: Arc<dyn crate::web_deps::DepsRuntime>,
@@ -234,6 +236,7 @@ pub struct StatusApp {
     pub dirty: bool,
 
     pub banner_area: Rect,
+    pub last_area: Rect,
     pub tabs_area: Rect,
     pub body_area: Rect,
     pub sessions_area: Rect,
@@ -303,6 +306,8 @@ impl StatusApp {
 
             queries_tab,
             settings_tab: crate::status::settings_tab::SettingsTab::default(),
+            risks: Vec::new(),
+            risk_confirm: None,
             web_tab: crate::status::web_tab::WebTab::default(),
             factory_tab: crate::status::factory_tab::FactoryTab::new(
                 Some(factory_ws),
@@ -321,6 +326,7 @@ impl StatusApp {
             dirty: true,
 
             banner_area: Rect::default(),
+            last_area: Rect::default(),
             tabs_area: Rect::default(),
             body_area: Rect::default(),
             sessions_area: Rect::default(),
@@ -729,7 +735,103 @@ impl StatusApp {
             .unwrap_or(false)
     }
 
-    fn handle_factory_action(&mut self, action: Option<crate::status::factory_tab::FactoryAction>) {
+    pub fn set_risks(&mut self, risks: Vec<crate::factory::auth_risk::RiskItem>) {
+        self.settings_tab.set_risks(risks.clone());
+        self.factory_tab.set_risks(risks.clone());
+        self.risks = risks;
+        self.dirty = true;
+    }
+
+    pub fn refresh_risks(&mut self) {
+        if !self.is_factory() {
+            return;
+        }
+        let probe = crate::factory::login::HostLoginProbe;
+        let items = crate::factory::login::all_statuses(&probe);
+        let store = crate::factory::store::FactoryStore::new(&self.workspace);
+        let risks = crate::factory::auth_risk::risk_report(
+            &store,
+            &items,
+            &crate::factory::dates::today_iso_date(),
+            crate::factory::broker::terms::PROVIDER_TERMS,
+        );
+        self.set_risks(risks);
+    }
+
+    pub fn open_risk_confirm(&mut self, cli: &str) {
+        match self
+            .risks
+            .iter()
+            .find(|r| r.cli == cli && r.risk.as_deref() == Some("risky"))
+        {
+            Some(item) => {
+                self.risk_confirm =
+                    Some(crate::status::risk_confirm::RiskConfirm::new(item.clone()));
+            }
+            None => {
+                self.factory_tab.notice = format!("{cli}: no risk confirmation needed.");
+            }
+        }
+        self.dirty = true;
+    }
+
+    fn handle_risk_confirm_key(&mut self, event: &KeyEvent) {
+        use crate::status::risk_confirm::RiskConfirmOutcome;
+        let Some(ref mut confirm) = self.risk_confirm else {
+            return;
+        };
+        match confirm.handle_key(event) {
+            RiskConfirmOutcome::Pending => {}
+            RiskConfirmOutcome::Cancelled => {
+                self.risk_confirm = None;
+            }
+            RiskConfirmOutcome::Confirmed => {
+                let item = confirm.item.clone();
+                match self.acknowledge_risk(&item) {
+                    Ok(()) => {
+                        self.risk_confirm = None;
+                        self.factory_tab.notice =
+                            format!("Acknowledged {} sign-in risk ({}).", item.cli, item.method);
+                        self.refresh_risks();
+                    }
+                    Err(err) => {
+                        if let Some(ref mut c) = self.risk_confirm {
+                            c.error = Some(err);
+                        }
+                    }
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
+    fn acknowledge_risk(&self, item: &crate::factory::auth_risk::RiskItem) -> Result<(), String> {
+        use crate::factory::approval::Caller;
+        let store = crate::factory::store::FactoryStore::new(&self.workspace);
+        let owner = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "you".to_string());
+        let env_fn = |var: &str| std::env::var(var).ok();
+        let no_pane = |_: &str| None;
+        let caller = Caller::tui(&env_fn, &no_pane);
+        let detected = crate::factory::broker::terms::AuthType::parse(&item.method);
+        crate::factory::auth_risk::acknowledge(
+            &store,
+            &item.cli,
+            detected,
+            &item.method,
+            &item.cli,
+            &owner,
+            &caller,
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn handle_factory_action(
+        &mut self,
+        action: Option<crate::status::factory_tab::FactoryAction>,
+    ) {
         use crate::status::factory_tab::FactoryAction;
         let Some(action) = action else {
             return;
@@ -742,6 +844,13 @@ impl StatusApp {
                 title,
                 text,
             } => {
+                if let Some(msg) =
+                    crate::status::risk_confirm::risk_block_message(&self.risks, &cli)
+                {
+                    self.factory_tab.notice = msg;
+                    self.open_risk_confirm(&cli);
+                    return;
+                }
                 match crate::factory::commands::start_idea_with_text(
                     &self.workspace,
                     &cfg,
@@ -816,6 +925,9 @@ impl StatusApp {
                 } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
                     mon.notice = format!("Tmux client unavailable for pane {pane_id}.");
                 }
+            }
+            FactoryAction::ReviewRisk { cli } => {
+                self.open_risk_confirm(&cli);
             }
             FactoryAction::OpenLoginPane { cli } => {
                 if let Some(ref tmux) = self.tmux {
@@ -1068,6 +1180,10 @@ impl StatusApp {
     }
 
     pub fn handle_key(&mut self, event: &KeyEvent) {
+        if self.risk_confirm.is_some() {
+            self.handle_risk_confirm_key(event);
+            return;
+        }
         if let Some(ref banner) = self.ready_grace_banner
             && matches_crossterm_event(FACTORY_UNDO_READY_KEY, event, &self.platform)
         {
@@ -1196,6 +1312,9 @@ impl StatusApp {
                     crate::status::settings_tab::SettingsAction::RenameWorkspace(ref new_name) => {
                         crate::commands::rename_workspace_cmd(&self.workspace, Some(new_name));
                     }
+                    crate::status::settings_tab::SettingsAction::ReviewRisk(ref cli) => {
+                        self.open_risk_confirm(cli);
+                    }
                 }
             }
             self.dirty = true;
@@ -1258,6 +1377,17 @@ impl StatusApp {
     }
 
     pub fn handle_mouse(&mut self, event: &MouseEvent) {
+        if self.risk_confirm.is_some() {
+            let full = self.last_area;
+            if let Some(key) = self
+                .risk_confirm
+                .as_ref()
+                .and_then(|c| c.key_for_click(event, full))
+            {
+                self.handle_risk_confirm_key(&key);
+            }
+            return;
+        }
         let col = event.column;
         let row = event.row;
 
@@ -1364,6 +1494,11 @@ impl StatusApp {
                                         Some(new_name),
                                     );
                                 }
+                                crate::status::settings_tab::SettingsAction::ReviewRisk(
+                                    ref cli,
+                                ) => {
+                                    self.open_risk_confirm(cli);
+                                }
                             }
                             self.dirty = true;
                         }
@@ -1416,6 +1551,14 @@ impl StatusApp {
     }
 
     pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        self.last_area = area;
+        self.render_base(area, buf);
+        if let Some(ref confirm) = self.risk_confirm {
+            confirm.render(area, buf);
+        }
+    }
+
+    fn render_base(&mut self, area: Rect, buf: &mut Buffer) {
         if area.height == 0 || area.width == 0 {
             return;
         }
@@ -1689,7 +1832,9 @@ impl StatusApp {
         terminal: &mut Terminal<B>,
     ) -> Result<(), std::io::Error> {
         self.action_refresh_now();
+        self.refresh_risks();
         let mut last_tick = std::time::Instant::now();
+        let mut last_risk_refresh = std::time::Instant::now();
         loop {
             if self.dirty {
                 terminal.draw(|f| self.render(f.area(), f.buffer_mut()))?;
@@ -1722,6 +1867,12 @@ impl StatusApp {
             if last_tick.elapsed() >= Duration::from_millis(500) {
                 self.tick_timers();
                 last_tick = std::time::Instant::now();
+            }
+            if last_risk_refresh.elapsed() >= Duration::from_secs(60) && self.risk_confirm.is_none()
+            {
+                self.refresh_risks();
+                last_risk_refresh = std::time::Instant::now();
+                self.dirty = true;
             }
         }
         Ok(())

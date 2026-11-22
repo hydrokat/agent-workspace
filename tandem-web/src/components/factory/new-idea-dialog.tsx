@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AuthRiskNotice } from "./auth-risk-dialog";
 import {
   FACTORY_CLIS,
   isValidCli,
@@ -56,6 +57,7 @@ export function NewIdeaDialog({
   const [text, setText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [riskBlocked, setRiskBlocked] = useState(false);
 
   useEffect(() => {
     setModel("");
@@ -168,6 +170,12 @@ export function NewIdeaDialog({
               ))}
             </Select>
           </div>
+
+          <AuthRiskNotice
+            cli={cli}
+            hint="Confirm it before starting this idea."
+            onStateChange={setRiskBlocked}
+          />
 
           <div className="flex flex-col gap-1.5">
             <label htmlFor="factory-model-input" className="text-xs font-medium text-foreground">
@@ -290,7 +298,7 @@ export function NewIdeaDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting} className="min-h-11">
+            <Button type="submit" disabled={submitting || riskBlocked} className="min-h-11">
               {submitting ? "Starting..." : "Start idea"}
             </Button>
           </DialogFooter>

@@ -7,6 +7,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
+use crate::factory::auth_risk::RiskItem;
 use crate::factory::login::{
     HostLoginProbe, LoginProbe, LoginStatusItem, all_statuses, default_login_items, open_login_pane,
 };
@@ -56,6 +57,7 @@ pub enum SettingsAction {
     ResetUi,
     QuitMenu,
     RenameWorkspace(String),
+    ReviewRisk(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +111,7 @@ pub struct SettingsTab {
     pub workspace: Option<PathBuf>,
     pub factory_settings: FactorySettings,
     pub factory_logins: Vec<LoginStatusItem>,
+    pub risks: Vec<RiskItem>,
     pub factory_workflows: Vec<String>,
     pub budget_sub_field: usize,
     pub tier_sub_field: usize,
@@ -135,6 +138,7 @@ impl Default for SettingsTab {
             workspace: None,
             factory_settings: defaults,
             factory_logins: default_login_items(),
+            risks: Vec::new(),
             factory_workflows: Vec::new(),
             budget_sub_field: 0,
             tier_sub_field: 0,
@@ -252,6 +256,19 @@ impl SettingsTab {
             QUIT_ROW
         } else {
             QUIT_ROW + self.factory_rows().len()
+        }
+    }
+
+    pub fn focus_agent_login(&mut self, cli: &str) {
+        let Some(idx) = self.factory_logins.iter().position(|l| l.cli == cli) else {
+            return;
+        };
+        if let Some(row) = self
+            .factory_rows()
+            .iter()
+            .position(|r| r == &FactoryRow::AgentLogin(idx))
+        {
+            self.focused_row = QUIT_ROW + 1 + row;
         }
     }
 
@@ -392,6 +409,7 @@ impl SettingsTab {
                 }
                 KeyCode::Left | KeyCode::Char('h') => self.handle_horizontal(false),
                 KeyCode::Right | KeyCode::Char('l') => self.handle_horizontal(true),
+                KeyCode::Char('a') => self.review_risk_for_focused_login(),
                 KeyCode::Char('r')
                     if matches!(self.focused_factory_row(), Some(FactoryRow::AgentLogin(_))) =>
                 {
@@ -509,6 +527,32 @@ impl SettingsTab {
         };
         if let Err(err) = self.save_factory_setting("orchestrator_may_choose", next) {
             self.flash(&err);
+        }
+    }
+
+    pub fn set_risks(&mut self, risks: Vec<RiskItem>) {
+        self.risks = risks;
+    }
+
+    fn risk_for(&self, cli: &str) -> Option<&RiskItem> {
+        self.risks.iter().find(|r| r.cli == cli)
+    }
+
+    fn review_risk_for_focused_login(&mut self) -> Option<SettingsAction> {
+        let Some(FactoryRow::AgentLogin(idx)) = self.focused_factory_row() else {
+            return None;
+        };
+        let cli = self.factory_logins.get(idx)?.cli.clone();
+        match self.risk_for(&cli).and_then(|r| r.risk.as_deref()) {
+            Some("risky") => Some(SettingsAction::ReviewRisk(cli)),
+            Some(_) => {
+                self.flash(&format!("{cli}: no risk confirmation needed"));
+                None
+            }
+            None => {
+                self.flash("Sign-in risk is not known yet; recheck sign-in first");
+                None
+            }
         }
     }
 
@@ -946,6 +990,15 @@ impl SettingsTab {
                         return None;
                     }
                 }
+                if matches!(self.focused_factory_row(), Some(FactoryRow::AgentLogin(_)))
+                    && let Some(pos) = line.text.find("[Review risk]")
+                {
+                    let start = area.x + line.text[..pos].chars().count() as u16;
+                    let end = start + "[Review risk]".chars().count() as u16;
+                    if mouse.column >= start && mouse.column < end {
+                        return self.review_risk_for_focused_login();
+                    }
+                }
                 self.handle_key(&KeyEvent::new(
                     KeyCode::Enter,
                     crossterm::event::KeyModifiers::NONE,
@@ -1347,7 +1400,17 @@ impl SettingsTab {
                         } else {
                             "[Own TUI]"
                         };
-                        format!("Signed in{method}  {action} [Recheck]")
+                        let risk = match self.risk_for(&item.cli) {
+                            Some(r) if r.risk.as_deref() == Some("risky") => format!(
+                                "  ⚠ risky ({}) [Review risk]",
+                                r.verdict.as_deref().unwrap_or("no verified terms")
+                            ),
+                            Some(r) if r.risk.as_deref() == Some("acknowledged") => {
+                                "  ⚠ risk acknowledged".to_string()
+                            }
+                            _ => String::new(),
+                        };
+                        format!("Signed in{method}  {action} [Recheck]{risk}")
                     } else if item.has_login_command {
                         "Not signed in  [Sign in] [Recheck]".to_string()
                     } else {

@@ -546,3 +546,76 @@ fn test_detail_confirm_ready_workflow_selection_run_section_and_withdraw() {
 
     let _ = fs::remove_dir_all(ws);
 }
+
+#[test]
+fn the_ready_dialog_lists_risky_sign_ins_without_blocking_gate_2() {
+    let ws = temp_workspace("ready-risk");
+    let (store, id) = setup_planning_idea(&ws, false);
+    let plan_src = ws.join("plan-full.md");
+    fs::write(&plan_src, full_plan_md()).unwrap();
+    let plan_ref = artifacts::put(&store, &id, "plan", &plan_src).unwrap();
+    store
+        .execute(
+            &id,
+            Command::StoreArtifact {
+                kind: "plan".to_string(),
+                artifact: plan_ref,
+                verdict: None,
+                risk: None,
+                workflow: Some("spec-implement".to_string()),
+                missing_sections: Vec::new(),
+            },
+            &orch_actor(),
+        )
+        .unwrap();
+
+    let mut detail = FactoryDetail::load(&ws, &id, &[], false);
+    detail.risks = vec![
+        tandem::factory::auth_risk::RiskItem {
+            cli: "claude".to_string(),
+            signed_in: true,
+            method: "subscription".to_string(),
+            verdict: Some("not-allowed".to_string()),
+            risk: Some("risky".to_string()),
+            reason: None,
+            conditions: None,
+            acknowledged_on: None,
+            verified_on: None,
+            reverify_by: None,
+            acknowledge_command: None,
+        },
+        tandem::factory::auth_risk::RiskItem {
+            cli: "agy".to_string(),
+            signed_in: true,
+            method: "api-key".to_string(),
+            verdict: Some("allowed-with-conditions".to_string()),
+            risk: Some("ok".to_string()),
+            reason: None,
+            conditions: None,
+            acknowledged_on: None,
+            verified_on: None,
+            reverify_by: None,
+            acknowledge_command: None,
+        },
+    ];
+    detail.handle_key(&KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    ));
+    assert!(matches!(
+        detail.sub_view,
+        DetailSubView::ConfirmReady { .. }
+    ));
+
+    let area = Rect::new(0, 0, 110, 24);
+    let mut buf = Buffer::empty(area);
+    detail.render(1_700_000_100.0, area, &mut buf);
+    let screen = buffer_text(&buf, area);
+    assert!(
+        screen.contains("claude uses a risky sign-in (subscription, not-allowed)"),
+        "{screen}"
+    );
+    assert!(screen.contains("pause until you confirm it"), "{screen}");
+    assert!(!screen.contains("agy uses a risky"), "{screen}");
+    assert!(screen.contains("Type the idea id to confirm"), "{screen}");
+}

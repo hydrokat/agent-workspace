@@ -68,6 +68,7 @@ pub struct FactoryAgents {
     pub error: Option<String>,
     sub: AgentsSub,
     pub hits: HitMap,
+    pub risks: Vec<crate::factory::auth_risk::RiskItem>,
 }
 
 impl std::fmt::Debug for FactoryAgents {
@@ -95,6 +96,7 @@ impl FactoryAgents {
             error: None,
             sub: AgentsSub::Main,
             hits: HitMap::default(),
+            risks: Vec::new(),
         }
     }
 
@@ -309,6 +311,16 @@ impl FactoryAgents {
                     return AgentsKeyOutcome::Ignored;
                 };
                 let store = FactoryStore::new(&self.workspace);
+                if let Ok(target) = crate::factory::team::relaunch_target_cli(
+                    &store,
+                    &a.agent.run_id,
+                    &a.agent.job_id,
+                ) && let Some(msg) =
+                    crate::status::risk_confirm::risk_block_message(&self.risks, &target)
+                {
+                    self.notice = msg;
+                    return AgentsKeyOutcome::Consumed;
+                }
                 let tmux = TmuxClient::new(socket_for(&self.workspace), None);
                 match relaunch_agent(&store, &tmux, &a.agent.run_id, &a.agent.job_id) {
                     Ok(launched) => {

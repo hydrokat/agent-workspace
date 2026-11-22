@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FACTORY_CLIS, type StageAssignment } from "@/domain/models/factory";
+import { AuthRiskNotice } from "./auth-risk-dialog";
 import { describeSelection } from "./format";
 
 interface AssignmentEditorProps {
@@ -162,6 +163,10 @@ export function AssignmentEditor({
             onChange={(e) => setModel(e.target.value)}
             className="h-9 text-xs"
           />
+        </div>
+
+        <div className="sm:col-span-3">
+          <AuthRiskNotice cli={cli} hint="The stage will pause until you confirm." />
         </div>
 
         <div className="sm:col-span-3">

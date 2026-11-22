@@ -1257,3 +1257,41 @@ fn test_t006_snapshot_idea_card_team_count_and_needs_sign_in() {
     assert!(card.needs_sign_in);
     let _ = fs::remove_dir_all(ws);
 }
+
+#[test]
+fn assigning_a_risky_cli_in_the_run_monitor_warns_that_the_stage_will_pause() {
+    let ws = temp_workspace("assign-risk");
+    let (_store, idea_id, run_id) = setup_run(&ws);
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "darwin")
+        .with_login_probe(Arc::new(ReadyClaudeProbe));
+    monitor.risks = vec![tandem::factory::auth_risk::RiskItem {
+        cli: "claude".to_string(),
+        signed_in: true,
+        method: "subscription".to_string(),
+        verdict: Some("not-allowed".to_string()),
+        risk: Some("risky".to_string()),
+        reason: None,
+        conditions: None,
+        acknowledged_on: None,
+        verified_on: None,
+        reverify_by: None,
+        acknowledge_command: None,
+    }];
+
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(matches!(
+        monitor.sub_view,
+        RunSubView::AssignmentsModal { .. }
+    ));
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(monitor.notice.contains("Assigned"), "{}", monitor.notice);
+    assert!(
+        monitor.notice.contains("claude uses a risky sign-in")
+            && monitor.notice.contains("pauses until you confirm"),
+        "{}",
+        monitor.notice
+    );
+
+    let _ = fs::remove_dir_all(ws);
+}

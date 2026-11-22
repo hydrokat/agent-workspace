@@ -566,6 +566,35 @@ export interface LoginStatusItem {
   error?: string | null;
 }
 
+export type AuthRiskState = "ok" | "risky" | "acknowledged";
+
+export interface AuthRiskItem {
+  cli: string;
+  signed_in: boolean;
+  method: string;
+  verdict?: string | null;
+  risk?: AuthRiskState | null;
+  reason?: string | null;
+  conditions?: string | null;
+  acknowledged_on?: string | null;
+  verified_on?: string | null;
+  reverify_by?: string | null;
+  acknowledge_command?: string | null;
+}
+
+export interface AuthRiskAcknowledgement {
+  cli: string;
+  method: string;
+  verdict: string;
+  terms_verified_on: string;
+  acknowledged_by: string;
+  acknowledged_at: number;
+}
+
+export function isRiskyUnacknowledged(item: AuthRiskItem | null | undefined): boolean {
+  return item?.risk === "risky";
+}
+
 export interface LoginPaneResult {
   cli: string;
   pane_id: string;
