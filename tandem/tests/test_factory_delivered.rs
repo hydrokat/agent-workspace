@@ -131,6 +131,13 @@ fn init_git_repo(dir: &Path, branch: &str) {
 
 struct NoopExecutor;
 impl Executor for NoopExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, _job: &StageJob) -> StageOutcome {
         panic!("executor should not be called in Review state")
     }

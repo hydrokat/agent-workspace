@@ -1878,6 +1878,7 @@ fn execute_with_probe(
                     Some(source) => read_text_input(None, Some(source), stdin)?,
                     None => String::new(),
                 };
+                ensure_cli_risk_acknowledged(&store, &a.cli, probe)?;
                 let bound = start_idea_cmd(
                     workspace,
                     config,
@@ -1891,6 +1892,13 @@ fn execute_with_probe(
             FactoryIdeaCommand::Resume(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
+                }
+                if let Some(orch) = store
+                    .get_idea(&a.id)
+                    .map_err(map_factory_error)?
+                    .and_then(|i| i.orchestrator)
+                {
+                    ensure_cli_risk_acknowledged(&store, &orch.cli, probe)?;
                 }
                 let idea = resume_idea_cmd(workspace, config, &a.id)?;
                 serialize_compact(&idea)
@@ -3025,8 +3033,38 @@ fn execute_with_probe(
             if !enabled {
                 return Err(CmdError::factory_disabled());
             }
-            handle_agent_command(&a_args.command, &store, workspace, caller)
+            handle_agent_command(&a_args.command, &store, workspace, caller, probe)
         }
+    }
+}
+
+fn ensure_cli_risk_acknowledged(
+    store: &FactoryStore,
+    cli: &str,
+    probe: &dyn super::login::LoginProbe,
+) -> Result<(), CmdError> {
+    let item = super::login::check_status(cli, probe);
+    if !(item.installed && item.signed_in) {
+        return Ok(());
+    }
+    let method = super::auth_risk::detected_method(&item);
+    let method_label = super::auth_risk::method_name(method);
+    match super::auth_risk::assess(
+        cli,
+        method,
+        &super::dates::today_iso_date(),
+        super::broker::terms::PROVIDER_TERMS,
+        &super::auth_risk::read_acks(store),
+    ) {
+        super::auth_risk::AuthRisk::Risky { reason, .. } => Err(CmdError {
+            exit_code: 3,
+            code: "auth_risk_not_acknowledged",
+            message: format!(
+                "auth risk not acknowledged for {cli} ({method_label}): {reason}. Run: {}",
+                super::auth_risk::acknowledge_command(cli, method_label)
+            ),
+        }),
+        _ => Ok(()),
     }
 }
 
@@ -3048,6 +3086,7 @@ fn handle_agent_command(
     store: &FactoryStore,
     workspace: &Path,
     caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
 ) -> Result<String, CmdError> {
     let socket = crate::tmux::socket_for(workspace);
     let tmux = crate::tmux::TmuxClient::new(socket, None);
@@ -3216,6 +3255,9 @@ fn handle_agent_command(
             }
         }
         FactoryAgentCommand::Relaunch(a) => {
+            let target_cli =
+                super::team::relaunch_target_cli(store, &a.run, &a.job).map_err(map_team_error)?;
+            ensure_cli_risk_acknowledged(store, &target_cli, probe)?;
             let launched = super::team::relaunch_agent(store, &tmux, &a.run, &a.job)
                 .map_err(map_team_error)?;
             if a.json {

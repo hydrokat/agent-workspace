@@ -216,6 +216,13 @@ impl RecordingExecutor {
 }
 
 impl Executor for RecordingExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls.push((job.run.clone(), job.stage.clone()));
         StageOutcome::Succeeded

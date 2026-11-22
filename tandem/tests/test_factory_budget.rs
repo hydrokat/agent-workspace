@@ -207,6 +207,13 @@ struct SequenceExecutor {
 }
 
 impl Executor for SequenceExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls.push(format!("{}:{}", job.stage, job.attempt));
         if let Some(cb) = self.on_call.as_mut() {

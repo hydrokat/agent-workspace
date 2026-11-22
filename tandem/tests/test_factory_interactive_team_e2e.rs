@@ -320,6 +320,7 @@ fn real_tmux_interactive_team_end_to_end() {
     assert_eq!(saved_assignments.stages["plan"].cli, "agy");
 
     // 4. Drive workflow end to end using real tmux worker panes and interactive stubs.
+    fixture.acknowledge_risky_clis(&probe);
     let mut exec = FixtureExecutor {
         broker: BrokerExecutor::new(&fixture.workspace)
             .with_tmux(TmuxClient::new(&socket, None))

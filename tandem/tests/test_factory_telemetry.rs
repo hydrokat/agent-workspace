@@ -302,6 +302,13 @@ fn runner_records_job_usage_event_after_each_job() {
         store: FactoryStore,
     }
     impl Executor for UsageExecutor {
+        fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+            vec![tandem::factory::executor::ReadyCli::new(
+                "claude",
+                Some(tandem::factory::broker::terms::AuthType::ApiKey),
+            )]
+        }
+
         fn run(&mut self, job: &StageJob) -> StageOutcome {
             let dir = job_dir(&self.store, &job.run, &job.stage, job.attempt);
             fs::create_dir_all(&dir).unwrap();
@@ -339,8 +346,7 @@ fn runner_records_job_usage_event_after_each_job() {
     assert!(usage_ev.data["duration_secs"].as_f64().is_some());
     assert_eq!(usage_ev.data["input_tokens"], 1200);
     assert_eq!(usage_ev.data["output_tokens"], 300);
-    assert_eq!(usage_ev.data["cost"]["basis"], "actual");
-    assert!((usage_ev.data["cost"]["value"].as_f64().unwrap() - 0.42).abs() < 1e-6);
+    assert_eq!(usage_ev.data["cost"]["basis"], "unknown");
 
     let _ = fs::remove_dir_all(ws);
 }

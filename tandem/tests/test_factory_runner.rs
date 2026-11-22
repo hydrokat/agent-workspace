@@ -8,7 +8,6 @@ use std::process::Command as StdCommand;
 use std::sync::Arc;
 use tandem::factory::approval::mark_ready_with_workflow;
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
 use tandem::factory::login::LoginProbe;
@@ -178,9 +177,20 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
 struct ScriptedExecutor {
     outcomes: HashMap<(String, u32), StageOutcome>,
     calls: Vec<(String, u32)>,
+    ready: bool,
 }
 
 impl Executor for ScriptedExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        if !self.ready {
+            return Vec::new();
+        }
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls.push((job.stage.clone(), job.attempt));
         self.outcomes
@@ -210,28 +220,23 @@ fn runner_pauses_when_gate_closed_then_advances_retries_and_resumes_from_log() {
     let mut exec = ScriptedExecutor {
         outcomes: HashMap::new(),
         calls: vec![],
+        ready: false,
     };
 
-    // 1. Gate is closed -> run pauses with reason & resolution command
+    // 1. No CLI is signed in -> run pauses with reason & resolution command
     drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
     let run = get_run(&store, &run_id).unwrap().unwrap();
     assert_eq!(run.state, RunState::Paused);
-    assert!(run.pause_reason.as_deref().unwrap().contains("gate"));
+    assert!(
+        run.pause_reason
+            .as_deref()
+            .unwrap()
+            .contains("no CLI is installed and signed in")
+    );
     assert!(exec.calls.is_empty());
 
-    // 2. Open claude gate and resume/drive -> plan succeeds, idea moves to InDevelopment
-    let no_env = |_: &str| None;
-    let no_pane = |_: &str| None;
-    let caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
+    // 2. Sign in and resume/drive -> plan succeeds, idea moves to InDevelopment
+    exec.ready = true;
     let user = Actor {
         kind: ActorKind::User,
         id: "alice".into(),
@@ -314,9 +319,10 @@ fn retry_paused_stage_enforces_caller_gates_hashes_and_persists_hypothesis() {
     let mut exec = ScriptedExecutor {
         outcomes: HashMap::new(),
         calls: vec![],
+        ready: false,
     };
 
-    // Gate closed -> run pauses
+    // No CLI signed in -> run pauses
     drive_run_step(&store, &ws, &run_id, &mut exec).unwrap();
     let user = Actor {
         kind: ActorKind::User,

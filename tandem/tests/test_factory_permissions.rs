@@ -141,6 +141,13 @@ fn git_init_repo(dir: &Path) {
 struct NoopExecutor;
 
 impl Executor for NoopExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, _job: &StageJob) -> StageOutcome {
         StageOutcome::Succeeded
     }

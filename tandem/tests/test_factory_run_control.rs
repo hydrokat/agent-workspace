@@ -201,6 +201,12 @@ struct HookExecutor<F: FnMut(&StageJob) -> StageOutcome> {
 }
 
 impl<F: FnMut(&StageJob) -> StageOutcome> Executor for HookExecutor<F> {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls
             .lock()
@@ -347,7 +353,7 @@ fn pause_now_stops_running_child_process_and_interrupted_attempt_does_not_consum
 }
 
 #[test]
-fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
+fn resume_verifies_plan_hash_workflow_hash_and_cli_readiness() {
     let ws = temp_ws("resume-checks");
     let (store, idea_id, run_id) = setup_queued_run(&ws);
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -393,11 +399,11 @@ fn resume_verifies_plan_hash_workflow_hash_and_provider_gate() {
     );
     fs::write(&wf_path, &orig_wf).unwrap();
 
-    // 3. CLI not signed in -> resume refused with gate closed message
+    // 3. CLI not signed in -> resume refused (CLI not ready)
     let err =
         resume_paused_run_with_probe(&store, &run_id, &user_actor(), &StaticLoginProbe(false))
             .unwrap_err();
-    assert!(err.to_string().to_lowercase().contains("gate"));
+    assert!(err.to_string().to_lowercase().contains("not ready"));
     assert_eq!(
         get_run(&store, &run_id).unwrap().unwrap().state,
         RunState::Paused

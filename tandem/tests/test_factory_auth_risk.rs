@@ -698,4 +698,52 @@ mod cli {
         );
         assert_eq!(code, 1, "{err}");
     }
+
+    #[test]
+    fn idea_start_refuses_a_risky_unacknowledged_orchestrator_cli_then_proceeds_after_acknowledgement()
+     {
+        let ws = temp_ws("cli-start");
+        let user = Caller::cli(true, &no_env, &no_env);
+        let start = [
+            "factory", "idea", "start", "--cli", "claude", "--model", "opus", "--title", "Export",
+        ];
+
+        let (code, _, err) = run(&start, &ws, &user);
+        assert_eq!(code, 3, "{err}");
+        assert!(
+            err.contains("auth risk not acknowledged for claude (subscription)"),
+            "{err}"
+        );
+        assert!(
+            err.contains("tandem factory login acknowledge-risk claude --method subscription --confirm claude"),
+            "{err}"
+        );
+        let ideas = tandem::factory::store::FactoryStore::new(&ws)
+            .list_ideas()
+            .unwrap_or_default();
+        assert!(
+            ideas.is_empty(),
+            "no idea may be created before acknowledgement"
+        );
+
+        let (code, out, err) = run(
+            &[
+                "factory",
+                "login",
+                "acknowledge-risk",
+                "claude",
+                "--method",
+                "subscription",
+                "--confirm",
+                "claude",
+            ],
+            &ws,
+            &user,
+        );
+        assert_eq!(code, 0, "{out}{err}");
+
+        let (code, _, err) = run(&start, &ws, &user);
+        assert_ne!(code, 3, "{err}");
+        assert!(!err.contains("auth risk"), "{err}");
+    }
 }

@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use super::auth_risk::{
+    AuthRisk, acknowledge_command, assess, method_from_login, method_name, read_acks,
+};
 use super::broker::context::{
     ContextError, ContextInputs, ReviewContextExtras, assemble_context_with_policy,
     assemble_review_context_with_policy,
@@ -17,7 +20,7 @@ use super::broker::job::{
     set_job_state,
 };
 use super::broker::result::{JobResultStatus, parse_and_validate_result};
-use super::broker::terms::PROVIDER_TERMS;
+use super::broker::terms::{AuthType, PROVIDER_TERMS};
 use super::data_policy::{format_readable_scope, load_exclusions};
 use super::login::interactive_ready;
 use super::login::{HostLoginProbe, LOGIN_SPECS, LoginProbe};
@@ -57,16 +60,22 @@ pub enum StageOutcome {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadyCli {
+    pub cli: &'static str,
+    pub method: Option<AuthType>,
+}
+
+impl ReadyCli {
+    pub fn new(cli: &'static str, method: Option<AuthType>) -> Self {
+        Self { cli, method }
+    }
+}
+
 pub trait Executor {
     fn run(&mut self, job: &StageJob) -> StageOutcome;
 
-    fn is_interactive(&self) -> bool {
-        false
-    }
-
-    fn ready_providers(&self) -> Option<Vec<&'static str>> {
-        None
-    }
+    fn ready_clis(&self) -> Vec<ReadyCli>;
 }
 
 pub type SharedModelRunner = Arc<
@@ -80,7 +89,7 @@ pub struct BrokerExecutor {
     pub tmux: TmuxClient,
     pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
     model_runner: SharedModelRunner,
-    readiness_cache: Mutex<Option<(Instant, Vec<&'static str>)>>,
+    readiness_cache: Mutex<Option<(Instant, Vec<ReadyCli>)>>,
 }
 
 impl BrokerExecutor {
@@ -119,7 +128,7 @@ impl BrokerExecutor {
         self
     }
 
-    fn probe_ready_clis(&self) -> Vec<&'static str> {
+    fn probe_ready(&self) -> Vec<ReadyCli> {
         const TTL: Duration = Duration::from_secs(10);
         if let Ok(guard) = self.readiness_cache.lock()
             && let Some((ts, ref cached)) = *guard
@@ -127,10 +136,17 @@ impl BrokerExecutor {
         {
             return cached.clone();
         }
-        let ready: Vec<&'static str> = LOGIN_SPECS
+        let ready: Vec<ReadyCli> = LOGIN_SPECS
             .iter()
-            .map(|spec| spec.cli)
-            .filter(|cli| interactive_ready(cli, self.login_probe.as_ref()).ready)
+            .filter_map(|spec| {
+                let status = interactive_ready(spec.cli, self.login_probe.as_ref());
+                status.ready.then(|| {
+                    ReadyCli::new(
+                        spec.cli,
+                        method_from_login(spec.cli, status.method.as_deref()),
+                    )
+                })
+            })
             .collect();
         if let Ok(mut guard) = self.readiness_cache.lock() {
             *guard = Some((Instant::now(), ready.clone()));
@@ -263,12 +279,8 @@ impl Executor for BrokerExecutor {
         self.run_with_env(job, std::env::vars().collect())
     }
 
-    fn is_interactive(&self) -> bool {
-        true
-    }
-
-    fn ready_providers(&self) -> Option<Vec<&'static str>> {
-        Some(self.probe_ready_clis())
+    fn ready_clis(&self) -> Vec<ReadyCli> {
+        self.probe_ready()
     }
 }
 
@@ -471,10 +483,11 @@ impl BrokerExecutor {
             };
         }
 
-        let ready_clis = self.probe_ready_clis();
+        let ready = self.probe_ready();
+        let ready_clis: Vec<&'static str> = ready.iter().map(|r| r.cli).collect();
         if ready_clis.is_empty() {
             return StageOutcome::Blocked {
-                reason: "gate closed: no CLI installed and signed in".to_string(),
+                reason: "no CLI is installed and signed in".to_string(),
                 action_commands: vec!["tandem factory login open claude".to_string()],
             };
         }
@@ -560,7 +573,22 @@ impl BrokerExecutor {
                 sel,
             );
         }
-        let _ = (terms, today);
+        let detected = ready
+            .iter()
+            .find(|r| r.cli == routed.provider)
+            .and_then(|r| r.method);
+        if let AuthRisk::Risky { reason, .. } =
+            assess(&routed.provider, detected, today, terms, &read_acks(&store))
+        {
+            let method = method_name(detected);
+            return StageOutcome::Blocked {
+                reason: format!(
+                    "auth risk not acknowledged for {} ({method}): {reason}",
+                    routed.provider
+                ),
+                action_commands: vec![acknowledge_command(&routed.provider, method)],
+            };
+        }
 
         let plan_snapshot_path = store
             .root

@@ -32,6 +32,7 @@ impl Ws {
             .env("XDG_STATE_HOME", self.base.join("state"))
             .env("TMUX_TMPDIR", self.base.join("tmux"))
             .env("TANDEM_FACTORY", "1")
+            .env("PATH", "/usr/bin:/bin")
             .env_remove("TANDEM_ROLE")
             .env_remove("TANDEM_SESSION_ID")
             .stdout(Stdio::piped())

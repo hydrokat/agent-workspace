@@ -63,6 +63,13 @@ struct ScriptedExecutor {
 }
 
 impl Executor for ScriptedExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls.push(job.stage.clone());
         StageOutcome::Succeeded

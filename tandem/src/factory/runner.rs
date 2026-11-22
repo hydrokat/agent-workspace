@@ -11,7 +11,6 @@ use crate::factory::FactoryError;
 use crate::factory::approval::{
     ApprovalError, Caller, require_user, take_pending_run, verify_snapshot,
 };
-use crate::factory::broker::gate::{check, today_iso_date};
 use crate::factory::broker::git::{AllowedGitSubcommand, run_git};
 use crate::factory::broker::job::{JobState, job_dir, jobs_dir, read_job_state, set_job_state};
 use crate::factory::broker::result::JobResult;
@@ -28,16 +27,14 @@ use crate::factory::login::interactive_ready;
 use crate::factory::login::{HostLoginProbe, LOGIN_SPECS, LoginProbe};
 use crate::factory::machine::{self, Command, EventData, Facts};
 use crate::factory::model::{
-    Actor, ActorKind, FactorySettings, Idea, IdeaState, KNOWN_PROVIDERS, Run, RunState, StageState,
+    Actor, ActorKind, FactorySettings, Idea, IdeaState, Run, RunState, StageState,
 };
 use crate::factory::redact::RedactContext;
-use crate::factory::routing::{RoutingContext, route_interactive};
+use crate::factory::routing::RoutingContext;
 use crate::factory::run::{RunError, get_run, list_runs};
 use crate::factory::stages::plan::SlicesManifest;
 use crate::factory::store::{FactoryStore, current_time, write_atomic};
-use crate::factory::telemetry::{
-    RecordJobUsageInput, record_interactive_job_usage, record_job_usage,
-};
+use crate::factory::telemetry::{RecordJobUsageInput, record_interactive_job_usage};
 use crate::factory::workflow::parse::load_workflow_file;
 use crate::factory::workflow::scheduler::{
     RunFacts, SchedulerLimits, TriState, next, stage_has_writer_tool,
@@ -729,36 +726,15 @@ pub fn drive_run_step_with_gh(
         }
     }
 
-    let open_providers: Vec<&str> = if let Some(ready_clis) = executor.ready_providers() {
-        if ready_clis.is_empty() {
-            return pause_run(
-                store,
-                run,
-                "gate closed: no CLI installed and signed in".to_string(),
-                vec!["tandem factory login open claude".to_string()],
-            );
-        }
-        ready_clis
-    } else {
-        let today = today_iso_date();
-        let providers: Vec<&str> = KNOWN_PROVIDERS
-            .iter()
-            .copied()
-            .filter(|p| check(p, &settings, &today).is_ok())
-            .collect();
-        if providers.is_empty() {
-            return pause_run(
-                store,
-                run,
-                "gate closed: no provider consented and allowed".to_string(),
-                vec![
-                    "tandem factory provider consent claude --auth api-key --confirm claude"
-                        .to_string(),
-                ],
-            );
-        }
-        providers
-    };
+    let open_providers: Vec<&str> = executor.ready_clis().iter().map(|r| r.cli).collect();
+    if open_providers.is_empty() {
+        return pause_run(
+            store,
+            run,
+            "no CLI is installed and signed in".to_string(),
+            vec!["tandem factory login open claude".to_string()],
+        );
+    }
 
     let stage_def = wf
         .stages
@@ -793,7 +769,7 @@ pub fn drive_run_step_with_gh(
         .unwrap_or(0);
     let next_attempt = resumed_attempt.unwrap_or(current_attempts + 1);
 
-    let preferred_provider = if executor.is_interactive() && settings.default_worker_cli != "auto" {
+    let preferred_provider = if settings.default_worker_cli != "auto" {
         Some(settings.default_worker_cli.clone())
     } else {
         store
@@ -862,35 +838,21 @@ pub fn drive_run_step_with_gh(
         }
     };
 
-    let routed_res: Result<(crate::factory::routing::Route, Vec<String>), String> =
-        if executor.is_interactive() {
-            super::team::resolve_stage_assignment(
-                store,
-                &run,
-                stage_def,
-                &tool_grant,
-                &wf,
-                &settings,
-                &open_providers,
-                next_attempt,
-                &r_ctx,
-            )
-            .map(|resolved| (resolved.route, Vec::new()))
-            .map_err(|e| e.to_string())
-        } else {
-            route_interactive(
-                stage_def,
-                &tool_grant,
-                &wf,
-                &settings,
-                &open_providers,
-                next_attempt,
-                &r_ctx,
-            )
-            .map(|r| (r, Vec::new()))
-            .map_err(|e| e.to_string())
-        };
-    let (routed, _) = match routed_res {
+    let routed_res: Result<crate::factory::routing::Route, String> =
+        super::team::resolve_stage_assignment(
+            store,
+            &run,
+            stage_def,
+            &tool_grant,
+            &wf,
+            &settings,
+            &open_providers,
+            next_attempt,
+            &r_ctx,
+        )
+        .map(|resolved| resolved.route)
+        .map_err(|e| e.to_string());
+    let routed = match routed_res {
         Ok(r) => r,
         Err(reason) => {
             let mut cmds = Vec::new();
@@ -1040,11 +1002,7 @@ pub fn drive_run_step_with_gh(
             price_table: &settings.price_table,
             actor: &sys,
         };
-        if executor.is_interactive() {
-            record_interactive_job_usage(usage_input)?;
-        } else {
-            record_job_usage(usage_input)?;
-        }
+        record_interactive_job_usage(usage_input)?;
     }
 
     let mut current_run = match get_run(store, run_id)? {
@@ -1461,7 +1419,7 @@ fn verify_run_resumable(
             .reason
             .unwrap_or_else(|| "no CLI installed and signed in".to_string());
         return Err(RunnerError::Gate(format!(
-            "Cannot resume: {preferred} gate is closed ({reason})."
+            "Cannot resume: {preferred} is not ready ({reason})."
         )));
     }
     Ok(())

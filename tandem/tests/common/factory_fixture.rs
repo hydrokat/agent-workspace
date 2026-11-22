@@ -407,12 +407,8 @@ impl Executor for FixtureExecutor {
             .run_with_env_and_gate(job, self.parent_env.clone(), self.terms, &self.today)
     }
 
-    fn is_interactive(&self) -> bool {
-        self.broker.is_interactive()
-    }
-
-    fn ready_providers(&self) -> Option<Vec<&'static str>> {
-        self.broker.ready_providers()
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        self.broker.ready_clis()
     }
 }
 
@@ -506,6 +502,37 @@ impl FactoryFixture {
             gh_log_path,
             gh_bin,
             store,
+        }
+    }
+
+    pub fn acknowledge_risky_clis(&self, probe: &dyn LoginProbe) {
+        use tandem::factory::auth_risk::{
+            AuthRisk, acknowledge_with_terms, assess, detected_method, method_name,
+        };
+        use tandem::factory::login::check_status;
+        let caller = user_caller();
+        for cli in ["claude", "agy", "opencode"] {
+            let item = check_status(cli, probe);
+            if !(item.installed && item.signed_in) {
+                continue;
+            }
+            let detected = detected_method(&item);
+            if matches!(
+                assess(cli, detected, FIXED_TODAY, TEST_TERMS, &[]),
+                AuthRisk::Risky { .. }
+            ) {
+                acknowledge_with_terms(
+                    &self.store,
+                    cli,
+                    detected,
+                    method_name(detected),
+                    cli,
+                    "user",
+                    &caller,
+                    TEST_TERMS,
+                )
+                .unwrap();
+            }
         }
     }
 

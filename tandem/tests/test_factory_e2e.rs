@@ -625,3 +625,95 @@ fn stub_scenario_crash_mid_stage_pauses_run() {
     let final_state = drive_until_settled(&fixture, &run.id, 6);
     assert_eq!(final_state, RunState::Paused);
 }
+
+const RISKY_TERMS: &[tandem::factory::broker::terms::ProviderTermsRow] =
+    &[tandem::factory::broker::terms::ProviderTermsRow {
+        verdict: tandem::factory::broker::terms::TermsVerdict::NotAllowed,
+        ..common::factory_fixture::TEST_TERMS[0]
+    }];
+
+#[test]
+fn risky_auth_pauses_the_run_until_the_user_acknowledges_then_the_worker_launches() {
+    use tandem::factory::auth_risk::acknowledge_with_terms;
+    use tandem::factory::broker::terms::AuthType;
+    use tandem::factory::runner::drive_run_step_with_gh;
+
+    let fixture = FactoryFixture::new("risk-pause");
+    let idea_id = setup_ready_idea(&fixture, "Risky sign-in");
+    let run = create_run(
+        &fixture.store,
+        &fixture.workspace,
+        &idea_id,
+        CreateRunOptions::default(),
+        &sys_actor(),
+    )
+    .unwrap();
+
+    let mut exec = fixture.executor();
+    exec.terms = RISKY_TERMS;
+
+    drive_run_step_with_gh(
+        &fixture.store,
+        &fixture.workspace,
+        &run.id,
+        &mut exec,
+        &fixture.gh_bin,
+    )
+    .unwrap();
+    let paused = get_run(&fixture.store, &run.id).unwrap().unwrap();
+    assert_eq!(paused.state, RunState::Paused);
+    let reason = paused.pause_reason.clone().unwrap_or_default();
+    assert!(
+        reason.contains("auth risk not acknowledged for claude (api-key)"),
+        "{reason}"
+    );
+    let log = read_all(&fixture.store.root.join("events.jsonl")).unwrap();
+    assert!(
+        log.events.iter().any(|e| e.r#type == "run.paused"
+            && e.data.to_string().contains(
+                "tandem factory login acknowledge-risk claude --method api-key --confirm claude"
+            )),
+        "pause must carry the acknowledge command"
+    );
+    assert!(
+        !log.events.iter().any(|e| e.r#type == "job.started"),
+        "no worker may launch before the user acknowledges"
+    );
+
+    acknowledge_with_terms(
+        &fixture.store,
+        "claude",
+        Some(AuthType::ApiKey),
+        "api-key",
+        "claude",
+        "user",
+        &user_caller(),
+        RISKY_TERMS,
+    )
+    .unwrap();
+    fixture.resume_run(&run.id).unwrap();
+    drive_run_step_with_gh(
+        &fixture.store,
+        &fixture.workspace,
+        &run.id,
+        &mut exec,
+        &fixture.gh_bin,
+    )
+    .unwrap();
+
+    let after = get_run(&fixture.store, &run.id).unwrap().unwrap();
+    assert_ne!(
+        after
+            .pause_reason
+            .as_deref()
+            .map(|r| r.contains("auth risk")),
+        Some(true),
+        "{:?}",
+        after.pause_reason
+    );
+    let log = read_all(&fixture.store.root.join("events.jsonl")).unwrap();
+    assert!(
+        log.events.iter().any(|e| e.r#type == "job.started"),
+        "worker should launch after acknowledgement"
+    );
+}
