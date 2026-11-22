@@ -37,6 +37,7 @@ use super::worker::{
 };
 use super::workflow::parse::load_workflow_file;
 use super::workflow::validate::validate;
+use crate::tmux::SESSION;
 use crate::tmux::client::TmuxClient;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -726,7 +727,15 @@ impl BrokerExecutor {
 
         let mut was_interrupted = false;
 
+        let tmux_missing: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
         let job_outcome = run_job_idempotent(&store, &spec, &assembled, |prepared| {
+            if let Err(err) = self.tmux.run_checked(&["has-session", "-t", SESSION]) {
+                *tmux_missing.borrow_mut() = Some(format!(
+                    "tmux is required for Factory workers: no tandem tmux session is reachable ({err}). Start Factory Mode with ./run.sh --factory"
+                ));
+                let _ = set_job_state(&prepared.dir, JobState::Interrupted);
+                return Err(JobError::Io(std::io::Error::other("tmux is required")));
+            }
             let worker_spec = WorkerLaunchSpec {
                 run_id: job.run.clone(),
                 stage: job.stage.clone(),
@@ -786,6 +795,13 @@ impl BrokerExecutor {
             let dir = job_dir(&store, &job.run, &job.stage, job.attempt);
             let _ = set_job_state(&dir, JobState::Interrupted);
             return StageOutcome::Interrupted;
+        }
+
+        if let Some(reason) = tmux_missing.into_inner() {
+            return StageOutcome::Blocked {
+                reason,
+                action_commands: Vec::new(),
+            };
         }
 
         let parsed = match job_outcome {

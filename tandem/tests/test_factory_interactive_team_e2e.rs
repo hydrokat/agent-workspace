@@ -9,18 +9,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use common::factory_fixture::{
-    FIXED_TODAY, FactoryFixture, FixtureExecutor, StubEnvLoginProbe, TEST_TERMS, orch_actor,
-    sys_actor, user_actor, user_caller,
+    FIXED_TODAY, FactoryFixture, FixtureExecutor, StubEnvLoginProbe, TEST_TERMS, TmuxSessionGuard,
+    prepare_ready_idea, sys_actor,
 };
-use tandem::factory::approval::mark_ready;
-use tandem::factory::artifacts;
 use tandem::factory::broker::context::ContextManifest;
 use tandem::factory::broker::job::{JobInput, JobState, job_dir, set_job_state};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::BrokerExecutor;
 use tandem::factory::login::open_login_pane;
-use tandem::factory::machine::Command;
-use tandem::factory::model::{FeasibilityVerdict, Risk, RunState};
+use tandem::factory::model::RunState;
 use tandem::factory::recovery::diagnose_with_tmux;
 use tandem::factory::run::{CreateRunOptions, create_run, get_run};
 use tandem::factory::runner::drive_run_step_with_gh;
@@ -30,42 +27,7 @@ use tandem::factory::team::{
 };
 use tandem::factory::telemetry::{self, CostBasis};
 use tandem::factory::worker::{WorkerAssignment, WorkerLaunchSpec, launch};
-use tandem::tmux::SESSION;
 use tandem::tmux::client::{TmuxClient, TmuxError};
-
-struct TmuxSessionGuard {
-    socket: String,
-}
-
-impl TmuxSessionGuard {
-    fn start(socket: String) -> Self {
-        let status = StdCommand::new("tmux")
-            .args([
-                "-L",
-                &socket,
-                "new-session",
-                "-d",
-                "-s",
-                SESSION,
-                "-n",
-                "status",
-                "sleep",
-                "120",
-            ])
-            .status()
-            .expect("spawn real tmux session");
-        assert!(status.success(), "tmux new-session failed: {status}");
-        Self { socket }
-    }
-}
-
-impl Drop for TmuxSessionGuard {
-    fn drop(&mut self) {
-        let _ = StdCommand::new("tmux")
-            .args(["-L", &self.socket, "kill-server"])
-            .status();
-    }
-}
 
 fn stub_clis_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -97,89 +59,6 @@ fn setup_env(fixture: &FactoryFixture) -> BTreeMap<String, String> {
         "AIza-top-secret-should-not-leak".to_string(),
     );
     env
-}
-
-fn prepare_ready_idea(fixture: &FactoryFixture, title: &str) -> String {
-    let user = user_actor();
-    let orch = orch_actor();
-
-    let idea = fixture
-        .store
-        .create_idea(title, "Export team activity as CSV", "user", &user)
-        .unwrap();
-
-    fixture
-        .store
-        .execute(
-            &idea.id,
-            Command::BindOrchestrator {
-                cli: "claude".to_string(),
-                model: "opus".to_string(),
-                conversation: Some("conv-iteam-1".to_string()),
-            },
-            &user,
-        )
-        .unwrap();
-
-    fixture
-        .store
-        .execute(
-            &idea.id,
-            Command::Describe {
-                title: title.to_string(),
-                text: "Export team activity CSV via interactive CLI team.".to_string(),
-            },
-            &orch,
-        )
-        .unwrap();
-
-    let feas_src = fixture.workspace.join(".agent-workspace/feas.md");
-    fs::write(&feas_src, "# Feasibility\n\nFeasible.\n").unwrap();
-    let feas_ref = artifacts::put(&fixture.store, &idea.id, "feasibility", &feas_src).unwrap();
-    fixture
-        .store
-        .execute(
-            &idea.id,
-            Command::StoreArtifact {
-                kind: "feasibility".to_string(),
-                artifact: feas_ref,
-                verdict: Some(FeasibilityVerdict::Feasible),
-                risk: Some(Risk::Low),
-                workflow: None,
-                missing_sections: Vec::new(),
-            },
-            &orch,
-        )
-        .unwrap();
-
-    fixture
-        .store
-        .execute(&idea.id, Command::SelectDirection, &orch)
-        .unwrap();
-
-    let plan_src = fixture.workspace.join(".agent-workspace/plan.md");
-    let plan_body = "## Scope\nExport CSV.\n\n## Acceptance criteria\n- Export team activity to CSV\n\n## Risks\nLow.\n\n## Estimates\n1 day.\n\n## Workflow recommendation\ndefault-delivery\n";
-    fs::write(&plan_src, plan_body).unwrap();
-    let plan_ref = artifacts::put(&fixture.store, &idea.id, "plan", &plan_src).unwrap();
-    let missing = artifacts::missing_plan_sections(plan_body);
-    fixture
-        .store
-        .execute(
-            &idea.id,
-            Command::StoreArtifact {
-                kind: "plan".to_string(),
-                artifact: plan_ref,
-                verdict: None,
-                risk: None,
-                workflow: Some("default-delivery".to_string()),
-                missing_sections: missing,
-            },
-            &orch,
-        )
-        .unwrap();
-
-    mark_ready(&fixture.store, &idea.id, &idea.id, "user", &user_caller()).unwrap();
-    idea.id
 }
 
 #[test]

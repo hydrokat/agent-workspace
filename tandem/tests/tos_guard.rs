@@ -1082,3 +1082,195 @@ fn test_negative_tos_violations_are_detected() {
 
     let _ = fs::remove_dir_all(&tmp);
 }
+
+fn collect_files_with_ext(dir: &Path, exts: &[&str]) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if dir.is_dir()
+        && let Ok(entries) = fs::read_dir(dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files.extend(collect_files_with_ext(&path, exts));
+            } else if path
+                .extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|e| exts.contains(&e))
+            {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+pub fn check_no_noninteractive_ai_argv(src_dir: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    let flag_tokens = [
+        "\"--print\"",
+        "\"--output-format\"",
+        "\"stream-json\"",
+        "\"--bare\"",
+    ];
+    let ai_clis = ["\"claude\"", "\"agy\"", "\"opencode\""];
+    for file in collect_rs_files(src_dir) {
+        let rel = file.strip_prefix(src_dir).unwrap_or(&file).to_path_buf();
+        let content = fs::read_to_string(&file).unwrap_or_default();
+        for (line_no, line) in content.lines().enumerate() {
+            for token in flag_tokens {
+                if line.contains(token) {
+                    violations.push(format!(
+                        "{}:{}: non-interactive AI CLI flag {token}",
+                        rel.display(),
+                        line_no + 1
+                    ));
+                }
+            }
+        }
+        for cli in ai_clis {
+            let mut from = 0;
+            while let Some(pos) = content[from..].find(cli) {
+                let at = from + pos;
+                let window_end = (at + cli.len() + 160).min(content.len());
+                let mut end = window_end;
+                while !content.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let window = &content[at + cli.len()..end];
+                let statement = window.split(';').next().unwrap_or(window);
+                let flagged = if cli == "\"opencode\"" {
+                    statement.contains("\"run\"")
+                } else {
+                    statement.contains("\"-p\"")
+                };
+                if flagged {
+                    let line_no = content[..at].matches('\n').count() + 1;
+                    violations.push(format!(
+                        "{}:{}: {cli} launched with a non-interactive argument",
+                        rel.display(),
+                        line_no
+                    ));
+                }
+                from = at + cli.len();
+            }
+        }
+    }
+    violations
+}
+
+pub fn check_no_headless_symbols(roots: &[(&Path, &[&str])]) -> Vec<String> {
+    let mut violations = Vec::new();
+    let forbidden = [
+        "HeadlessAdapter",
+        "HeadlessRequest",
+        "build_headless_argv",
+        "spawn_provider",
+        "provider_gates",
+        "ProviderGate",
+        "allows_headless",
+        "consent_provider",
+        "factoryProviderStatus",
+    ];
+    for (root, allowed_files) in roots {
+        for file in collect_files_with_ext(root, &["rs", "ts", "tsx"]) {
+            let rel = file.strip_prefix(root).unwrap_or(&file).to_path_buf();
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if allowed_files.contains(&rel_str.as_str()) {
+                continue;
+            }
+            let content = fs::read_to_string(&file).unwrap_or_default();
+            for (line_no, line) in content.lines().enumerate() {
+                for symbol in forbidden {
+                    if line.contains(symbol) {
+                        violations.push(format!(
+                            "{}:{}: removed headless symbol {symbol}",
+                            rel.display(),
+                            line_no + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    violations
+}
+
+#[test]
+fn test_no_noninteractive_ai_cli_argv_in_the_shipped_source() {
+    let src = manifest_dir().join("src");
+    assert_eq!(check_no_noninteractive_ai_argv(&src), Vec::<String>::new());
+}
+
+#[test]
+fn test_no_headless_symbols_remain_in_tandem_or_tandem_web() {
+    let tandem_src = manifest_dir().join("src");
+    let web_src = manifest_dir().join("..").join("tandem-web").join("src");
+    let roots: Vec<(&Path, &[&str])> = vec![
+        (tandem_src.as_path(), &["factory/settings.rs"]),
+        (web_src.as_path(), &[]),
+    ];
+    assert_eq!(check_no_headless_symbols(&roots), Vec::<String>::new());
+}
+
+#[test]
+fn test_interactive_only_guards_detect_violations() {
+    let tmp = std::env::temp_dir().join(format!("tandem-tos-iguard-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+
+    fs::write(
+        tmp.join("bad_claude.rs"),
+        "fn x() { let _ = vec![\"claude\".to_string(), \"-p\".to_string()]; }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.join("bad_agy.rs"),
+        "fn x() { let _ = [\"agy\", \"--print\"]; }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.join("bad_opencode.rs"),
+        "fn x() { let _ = [\"opencode\", \"run\", \"hi\"]; }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.join("ok_interactive.rs"),
+        "fn x() { let _ = [\"claude\", \"--permission-mode\", \"plan\"]; let _ = [\"opencode\", \"--model\", \"m\"]; }",
+    )
+    .unwrap();
+    let v = check_no_noninteractive_ai_argv(&tmp);
+    assert!(
+        v.iter()
+            .any(|m| m.contains("bad_claude.rs") && m.contains("\"claude\"")),
+        "{v:?}"
+    );
+    assert!(v.iter().any(|m| m.contains("bad_agy.rs")), "{v:?}");
+    assert!(
+        v.iter()
+            .any(|m| m.contains("bad_opencode.rs") && m.contains("\"opencode\"")),
+        "{v:?}"
+    );
+    assert!(!v.iter().any(|m| m.contains("ok_interactive.rs")), "{v:?}");
+
+    let sym = tmp.join("sym");
+    fs::create_dir_all(&sym).unwrap();
+    fs::write(sym.join("a.rs"), "pub trait HeadlessAdapter {}").unwrap();
+    fs::write(sym.join("b.ts"), "const x = factoryProviderStatus;").unwrap();
+    fs::write(sym.join("legacy.rs"), "extra.remove(\"provider_gates\");").unwrap();
+    let roots: Vec<(&Path, &[&str])> = vec![(sym.as_path(), &["legacy.rs"])];
+    let v = check_no_headless_symbols(&roots);
+    assert!(
+        v.iter()
+            .any(|m| m.contains("a.rs") && m.contains("HeadlessAdapter")),
+        "{v:?}"
+    );
+    assert!(
+        v.iter()
+            .any(|m| m.contains("b.ts") && m.contains("factoryProviderStatus")),
+        "{v:?}"
+    );
+    assert!(!v.iter().any(|m| m.contains("legacy.rs")), "{v:?}");
+
+    let _ = fs::remove_dir_all(&tmp);
+}
