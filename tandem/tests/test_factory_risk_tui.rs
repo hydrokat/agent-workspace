@@ -374,6 +374,21 @@ fn confirming_in_the_app_records_a_user_acknowledgement_and_keeps_other_clis_ris
     app.handle_key(&key(KeyCode::Enter));
     assert!(app.risk_confirm.is_none());
 
+    let state = |cli: &str| {
+        app.risks
+            .iter()
+            .find(|r| r.cli == cli)
+            .and_then(|r| r.risk.clone())
+    };
+    assert_eq!(state("claude").as_deref(), Some("acknowledged"));
+    assert_eq!(state("agy").as_deref(), Some("risky"));
+    assert!(
+        app.settings_tab
+            .risks
+            .iter()
+            .any(|r| r.cli == "claude" && r.risk.as_deref() == Some("acknowledged"))
+    );
+
     let acks = read_acks(&store);
     assert_eq!(acks.len(), 1, "{acks:?}");
     assert_eq!(acks[0].cli, "claude");

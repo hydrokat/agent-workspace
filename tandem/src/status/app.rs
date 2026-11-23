@@ -224,6 +224,7 @@ pub struct StatusApp {
     pub factory_tab: crate::status::factory_tab::FactoryTab,
     pub risks: Vec<crate::factory::auth_risk::RiskItem>,
     pub risk_confirm: Option<crate::status::risk_confirm::RiskConfirm>,
+    risk_rx: Option<Receiver<Vec<crate::factory::auth_risk::RiskItem>>>,
     pub web_daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
     pub web_state_dir: Option<PathBuf>,
     pub deps: Arc<dyn crate::web_deps::DepsRuntime>,
@@ -308,6 +309,7 @@ impl StatusApp {
             settings_tab: crate::status::settings_tab::SettingsTab::default(),
             risks: Vec::new(),
             risk_confirm: None,
+            risk_rx: None,
             web_tab: crate::status::web_tab::WebTab::default(),
             factory_tab: crate::status::factory_tab::FactoryTab::new(
                 Some(factory_ws),
@@ -743,18 +745,49 @@ impl StatusApp {
     }
 
     pub fn refresh_risks(&mut self) {
-        if !self.is_factory() {
+        if !self.is_factory() || self.risk_rx.is_some() {
             return;
         }
-        let probe = crate::factory::login::HostLoginProbe;
-        let items = crate::factory::login::all_statuses(&probe);
-        let store = crate::factory::store::FactoryStore::new(&self.workspace);
-        let risks = crate::factory::auth_risk::risk_report(
-            &store,
-            &items,
-            &crate::factory::dates::today_iso_date(),
-            crate::factory::broker::terms::PROVIDER_TERMS,
-        );
+        let workspace = self.workspace.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.risk_rx = Some(rx);
+        std::thread::spawn(move || {
+            let probe = crate::factory::login::HostLoginProbe;
+            let items = crate::factory::login::all_statuses(&probe);
+            let store = crate::factory::store::FactoryStore::new(&workspace);
+            let risks = crate::factory::auth_risk::risk_report(
+                &store,
+                &items,
+                &crate::factory::dates::today_iso_date(),
+                crate::factory::broker::terms::PROVIDER_TERMS,
+            );
+            let _ = tx.send(risks);
+        });
+    }
+
+    fn poll_risks(&mut self) {
+        let Some(ref rx) = self.risk_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(risks) => {
+                self.risk_rx = None;
+                self.set_risks(risks);
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.risk_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
+
+    fn mark_risk_acknowledged(&mut self, cli: &str) {
+        let mut risks = self.risks.clone();
+        for item in risks.iter_mut().filter(|r| r.cli == cli) {
+            item.risk = Some("acknowledged".to_string());
+            item.acknowledge_command = None;
+            item.reason = None;
+        }
         self.set_risks(risks);
     }
 
@@ -792,7 +825,7 @@ impl StatusApp {
                         self.risk_confirm = None;
                         self.factory_tab.notice =
                             format!("Acknowledged {} sign-in risk ({}).", item.cli, item.method);
-                        self.refresh_risks();
+                        self.mark_risk_acknowledged(&item.cli);
                     }
                     Err(err) => {
                         if let Some(ref mut c) = self.risk_confirm {
@@ -1159,6 +1192,7 @@ impl StatusApp {
     }
 
     pub fn tick_timers(&mut self) {
+        self.poll_risks();
         self.poll_deps_install();
         self.poll_factory_intent();
         if self.factory_tab.poll_background() {
