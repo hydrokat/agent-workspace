@@ -115,6 +115,7 @@ fn seed_large_factory_workspace(ws: &Path, num_ideas: usize, num_runs: usize, nu
             assumptions: Vec::new(),
             runs: run_id.iter().cloned().collect(),
             prs: Vec::new(),
+            target_recommendation: None,
             cancelled_from: None,
         };
         let idea_path = store.root.join("ideas").join(format!("{id}.json"));
@@ -528,6 +529,7 @@ fn test_factory_tab_archived_filter_hides_old_finished_ideas() {
             assumptions: Vec::new(),
             runs: Vec::new(),
             prs: Vec::new(),
+            target_recommendation: None,
             cancelled_from: None,
         };
         fs::write(

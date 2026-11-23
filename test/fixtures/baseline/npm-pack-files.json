@@ -60,6 +60,7 @@
   "tandem-web/src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/jobs/[jobId]/log/route.ts",
   "tandem-web/src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/prs/refresh/route.ts",
   "tandem-web/src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/route.ts",
+  "tandem-web/src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/target/route.ts",
   "tandem-web/src/app/api/workspaces/[workspaceId]/factory/settings/route.ts",
   "tandem-web/src/app/api/workspaces/[workspaceId]/factory/workflows/route.ts",
   "tandem-web/src/app/api/workspaces/[workspaceId]/files/content/route.ts",

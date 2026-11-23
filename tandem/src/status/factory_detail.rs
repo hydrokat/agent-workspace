@@ -8,7 +8,8 @@ use ratatui::text::Line;
 use unicode_width::UnicodeWidthStr;
 
 use crate::factory::approval::{
-    Caller, SnapshotVerification, mark_ready_with_workflow, revoke_ready, verify_snapshot,
+    Caller, MarkReadyOptions, SnapshotVerification, mark_ready_with_options, revoke_ready,
+    verify_snapshot,
 };
 use crate::factory::artifacts::{self, REQUIRED_PLAN_SECTIONS};
 use crate::factory::events::{self, Event};
@@ -25,6 +26,7 @@ use crate::factory::workflow::load_default_workflow;
 use crate::factory::workflow::parse::load_workflow_file;
 use crate::factory::workflow::schema::EvidenceKind;
 use crate::factory::workflow::validate::validate;
+use crate::factory::workspace::target_choices;
 use crate::sanitize::clean;
 use crate::snapshot::IdeaCard;
 use crate::status::render::age;
@@ -37,6 +39,7 @@ use crate::ui::text::truncate_to_width;
 
 const CMD_CYCLE_WORKFLOW: u8 = 1;
 const CMD_TOGGLE_DEPLOY: u8 = 2;
+const CMD_TOGGLE_TARGET: u8 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowOption {
@@ -61,6 +64,13 @@ pub enum DetailSubView {
         workflows: Vec<WorkflowOption>,
         selected_wf: usize,
         deploy_requested: bool,
+        target_required: bool,
+        targets: Vec<String>,
+        selected_target: Option<usize>,
+        recommended_target: Option<String>,
+        target_rationale: Option<String>,
+        stale_target: Option<String>,
+        target_focus: bool,
     },
     ConfirmRevoke,
     ConfirmWithdraw {
@@ -234,11 +244,50 @@ impl FactoryDetail {
                 workflows,
                 selected_wf,
                 deploy_requested,
+                target_required,
+                targets,
+                selected_target,
+                target_focus,
+                ..
             } => match event.code {
                 KeyCode::Esc => {
                     self.sub_view = DetailSubView::Main;
                     DetailKeyOutcome::Consumed
                 }
+                KeyCode::Char('t')
+                    if *target_required && (*target_focus || input.value.is_empty()) =>
+                {
+                    *target_focus = !*target_focus;
+                    *error = None;
+                    DetailKeyOutcome::Consumed
+                }
+                _ if *target_required && *target_focus => match event.code {
+                    KeyCode::Up => {
+                        if !targets.is_empty() {
+                            *selected_target =
+                                Some(selected_target.map_or(0, |i| i.saturating_sub(1)));
+                            *error = None;
+                        }
+                        DetailKeyOutcome::Consumed
+                    }
+                    KeyCode::Down => {
+                        if !targets.is_empty() {
+                            *selected_target =
+                                Some(selected_target.map_or(0, |i| (i + 1).min(targets.len() - 1)));
+                            *error = None;
+                        }
+                        DetailKeyOutcome::Consumed
+                    }
+                    KeyCode::Enter => {
+                        if selected_target.is_none() && !targets.is_empty() {
+                            *selected_target = Some(0);
+                        }
+                        *target_focus = false;
+                        *error = None;
+                        DetailKeyOutcome::Consumed
+                    }
+                    _ => DetailKeyOutcome::Consumed,
+                },
                 KeyCode::Char('w') if input.value.is_empty() => {
                     let valid_indices: Vec<usize> = workflows
                         .iter()
@@ -256,26 +305,41 @@ impl FactoryDetail {
                     DetailKeyOutcome::Consumed
                 }
                 KeyCode::Enter => {
+                    if *target_required && selected_target.is_none() {
+                        *error = Some(
+                            "Choose a target repository (press t) before confirming.".to_string(),
+                        );
+                        return DetailKeyOutcome::Consumed;
+                    }
                     let typed = input.value.trim().to_string();
                     if typed != self.idea_id {
                         *error = Some(format!("Type \"{}\" to confirm.", self.idea_id));
                         return DetailKeyOutcome::Consumed;
                     }
                     let wf_name = workflows.get(*selected_wf).map(|w| w.name.as_str());
+                    let target = if *target_required {
+                        selected_target.and_then(|idx| targets.get(idx).cloned())
+                    } else {
+                        None
+                    };
                     let deploy = *deploy_requested;
                     let store = FactoryStore::new(&self.workspace);
                     let owner = self.owner.clone();
                     let env_fn = |var: &str| std::env::var(var).ok();
                     let no_pane = |_: &str| None;
                     let caller = Caller::tui(&env_fn, &no_pane);
-                    match mark_ready_with_workflow(
+                    match mark_ready_with_options(
                         &store,
                         &self.workspace,
                         &self.idea_id,
                         &typed,
                         &owner,
-                        wf_name,
-                        deploy,
+                        MarkReadyOptions {
+                            workflow_override: wf_name.map(str::to_string),
+                            deploy_requested: deploy,
+                            target,
+                            ..Default::default()
+                        },
                         &caller,
                     ) {
                         Ok(res) => {
@@ -582,6 +646,35 @@ impl FactoryDetail {
                     .unwrap_or("");
                 let (workflows, selected_wf) =
                     Self::load_workflow_options(&self.workspace, recommended);
+                let tc = target_choices(&self.workspace);
+                let (
+                    target_required,
+                    targets,
+                    selected_target,
+                    recommended_target,
+                    target_rationale,
+                    stale_target,
+                ) = if tc.required {
+                    let rec = idea.target_recommendation.as_ref();
+                    let rec_idx = rec.and_then(|r| tc.repos.iter().position(|n| n == &r.repo));
+                    let (rec_repo, rec_rat, stale) = match (rec, rec_idx) {
+                        (Some(r), Some(_)) => {
+                            (Some(r.repo.clone()), Some(r.rationale.clone()), None)
+                        }
+                        (Some(r), None) => (
+                            None,
+                            None,
+                            Some(format!(
+                                "Recommended target '{}' is no longer linked; choose a current repository.",
+                                clean(&r.repo)
+                            )),
+                        ),
+                        (None, _) => (None, None, None),
+                    };
+                    (true, tc.repos, rec_idx, rec_repo, rec_rat, stale)
+                } else {
+                    (false, Vec::new(), None, None, None, None)
+                };
                 self.notice.clear();
                 self.sub_view = DetailSubView::ConfirmReady {
                     input,
@@ -589,6 +682,13 @@ impl FactoryDetail {
                     workflows,
                     selected_wf,
                     deploy_requested: false,
+                    target_required,
+                    targets,
+                    selected_target,
+                    recommended_target,
+                    target_rationale,
+                    stale_target,
+                    target_focus: false,
                 };
             }
             IdeaState::ReadyForDevelopment => {
@@ -761,7 +861,39 @@ impl FactoryDetail {
                 }
                 None
             }
-            Resolved::Cmd(_) | Resolved::Row(_) => None,
+            Resolved::Cmd(CMD_TOGGLE_TARGET) => {
+                if let DetailSubView::ConfirmReady {
+                    target_required,
+                    target_focus,
+                    error,
+                    ..
+                } = &mut self.sub_view
+                    && *target_required
+                {
+                    *target_focus = !*target_focus;
+                    *error = None;
+                }
+                None
+            }
+            Resolved::Row(idx) => {
+                if let DetailSubView::ConfirmReady {
+                    target_required,
+                    targets,
+                    selected_target,
+                    target_focus,
+                    error,
+                    ..
+                } = &mut self.sub_view
+                    && *target_required
+                    && idx < targets.len()
+                {
+                    *selected_target = Some(idx);
+                    *target_focus = false;
+                    *error = None;
+                }
+                None
+            }
+            Resolved::Cmd(_) => None,
         }
     }
 
@@ -824,6 +956,13 @@ impl FactoryDetail {
                 workflows,
                 selected_wf,
                 deploy_requested,
+                target_required,
+                targets,
+                selected_target,
+                recommended_target,
+                target_rationale,
+                stale_target,
+                target_focus,
             } => {
                 let header_style = Style::default()
                     .fg(Color::Yellow)
@@ -905,6 +1044,99 @@ impl FactoryDetail {
                     );
                     y += 1;
                 }
+                if *target_required && y < bottom.saturating_sub(2) {
+                    let max_visible = 5usize;
+                    let total = targets.len();
+                    let focus_idx = selected_target.unwrap_or(0);
+                    let start = if total > max_visible {
+                        focus_idx
+                            .saturating_sub(max_visible / 2)
+                            .min(total - max_visible)
+                    } else {
+                        0
+                    };
+                    let end = (start + max_visible).min(total);
+                    for (offset, repo) in targets[start..end].iter().enumerate() {
+                        if y >= bottom.saturating_sub(2) {
+                            break;
+                        }
+                        let idx = start + offset;
+                        let pointer = if Some(idx) == *selected_target {
+                            "▸ "
+                        } else {
+                            "  "
+                        };
+                        let rec = if recommended_target.as_deref() == Some(repo.as_str()) {
+                            " (recommended)"
+                        } else {
+                            ""
+                        };
+                        let label = if idx == start {
+                            if *target_focus {
+                                "Target*      "
+                            } else {
+                                "Target       "
+                            }
+                        } else {
+                            "             "
+                        };
+                        let line = format!("{label}{pointer}{}{rec}", clean(repo));
+                        let row_style = if *target_focus && Some(idx) == *selected_target {
+                            header_style
+                        } else {
+                            text_style
+                        };
+                        write_clipped(buf, area.x, y, max_w, &line, row_style);
+                        self.hits
+                            .push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
+                        y += 1;
+                    }
+                    if selected_target.is_none()
+                        && stale_target.is_none()
+                        && y < bottom.saturating_sub(2)
+                    {
+                        write_clipped(
+                            buf,
+                            area.x,
+                            y,
+                            max_w,
+                            "  Choose a target (t). No recommendation yet.",
+                            Style::default().fg(Color::Yellow),
+                        );
+                        self.hits.push(
+                            Rect::new(area.x, y, area.width, 1),
+                            Hit::Cmd(CMD_TOGGLE_TARGET),
+                        );
+                        y += 1;
+                    }
+                    if let Some(stale) = stale_target {
+                        for wrapped in wrap_text(&format!("  {}", clean(stale)), max_w.max(1)) {
+                            if y >= bottom.saturating_sub(2) {
+                                break;
+                            }
+                            write_clipped(
+                                buf,
+                                area.x,
+                                y,
+                                max_w,
+                                &wrapped,
+                                Style::default().fg(Color::Yellow),
+                            );
+                            y += 1;
+                        }
+                    } else if let Some(rat) = target_rationale {
+                        let cleaned = clean(rat.trim());
+                        if !cleaned.is_empty() {
+                            for wrapped in wrap_text(&format!("  Why: {cleaned}"), max_w.max(1)) {
+                                if y >= bottom.saturating_sub(2) {
+                                    break;
+                                }
+                                write_clipped(buf, area.x, y, max_w, &wrapped, dim_style);
+                                y += 1;
+                            }
+                        }
+                    }
+                }
                 if y < bottom {
                     for risk in self
                         .risks
@@ -946,13 +1178,16 @@ impl FactoryDetail {
                     y += 1;
                 }
                 if y < bottom {
+                    let mut hints = Vec::new();
+                    if *target_required {
+                        hints.push(seg("t target", Hit::Cmd(CMD_TOGGLE_TARGET)));
+                    }
+                    hints.push(seg("Enter confirm", Hit::key(KeyCode::Enter)));
+                    hints.push(seg("Esc cancel", Hit::key(KeyCode::Esc)));
                     self.hits.put_hints(
                         buf,
                         Rect::new(area.x, area.y + area.height - 1, area.width, 1),
-                        &[
-                            seg("Enter confirm", Hit::key(KeyCode::Enter)),
-                            seg("Esc cancel", Hit::key(KeyCode::Esc)),
-                        ],
+                        &hints,
                         "   ",
                         dim_style,
                     );
@@ -1176,6 +1411,38 @@ impl FactoryDetail {
             } else {
                 let art_line = format!("{feas_part}      {plan_part}   {assump_part}");
                 write_clipped(buf, area.x, y, max_w, &art_line, text_style);
+                y += 1;
+            }
+        }
+
+        if matches!(idea.state, IdeaState::Ideation | IdeaState::Planning) && y < bottom {
+            let tc = target_choices(&self.workspace);
+            if tc.required {
+                let target_line = match &idea.target_recommendation {
+                    Some(rec) if tc.repos.iter().any(|r| r == &rec.repo) => {
+                        let first_line = rec
+                            .rationale
+                            .lines()
+                            .map(str::trim)
+                            .find(|l| !l.is_empty())
+                            .unwrap_or("");
+                        if first_line.is_empty() {
+                            format!("Target       {} (recommended)", clean(&rec.repo))
+                        } else {
+                            format!(
+                                "Target       {} (recommended) — {}",
+                                clean(&rec.repo),
+                                clean(first_line)
+                            )
+                        }
+                    }
+                    Some(rec) => format!(
+                        "Target       {} (stale recommendation — not linked)",
+                        clean(&rec.repo)
+                    ),
+                    None => "Target       not recommended yet".to_string(),
+                };
+                write_clipped(buf, area.x, y, max_w, &target_line, text_style);
                 y += 1;
             }
         }

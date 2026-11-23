@@ -5,6 +5,15 @@ pub const KNOWN_PROVIDERS: &[&str] = &["claude", "agy", "opencode"];
 pub const TITLE_MAX_LEN: usize = 120;
 pub const TEXT_MAX_LEN: usize = 8000;
 pub const OWNER_MAX_LEN: usize = 64;
+pub const TARGET_RATIONALE_MAX_BYTES: usize = 2048;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TargetRecommendation {
+    pub repo: String,
+    pub rationale: String,
+    pub by: Actor,
+    pub ts: f64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
@@ -265,6 +274,8 @@ pub struct Idea {
     #[serde(default)]
     pub prs: Vec<PrLink>,
     #[serde(default)]
+    pub target_recommendation: Option<TargetRecommendation>,
+    #[serde(default)]
     pub cancelled_from: Option<IdeaState>,
 }
 
@@ -425,6 +436,29 @@ pub fn validate_owner(owner: &str) -> Result<String, ValidationError> {
         ));
     }
     Ok(owner.to_string())
+}
+
+pub fn validate_target_rationale(rationale: &str) -> Result<String, ValidationError> {
+    let trimmed = rationale.trim();
+    if trimmed.is_empty() {
+        return Err(ValidationError(
+            "target reason must not be empty".to_string(),
+        ));
+    }
+    if trimmed.len() > TARGET_RATIONALE_MAX_BYTES {
+        return Err(ValidationError(format!(
+            "target reason exceeds {TARGET_RATIONALE_MAX_BYTES} byte limit"
+        )));
+    }
+    if trimmed
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        return Err(ValidationError(
+            "target reason contains disallowed control character".to_string(),
+        ));
+    }
+    Ok(trimmed.to_string())
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ import {
   isValidIdeaId,
   isValidIdeaTitle,
   isValidModelId,
+  isValidTargetRepo,
   type ArtifactKind,
   type FactoryCli,
   type Idea,
@@ -429,5 +430,87 @@ describe("CliTandemGateway Factory Methods", () => {
       code: "gate_not_met",
       exitCode: 3,
     });
+  });
+
+  it("validates target names and passes --target and run target -> resume via gateway", async () => {
+    expect(isValidTargetRepo("api-service")).toBe(true);
+    expect(isValidTargetRepo("web_client.v2")).toBe(true);
+    expect(isValidTargetRepo("")).toBe(false);
+    expect(isValidTargetRepo("../escape")).toBe(false);
+    expect(isValidTargetRepo("repo with spaces")).toBe(false);
+
+    const gwArgs: string[][] = [];
+    const gw = new CliTandemGateway(
+      "/usr/local/bin/tandem",
+      (async (_bin: string, args: string[]) => {
+        gwArgs.push(args);
+        if (args.includes("ready")) {
+          return { stdout: JSON.stringify(SAMPLE_READY), stderr: "" };
+        }
+        return {
+          stdout: JSON.stringify({
+            id: "r-4h8k2m1x",
+            idea: "i-abcd1234",
+            workflow: "default-delivery",
+            workflow_version: "1",
+            workflow_sha256: "abc",
+            target: "api-service",
+            state: "running",
+            stages: [],
+            created: 1700000000,
+            updated: 1700000001,
+          }),
+          stderr: "",
+        };
+      }) as unknown as ConstructorParameters<typeof CliTandemGateway>[1]
+    );
+
+    const ucReady = new MarkFactoryIdeaReadyUseCase(
+      new MockRegistry([
+        {
+          id: "tandem-1111111111",
+          name: "ws",
+          path: "/ws",
+          socket: "ws",
+          updated_at: 1700000000,
+        },
+      ]),
+      gw
+    );
+    await expect(
+      ucReady.execute("tandem-1111111111", "i-abcd1234", "i-abcd1234", {
+        target: "../bad",
+      })
+    ).rejects.toBeInstanceOf(FactoryGatewayError);
+
+    await ucReady.execute("tandem-1111111111", "i-abcd1234", "i-abcd1234", {
+      workflow: "default-delivery",
+      target: "api-service",
+    });
+    expect(gwArgs[0]).toEqual([
+      "factory",
+      "idea",
+      "ready",
+      "i-abcd1234",
+      "--confirm",
+      "i-abcd1234",
+      "--workflow",
+      "default-delivery",
+      "--target",
+      "api-service",
+      "--json",
+    ]);
+
+    const resumed = await gw.factoryRunTarget("/ws", "r-4h8k2m1x", "api-service");
+    expect(resumed.target).toBe("api-service");
+    expect(gwArgs[1]).toEqual([
+      "factory",
+      "run",
+      "target",
+      "r-4h8k2m1x",
+      "api-service",
+      "--json",
+    ]);
+    expect(gwArgs[2]).toEqual(["factory", "run", "resume", "r-4h8k2m1x", "--json"]);
   });
 });

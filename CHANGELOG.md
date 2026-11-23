@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.27.0] — 2026-11-23
+
+### Added
+- **Target repository recommendation & Gate 2 confirmation (`p-031` / `s-023`, Version impact: Minor)**: When 2+ git repositories are linked under `codebase-symlinks/`, the Orchestrator recommends one target repository with its reasons (`tandem factory idea target-recommend`, `factory.py target-recommend`, and `idea.target_recommended` event); multi-repo ideas are advised to split into one idea per repo (one repo per run). `tandem factory idea show --json` exposes `target_choices` (`repos`, `required`) and `target_recommendation` (including `stale`). Gate 2 requires choosing a target in the TUI (`ConfirmReady` `t` target picker) and `tandem-web` (`ReadyDialog` target select), while CLI `idea ready` accepts optional `--target` / `--accept-recommended-target`. Added `POST /api/workspaces/[workspaceId]/factory/runs/[runId]/target` (token-guarded) and a paused-run target picker in `tandem-web`.
+
+### Changed
+- **Recommended-first target pause fallback (`p-031` / `s-023`)**: CLI runs started in a 2+ repo workspace without `--target` pause listing the non-stale recommended repository first in both the pause reason (`choose a target repository: … (recommended: X — …)`) and `action_commands`; TUI and `tandem-web` pause pickers pre-select the recommended repo and display its rationale.
+
 ## [1.26.0] — 2026-11-23
 
 ### Changed: Factory Mode is interactive-only; the headless design is removed (`p-030` / `s-022`)

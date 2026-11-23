@@ -169,6 +169,7 @@ fn test_all_model_types_round_trip_json() {
         assumptions: vec!["Single repo".to_string()],
         runs: vec![run.id.clone()],
         prs: vec![pr.clone()],
+        target_recommendation: None,
         cancelled_from: None,
     };
     let settings = FactorySettings {

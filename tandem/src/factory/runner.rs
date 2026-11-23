@@ -506,16 +506,50 @@ pub fn drive_run_step_with_gh(
             }
         }
         Err(WorkspaceError::AmbiguousTarget(choices)) => {
-            let cmds: Vec<String> = choices
+            let rec = store
+                .get_idea(&run.idea)
+                .ok()
+                .flatten()
+                .and_then(|i| i.target_recommendation)
+                .filter(|r| choices.iter().any(|c| c == &r.repo));
+            let (ordered, reason) = match rec {
+                Some(r) => {
+                    let mut ordered = vec![r.repo.clone()];
+                    ordered.extend(choices.iter().filter(|c| *c != &r.repo).cloned());
+                    let first_line: String = r
+                        .rationale
+                        .lines()
+                        .map(str::trim)
+                        .find(|l| !l.is_empty())
+                        .unwrap_or("")
+                        .chars()
+                        .take(120)
+                        .collect();
+                    let reason = if first_line.is_empty() {
+                        format!(
+                            "choose a target repository: {} (recommended: {})",
+                            ordered.join(", "),
+                            r.repo
+                        )
+                    } else {
+                        format!(
+                            "choose a target repository: {} (recommended: {} — {first_line})",
+                            ordered.join(", "),
+                            r.repo
+                        )
+                    };
+                    (ordered, reason)
+                }
+                None => (
+                    choices.clone(),
+                    format!("choose a target repository: {}", choices.join(", ")),
+                ),
+            };
+            let cmds: Vec<String> = ordered
                 .iter()
                 .map(|c| format!("tandem factory run target {run_id} {c}"))
                 .collect();
-            return pause_run(
-                store,
-                run,
-                format!("choose a target repository: {}", choices.join(", ")),
-                cmds,
-            );
+            return pause_run(store, run, reason, cmds);
         }
         Err(e) => return Err(RunnerError::Workspace(e)),
     }
@@ -1827,15 +1861,23 @@ pub fn drive_workspace_step(
                 && !idea_within_grace_period(&idea, settings.approval_grace_secs, now)
             {
                 let pending = take_pending_run(store, &idea.id);
-                let opts = match pending {
-                    Some(cfg) => super::run::CreateRunOptions {
-                        deploy_requested: cfg.deploy_requested,
-                        workflow: cfg.workflow,
-                        budget: cfg.budget,
-                    },
-                    None => super::run::CreateRunOptions::default(),
+                let (opts, pending_target) = match pending {
+                    Some(cfg) => (
+                        super::run::CreateRunOptions {
+                            deploy_requested: cfg.deploy_requested,
+                            workflow: cfg.workflow,
+                            budget: cfg.budget,
+                        },
+                        cfg.target,
+                    ),
+                    None => (super::run::CreateRunOptions::default(), None),
                 };
-                let _ = super::run::create_run(store, workspace, &idea.id, opts, &sys);
+                if let Ok(created) = super::run::create_run(store, workspace, &idea.id, opts, &sys)
+                    && let Some(ref target) = pending_target
+                {
+                    let _ =
+                        super::workspace::record_run_target(store, workspace, &created.id, target);
+                }
             }
         }
     }

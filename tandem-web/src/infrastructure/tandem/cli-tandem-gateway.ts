@@ -350,7 +350,7 @@ export class CliTandemGateway implements ITandemGateway {
   async factoryMarkReady(
     workspacePath: string,
     ideaId: string,
-    options?: { workflow?: string; deploy?: boolean }
+    options?: { workflow?: string; deploy?: boolean; target?: string }
   ): Promise<ReadyResult> {
     const args = ["factory", "idea", "ready", ideaId, "--confirm", ideaId];
     if (options?.workflow) {
@@ -358,6 +358,9 @@ export class CliTandemGateway implements ITandemGateway {
     }
     if (options?.deploy) {
       args.push("--deploy");
+    }
+    if (options?.target) {
+      args.push("--target", options.target);
     }
     args.push("--json");
     const stdout = await this.runFactory(workspacePath, args);
@@ -459,6 +462,13 @@ export class CliTandemGateway implements ITandemGateway {
     }
     args.push("--json");
     const stdout = await this.runFactory(workspacePath, args);
+    const parsed = JSON.parse(stdout) as RunSummary | { run: RunSummary };
+    return "run" in parsed ? parsed.run : parsed;
+  }
+
+  async factoryRunTarget(workspacePath: string, runId: string, name: string): Promise<RunSummary> {
+    await this.runFactory(workspacePath, ["factory", "run", "target", runId, name, "--json"]);
+    const stdout = await this.runFactory(workspacePath, ["factory", "run", "resume", runId, "--json"]);
     const parsed = JSON.parse(stdout) as RunSummary | { run: RunSummary };
     return "run" in parsed ? parsed.run : parsed;
   }

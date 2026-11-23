@@ -3,6 +3,7 @@ import {
   MarkFactoryIdeaReadyUseCase,
   RevokeFactoryIdeaReadyUseCase,
 } from "@/application/use-cases/factory-ideas";
+import { isValidTargetRepo } from "@/domain/models/factory";
 import { CliTandemGateway } from "@/infrastructure/tandem/cli-tandem-gateway";
 import { factoryErrorResponse } from "@/infrastructure/tandem/factory-http-error";
 import { FileWorkspaceRegistry } from "@/infrastructure/tandem/file-workspace-registry";
@@ -14,7 +15,7 @@ export async function POST(
   try {
     const { workspaceId, ideaId } = await props.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const { confirm, workflow, deploy } = body;
+    const { confirm, workflow, deploy, target } = body;
 
     if (typeof confirm !== "string") {
       return NextResponse.json(
@@ -34,6 +35,17 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (target !== undefined && (typeof target !== "string" || !isValidTargetRepo(target))) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "target must match ^[A-Za-z0-9._-]{1,100}$",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
     const useCase = new MarkFactoryIdeaReadyUseCase(
       new FileWorkspaceRegistry(),
@@ -42,6 +54,7 @@ export async function POST(
     const result = await useCase.execute(workspaceId, ideaId, confirm, {
       workflow,
       deploy,
+      target,
     });
     return NextResponse.json(result);
   } catch (error: unknown) {

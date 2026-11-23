@@ -217,7 +217,12 @@ describe('script-first skills ship their scripts and templates', () => {
     assert.match(text, /^---\nname: factory-orchestrator\n/);
     assert.ok(text.split('---')[1].includes('TANDEM_ROLE=orchestrator'));
     assert.ok(text.includes('scripts/factory.py'));
+    assert.ok(text.includes('target-recommend'));
+    assert.ok(text.includes('target_choices'));
+    assert.ok(text.includes('codebase-map.md'));
+    assert.ok(text.includes('one idea per repo'));
     assert.match(text, /Never run `tandem factory idea ready` or `revoke-ready`/);
+    assert.match(text, /Never run `tandem factory run target`/);
 
     const agentsMd = readFile(dir, 'AGENTS.md');
     assert.ok(agentsMd.includes('### 10. Factory Mode'));

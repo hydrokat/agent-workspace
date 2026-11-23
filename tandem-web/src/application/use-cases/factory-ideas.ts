@@ -7,6 +7,7 @@ import {
   isValidIdeaText,
   isValidIdeaTitle,
   isValidModelIdForCli,
+  isValidTargetRepo,
   isValidWorkflowName,
   type CancelIdeaResult,
   type Idea,
@@ -155,7 +156,7 @@ export class MarkFactoryIdeaReadyUseCase {
     workspaceId: string,
     ideaId: string,
     confirm: string,
-    options?: { workflow?: string; deploy?: boolean }
+    options?: { workflow?: string; deploy?: boolean; target?: string }
   ): Promise<ReadyResult> {
     requireIdeaId(ideaId);
     if (confirm !== ideaId) {
@@ -163,6 +164,9 @@ export class MarkFactoryIdeaReadyUseCase {
     }
     if (options?.workflow !== undefined && !isValidWorkflowName(options.workflow)) {
       throw new FactoryGatewayError("invalid_input", "Invalid workflow name");
+    }
+    if (options?.target !== undefined && !isValidTargetRepo(options.target)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid target repository name");
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     return this.gateway.factoryMarkReady(workspace.path, ideaId, options);

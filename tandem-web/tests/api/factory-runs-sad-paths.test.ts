@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { NextRequest } from "next/server";
 import * as runRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/route";
 import * as runControlRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/control/route";
+import * as runTargetRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/target/route";
 import * as runLogRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/jobs/[jobId]/log/route";
 import * as riskAckRoute from "../../src/app/api/workspaces/[workspaceId]/factory/login/risk/acknowledge/route";
 import { middleware } from "../../src/middleware";
@@ -53,6 +54,10 @@ describe("Factory Run API Sad Paths & Security", () => {
       new NextRequest(`http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x`),
       new NextRequest(
         `http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x/control`,
+        { method: "POST" }
+      ),
+      new NextRequest(
+        `http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x/target`,
         { method: "POST" }
       ),
       new NextRequest(
@@ -170,6 +175,54 @@ describe("Factory Run API Sad Paths & Security", () => {
           )
         )
       ).toBe(false);
+    }
+  });
+
+  it("validates POST /runs/[runId]/target input and invokes tandem target + resume", async () => {
+    const badRes = await runTargetRoute.POST(
+      new Request(
+        `http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x/target`,
+        { method: "POST", body: JSON.stringify({ name: "../escape" }) }
+      ),
+      { params: Promise.resolve({ workspaceId, runId: "r-4h8k2m1x" }) }
+    );
+    expect(badRes.status).toBe(400);
+
+    const badRunRes = await runTargetRoute.POST(
+      new Request(`http://localhost/api/workspaces/${workspaceId}/factory/runs/bad/target`, {
+        method: "POST",
+        body: JSON.stringify({ name: "web-client" }),
+      }),
+      { params: Promise.resolve({ workspaceId, runId: "bad" }) }
+    );
+    expect(badRunRes.status).toBe(400);
+
+    const origTandem = process.env.TANDEM_BIN;
+    const callsLog = join(stateDir, "target-calls.log");
+    const stubBin = join(stateDir, "stub-run-target.sh");
+    await writeFile(
+      stubBin,
+      `#!/bin/sh
+echo "$@" >> "${callsLog}"
+echo '{"id":"r-4h8k2m1x","idea":"i-7k2m9q4d","workflow":"default-delivery","workflow_version":"1","workflow_sha256":"abc","target":"web-client","state":"running","stages":[],"created":1,"updated":2}'
+`,
+      { mode: 0o755 }
+    );
+    process.env.TANDEM_BIN = stubBin;
+    try {
+      const okRes = await runTargetRoute.POST(
+        new Request(
+          `http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x/target`,
+          { method: "POST", body: JSON.stringify({ name: "web-client" }) }
+        ),
+        { params: Promise.resolve({ workspaceId, runId: "r-4h8k2m1x" }) }
+      );
+      expect(okRes.status).toBe(200);
+      const json = (await okRes.json()) as { run?: { target?: string; state?: string } };
+      expect(json.run?.target).toBe("web-client");
+    } finally {
+      if (origTandem === undefined) delete process.env.TANDEM_BIN;
+      else process.env.TANDEM_BIN = origTandem;
     }
   });
 });

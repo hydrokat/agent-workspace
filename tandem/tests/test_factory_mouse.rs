@@ -392,6 +392,8 @@ fn test_run_monitor_picker_row_click_selects_and_confirms() {
     monitor.sub_view = RunSubView::TargetPicker {
         choices: vec!["repo-a".to_string(), "repo-b".to_string()],
         selected: 0,
+        recommended: None,
+        reason: None,
         error: None,
     };
     tab.run_monitor = Some(monitor);

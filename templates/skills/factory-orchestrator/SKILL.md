@@ -18,8 +18,14 @@ If the user invokes `/idea <idea text>`, run the `/idea` skill in Factory Mode (
 3. **Questions.** Ask only what changes the plan. Before asking, run `factory.py [--idea <id>] question-check`. Ask with `python3 .agents/skills/agent-coordination/scripts/coord.py ask --task "idea:<idea-id>" --blocking-scope "<scope>" "<question>"`. Keep working on everything a question does not block. When the ceiling is reached, or the answer would not change the plan, record an assumption with `factory.py [--idea <id>] assume --text "<text>"` instead.
 4. **Direction.** When the user has chosen a feasible direction (or `idea.py gate` returns `proceed`), run `factory.py [--idea <id>] select-direction`.
 5. **Plan.** Write a plan with the five required sections (`Scope`, `Acceptance criteria`, `Risks`, `Estimates`, `Workflow recommendation`) to a temporary file and store it with `factory.py [--idea <id>] plan --file <path> [--workflow <workflow>]`. Revise and store again when answers arrive.
-6. **Hand over (Gate 2).** Tell the user the plan is ready to review and that only they can mark it ready, in the Factory tab, the web UI, or via `tandem factory idea ready <idea-id> --confirm <idea-id>`.
-7. **Team Control (Post-Gate 2).** Once a run is queued or running (when `orchestrator_may_choose` is enabled):
+6. **Choose the target repository.** Run `factory.py [--idea <id>] show` and read `target_choices`. If `target_choices.required` is `false`, skip this step. Otherwise:
+   - Read `knowledgebase/context-history/codebase-map.md`, then inspect each candidate repository read-only for the plan's affected paths, modules, and tests.
+   - Write a short rationale file (<= 2 KB, no secrets) naming the recommended repo, the concrete paths/modules the plan changes there, and why the other repos are unaffected or only consumers; record it with `factory.py [--idea <id>] target-recommend --repo <name> --reason-file <path>`.
+   - If the plan requires changes in more than one repo, state that in the reason and in chat, and recommend splitting the idea into one idea per repo (one repo per run), while still recommending the repo for this idea's slice.
+   - Tell the user in chat: `Recommended target: <repo> — <reason>. You confirm this when you mark the idea ready.`
+   - Re-run `target-recommend` if the plan changes which repo is affected.
+7. **Hand over (Gate 2).** Tell the user the plan is ready to review and that only they can mark it ready, in the Factory tab, the web UI, or via `tandem factory idea ready <idea-id> --confirm <idea-id>`.
+8. **Team Control (Post-Gate 2).** Once a run is queued or running (when `orchestrator_may_choose` is enabled):
    - Consult the cost-aware recommendation first: `factory.py recommend --run <run> --stage <stage> [--complexity low|medium|high] [--required-tier economy|standard|premium]`. It returns the cheapest capable model among signed-in CLIs (tier from the stage floor, slice complexity, and your hints) with its tier, cost basis, and candidate count. Prefer the lowest capable tier; raise `--complexity` only when the slice really needs a stronger model.
    - Choose per-stage workers with `factory.py assign --run <run> --stage <stage> --cli <cli> --model <model> [--role <role>]`. User explicit assignments always take precedence. When you do not assign, the default is the recommendation.
    - After a failed job, `factory.py relaunch` automatically moves default assignments up one tier (cheapest next model) and never changes assignments made by the user or by you; use `recommend` and `assign` to change those deliberately.
@@ -33,6 +39,7 @@ If the user invokes `/idea <idea text>`, run the `/idea` skill in Factory Mode (
 - Workers are always interactive tmux panes. Never launch an AI CLI with `-p`/`--print`/`run` or any other non-interactive mode, and do not suggest it.
 
 - Never run `tandem factory idea ready` or `revoke-ready`. Only the user applies the tag.
+- Never run `tandem factory run target`, and never say the target is set — only the user sets or confirms the target repository.
 - Never call `tmux` directly or access credential files; all worker communication goes through `factory.py` / `tandem factory agent`.
 - Do not start implementation, create branches, or edit the codebase during ideation.
 - Never put secrets into a study, plan, assumption, or question.
@@ -51,6 +58,7 @@ If the user invokes `/idea <idea text>`, run the `/idea` skill in Factory Mode (
 | `assume --text <t> [--idea <id>]` | Record an explicit assumption on the idea |
 | `select-direction [--idea <id>]` | Advance the idea from Ideation to Planning |
 | `plan --file <f> [--workflow <w>] [--idea <id>]` | Store a plan artifact |
+| `target-recommend --repo <r> --reason-file <f> [--idea <id>]` | Record advisory target repository recommendation |
 | `recommend --run <r> --stage <s> [--complexity <c>] [--required-tier <t>]` | Least-cost capable CLI/model for a stage, with tier, cost basis, and candidates |
 | `assign --run <r> --stage <s> --cli <c> --model <m>` | Assign CLI/model for a stage (respects user priority) |
 | `agents --run <r>` | List jobs, pane status, and activity for a run |

@@ -639,7 +639,7 @@ export default function DashboardPage() {
                 setActiveTab("queries");
                 setDesktopTab("queries");
               }}
-              onMarkReady={(confirm) => markReady(selectedIdeaId, confirm)}
+              onMarkReady={(confirm, options) => markReady(selectedIdeaId, confirm, options)}
               onRevokeReady={() => revokeReady(selectedIdeaId)}
               openReadyRequested={readyRequestIdeaId === selectedIdeaId}
               onOpenReadyHandled={clearReadyRequest}

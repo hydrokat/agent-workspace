@@ -1,3 +1,5 @@
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
 
@@ -750,4 +752,271 @@ fn test_ready_grace_banner_format_and_undo() {
         .collect();
     assert!(narrow_rendered.contains("24 s"));
     assert!(narrow_rendered.contains("undo"));
+}
+
+#[test]
+fn test_ready_with_target_and_accept_recommended_across_repo_counts_and_grace() {
+    use tandem::cli::{Cli, Command, parse_from};
+    use tandem::config::Config;
+    use tandem::factory::commands::run_with_caller;
+    use tandem::factory::executor::{Executor, ReadyCli, StageJob, StageOutcome};
+    use tandem::factory::machine::Command as MachineCommand;
+    use tandem::factory::model::{FactorySettings, RunState};
+    use tandem::factory::run::{get_run, list_runs};
+    use tandem::factory::runner::drive_workspace_step;
+    use tandem::factory::settings::save as save_settings;
+
+    struct NoopExec;
+    impl Executor for NoopExec {
+        fn ready_clis(&self) -> Vec<ReadyCli> {
+            vec![ReadyCli::new(
+                "claude",
+                Some(tandem::factory::broker::terms::AuthType::ApiKey),
+            )]
+        }
+
+        fn run(&mut self, _job: &StageJob) -> StageOutcome {
+            StageOutcome::Succeeded
+        }
+    }
+
+    let tmp = temp_ws("ready-target");
+    let repos_dir = temp_ws("ready-target-repos");
+    let store = FactoryStore::new(&tmp);
+    store.ensure().unwrap();
+    save_settings(
+        &store,
+        &FactorySettings {
+            approval_grace_secs: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let orch = orch_actor();
+    let caller = cli_tty_caller();
+    let cfg = Config {
+        factory: true,
+        state_dir: tmp.join(".state"),
+        ..Config::default()
+    };
+
+    let make_planning = |title: &str| {
+        let idea = store.create_idea(title, "Body", "alice", &orch).unwrap();
+        let feas = tmp.join("feas-rt.md");
+        fs::write(&feas, "# Feas\nOk\n").unwrap();
+        let feas_ref = put_artifact(&store, &idea.id, "feasibility", &feas).unwrap();
+        store
+            .execute(
+                &idea.id,
+                MachineCommand::StoreArtifact {
+                    kind: "feasibility".to_string(),
+                    artifact: feas_ref,
+                    verdict: None,
+                    risk: None,
+                    workflow: None,
+                    missing_sections: Vec::new(),
+                },
+                &orch,
+            )
+            .unwrap();
+        store
+            .execute(&idea.id, MachineCommand::SelectDirection, &orch)
+            .unwrap();
+        let plan = tmp.join("plan-rt.md");
+        fs::write(
+            &plan,
+            "# Plan\n\n## Scope\nUI\n\n## Acceptance criteria\n- Works\n\n## Risks\nLow\n\n## Estimates\n1d\n\n## Workflow recommendation\ndefault-delivery\n",
+        )
+        .unwrap();
+        let plan_ref = put_artifact(&store, &idea.id, "plan", &plan).unwrap();
+        store
+            .execute(
+                &idea.id,
+                MachineCommand::StoreArtifact {
+                    kind: "plan".to_string(),
+                    artifact: plan_ref,
+                    verdict: None,
+                    risk: None,
+                    workflow: Some("default-delivery".to_string()),
+                    missing_sections: Vec::new(),
+                },
+                &orch,
+            )
+            .unwrap();
+        idea.id
+    };
+
+    let zero_id = make_planning("Zero repo");
+    let bad_zero = mark_ready_with_options(
+        &store,
+        &tmp,
+        &zero_id,
+        &zero_id,
+        "alice",
+        MarkReadyOptions {
+            target: Some("api-service".to_string()),
+            accept_estimate: true,
+            ..Default::default()
+        },
+        &caller,
+    );
+    assert!(bad_zero.is_err());
+    assert_eq!(
+        store.get_idea(&zero_id).unwrap().unwrap().state,
+        IdeaState::Planning
+    );
+
+    let ok_zero = mark_ready_with_options(
+        &store,
+        &tmp,
+        &zero_id,
+        &zero_id,
+        "alice",
+        MarkReadyOptions {
+            target: Some("workspace".to_string()),
+            accept_estimate: true,
+            ..Default::default()
+        },
+        &caller,
+    )
+    .unwrap();
+    assert_eq!(
+        ok_zero.run.as_ref().unwrap().target.as_deref(),
+        Some("workspace")
+    );
+
+    let _ = common::factory_fixture::link_git_repo(&tmp, &repos_dir, "solo-repo");
+    let one_id = make_planning("One repo");
+    assert!(
+        mark_ready_with_options(
+            &store,
+            &tmp,
+            &one_id,
+            &one_id,
+            "alice",
+            MarkReadyOptions {
+                target: Some("workspace".to_string()),
+                accept_estimate: true,
+                ..Default::default()
+            },
+            &caller,
+        )
+        .is_err()
+    );
+    let ok_one = mark_ready_with_options(
+        &store,
+        &tmp,
+        &one_id,
+        &one_id,
+        "alice",
+        MarkReadyOptions {
+            target: Some("solo-repo".to_string()),
+            accept_estimate: true,
+            ..Default::default()
+        },
+        &caller,
+    )
+    .unwrap();
+    assert_eq!(
+        ok_one.run.as_ref().unwrap().target.as_deref(),
+        Some("solo-repo")
+    );
+
+    let _ = common::factory_fixture::link_git_repo(&tmp, &repos_dir, "web-client");
+    let two_id = make_planning("Two repos accept");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let Cli {
+        command: Some(Command::Factory(no_rec_args)),
+        ..
+    } = parse_from([
+        "tandem",
+        "factory",
+        "idea",
+        "ready",
+        &two_id,
+        "--confirm",
+        &two_id,
+        "--accept-recommended-target",
+        "--json",
+    ])
+    .unwrap()
+    else {
+        panic!("factory");
+    };
+    assert_ne!(
+        run_with_caller(&no_rec_args, &tmp, &cfg, &caller, &mut out, &mut err),
+        0
+    );
+
+    store
+        .execute(
+            &two_id,
+            MachineCommand::RecommendTarget {
+                repo: "web-client".to_string(),
+                rationale: "Updates web UI components only".to_string(),
+            },
+            &orch,
+        )
+        .unwrap();
+
+    out.clear();
+    err.clear();
+    assert_eq!(
+        run_with_caller(&no_rec_args, &tmp, &cfg, &caller, &mut out, &mut err),
+        0,
+        "stderr: {}",
+        String::from_utf8_lossy(&err)
+    );
+    let ready_json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(ready_json["run"]["target"], "web-client");
+
+    save_settings(
+        &store,
+        &FactorySettings {
+            approval_grace_secs: 30,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let grace_id = make_planning("Grace target");
+    let grace_ready = mark_ready_with_options(
+        &store,
+        &tmp,
+        &grace_id,
+        &grace_id,
+        "alice",
+        MarkReadyOptions {
+            target: Some("solo-repo".to_string()),
+            accept_estimate: true,
+            ..Default::default()
+        },
+        &caller,
+    )
+    .unwrap();
+    assert!(grace_ready.run.is_none());
+
+    save_settings(
+        &store,
+        &FactorySettings {
+            approval_grace_secs: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    drive_workspace_step(&store, &tmp, &mut NoopExec).unwrap();
+    let grace_runs = list_runs(&store, Some(&grace_id)).unwrap();
+    assert_eq!(grace_runs.len(), 1);
+    let loaded_grace_run = get_run(&store, &grace_runs[0].id).unwrap().unwrap();
+    assert_eq!(loaded_grace_run.target.as_deref(), Some("solo-repo"));
+    assert_ne!(loaded_grace_run.state, RunState::Paused);
+
+    let legacy_pending: tandem::factory::approval::PendingRunConfig =
+        serde_json::from_str(r#"{"deploy_requested":false,"workflow":null,"budget":null}"#)
+            .unwrap();
+    assert_eq!(legacy_pending.target, None);
+
+    let _ = fs::remove_dir_all(&tmp);
+    let _ = fs::remove_dir_all(&repos_dir);
 }

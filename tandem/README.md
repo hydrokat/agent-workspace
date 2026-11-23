@@ -211,10 +211,11 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory idea describe ID --title T --text-file F --json` | Set title and description (moves Inbox → Ideation) |
 | `tandem factory idea assume ID --text T --json` | Record an assumption (up to 30, 500 chars each) |
 | `tandem factory idea select-direction ID --json` | Advance Ideation → Planning (Gate 1: requires non-infeasible feasibility study) |
-| `tandem factory idea ready ID --confirm ID --json` | Freeze `plan-snapshot.md` and mark `ready_for_development` (Gate 2, user-only; `--via` removed) |
+| `tandem factory idea target-recommend ID --repo R (--reason T \| --reason-file F \| --reason-stdin) --json` | Record an advisory target repository recommendation + rationale (<= 2 KB, Orchestrator/user in Ideation or Planning) |
+| `tandem factory idea ready ID --confirm ID [--workflow NAME] [--target R \| --accept-recommended-target] [--deploy] --json` | Freeze `plan-snapshot.md` and mark `ready_for_development` (Gate 2, user-only; optional CLI `--target` or `--accept-recommended-target` sets run target) |
 | `tandem factory idea revoke-ready ID --json` | Revoke `ready_for_development` back to Planning before a run exists (user-only) |
 | `tandem factory idea list [--state S] --json` | List ideas sorted by `updated` descending |
-| `tandem factory idea show ID --json` | Show idea, events, `questions`, and `plan_snapshot` verification |
+| `tandem factory idea show ID --json` | Show idea, events, `questions`, `plan_snapshot`, `target_choices`, and `target_recommendation` (including `stale`) |
 | `tandem factory artifact put ID --kind <feasibility\|plan> --file F [--verdict V] [--risk R] [--workflow W] --json` | Store versioned Markdown artifact (<= 256 KiB, UTF-8, no symlinks/control chars) |
 | `tandem factory artifact show ID --kind <feasibility\|plan> [--version N]` | Print a stored artifact |
 | `tandem factory question check ID --json` | Check open-question ceiling (exits `3` when >= 5 open questions) |
@@ -342,7 +343,7 @@ Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or 
 ### Run worktree, target selection & cleanup
 
 - **Worktree & branch**: Each run executes in an isolated git worktree at `worktrees/factory-<run-id>` on branch `feat/<idea-id>-<slug>` (suffixed `-2`, `-3`, ... if that branch already exists), branched from the repository's primary branch (`main`, `trunk`, `master`, or `HEAD`).
-- **Target rule**: If 0 or 1 git codebases exist under `codebase-symlinks/`, tandem selects it automatically. If multiple git codebases exist, select one before starting with `tandem factory run target <run> <name>`.
+- **Target rule**: One target repository per run. If 0 or 1 git codebases exist under `codebase-symlinks/`, tandem selects it automatically (`target_choices.required = false`). If 2+ git codebases exist, the Orchestrator records an advisory recommendation (`idea target-recommend`) and the user confirms a target at Gate 2 (required in TUI/web dialogs; optional via `--target` or `--accept-recommended-target` in CLI). If a CLI run starts without a confirmed target, the run pauses listing the non-stale recommended repo first until resolved via `tandem factory run target <run> <name>` (or TUI `t` / `tandem-web`).
 - **Cleanup**: `tandem factory run cleanup <run> --confirm <run>` removes the worktree for completed, cancelled, or withdrawn runs (refusing dirty worktrees with uncommitted changes).
 
 ### Known limits (execution)
