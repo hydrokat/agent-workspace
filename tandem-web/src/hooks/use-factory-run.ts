@@ -121,6 +121,39 @@ export function useFactoryRun({
     [workspaceId, runId]
   );
 
+  const setRunTarget = useCallback(
+    async (name: string): Promise<RunSummary | void> => {
+      if (!workspaceId || !runId) return;
+      setControlling(true);
+      setControlError(null);
+      try {
+        const res = await fetch(`/api/workspaces/${workspaceId}/factory/runs/${runId}/target`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          const msg = body?.error?.message || `Failed to set run target (${res.status})`;
+          setControlError(msg);
+          throw new Error(msg);
+        }
+        if (body?.run) {
+          const updated = body.run as RunSummary;
+          setRun(updated);
+          return updated;
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to set run target";
+        setControlError(msg);
+        throw err;
+      } finally {
+        setControlling(false);
+      }
+    },
+    [workspaceId, runId]
+  );
+
   return {
     run,
     logText,
@@ -131,5 +164,6 @@ export function useFactoryRun({
     fetchLog,
     controlRun,
     refreshRun,
+    setRunTarget,
   };
 }

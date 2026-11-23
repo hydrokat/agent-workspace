@@ -171,14 +171,18 @@ export function useFactoryIdeas({ workspaceId, streamIdeas }: UseFactoryIdeasOpt
   );
 
   const markReady = useCallback(
-    async (ideaId: string, confirm: string): Promise<ReadyResult> => {
+    async (
+      ideaId: string,
+      confirm: string,
+      options?: { workflow?: string; deploy?: boolean; target?: string }
+    ): Promise<ReadyResult> => {
       if (!workspaceId) {
         throw new Error("No active workspace selected.");
       }
       const res = await fetch(`/api/workspaces/${workspaceId}/factory/ideas/${ideaId}/ready`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm }),
+        body: JSON.stringify({ confirm, ...options }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {

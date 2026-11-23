@@ -48,7 +48,7 @@ interface IdeaDetailViewProps {
   onOpenQueries: () => void;
   onMarkReady: (
     confirm: string,
-    options?: { workflow?: string; deploy?: boolean }
+    options?: { workflow?: string; deploy?: boolean; target?: string }
   ) => Promise<ReadyResult>;
   onRevokeReady: () => Promise<Idea>;
   onWithdrawRun?: (runId: string) => Promise<void>;
@@ -137,6 +137,7 @@ export function IdeaDetailView({
     controlError,
     fetchLog,
     controlRun,
+    setRunTarget,
   } = useFactoryRun({
     workspaceId,
     runId: detail?.run?.id ?? null,
@@ -474,7 +475,7 @@ export function IdeaDetailView({
 
   const handleConfirmReady = async (
     confirm: string,
-    options?: { workflow?: string; deploy?: boolean }
+    options?: { workflow?: string; deploy?: boolean; target?: string }
   ) => {
     setActionError(null);
     const result = await onMarkReady(confirm, options);
@@ -609,6 +610,33 @@ export function IdeaDetailView({
           {actionError}
         </div>
       )}
+
+      {detail.target_choices?.required &&
+        (idea.state === "ideation" || idea.state === "planning") && (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-foreground">
+            <span className="font-semibold">Target: </span>
+            {detail.target_recommendation && !detail.target_recommendation.stale ? (
+              <span>
+                {detail.target_recommendation.repo} (recommended)
+                {detail.target_recommendation.rationale.trim()
+                  ? ` — ${
+                      detail.target_recommendation.rationale
+                        .split(/\r?\n/)
+                        .map((l) => l.trim())
+                        .find((l) => l.length > 0) ?? ""
+                    }`
+                  : ""}
+              </span>
+            ) : detail.target_recommendation?.stale ? (
+              <span className="text-amber-700 dark:text-amber-300">
+                {detail.target_recommendation.repo} (stale recommendation — choose a current
+                repository when marking ready)
+              </span>
+            ) : (
+              <span className="text-muted-foreground">not recommended yet</span>
+            )}
+          </div>
+        )}
 
       <div className="lg:hidden">{primaryActionBlock}</div>
 
@@ -795,6 +823,8 @@ export function IdeaDetailView({
           {activeRun && (
             <RunMonitor
               run={activeRun}
+              targetChoices={detail.target_choices}
+              targetRecommendation={detail.target_recommendation}
               logText={logText}
               logLoading={logLoading}
               logError={logError}
@@ -808,6 +838,7 @@ export function IdeaDetailView({
               controlling={controlling}
               controlError={controlError}
               onControl={controlRun}
+              onSetTarget={setRunTarget}
               onFetchLog={fetchLog}
               onWithdraw={onWithdrawRun}
               onSignIn={handleSignInCli}
@@ -855,6 +886,8 @@ export function IdeaDetailView({
         idea={idea}
         questions={questions}
         workflows={workflows}
+        targetChoices={detail.target_choices}
+        targetRecommendation={detail.target_recommendation}
         onConfirmReady={handleConfirmReady}
       />
     </div>

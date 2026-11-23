@@ -16,6 +16,7 @@ import type { IWorkspaceRegistry } from "../src/domain/ports/workspace-registry"
 import {
   ControlFactoryRunUseCase,
   GetFactoryRunLogUseCase,
+  SetFactoryRunTargetUseCase,
   ShowFactoryRunUseCase,
 } from "../src/application/use-cases/factory-runs";
 
@@ -182,6 +183,30 @@ describe("factory run use cases", () => {
     ).rejects.toBeInstanceOf(FactoryGatewayError);
     await expect(
       uc.execute("tandem-1111111111", "r-4h8k2m1x", "unknown")
+    ).rejects.toBeInstanceOf(FactoryGatewayError);
+  });
+
+  it("sets run target and validates run id and repo name", async () => {
+    const targetCalls: Array<{ runId: string; name: string }> = [];
+    const uc = new SetFactoryRunTargetUseCase(
+      makeRegistry(),
+      makeGateway({
+        factoryRunTarget: async (_ws, runId, name) => {
+          targetCalls.push({ runId, name });
+          return { ...SAMPLE_RUN, target: name };
+        },
+      })
+    );
+
+    const updated = await uc.execute("tandem-1111111111", "r-4h8k2m1x", "web-client");
+    expect(updated.target).toBe("web-client");
+    expect(targetCalls).toEqual([{ runId: "r-4h8k2m1x", name: "web-client" }]);
+
+    await expect(
+      uc.execute("tandem-1111111111", "bad-run", "web-client")
+    ).rejects.toBeInstanceOf(FactoryGatewayError);
+    await expect(
+      uc.execute("tandem-1111111111", "r-4h8k2m1x", "../etc/passwd")
     ).rejects.toBeInstanceOf(FactoryGatewayError);
   });
 });

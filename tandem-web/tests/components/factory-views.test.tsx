@@ -435,4 +435,65 @@ describe("Factory Views (p-014 t-008)", () => {
       });
     });
   });
+
+  describe("IdeaDetailView target recommendation display", () => {
+    it("shows recommended target + rationale when required, or unrecommended state", () => {
+      const recDetail: IdeaDetail = {
+        ...SAMPLE_DETAIL,
+        target_choices: { repos: ["api-service", "web-client"], required: true },
+        target_recommendation: {
+          repo: "api-service",
+          rationale: "Updates src/billing/export.ts\nSecond line",
+          by: "orchestrator",
+          ts: 1700000090,
+          stale: false,
+        },
+      };
+
+      const { getByText, rerender } = render(
+        <IdeaDetailView
+          detail={recDetail}
+          loading={false}
+          error={null}
+          planMarkdown="# Plan"
+          feasibilityMarkdown="# Feas"
+          artifactsLoading={false}
+          onBack={() => {}}
+          onRetry={() => {}}
+          onOpenTerminal={() => {}}
+          onOpenQueries={() => {}}
+          onMarkReady={async () => {
+            throw new Error("unused");
+          }}
+          onRevokeReady={async () => SAMPLE_IDEA}
+        />
+      );
+      expect(getByText(/api-service \(recommended\)/i)).toBeTruthy();
+      expect(getByText(/src\/billing\/export\.ts/)).toBeTruthy();
+
+      rerender(
+        <IdeaDetailView
+          detail={{
+            ...SAMPLE_DETAIL,
+            target_choices: { repos: ["api-service", "web-client"], required: true },
+            target_recommendation: null,
+          }}
+          loading={false}
+          error={null}
+          planMarkdown="# Plan"
+          feasibilityMarkdown="# Feas"
+          artifactsLoading={false}
+          onBack={() => {}}
+          onRetry={() => {}}
+          onOpenTerminal={() => {}}
+          onOpenQueries={() => {}}
+          onMarkReady={async () => {
+            throw new Error("unused");
+          }}
+          onRevokeReady={async () => SAMPLE_IDEA}
+        />
+      );
+      expect(getByText(/not recommended yet/i)).toBeTruthy();
+    });
+  });
 });

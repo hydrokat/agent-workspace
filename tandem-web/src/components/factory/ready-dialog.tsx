@@ -13,7 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthRisk } from "@/hooks/use-auth-risk";
 import { AuthRiskNotice } from "./auth-risk-dialog";
-import type { Idea, IdeaQuestions, ReadyResult, WorkflowListItem } from "@/domain/models/factory";
+import type {
+  Idea,
+  IdeaQuestions,
+  ReadyResult,
+  TargetChoices,
+  TargetRecommendation,
+  WorkflowListItem,
+} from "@/domain/models/factory";
 
 interface ReadyDialogProps {
   open: boolean;
@@ -21,9 +28,11 @@ interface ReadyDialogProps {
   idea: Idea;
   questions: IdeaQuestions;
   workflows?: WorkflowListItem[];
+  targetChoices?: TargetChoices | null;
+  targetRecommendation?: TargetRecommendation | null;
   onConfirmReady: (
     confirm: string,
-    options?: { workflow?: string; deploy?: boolean }
+    options?: { workflow?: string; deploy?: boolean; target?: string }
   ) => Promise<ReadyResult>;
 }
 
@@ -33,17 +42,30 @@ export function ReadyDialog({
   idea,
   questions,
   workflows = [],
+  targetChoices = null,
+  targetRecommendation = null,
   onConfirmReady,
 }: ReadyDialogProps) {
   const [typedId, setTypedId] = useState("");
   const [selectedWorkflow, setSelectedWorkflow] = useState<string>("default-delivery");
   const [deployRequested, setDeployRequested] = useState(false);
+  const [selectedTarget, setSelectedTarget] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const { risks } = useAuthRisk();
   const riskyClis = risks.filter((r) => r.risk === "risky").map((r) => r.cli);
 
   const recommended = idea.plan?.workflow?.trim() || "default-delivery";
+  const targetRequired = Boolean(targetChoices?.required);
+  const targetRepos = targetChoices?.repos ?? [];
+  const validRecommendedTarget =
+    targetRequired &&
+    targetRecommendation &&
+    !targetRecommendation.stale &&
+    targetRepos.includes(targetRecommendation.repo)
+      ? targetRecommendation
+      : null;
+
   const effectiveWorkflows: WorkflowListItem[] =
     workflows.length > 0
       ? workflows
@@ -57,22 +79,25 @@ export function ReadyDialog({
       const validMatch = effectiveWorkflows.find((w) => w.valid && w.name === recommended);
       const fallback = effectiveWorkflows.find((w) => w.valid);
       setSelectedWorkflow(validMatch?.name ?? fallback?.name ?? "default-delivery");
+      setSelectedTarget(validRecommendedTarget?.repo ?? "");
     }
-  }, [open, idea.id]);
+  }, [open, idea.id, validRecommendedTarget?.repo]);
 
   const planVersion = idea.plan?.artifact.version;
   const missingSections = idea.plan?.missing_sections ?? [];
   const matchesId = typedId.trim() === idea.id;
+  const targetSatisfied = !targetRequired || selectedTarget.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!matchesId) return;
+    if (!matchesId || !targetSatisfied) return;
     setError(null);
     setSubmitting(true);
     try {
       await onConfirmReady(typedId.trim(), {
         workflow: selectedWorkflow,
         deploy: deployRequested,
+        ...(targetRequired ? { target: selectedTarget } : {}),
       });
       onOpenChange(false);
     } catch (err: unknown) {
@@ -147,6 +172,48 @@ export function ReadyDialog({
             </select>
           </div>
 
+          {targetRequired && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ready-target-select" className="text-xs font-medium text-foreground">
+                Target repository
+              </label>
+              <select
+                id="ready-target-select"
+                value={selectedTarget}
+                onChange={(e) => setSelectedTarget(e.target.value)}
+                disabled={submitting}
+                aria-describedby="ready-target-why"
+                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Select a target repository...</option>
+                {targetRepos.map((repo) => {
+                  const isRec = validRecommendedTarget?.repo === repo;
+                  return (
+                    <option key={repo} value={repo}>
+                      {isRec ? `${repo} (recommended)` : repo}
+                    </option>
+                  );
+                })}
+              </select>
+              <details id="ready-target-why" open className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer font-medium text-foreground/80">
+                  {validRecommendedTarget
+                    ? "Why recommended"
+                    : targetRecommendation?.stale
+                      ? "Stale recommendation"
+                      : "Target guidance"}
+                </summary>
+                <p className="mt-1 whitespace-pre-wrap">
+                  {validRecommendedTarget
+                    ? validRecommendedTarget.rationale || `Recommended: ${validRecommendedTarget.repo}`
+                    : targetRecommendation?.stale
+                      ? `Recommended repository "${targetRecommendation.repo}" is no longer linked. Choose a current repository.`
+                      : "No recommendation yet — choose a target repository before marking ready."}
+                </p>
+              </details>
+            </div>
+          )}
+
           <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-foreground">
             <input
               type="checkbox"
@@ -190,7 +257,7 @@ export function ReadyDialog({
             </Button>
             <Button
               type="submit"
-              disabled={!matchesId || submitting}
+              disabled={!matchesId || !targetSatisfied || submitting}
               className="min-h-11"
             >
               {submitting ? "Marking ready..." : "Mark ready"}

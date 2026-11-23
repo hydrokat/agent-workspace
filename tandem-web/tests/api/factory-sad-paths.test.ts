@@ -202,4 +202,46 @@ exit 1
     const disabledBody = (await disabledRes.json()) as { error: { code: string; message: string } };
     expect(disabledBody.error.message).toContain("Factory Mode");
   });
+
+  it("validates optional target on POST /ready and passes valid target to tandem", async () => {
+    const badRes = await readyRoute.POST(
+      new NextRequest(
+        `http://localhost/api/workspaces/${workspaceId}/factory/ideas/i-abcd1234/ready`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ confirm: "i-abcd1234", target: "../escape" }),
+        }
+      ),
+      { params: Promise.resolve({ workspaceId, ideaId: "i-abcd1234" }) }
+    );
+    expect(badRes.status).toBe(400);
+
+    const argsFile = join(stateDir, "ready-args.txt");
+    const stubBin = join(stateDir, "stub-ready-target.sh");
+    await writeFile(
+      stubBin,
+      `#!/bin/sh
+echo "$@" > "${argsFile}"
+echo '{"idea":{"id":"i-abcd1234","title":"T","text":"B","state":"queued","owner":"a","created":1,"updated":1,"artifacts":[],"assumptions":[],"runs":["r-11111111"],"prs":[]},"snapshot":{"version":1,"sha256":"abc","verified":true},"message":"ready","run":{"id":"r-11111111","idea":"i-abcd1234","workflow":"default-delivery","workflow_version":"1","workflow_sha256":"abc","target":"api-service","state":"queued","stages":[],"created":1,"updated":1}}'
+`,
+      { mode: 0o755 }
+    );
+    process.env.TANDEM_BIN = stubBin;
+
+    const okRes = await readyRoute.POST(
+      new NextRequest(
+        `http://localhost/api/workspaces/${workspaceId}/factory/ideas/i-abcd1234/ready`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ confirm: "i-abcd1234", target: "api-service" }),
+        }
+      ),
+      { params: Promise.resolve({ workspaceId, ideaId: "i-abcd1234" }) }
+    );
+    expect(okRes.status).toBe(200);
+    const body = (await okRes.json()) as { run?: { target?: string } };
+    expect(body.run?.target).toBe("api-service");
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ import {
   type Stage,
   type StageAssignment,
   type StageState,
+  type TargetChoices,
+  type TargetRecommendation,
 } from "@/domain/models/factory";
 import { AssignmentEditor } from "./assignment-editor";
 import { DataHandlingPanel } from "./data-handling";
@@ -33,6 +35,8 @@ import { TeamPanel } from "./team-panel";
 
 interface RunMonitorProps {
   run: RunSummary;
+  targetChoices?: TargetChoices | null;
+  targetRecommendation?: TargetRecommendation | null;
   logText: string | null;
   logLoading: boolean;
   logError: string | null;
@@ -46,6 +50,7 @@ interface RunMonitorProps {
   controlling: boolean;
   controlError: string | null;
   onControl: (action: RunControlAction, options?: RunControlOptions) => Promise<void>;
+  onSetTarget?: (name: string) => Promise<RunSummary | void>;
   onFetchLog: (correlationId: string) => void;
   onWithdraw?: (runId: string) => Promise<void>;
   onSignIn?: (cli: string) => Promise<void>;
@@ -93,6 +98,8 @@ function formatDuration(created: number, updated: number): string {
 
 export function RunMonitor({
   run,
+  targetChoices = null,
+  targetRecommendation = null,
   logText,
   logLoading,
   logError,
@@ -106,6 +113,7 @@ export function RunMonitor({
   controlling,
   controlError,
   onControl,
+  onSetTarget,
   onFetchLog,
   onWithdraw,
   onSignIn,
@@ -138,6 +146,51 @@ export function RunMonitor({
 
   const runningCount = run.stages.filter((s) => s.state === "running").length;
   const pauseLower = (run.pause_reason ?? "").toLowerCase();
+  const pauseNeedsTarget =
+    run.state === "paused" &&
+    (pauseLower.includes("target repository") || (Boolean(targetChoices?.required) && !run.target));
+  const targetOptions = useMemo(() => {
+    if (targetChoices?.repos && targetChoices.repos.length > 0) {
+      return targetChoices.repos;
+    }
+    const reason = run.pause_reason ?? "";
+    const prefix = "choose a target repository:";
+    const idx = reason.toLowerCase().indexOf(prefix);
+    if (idx === -1) return [];
+    const rest = reason.slice(idx + prefix.length).split("(")[0] ?? "";
+    return rest
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }, [targetChoices?.repos, run.pause_reason]);
+  const recommendedTarget = useMemo(() => {
+    if (
+      targetRecommendation &&
+      !targetRecommendation.stale &&
+      targetOptions.includes(targetRecommendation.repo)
+    ) {
+      return targetRecommendation.repo;
+    }
+    const match = (run.pause_reason ?? "").match(/\(recommended:\s*([A-Za-z0-9._-]{1,100})/);
+    if (match && targetOptions.includes(match[1])) {
+      return match[1];
+    }
+    return null;
+  }, [targetRecommendation, targetOptions, run.pause_reason]);
+  const [chosenTarget, setChosenTarget] = useState<string>(
+    () => recommendedTarget ?? targetOptions[0] ?? ""
+  );
+  const [targetBusy, setTargetBusy] = useState(false);
+  const [targetStatus, setTargetStatus] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  useEffect(() => {
+    setChosenTarget((prev) => {
+      if (recommendedTarget) return recommendedTarget;
+      if (prev && targetOptions.includes(prev)) return prev;
+      return targetOptions[0] ?? "";
+    });
+  }, [recommendedTarget, targetOptions]);
+
   const pauseNeedsSignIn =
     run.state === "paused" &&
     /signed in|sign in|not installed|login|gate/.test(pauseLower);
@@ -224,15 +277,65 @@ export function RunMonitor({
                 Sign in ({signInCli})
               </Button>
             )}
+            {pauseNeedsTarget && targetOptions.length > 0 && onSetTarget && (
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <label htmlFor="run-target-select" className="sr-only">
+                  Target repository
+                </label>
+                <select
+                  id="run-target-select"
+                  value={chosenTarget}
+                  onChange={(e) => setChosenTarget(e.target.value)}
+                  disabled={controlling || targetBusy}
+                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground sm:w-auto"
+                >
+                  {targetOptions.map((repo) => (
+                    <option key={repo} value={repo}>
+                      {recommendedTarget === repo ? `${repo} (recommended)` : repo}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={controlling || targetBusy || !chosenTarget}
+                  onClick={async () => {
+                    setTargetError(null);
+                    setTargetStatus(null);
+                    setTargetBusy(true);
+                    try {
+                      await onSetTarget(chosenTarget);
+                      setTargetStatus(`Target set to ${chosenTarget}`);
+                    } catch (err: unknown) {
+                      setTargetError(err instanceof Error ? err.message : "Failed to set target.");
+                    } finally {
+                      setTargetBusy(false);
+                    }
+                  }}
+                  className="min-h-11"
+                >
+                  {targetBusy ? "Setting target..." : "Set target and resume"}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
-        {controlError && (
+        {targetStatus && (
+          <div
+            role="status"
+            className="mt-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200"
+          >
+            {targetStatus}
+          </div>
+        )}
+
+        {(controlError || targetError) && (
           <div
             role="alert"
             className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
           >
-            {controlError}
+            {targetError || controlError}
           </div>
         )}
 

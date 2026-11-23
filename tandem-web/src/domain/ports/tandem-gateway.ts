@@ -81,7 +81,7 @@ export interface ITandemGateway {
   factoryMarkReady(
     workspacePath: string,
     ideaId: string,
-    options?: { workflow?: string; deploy?: boolean }
+    options?: { workflow?: string; deploy?: boolean; target?: string }
   ): Promise<ReadyResult>;
   factoryRevokeReady(workspacePath: string, ideaId: string): Promise<Idea>;
   factoryCancelIdea?(
@@ -105,6 +105,7 @@ export interface ITandemGateway {
     action: RunControlAction,
     options?: RunControlOptions
   ): Promise<RunSummary>;
+  factoryRunTarget?(workspacePath: string, runId: string, name: string): Promise<RunSummary>;
   factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle>;
   factoryRunData(workspacePath: string, runId: string): Promise<RunDataView>;
   factoryEvidenceItem(

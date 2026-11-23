@@ -135,4 +135,132 @@ describe("Factory Workflow Views", () => {
     });
     expect(withdrawnId).toBe("r-4h8k2m1x");
   });
+
+  it("renders target repository select when required, requires a selection, and passes target on confirm", async () => {
+    let submittedOpts: { workflow?: string; deploy?: boolean; target?: string } | undefined;
+    const { getByLabelText, getByRole, getByText, queryByLabelText, rerender } = render(
+      <ReadyDialog
+        open={true}
+        onOpenChange={() => {}}
+        idea={SAMPLE_IDEA}
+        questions={{ open: 0, blocking: 0, items: [] }}
+        workflows={SAMPLE_WORKFLOWS}
+        targetChoices={{ repos: ["solo-repo"], required: false }}
+        onConfirmReady={async (_c, opts) => {
+          submittedOpts = opts;
+          return {
+            idea: SAMPLE_IDEA,
+            snapshot: { version: 2, sha256: "abc", verified: true },
+            message: "ok",
+          };
+        }}
+      />
+    );
+    expect(queryByLabelText(/target repository/i)).toBeNull();
+
+    rerender(
+      <ReadyDialog
+        open={true}
+        onOpenChange={() => {}}
+        idea={SAMPLE_IDEA}
+        questions={{ open: 0, blocking: 0, items: [] }}
+        workflows={SAMPLE_WORKFLOWS}
+        targetChoices={{ repos: ["api-service", "web-client"], required: true }}
+        targetRecommendation={null}
+        onConfirmReady={async (_c, opts) => {
+          submittedOpts = opts;
+          return {
+            idea: SAMPLE_IDEA,
+            snapshot: { version: 2, sha256: "abc", verified: true },
+            message: "ok",
+          };
+        }}
+      />
+    );
+
+    const confirmInput = getByLabelText(/type the idea id/i) as HTMLInputElement;
+    fireEvent.focus(confirmInput);
+    fireEvent.change(confirmInput, { target: { value: "i-7k2m9q4d" } });
+
+    const submitBtn = getByRole("button", { name: /mark ready/i }) as HTMLButtonElement;
+    expect(submitBtn.disabled).toBe(true);
+
+    rerender(
+      <ReadyDialog
+        open={false}
+        onOpenChange={() => {}}
+        idea={SAMPLE_IDEA}
+        questions={{ open: 0, blocking: 0, items: [] }}
+        workflows={SAMPLE_WORKFLOWS}
+        targetChoices={{ repos: ["api-service", "web-client"], required: true }}
+        targetRecommendation={{
+          repo: "web-client",
+          rationale: "Changes <img src=x> in src/board.tsx",
+          by: "orchestrator",
+          ts: 1700000090,
+          stale: false,
+        }}
+        onConfirmReady={async (_c, opts) => {
+          submittedOpts = opts;
+          return {
+            idea: SAMPLE_IDEA,
+            snapshot: { version: 2, sha256: "abc", verified: true },
+            message: "ok",
+          };
+        }}
+      />
+    );
+    rerender(
+      <ReadyDialog
+        open={true}
+        onOpenChange={() => {}}
+        idea={SAMPLE_IDEA}
+        questions={{ open: 0, blocking: 0, items: [] }}
+        workflows={SAMPLE_WORKFLOWS}
+        targetChoices={{ repos: ["api-service", "web-client"], required: true }}
+        targetRecommendation={{
+          repo: "web-client",
+          rationale: "Changes <img src=x> in src/board.tsx",
+          by: "orchestrator",
+          ts: 1700000090,
+          stale: false,
+        }}
+        onConfirmReady={async (_c, opts) => {
+          submittedOpts = opts;
+          return {
+            idea: SAMPLE_IDEA,
+            snapshot: { version: 2, sha256: "abc", verified: true },
+            message: "ok",
+          };
+        }}
+      />
+    );
+
+    const targetSelect = getByLabelText(/target repository/i) as HTMLSelectElement;
+    expect(targetSelect.value).toBe("web-client");
+    expect(targetSelect.getAttribute("aria-describedby")).toBeTruthy();
+    expect(getByText(/Changes <img src=x> in src\/board\.tsx/)).toBeTruthy();
+    expect(document.querySelector("img")).toBeNull();
+
+    const confirmInput2 = getByLabelText(/type the idea id/i) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.focus(confirmInput2);
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      nativeSetter?.call(confirmInput2, "i-7k2m9q4d");
+      fireEvent.change(confirmInput2, { target: { value: "i-7k2m9q4d" } });
+      fireEvent.keyUp(confirmInput2);
+    });
+    expect((getByRole("button", { name: /mark ready/i }) as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: /mark ready/i }));
+    });
+    expect(submittedOpts).toEqual({
+      workflow: "default-delivery",
+      deploy: false,
+      target: "web-client",
+    });
+  });
 });

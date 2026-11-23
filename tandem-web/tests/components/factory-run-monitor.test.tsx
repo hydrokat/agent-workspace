@@ -147,4 +147,47 @@ describe("RunMonitor", () => {
       options: { stage: "develop", hypothesis: "Retry with clean cache" },
     });
   });
+
+  it("renders target picker with pre-selected recommendation when paused on ambiguous target", async () => {
+    const chosen: string[] = [];
+    const { getByLabelText, getByRole } = render(
+      <RunMonitor
+        run={{
+          ...PAUSED_RUN,
+          pause_reason:
+            "choose a target repository: web-client, api-service (recommended: web-client — Updates UI components)",
+        }}
+        targetChoices={{ repos: ["api-service", "web-client"], required: true }}
+        targetRecommendation={{
+          repo: "web-client",
+          rationale: "Updates UI components",
+          by: "orchestrator",
+          ts: 1700000090,
+          stale: false,
+        }}
+        logText={null}
+        logLoading={false}
+        logError={null}
+        controlling={false}
+        controlError={null}
+        onControl={async () => {}}
+        onFetchLog={() => {}}
+        onSetTarget={async (name) => {
+          chosen.push(name);
+          return { ...PAUSED_RUN, state: "running", target: name, pause_reason: null };
+        }}
+      />
+    );
+
+    const select = getByLabelText(/target repository/i) as HTMLSelectElement;
+    expect(select.value).toBe("web-client");
+    const recOption = Array.from(select.options).find((o) => o.value === "web-client");
+    expect(recOption?.textContent).toContain("(recommended)");
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: /set target and resume/i }));
+    });
+    expect(chosen).toEqual(["web-client"]);
+    expect(getByRole("status").textContent).toContain("Target set to web-client");
+  });
 });

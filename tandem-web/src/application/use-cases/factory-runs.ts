@@ -8,6 +8,7 @@ import {
   isValidRunControlAction,
   isValidRunId,
   isValidStageName,
+  isValidTargetRepo,
   type EvidenceItemContent,
   type PrLink,
   type RunControlOptions,
@@ -189,5 +190,26 @@ export class RefreshFactoryRunPrsUseCase {
     }
     const workspace = await requireWorkspace(this.registry, workspaceId);
     return this.gateway.factoryRefreshRunPrs(workspace.path, runId);
+  }
+}
+
+export class SetFactoryRunTargetUseCase {
+  constructor(
+    private readonly registry: IWorkspaceRegistry,
+    private readonly gateway: ITandemGateway
+  ) {}
+
+  async execute(workspaceId: string, runId: string, name: string): Promise<RunSummary> {
+    if (!isValidRunId(runId)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid run ID format");
+    }
+    if (!isValidTargetRepo(name)) {
+      throw new FactoryGatewayError("invalid_input", "Invalid target repository name");
+    }
+    const workspace = await requireWorkspace(this.registry, workspaceId);
+    if (!this.gateway.factoryRunTarget) {
+      throw new FactoryGatewayError("internal_error", "Run target selection unavailable");
+    }
+    return this.gateway.factoryRunTarget(workspace.path, runId, name);
   }
 }

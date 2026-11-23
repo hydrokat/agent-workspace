@@ -137,7 +137,21 @@ export interface Idea {
   assumptions: string[];
   runs: string[];
   prs: PrLink[];
+  target_recommendation?: { repo: string; rationale: string; by: string; ts: number } | null;
   cancelled_from?: IdeaState | null;
+}
+
+export interface TargetChoices {
+  repos: string[];
+  required: boolean;
+}
+
+export interface TargetRecommendation {
+  repo: string;
+  rationale: string;
+  by: string;
+  ts: number;
+  stale: boolean;
 }
 
 export type MoveVia = "ready" | "revoke_ready" | "cancel";
@@ -280,6 +294,8 @@ export interface IdeaDetail {
   questions: IdeaQuestions;
   plan_snapshot?: SnapshotVerification | null;
   run?: RunSummary | null;
+  target_choices?: TargetChoices;
+  target_recommendation?: TargetRecommendation | null;
 }
 
 export interface CancelIdeaResult {
@@ -425,6 +441,12 @@ export function isValidArtifactVersion(version: number): boolean {
 
 export function isValidWorkflowName(name: string): boolean {
   return /^[a-z][a-z0-9-]{0,47}$/.test(name);
+}
+
+export const TARGET_REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
+
+export function isValidTargetRepo(name: string): boolean {
+  return TARGET_REPO_PATTERN.test(name) && name !== "." && name !== ".." && !name.includes("..");
 }
 
 export const MAX_LOG_TAIL_BYTES = 262_144;
