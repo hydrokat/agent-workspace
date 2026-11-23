@@ -619,3 +619,184 @@ fn the_ready_dialog_lists_risky_sign_ins_without_blocking_gate_2() {
     assert!(!screen.contains("agy uses a risky"), "{screen}");
     assert!(screen.contains("Type the idea id to confirm"), "{screen}");
 }
+
+#[test]
+fn gate_2_target_picker_states_and_idea_detail_recommendation() {
+    use tandem::factory::run::get_run;
+
+    let ws0 = temp_workspace("target-ui-zero");
+    let (_store0, id0) = setup_planning_idea(&ws0, true);
+    let mut d0 = FactoryDetail::load(&ws0, &id0, &[], false);
+    let area = Rect::new(0, 0, 100, 24);
+    let mut buf0 = Buffer::empty(area);
+    d0.render(1_700_000_100.0, area, &mut buf0);
+    assert!(!buffer_text(&buf0, area).contains("not recommended yet"));
+    d0.handle_key(&KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    ));
+    let mut modal_buf0 = Buffer::empty(area);
+    d0.render(1_700_000_100.0, area, &mut modal_buf0);
+    assert!(!buffer_text(&modal_buf0, area).contains("Target"));
+    let _ = fs::remove_dir_all(&ws0);
+
+    let ws = temp_workspace("target-ui-multi");
+    fs::create_dir_all(ws.join("codebase-symlinks/api-service/.git")).unwrap();
+    fs::create_dir_all(ws.join("codebase-symlinks/web-client/.git")).unwrap();
+    let (store, id) = setup_planning_idea(&ws, true);
+    let mut detail = FactoryDetail::load(&ws, &id, &[], false);
+
+    let mut main_buf = Buffer::empty(area);
+    detail.render(1_700_000_100.0, area, &mut main_buf);
+    let main_text = buffer_text(&main_buf, area);
+    assert!(main_text.contains("Target"), "{main_text}");
+    assert!(main_text.contains("not recommended yet"), "{main_text}");
+
+    detail.handle_key(&KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    ));
+    assert!(matches!(
+        detail.sub_view,
+        DetailSubView::ConfirmReady { .. }
+    ));
+
+    let mut modal_buf = Buffer::empty(area);
+    detail.render(1_700_000_100.0, area, &mut modal_buf);
+    let modal_text = buffer_text(&modal_buf, area);
+    assert!(
+        modal_text.contains("Choose a target (t). No recommendation yet."),
+        "{modal_text}"
+    );
+
+    for ch in id.chars() {
+        detail.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    detail.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        matches!(detail.sub_view, DetailSubView::ConfirmReady { .. }),
+        "Enter without target must keep modal open"
+    );
+    assert_eq!(
+        store.get_idea(&id).unwrap().unwrap().state,
+        IdeaState::Planning
+    );
+    let mut err_buf = Buffer::empty(area);
+    detail.render(1_700_000_100.0, area, &mut err_buf);
+    assert!(
+        buffer_text(&err_buf, area).contains("Choose a target"),
+        "{}",
+        buffer_text(&err_buf, area)
+    );
+
+    for _ in 0..id.len() {
+        detail.handle_key(&KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    detail.handle_key(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    detail.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    detail.handle_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    detail.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    for ch in id.chars() {
+        detail.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    detail.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(detail.sub_view, DetailSubView::Main));
+    let runs = tandem::factory::run::list_runs(&store, Some(&id)).unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        get_run(&store, &runs[0].id)
+            .unwrap()
+            .unwrap()
+            .target
+            .as_deref(),
+        Some("web-client")
+    );
+
+    let ws_stale = temp_workspace("target-ui-stale");
+    fs::create_dir_all(ws_stale.join("codebase-symlinks/api-service/.git")).unwrap();
+    fs::create_dir_all(ws_stale.join("codebase-symlinks/web-client/.git")).unwrap();
+    let (store_s, sid) = setup_planning_idea(&ws_stale, true);
+    store_s
+        .execute(
+            &sid,
+            Command::RecommendTarget {
+                repo: "api-service".to_string(),
+                rationale: "Plan changes api-service/src/handler.rs\nMore lines".to_string(),
+            },
+            &orch_actor(),
+        )
+        .unwrap();
+
+    let mut rec_detail = FactoryDetail::load(&ws_stale, &sid, &[], false);
+    if let Some(ref mut rec) = rec_detail.idea.as_mut().unwrap().target_recommendation {
+        rec.rationale.push_str("\x1b[31m");
+    }
+    let mut rec_main = Buffer::empty(area);
+    rec_detail.render(1_700_000_100.0, area, &mut rec_main);
+    let rec_main_txt = buffer_text(&rec_main, area);
+    assert!(
+        rec_main_txt.contains("api-service (recommended)"),
+        "{rec_main_txt}"
+    );
+    assert!(
+        rec_main_txt.contains("plan changes") || rec_main_txt.contains("Plan changes"),
+        "{rec_main_txt}"
+    );
+    assert!(!rec_main_txt.contains('\x1b'));
+
+    rec_detail.handle_key(&KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    ));
+    let narrow = Rect::new(0, 0, 72, 24);
+    let mut narrow_buf = Buffer::empty(narrow);
+    rec_detail.render(1_700_000_100.0, narrow, &mut narrow_buf);
+    let narrow_txt = buffer_text(&narrow_buf, narrow);
+    assert!(
+        narrow_txt.contains("api-service (recommended)"),
+        "{narrow_txt}"
+    );
+    assert!(narrow_txt.contains("Why:"), "{narrow_txt}");
+    assert!(!narrow_txt.contains('\x1b'));
+
+    for ch in sid.chars() {
+        rec_detail.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    rec_detail.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(rec_detail.sub_view, DetailSubView::Main));
+    let sruns = tandem::factory::run::list_runs(&store_s, Some(&sid)).unwrap();
+    assert_eq!(sruns[0].target.as_deref(), Some("api-service"));
+
+    let _ = fs::remove_dir_all(&ws);
+    let _ = fs::remove_dir_all(&ws_stale);
+    let ws3 = temp_workspace("target-ui-stale-plan");
+    fs::create_dir_all(ws3.join("codebase-symlinks/api-service/.git")).unwrap();
+    fs::create_dir_all(ws3.join("codebase-symlinks/web-client/.git")).unwrap();
+    let (store3, sid3) = setup_planning_idea(&ws3, true);
+    store3
+        .execute(
+            &sid3,
+            Command::RecommendTarget {
+                repo: "api-service".to_string(),
+                rationale: "Stale target".to_string(),
+            },
+            &orch_actor(),
+        )
+        .unwrap();
+    fs::remove_dir_all(ws3.join("codebase-symlinks/api-service")).unwrap();
+    fs::create_dir_all(ws3.join("codebase-symlinks/docs-site/.git")).unwrap();
+    let mut stale_detail = FactoryDetail::load(&ws3, &sid3, &[], false);
+    stale_detail.handle_key(&KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    ));
+    for ch in sid3.chars() {
+        stale_detail.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    stale_detail.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        matches!(stale_detail.sub_view, DetailSubView::ConfirmReady { .. }),
+        "stale recommendation must require explicit target choice"
+    );
+    let _ = fs::remove_dir_all(&ws3);
+}

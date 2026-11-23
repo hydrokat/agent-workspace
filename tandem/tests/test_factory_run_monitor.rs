@@ -72,6 +72,13 @@ fn full_plan_md() -> &'static str {
 }
 
 fn setup_run(ws: &Path) -> (FactoryStore, String, String) {
+    setup_run_with_target_rec(ws, None)
+}
+
+fn setup_run_with_target_rec(
+    ws: &Path,
+    rec: Option<(&str, &str)>,
+) -> (FactoryStore, String, String) {
     let store = FactoryStore::new(ws);
     store.ensure().unwrap();
     let mut settings = store.settings().unwrap();
@@ -143,6 +150,19 @@ fn setup_run(ws: &Path) -> (FactoryStore, String, String) {
             &orch,
         )
         .unwrap();
+
+    if let Some((repo, rationale)) = rec {
+        store
+            .execute(
+                &idea.id,
+                Command::RecommendTarget {
+                    repo: repo.to_string(),
+                    rationale: rationale.to_string(),
+                },
+                &orch,
+            )
+            .unwrap();
+    }
 
     let env_fn = |k: &str| {
         if k == "TANDEM_ROLE" {
@@ -1293,5 +1313,64 @@ fn assigning_a_risky_cli_in_the_run_monitor_warns_that_the_stage_will_pause() {
         monitor.notice
     );
 
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn pause_target_picker_preselects_recommended_repo_and_renders_reason() {
+    let ws = temp_workspace("target-picker-rec");
+    fs::create_dir_all(ws.join("codebase-symlinks/api-service/.git")).unwrap();
+    fs::create_dir_all(ws.join("codebase-symlinks/docs-site/.git")).unwrap();
+    fs::create_dir_all(ws.join("codebase-symlinks/web-client/.git")).unwrap();
+    let (store, idea_id, run_id) = setup_run_with_target_rec(
+        &ws,
+        Some(("web-client", "Updates web-client/src/App.tsx and styles")),
+    );
+
+    append_run_event(
+        &store,
+        &idea_id,
+        &run_id,
+        170.0,
+        EventData::RunPaused {
+            run: run_id.clone(),
+            reason: "choose a target repository: web-client, api-service, docs-site (recommended: web-client — Updates web-client/src/App.tsx)".to_string(),
+            commands: vec![
+                format!("tandem factory run target {run_id} web-client"),
+                format!("tandem factory run target {run_id} api-service"),
+                format!("tandem factory run target {run_id} docs-site"),
+            ],
+            cap: None,
+            spent: None,
+            limit: None,
+        },
+    );
+
+    let mut monitor = FactoryRun::load(&ws, &idea_id, &run_id, "linux");
+    if let Some(ref mut rec) = monitor.idea.as_mut().unwrap().target_recommendation {
+        rec.rationale.push_str("\x1b[31m");
+    }
+    monitor.handle_key(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    match monitor.sub_view {
+        RunSubView::TargetPicker { selected, .. } => {
+            assert_eq!(selected, 2, "web-client is 3rd sorted repo so index 2");
+        }
+        ref other => panic!("expected TargetPicker, got {other:?}"),
+    }
+
+    let area = Rect::new(0, 0, 100, 14);
+    let mut buf = Buffer::empty(area);
+    monitor.render(200.0, area, &mut buf);
+    let text = buffer_text(&buf, area);
+    assert!(text.contains("web-client (recommended)"), "{text}");
+    assert!(text.contains("Why:"), "{text}");
+    assert!(text.contains("App.tsx"), "{text}");
+    assert!(!text.contains('\x1b'));
+
+    monitor.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        get_run(&store, &run_id).unwrap().unwrap().target.as_deref(),
+        Some("web-client")
+    );
     let _ = fs::remove_dir_all(ws);
 }

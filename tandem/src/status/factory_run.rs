@@ -32,6 +32,7 @@ use crate::factory::workflow::schema::EvidenceKind;
 use crate::factory::workspace::{TargetResolution, resolve_target, set_run_target};
 use crate::sanitize::clean;
 use crate::snapshot::{RunSummary, pause_reason_needs_sign_in};
+use crate::status::factory_detail::wrap_text;
 use crate::status::render::age;
 use crate::tmux::keys::{
     FACTORY_CANCEL_RUN_KEY, FACTORY_PAUSE_RUN_KEY, display_shortcut, matches_crossterm_event,
@@ -110,6 +111,8 @@ pub enum RunSubView {
     TargetPicker {
         choices: Vec<String>,
         selected: usize,
+        recommended: Option<String>,
+        reason: Option<String>,
         error: Option<String>,
     },
     EvidenceList {
@@ -795,6 +798,7 @@ impl FactoryRun {
                 choices,
                 selected,
                 error,
+                ..
             } => match event.code {
                 KeyCode::Esc => {
                     self.sub_view = RunSubView::Main;
@@ -1121,9 +1125,23 @@ impl FactoryRun {
                         if let Some(PauseResolution::TargetAmbiguous { choices }) =
                             self.pause_resolution()
                         {
+                            let rec = self
+                                .idea
+                                .as_ref()
+                                .and_then(|i| i.target_recommendation.as_ref())
+                                .filter(|r| choices.iter().any(|c| c == &r.repo));
+                            let selected = rec
+                                .and_then(|r| choices.iter().position(|c| c == &r.repo))
+                                .unwrap_or(0);
+                            let recommended = rec.map(|r| r.repo.clone());
+                            let reason = rec
+                                .map(|r| r.rationale.clone())
+                                .filter(|s| !s.trim().is_empty());
                             self.sub_view = RunSubView::TargetPicker {
                                 choices,
-                                selected: 0,
+                                selected,
+                                recommended,
+                                reason,
                                 error: None,
                             };
                             RunKeyOutcome::Consumed
@@ -1491,12 +1509,18 @@ impl FactoryRun {
             RunSubView::TargetPicker {
                 choices,
                 selected,
+                recommended,
+                reason,
                 error,
             } => {
                 render_target_picker(
-                    choices,
-                    *selected,
-                    error.as_deref(),
+                    TargetPickerView {
+                        choices,
+                        selected: *selected,
+                        recommended: recommended.as_deref(),
+                        reason: reason.as_deref(),
+                        error: error.as_deref(),
+                    },
                     &mut self.hits,
                     area,
                     buf,
@@ -2761,14 +2785,27 @@ fn render_confirm_stop(
     }
 }
 
-fn render_target_picker(
-    choices: &[String],
+struct TargetPickerView<'a> {
+    choices: &'a [String],
     selected: usize,
-    error: Option<&str>,
+    recommended: Option<&'a str>,
+    reason: Option<&'a str>,
+    error: Option<&'a str>,
+}
+
+fn render_target_picker(
+    view: TargetPickerView<'_>,
     hits: &mut HitMap,
     area: Rect,
     buf: &mut Buffer,
 ) {
+    let TargetPickerView {
+        choices,
+        selected,
+        recommended,
+        reason,
+        error,
+    } = view;
     let max_w = area.width as usize;
     let header_style = Style::default()
         .fg(Color::White)
@@ -2794,6 +2831,11 @@ fn render_target_picker(
             break;
         }
         let prefix = if idx == selected { "▸ " } else { "  " };
+        let rec = if recommended == Some(choice.as_str()) {
+            " (recommended)"
+        } else {
+            ""
+        };
         let style = if idx == selected {
             header_style
         } else {
@@ -2804,11 +2846,24 @@ fn render_target_picker(
             area.x,
             y,
             max_w,
-            &format!("{prefix}{}", clean(choice)),
+            &format!("{prefix}{}{rec}", clean(choice)),
             style,
         );
         hits.push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
         y += 1;
+    }
+
+    if let Some(rat) = reason {
+        let cleaned = clean(rat.trim());
+        if !cleaned.is_empty() {
+            for wrapped in wrap_text(&format!("Why: {cleaned}"), max_w.max(1)) {
+                if y >= bottom.saturating_sub(1) {
+                    break;
+                }
+                write_clipped(buf, area.x, y, max_w, &wrapped, dim_style);
+                y += 1;
+            }
+        }
     }
 
     if let Some(err) = error
