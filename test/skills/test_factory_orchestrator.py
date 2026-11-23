@@ -450,3 +450,62 @@ def test_pane_current_idea_resolves_when_tmux_pane_set(tmp_path: Path) -> None:
         "i-panebnd1",
         "--json",
     ]
+
+
+def test_target_recommend_builds_argv_and_passes_idea_through(tmp_path: Path) -> None:
+    stub = make_stub_tandem(tmp_path / "bin")
+    env = {"TANDEM_SELF": str(stub), "TANDEM_FACTORY_IDEA": "i-12345678"}
+
+    p_env = run_factory(
+        "target-recommend",
+        "--repo",
+        "api-service",
+        "--reason-file",
+        "reason.txt",
+        env=env,
+    )
+    assert p_env.returncode == 0, p_env.stdout + p_env.stderr
+    assert json.loads(p_env.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "target-recommend",
+        "i-12345678",
+        "--repo",
+        "api-service",
+        "--reason-file",
+        "reason.txt",
+        "--json",
+    ]
+
+    p_override = run_factory(
+        "target-recommend",
+        "--idea",
+        "i-override1",
+        "--repo",
+        "web-client",
+        "--reason-file",
+        "r.md",
+        env={"TANDEM_SELF": str(stub)},
+    )
+    assert p_override.returncode == 0, p_override.stdout + p_override.stderr
+    assert json.loads(p_override.stdout)["argv"] == [
+        "factory",
+        "idea",
+        "target-recommend",
+        "i-override1",
+        "--repo",
+        "web-client",
+        "--reason-file",
+        "r.md",
+        "--json",
+    ]
+
+    p_missing = run_factory(
+        "target-recommend",
+        "--repo",
+        "web-client",
+        "--reason-file",
+        "r.md",
+        env={"TANDEM_SELF": str(stub)},
+    )
+    assert p_missing.returncode == 2

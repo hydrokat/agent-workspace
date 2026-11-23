@@ -102,6 +102,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_sel = sub.add_parser("select-direction", help="Advance idea from Ideation to Planning.")
     add_idea_arg(p_sel)
 
+    p_trec = sub.add_parser(
+        "target-recommend",
+        help="Record an advisory target repository recommendation for an idea.",
+    )
+    p_trec.add_argument("--repo", required=True, help="Recommended target repository name.")
+    p_trec.add_argument(
+        "--reason-file",
+        required=True,
+        help="Path to concise rationale file (max 2 KB, no secrets).",
+    )
+    add_idea_arg(p_trec)
+
     p_assign = sub.add_parser("assign", help="Assign a CLI and model to a run stage.")
     p_assign.add_argument("--run", required=True, help="Run ID (r-...).")
     p_assign.add_argument("--stage", required=True, help="Workflow stage name.")
@@ -452,6 +464,19 @@ def build_argv(tandem_bin: str, idea_id: str, args: argparse.Namespace) -> list[
         return [tandem_bin, "factory", "question", "check", idea_id, "--json"]
     if cmd == "select-direction":
         return [tandem_bin, "factory", "idea", "select-direction", idea_id, "--json"]
+    if cmd == "target-recommend":
+        return [
+            tandem_bin,
+            "factory",
+            "idea",
+            "target-recommend",
+            idea_id,
+            "--repo",
+            args.repo,
+            "--reason-file",
+            args.reason_file,
+            "--json",
+        ]
     raise AssertionError(f"Unhandled command: {cmd}")
 
 
