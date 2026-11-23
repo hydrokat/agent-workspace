@@ -190,8 +190,9 @@ impl FactoryStore {
         let appended = append_locked(&self.events_path(), &redacted)?;
 
         let mut next = current;
-        for (ev, ev_data) in appended.iter().zip(decided.iter()) {
-            next = machine::apply(next, ev_data, ev.ts);
+        for (ev, fallback_data) in appended.iter().zip(decided.iter()) {
+            let applied_data = ev.to_event_data().unwrap_or_else(|_| fallback_data.clone());
+            next = machine::apply_with_actor(next, &applied_data, Some(&ev.actor), ev.ts);
         }
 
         let updated = next.ok_or_else(|| {
@@ -328,7 +329,7 @@ impl FactoryStore {
                 continue;
             };
             let entry = by_id.entry(ev.idea.clone()).or_insert(None);
-            *entry = machine::apply(entry.take(), &ev_data, ev.ts);
+            *entry = machine::apply_with_actor(entry.take(), &ev_data, Some(&ev.actor), ev.ts);
 
             if let Some(run_id) = event_run_id(&ev_data) {
                 let run_entry = runs_by_id.entry(run_id).or_insert(None);
@@ -426,7 +427,7 @@ fn replay_single_idea(events: &[Event], idea_id: &str) -> Option<Idea> {
             continue;
         }
         if let Ok(ev_data) = ev.to_event_data() {
-            acc = machine::apply(acc, &ev_data, ev.ts);
+            acc = machine::apply_with_actor(acc, &ev_data, Some(&ev.actor), ev.ts);
         }
     }
     acc

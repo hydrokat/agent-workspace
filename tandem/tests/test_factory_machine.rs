@@ -53,6 +53,7 @@ fn idea_in_state(state: IdeaState) -> Idea {
         assumptions: Vec::new(),
         runs: Vec::new(),
         prs: Vec::new(),
+        target_recommendation: None,
         cancelled_from: None,
     }
 }

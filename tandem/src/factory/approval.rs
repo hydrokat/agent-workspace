@@ -137,6 +137,7 @@ pub struct MarkReadyOptions {
     pub max_duration_secs: Option<u64>,
     pub max_retries: Option<u32>,
     pub accept_estimate: bool,
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,6 +190,8 @@ pub struct PendingRunConfig {
     pub deploy_requested: bool,
     pub workflow: Option<String>,
     pub budget: Option<Budget>,
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 pub fn pending_run_path(store: &FactoryStore, idea_id: &str) -> PathBuf {
@@ -480,6 +483,15 @@ pub fn mark_ready_with_options(
         _ => None,
     };
 
+    let confirmed_target = options
+        .target
+        .as_deref()
+        .map(|t| {
+            super::workspace::validate_confirmed_target(workspace, t)
+                .map_err(|e| ApprovalError::InvalidInput(e.to_string()))
+        })
+        .transpose()?;
+
     let mut ready = mark_ready(store, idea_id, confirm, approved_by, caller)?;
     ready.budget = Some(run_budget.clone());
     ready.estimate = Some(est);
@@ -493,6 +505,7 @@ pub fn mark_ready_with_options(
                 deploy_requested: options.deploy_requested,
                 workflow: Some(resolved_wf.name),
                 budget: Some(run_budget.into()),
+                target: confirmed_target,
             },
         )?;
         ready.message = "Ready for development. Run starts after grace period.";
@@ -514,7 +527,13 @@ pub fn mark_ready_with_options(
         },
         &sys,
     ) {
-        Ok(run) => {
+        Ok(mut run) => {
+            if let Some(ref target) = confirmed_target {
+                match super::workspace::record_run_target(store, workspace, &run.id, target) {
+                    Ok(updated_run) => run = updated_run,
+                    Err(err) => ready.run_error = Some(err.to_string()),
+                }
+            }
             if let Ok(Some(updated_idea)) = store.get_idea(idea_id) {
                 ready.idea = updated_idea;
             }

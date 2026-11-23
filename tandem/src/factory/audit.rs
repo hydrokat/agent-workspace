@@ -932,6 +932,28 @@ pub fn entries(
                     ],
                 });
             }
+            EventData::IdeaTargetRecommended { repo, rationale } => {
+                entry = Some(AuditEntry {
+                    seq: ev.seq,
+                    ts: ev.ts,
+                    actor: actor_str.clone(),
+                    actor_kind: ev.actor.kind,
+                    kind: AuditKind::Decision,
+                    run: None,
+                    stage: None,
+                    attempt: None,
+                    correlation_id: None,
+                    summary: redact_text(
+                        &format!("target recommended: {repo} (by {actor_str})"),
+                        &ctx,
+                    ),
+                    details: vec![
+                        detail("decision", "target recommended", &ctx),
+                        detail("repo", repo, &ctx),
+                        detail("rationale", rationale, &ctx),
+                    ],
+                });
+            }
             EventData::RunCreated {
                 run,
                 workflow,

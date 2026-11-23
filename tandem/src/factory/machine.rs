@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use super::evidence::EvidenceItem;
 use super::model::{
     Actor, ActorKind, ApprovalGate, ArtifactRef, Budget, FeasibilityVerdict, Idea, IdeaState,
-    OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, validate_owner,
-    validate_text, validate_title,
+    OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState, TargetRecommendation,
+    validate_owner, validate_target_rationale, validate_text, validate_title,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +69,10 @@ pub enum Command {
     AddAssumption {
         text: String,
     },
+    RecommendTarget {
+        repo: String,
+        rationale: String,
+    },
 }
 
 impl Command {
@@ -92,6 +96,7 @@ impl Command {
             Self::Describe { .. } => "Describe",
             Self::StoreArtifact { .. } => "StoreArtifact",
             Self::AddAssumption { .. } => "AddAssumption",
+            Self::RecommendTarget { .. } => "RecommendTarget",
         }
     }
 }
@@ -225,6 +230,8 @@ pub enum EventData {
     },
     #[serde(rename = "idea.assumption_added")]
     IdeaAssumptionAdded { text: String },
+    #[serde(rename = "idea.target_recommended")]
+    IdeaTargetRecommended { repo: String, rationale: String },
     #[serde(rename = "idea.cancelled")]
     IdeaCancelled { reason: String },
     #[serde(rename = "provider.consented")]
@@ -713,6 +720,25 @@ pub fn decide(
             }])
         }
 
+        (
+            IdeaState::Ideation | IdeaState::Planning,
+            Command::RecommendTarget { repo, rationale },
+        ) => {
+            ensure_actor(cmd, actor, &[ActorKind::Orchestrator, ActorKind::User])?;
+            let repo = repo.trim();
+            if repo.is_empty() {
+                return Err(TransitionError::InvalidInput(
+                    "recommended repo must not be empty".to_string(),
+                ));
+            }
+            let rationale = validate_target_rationale(rationale)
+                .map_err(|err| TransitionError::InvalidInput(err.0))?;
+            Ok(vec![EventData::IdeaTargetRecommended {
+                repo: repo.to_string(),
+                rationale,
+            }])
+        }
+
         (from, cmd) => Err(TransitionError::IllegalTransition {
             from,
             command: cmd.name(),
@@ -721,6 +747,15 @@ pub fn decide(
 }
 
 pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
+    apply_with_actor(idea, event, None, ts)
+}
+
+pub fn apply_with_actor(
+    idea: Option<Idea>,
+    event: &EventData,
+    actor: Option<&Actor>,
+    ts: f64,
+) -> Option<Idea> {
     match (idea, event) {
         (
             None,
@@ -750,6 +785,7 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
             assumptions: Vec::new(),
             runs: Vec::new(),
             prs: Vec::new(),
+            target_recommendation: None,
             cancelled_from: None,
         }),
         (None, _) => None,
@@ -806,6 +842,21 @@ pub fn apply(idea: Option<Idea>, event: &EventData, ts: f64) -> Option<Idea> {
                 }
                 EventData::IdeaAssumptionAdded { text } => {
                     idea.assumptions.push(text.clone());
+                    idea.updated = ts;
+                }
+                EventData::IdeaTargetRecommended { repo, rationale }
+                    if matches!(idea.state, IdeaState::Ideation | IdeaState::Planning) =>
+                {
+                    let by = actor.cloned().unwrap_or(Actor {
+                        kind: ActorKind::System,
+                        id: "unknown".to_string(),
+                    });
+                    idea.target_recommendation = Some(TargetRecommendation {
+                        repo: repo.clone(),
+                        rationale: rationale.clone(),
+                        by,
+                        ts,
+                    });
                     idea.updated = ts;
                 }
                 EventData::IdeaDirectionSelected {} if idea.state == IdeaState::Ideation => {

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -86,6 +87,57 @@ pub fn resolve_target(workspace: &Path) -> TargetResolution {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetChoices {
+    pub repos: Vec<String>,
+    pub required: bool,
+}
+
+pub fn target_choices(workspace: &Path) -> TargetChoices {
+    let repos: Vec<String> = list_codebases(workspace)
+        .into_iter()
+        .filter(|c| c.exists && c.is_git)
+        .map(|c| c.name)
+        .collect();
+    let required = repos.len() >= 2;
+    TargetChoices { repos, required }
+}
+
+pub fn validate_recommended_repo(workspace: &Path, repo: &str) -> Result<String, WorkspaceError> {
+    let choices = target_choices(workspace);
+    if !choices.required {
+        return Err(FactoryError::InvalidInput("only one target available".to_string()).into());
+    }
+    let trimmed = repo.trim();
+    if trimmed.is_empty() || !choices.repos.iter().any(|r| r == trimmed) {
+        return Err(WorkspaceError::UnknownTarget(repo.to_string()));
+    }
+    Ok(trimmed.to_string())
+}
+
+pub fn validate_confirmed_target(
+    workspace: &Path,
+    target_name: &str,
+) -> Result<String, WorkspaceError> {
+    let trimmed = target_name.trim();
+    match resolve_target(workspace) {
+        TargetResolution::Resolved { name, .. } => {
+            if trimmed == name {
+                Ok(name)
+            } else {
+                Err(WorkspaceError::UnknownTarget(target_name.to_string()))
+            }
+        }
+        TargetResolution::Ambiguous { choices } => {
+            if choices.iter().any(|c| c == trimmed) {
+                Ok(trimmed.to_string())
+            } else {
+                Err(WorkspaceError::UnknownTarget(target_name.to_string()))
+            }
+        }
+    }
+}
+
 pub fn target_path_for_name(
     workspace: &Path,
     target_name: &str,
@@ -169,6 +221,15 @@ pub fn set_run_target(
     caller: &Caller<'_>,
 ) -> Result<Run, WorkspaceError> {
     require_user(caller)?;
+    record_run_target(store, workspace, run_id, target_name)
+}
+
+pub(crate) fn record_run_target(
+    store: &FactoryStore,
+    workspace: &Path,
+    run_id: &str,
+    target_name: &str,
+) -> Result<Run, WorkspaceError> {
     if !is_valid_run_id(run_id) {
         return Err(FactoryError::InvalidInput(format!("invalid run id: {run_id}")).into());
     }

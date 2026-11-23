@@ -776,3 +776,17 @@ pub fn prepare_ready_idea(fixture: &FactoryFixture, title: &str) -> String {
     mark_ready(&fixture.store, &idea.id, &idea.id, "user", &user_caller()).unwrap();
     idea.id
 }
+
+pub fn link_git_repo(workspace: &Path, repos_root: &Path, name: &str) -> PathBuf {
+    let bare = repos_root.join(format!("{name}.git"));
+    let repo = repos_root.join(name);
+    fs::create_dir_all(&bare).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    init_bare_remote(&bare);
+    init_target_repo(&repo, &bare);
+    fs::create_dir_all(workspace.join("codebase-symlinks")).unwrap();
+    let link = workspace.join("codebase-symlinks").join(name);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&repo, &link).unwrap();
+    repo
+}

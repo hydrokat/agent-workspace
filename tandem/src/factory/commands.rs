@@ -11,8 +11,8 @@ use super::events::{self, Event};
 use super::ids::is_valid_idea_id;
 use super::machine::TransitionError;
 use super::model::{
-    Actor, ActorKind, FactorySettings, Idea, IdeaState, TEXT_MAX_LEN, validate_owner,
-    validate_text, validate_title,
+    Actor, ActorKind, FactorySettings, Idea, IdeaState, TARGET_RATIONALE_MAX_BYTES, TEXT_MAX_LEN,
+    TargetRecommendation, validate_owner, validate_target_rationale, validate_text, validate_title,
 };
 use super::store::FactoryStore;
 use crate::config::Config;
@@ -416,6 +416,22 @@ pub enum FactoryIdeaCommand {
 
     #[command(about = "resolve the currently bound idea id for this pane or environment")]
     Current(FactoryIdeaCurrentArgs),
+
+    #[command(about = "record an advisory target repository recommendation for an idea")]
+    TargetRecommend(FactoryIdeaTargetRecommendArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryIdeaTargetRecommendArgs {
+    pub id: String,
+    #[arg(long)]
+    pub repo: String,
+    #[arg(long, conflicts_with = "reason_file")]
+    pub reason: Option<String>,
+    #[arg(long = "reason-file", conflicts_with = "reason")]
+    pub reason_file: Option<String>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -441,6 +457,10 @@ pub struct FactoryIdeaReadyArgs {
     pub max_retries: Option<u32>,
     #[arg(long)]
     pub accept_estimate: bool,
+    #[arg(long, conflicts_with = "accept_recommended_target")]
+    pub target: Option<String>,
+    #[arg(long = "accept-recommended-target", conflicts_with = "target")]
+    pub accept_recommended_target: bool,
     #[arg(long)]
     pub json: bool,
 }
@@ -1129,12 +1149,30 @@ struct IdeaListOutput {
 }
 
 #[derive(Serialize)]
+struct IdeaShowTargetRecommendation {
+    repo: String,
+    rationale: String,
+    by: Actor,
+    ts: f64,
+    stale: bool,
+}
+
+#[derive(Serialize)]
 struct IdeaShowOutput {
     idea: Idea,
     events: Vec<Event>,
     questions: super::questions::IdeaQuestions,
     #[serde(skip_serializing_if = "Option::is_none")]
     plan_snapshot: Option<super::approval::SnapshotVerification>,
+    target_choices: super::workspace::TargetChoices,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_recommendation: Option<IdeaShowTargetRecommendation>,
+}
+
+#[derive(Serialize)]
+struct TargetRecommendOutput {
+    idea: String,
+    target_recommendation: Option<TargetRecommendation>,
 }
 
 #[derive(Serialize)]
@@ -1180,6 +1218,7 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryIdeaCommand::RevokeReady(a) => a.json,
             FactoryIdeaCommand::Cancel(a) => a.json,
             FactoryIdeaCommand::Current(a) => a.json,
+            FactoryIdeaCommand::TargetRecommend(a) => a.json,
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
             FactoryArtifactCommand::Put(a) => a.json,
@@ -1810,11 +1849,24 @@ fn execute_with_probe(
                     crate::coordination::store::CoordStore::new(coord_dir).queries();
                 let questions = super::questions::for_idea(&coord_queries, &a.id);
                 let plan_snapshot = super::approval::verify_snapshot(&store, &idea);
+                let target_choices = super::workspace::target_choices(workspace);
+                let target_recommendation = idea.target_recommendation.as_ref().map(|rec| {
+                    let stale = !target_choices.repos.iter().any(|r| r == &rec.repo);
+                    IdeaShowTargetRecommendation {
+                        repo: rec.repo.clone(),
+                        rationale: rec.rationale.clone(),
+                        by: rec.by.clone(),
+                        ts: rec.ts,
+                        stale,
+                    }
+                });
                 serialize_compact(&IdeaShowOutput {
                     idea,
                     events: idea_events,
                     questions,
                     plan_snapshot,
+                    target_choices,
+                    target_recommendation,
                 })
             }
             FactoryIdeaCommand::Start(a) => {
@@ -1904,6 +1956,39 @@ fn execute_with_probe(
                     return Err(CmdError::factory_disabled());
                 }
                 let approved_by = resolve_owner(None)?;
+                if a.target.is_some() && a.accept_recommended_target {
+                    return Err(CmdError::invalid_input(
+                        "--target and --accept-recommended-target cannot be used together",
+                    ));
+                }
+                let resolved_target = if a.accept_recommended_target {
+                    if !is_valid_idea_id(&a.id) {
+                        return Err(CmdError::invalid_input(format!(
+                            "invalid idea id: {}",
+                            a.id
+                        )));
+                    }
+                    let idea = store
+                        .get_idea(&a.id)
+                        .map_err(map_factory_error)?
+                        .ok_or_else(|| CmdError::not_found(format!("idea not found: {}", a.id)))?;
+                    let rec = idea.target_recommendation.ok_or_else(|| {
+                        CmdError::invalid_input(format!(
+                            "idea {} has no target recommendation",
+                            a.id
+                        ))
+                    })?;
+                    let choices = super::workspace::target_choices(workspace);
+                    if !choices.repos.iter().any(|r| r == &rec.repo) {
+                        return Err(CmdError::invalid_input(format!(
+                            "recommended target {} is no longer linked",
+                            rec.repo
+                        )));
+                    }
+                    Some(rec.repo)
+                } else {
+                    a.target.clone()
+                };
                 let max_cost_usd = a
                     .max_cost
                     .as_deref()
@@ -1926,6 +2011,7 @@ fn execute_with_probe(
                         max_duration_secs: a.max_duration,
                         max_retries: a.max_retries,
                         accept_estimate: a.accept_estimate,
+                        target: resolved_target,
                     },
                     caller,
                 )
@@ -1997,6 +2083,41 @@ fn execute_with_probe(
                 } else {
                     Ok(idea_opt.unwrap_or_default())
                 }
+            }
+            FactoryIdeaCommand::TargetRecommend(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                if !is_valid_idea_id(&a.id) {
+                    return Err(CmdError::invalid_input(format!(
+                        "invalid idea id: {}",
+                        a.id
+                    )));
+                }
+                let repo = super::workspace::validate_recommended_repo(workspace, &a.repo)
+                    .map_err(|e| CmdError::invalid_input(e.to_string()))?;
+                let raw_reason =
+                    read_reason_input(a.reason.as_deref(), a.reason_file.as_deref(), stdin)?;
+                let validated = validate_target_rationale(&raw_reason)
+                    .map_err(|e| CmdError::invalid_input(e.0))?;
+                let redacted =
+                    super::redact::redact(&validated, &super::redact::RedactContext::from_env())
+                        .into_string();
+                let actor = resolve_actor_for_caller(config, caller);
+                let updated = store
+                    .execute(
+                        &a.id,
+                        super::machine::Command::RecommendTarget {
+                            repo,
+                            rationale: redacted,
+                        },
+                        &actor,
+                    )
+                    .map_err(map_factory_error)?;
+                serialize_compact(&TargetRecommendOutput {
+                    idea: updated.id,
+                    target_recommendation: updated.target_recommendation,
+                })
             }
         },
         FactoryCommand::Artifact(art_args) => match &art_args.command {
@@ -3424,22 +3545,20 @@ fn parse_idea_state(raw: &str) -> Result<IdeaState, CmdError> {
         .map_err(|_| CmdError::invalid_input(format!("invalid state: {raw}")))
 }
 
-fn read_text_input(
+fn read_bounded_input(
     text: Option<&str>,
     text_file: Option<&str>,
+    max_bytes: u64,
+    missing_message: &str,
     stdin: &mut dyn Read,
 ) -> Result<String, CmdError> {
     if let Some(t) = text {
         return Ok(t.to_string());
     }
     let Some(path_str) = text_file else {
-        return Err(CmdError::invalid_input(
-            "either --text or --text-file is required",
-        ));
+        return Err(CmdError::invalid_input(missing_message));
     };
 
-    // Bounded read so oversized files or stdin streams cannot exhaust memory before validate_text.
-    let max_bytes = (TEXT_MAX_LEN as u64) * 4 + 4;
     let mut buf = Vec::new();
     if path_str == "-" {
         stdin
@@ -3472,6 +3591,37 @@ fn read_text_input(
     String::from_utf8(buf).map_err(|_| CmdError::invalid_input("text input must be valid UTF-8"))
 }
 
+fn read_text_input(
+    text: Option<&str>,
+    text_file: Option<&str>,
+    stdin: &mut dyn Read,
+) -> Result<String, CmdError> {
+    // Bounded read so oversized files or stdin streams cannot exhaust memory before validate_text.
+    let max_bytes = (TEXT_MAX_LEN as u64) * 4 + 4;
+    read_bounded_input(
+        text,
+        text_file,
+        max_bytes,
+        "either --text or --text-file is required",
+        stdin,
+    )
+}
+
+fn read_reason_input(
+    reason: Option<&str>,
+    reason_file: Option<&str>,
+    stdin: &mut dyn Read,
+) -> Result<String, CmdError> {
+    let max_bytes = (TARGET_RATIONALE_MAX_BYTES as u64) + 1;
+    read_bounded_input(
+        reason,
+        reason_file,
+        max_bytes,
+        "either --reason or --reason-file is required",
+        stdin,
+    )
+}
+
 fn resolve_owner(explicit: Option<&str>) -> Result<String, CmdError> {
     if let Some(owner) = explicit {
         return validate_owner(owner).map_err(|e| CmdError::invalid_input(e.0));
@@ -3496,6 +3646,38 @@ fn resolve_actor(config: &Config) -> Actor {
         };
         Actor {
             kind: ActorKind::Orchestrator,
+            id,
+        }
+    } else {
+        Actor {
+            kind: ActorKind::User,
+            id: "cli".to_string(),
+        }
+    }
+}
+
+fn resolve_actor_for_caller(config: &Config, caller: &super::approval::Caller<'_>) -> Actor {
+    let role = (caller.env)("TANDEM_ROLE").or_else(|| std::env::var("TANDEM_ROLE").ok());
+    if role.as_deref() == Some("orchestrator") {
+        let id = if config.session_id.is_empty() {
+            (caller.env)("TANDEM_SESSION_ID")
+                .or_else(|| std::env::var("TANDEM_SESSION_ID").ok())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "orchestrator".to_string())
+        } else {
+            config.session_id.clone()
+        };
+        Actor {
+            kind: ActorKind::Orchestrator,
+            id,
+        }
+    } else if let Some(non_orch) = role.filter(|r| !r.trim().is_empty()) {
+        let id = (caller.env)("TANDEM_SESSION_ID")
+            .or_else(|| std::env::var("TANDEM_SESSION_ID").ok())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(non_orch);
+        Actor {
+            kind: ActorKind::System,
             id,
         }
     } else {

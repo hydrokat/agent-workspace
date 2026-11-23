@@ -661,3 +661,144 @@ exit 1
 
     let _ = fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn ambiguous_target_pause_highlights_non_stale_recommendation_first() {
+    use common::factory_fixture::user_actor;
+    use tandem::factory::executor::ReadyCli;
+    use tandem::factory::run::{CreateRunOptions, create_run};
+    use tandem::factory::runner::drive_run_step;
+    use tandem::factory::store::FactoryStore;
+
+    let ws = temp_ws("ambig-rec");
+    let repos_root = temp_ws("ambig-rec-repos");
+    init_git_repo(&ws);
+    let _ = common::factory_fixture::link_git_repo(&ws, &repos_root, "api-service");
+    let _ = common::factory_fixture::link_git_repo(&ws, &repos_root, "web-client");
+
+    let store = FactoryStore::new(&ws);
+    store.ensure().unwrap();
+    tandem::factory::settings::save(
+        &store,
+        &tandem::factory::model::FactorySettings {
+            approval_grace_secs: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let user = user_actor();
+    let orch = Actor {
+        kind: ActorKind::Orchestrator,
+        id: "orch-1".to_string(),
+    };
+    let idea = store
+        .create_idea("Multi repo", "Body", "alice", &user)
+        .unwrap();
+    store
+        .execute(
+            &idea.id,
+            tandem::factory::machine::Command::StartDiscovery,
+            &orch,
+        )
+        .unwrap();
+    let feas = ws.join("f.md");
+    fs::write(&feas, "# Feas\nOk\n").unwrap();
+    let feas_ref = tandem::factory::artifacts::put(&store, &idea.id, "feasibility", &feas).unwrap();
+    store
+        .execute(
+            &idea.id,
+            tandem::factory::machine::Command::StoreArtifact {
+                kind: "feasibility".to_string(),
+                artifact: feas_ref,
+                verdict: None,
+                risk: None,
+                workflow: None,
+                missing_sections: vec![],
+            },
+            &orch,
+        )
+        .unwrap();
+    store
+        .execute(
+            &idea.id,
+            tandem::factory::machine::Command::SelectDirection,
+            &orch,
+        )
+        .unwrap();
+    let plan = ws.join("p.md");
+    fs::write(
+        &plan,
+        "# Plan\n\n## Scope\nUI\n\n## Acceptance criteria\n- Renders\n\n## Risks\nLow\n\n## Estimates\n1d\n\n## Workflow recommendation\ndefault-delivery\n",
+    )
+    .unwrap();
+    let plan_ref = tandem::factory::artifacts::put(&store, &idea.id, "plan", &plan).unwrap();
+    store
+        .execute(
+            &idea.id,
+            tandem::factory::machine::Command::StoreArtifact {
+                kind: "plan".to_string(),
+                artifact: plan_ref,
+                verdict: None,
+                risk: None,
+                workflow: Some("default-delivery".to_string()),
+                missing_sections: vec![],
+            },
+            &orch,
+        )
+        .unwrap();
+    let long_first_line = format!("Changes src/components/board.tsx; {}", "detail ".repeat(30));
+    store
+        .execute(
+            &idea.id,
+            tandem::factory::machine::Command::RecommendTarget {
+                repo: "web-client".to_string(),
+                rationale: format!("{long_first_line}\nSecond line ignored"),
+            },
+            &orch,
+        )
+        .unwrap();
+    let ready = tandem::factory::approval::mark_ready(
+        &store,
+        &idea.id,
+        &idea.id,
+        "alice",
+        &tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None),
+    )
+    .unwrap();
+    let run = ready.run.unwrap_or_else(|| {
+        create_run(&store, &ws, &idea.id, CreateRunOptions::default(), &user).unwrap()
+    });
+
+    struct StubExec;
+    impl Executor for StubExec {
+        fn ready_clis(&self) -> Vec<ReadyCli> {
+            vec![ReadyCli::new(
+                "claude",
+                Some(tandem::factory::broker::terms::AuthType::ApiKey),
+            )]
+        }
+
+        fn run(&mut self, _: &StageJob) -> StageOutcome {
+            StageOutcome::Succeeded
+        }
+    }
+
+    drive_run_step(&store, &ws, &run.id, &mut StubExec).unwrap();
+    let paused = get_run(&store, &run.id).unwrap().unwrap();
+    assert_eq!(paused.state, RunState::Paused);
+    let reason = paused.pause_reason.as_deref().unwrap();
+    assert!(
+        reason.starts_with(
+            "choose a target repository: web-client, api-service (recommended: web-client — "
+        ),
+        "unexpected pause reason: {reason}"
+    );
+    assert!(!reason.contains("Second line ignored"));
+    assert_eq!(
+        paused.action_commands.first().map(String::as_str),
+        Some(format!("tandem factory run target {} web-client", run.id).as_str())
+    );
+
+    let _ = fs::remove_dir_all(&ws);
+    let _ = fs::remove_dir_all(&repos_root);
+}

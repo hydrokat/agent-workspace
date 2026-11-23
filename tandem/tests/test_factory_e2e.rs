@@ -717,3 +717,124 @@ fn risky_auth_pauses_the_run_until_the_user_acknowledges_then_the_worker_launche
         "worker should launch after acknowledgement"
     );
 }
+
+#[test]
+fn two_repo_e2e_recommend_then_ready_with_target_creates_worktree_without_pausing() {
+    use tandem::factory::approval::{MarkReadyOptions, mark_ready_with_options};
+    use tandem::factory::checks::set_checks;
+    use tandem::factory::machine::Command as MachineCommand;
+    use tandem::factory::workspace::prepare_worktree;
+
+    let fixture = FactoryFixture::new("two-repo-e2e");
+    let repos_root = common::TempDir::new();
+    let _api = common::factory_fixture::link_git_repo(
+        &fixture.workspace,
+        repos_root.path(),
+        "api-service",
+    );
+    let web =
+        common::factory_fixture::link_git_repo(&fixture.workspace, repos_root.path(), "web-client");
+
+    set_checks(
+        &fixture.store,
+        "web-client",
+        vec![vec!["true".to_string()]],
+        vec![],
+        Some(30),
+        vec![],
+        "web-client",
+        "user",
+        &user_caller(),
+    )
+    .unwrap();
+
+    let user = user_actor();
+    let orch = common::factory_fixture::orch_actor();
+    let idea = fixture
+        .store
+        .create_idea("Web button", "Add export button", "alice", &user)
+        .unwrap();
+    fixture
+        .store
+        .execute(&idea.id, MachineCommand::StartDiscovery, &orch)
+        .unwrap();
+    let feas = fixture.workspace.join(".agent-workspace/feas2.md");
+    fs::write(&feas, "# Feas\nOk\n").unwrap();
+    let feas_ref =
+        tandem::factory::artifacts::put(&fixture.store, &idea.id, "feasibility", &feas).unwrap();
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            MachineCommand::StoreArtifact {
+                kind: "feasibility".to_string(),
+                artifact: feas_ref,
+                verdict: None,
+                risk: None,
+                workflow: None,
+                missing_sections: vec![],
+            },
+            &orch,
+        )
+        .unwrap();
+    fixture
+        .store
+        .execute(&idea.id, MachineCommand::SelectDirection, &orch)
+        .unwrap();
+    let plan = fixture.workspace.join(".agent-workspace/plan2.md");
+    let plan_body = "## Scope\nWeb UI.\n\n## Acceptance criteria\n- Renders button\n\n## Risks\nLow.\n\n## Estimates\n1 day.\n\n## Workflow recommendation\ndefault-delivery\n";
+    fs::write(&plan, plan_body).unwrap();
+    let plan_ref =
+        tandem::factory::artifacts::put(&fixture.store, &idea.id, "plan", &plan).unwrap();
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            MachineCommand::StoreArtifact {
+                kind: "plan".to_string(),
+                artifact: plan_ref,
+                verdict: None,
+                risk: None,
+                workflow: Some("default-delivery".to_string()),
+                missing_sections: vec![],
+            },
+            &orch,
+        )
+        .unwrap();
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            MachineCommand::RecommendTarget {
+                repo: "web-client".to_string(),
+                rationale: "UI button lives in web-client/src".to_string(),
+            },
+            &orch,
+        )
+        .unwrap();
+
+    let ready = mark_ready_with_options(
+        &fixture.store,
+        &fixture.workspace,
+        &idea.id,
+        &idea.id,
+        "user",
+        MarkReadyOptions {
+            target: Some("web-client".to_string()),
+            accept_estimate: true,
+            ..Default::default()
+        },
+        &user_caller(),
+    )
+    .unwrap();
+    let run = ready.run.expect("run created immediately");
+    assert_eq!(run.target.as_deref(), Some("web-client"));
+
+    let rw = prepare_worktree(&fixture.store, &fixture.workspace, &run.id).unwrap();
+    assert_eq!(rw.target, "web-client");
+    assert_eq!(
+        rw.target_path.canonicalize().unwrap(),
+        web.canonicalize().unwrap()
+    );
+    assert!(rw.worktree_path.exists());
+}
