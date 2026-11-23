@@ -9,7 +9,6 @@ use tandem::factory::artifacts;
 use tandem::factory::broker::browser::{
     BrowserError, ScreenshotRequest, build_screenshot_argv, capture_screenshot,
 };
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::result::{JobResult, JobResultStatus};
 use tandem::factory::checks::{ChecksConfig, ConfirmedChecks};
 use tandem::factory::evidence;
@@ -159,15 +158,6 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
         )
         .unwrap();
     let caller = tandem::factory::approval::Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     tandem::factory::checks::set_checks(
         &store,
         "workspace",
@@ -207,6 +197,13 @@ struct StubExecutor {
 }
 
 impl Executor for StubExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.stages_run.push(job.stage.clone());
         StageOutcome::Succeeded

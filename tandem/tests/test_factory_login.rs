@@ -8,7 +8,7 @@ use common::TempDir;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use tandem::factory::broker::gate::interactive_ready;
+use tandem::factory::login::interactive_ready;
 use tandem::factory::login::{
     LOGIN_SPECS, LoginError, LoginProbe, all_statuses, check_status, open_login_pane,
 };

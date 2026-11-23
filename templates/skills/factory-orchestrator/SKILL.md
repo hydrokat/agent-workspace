@@ -29,6 +29,9 @@ If the user invokes `/idea <idea text>`, run the `/idea` skill in Factory Mode (
 
 ## Hard Rules
 
+- Never acknowledge a risky sign-in method for the user. If `tandem factory login risk --json` shows a CLI as `risky`, or a run pauses with `auth risk not acknowledged`, tell the user which CLI and why and give them `tandem factory login acknowledge-risk <cli> --method <method> --confirm <cli>` (or the TUI/web dialog); only they can confirm it. Prefer assigning a CLI whose risk is `ok` when one is ready.
+- Workers are always interactive tmux panes. Never launch an AI CLI with `-p`/`--print`/`run` or any other non-interactive mode, and do not suggest it.
+
 - Never run `tandem factory idea ready` or `revoke-ready`. Only the user applies the tag.
 - Never call `tmux` directly or access credential files; all worker communication goes through `factory.py` / `tandem factory agent`.
 - Do not start implementation, create branches, or edit the codebase during ideation.

@@ -261,18 +261,6 @@ export interface RunControlOptions {
   now?: boolean;
 }
 
-export type ProviderGateState = "open" | "closed";
-
-export interface ProviderStatusItem {
-  provider: string;
-  auth_type: string;
-  verdict: string;
-  verified_on: string;
-  reverify_by: string;
-  gate: ProviderGateState;
-  reason?: string | null;
-}
-
 export interface WorkflowDiagnostic {
   code: string;
   line: number;
@@ -328,16 +316,6 @@ export interface ProviderModelTiers {
   premium: string;
 }
 
-export interface FactoryProviderGate {
-  provider: string;
-  state: "open" | "closed";
-  auth_type?: string | null;
-  verified_on?: string | null;
-  terms_record?: string | null;
-  consented_at?: number | null;
-  consented_by?: string | null;
-}
-
 export interface FactorySettings {
   version: number;
   max_parallel_agents: number;
@@ -349,7 +327,6 @@ export interface FactorySettings {
   default_worker_cli?: "auto" | FactoryCli;
   orchestrator_may_choose?: boolean;
   model_tiers: Record<string, ProviderModelTiers>;
-  provider_gates: FactoryProviderGate[];
   checks: Record<string, unknown>;
   deploy_commands: Record<string, unknown>;
 }
@@ -364,7 +341,6 @@ export interface FactorySettingsChangeResult {
 
 export interface FactorySettingsPayload {
   settings: FactorySettings;
-  providers: ProviderStatusItem[];
   workflows: Array<{
     name: string;
     version: number;
@@ -588,6 +564,35 @@ export interface LoginStatusItem {
   has_login_command: boolean;
   login_hint?: string | null;
   error?: string | null;
+}
+
+export type AuthRiskState = "ok" | "risky" | "acknowledged";
+
+export interface AuthRiskItem {
+  cli: string;
+  signed_in: boolean;
+  method: string;
+  verdict?: string | null;
+  risk?: AuthRiskState | null;
+  reason?: string | null;
+  conditions?: string | null;
+  acknowledged_on?: string | null;
+  verified_on?: string | null;
+  reverify_by?: string | null;
+  acknowledge_command?: string | null;
+}
+
+export interface AuthRiskAcknowledgement {
+  cli: string;
+  method: string;
+  verdict: string;
+  terms_verified_on: string;
+  acknowledged_by: string;
+  acknowledged_at: number;
+}
+
+export function isRiskyUnacknowledged(item: AuthRiskItem | null | undefined): boolean {
+  return item?.risk === "risky";
 }
 
 export interface LoginPaneResult {

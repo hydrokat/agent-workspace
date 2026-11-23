@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuthRisk } from "@/hooks/use-auth-risk";
+import { AuthRiskNotice } from "./auth-risk-dialog";
 import type { Idea, IdeaQuestions, ReadyResult, WorkflowListItem } from "@/domain/models/factory";
 
 interface ReadyDialogProps {
@@ -38,6 +40,8 @@ export function ReadyDialog({
   const [deployRequested, setDeployRequested] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { risks } = useAuthRisk();
+  const riskyClis = risks.filter((r) => r.risk === "risky").map((r) => r.cli);
 
   const recommended = idea.plan?.workflow?.trim() || "default-delivery";
   const effectiveWorkflows: WorkflowListItem[] =
@@ -102,6 +106,18 @@ export function ReadyDialog({
           {missingSections.length > 0 && (
             <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
               Plan is missing sections: {missingSections.join(", ")}.
+            </div>
+          )}
+
+          {riskyClis.length > 0 && (
+            <div className="flex flex-col gap-2" data-testid="ready-risk-list">
+              <p className="text-xs font-medium text-foreground">
+                This run may use CLIs with a risky sign-in. Stages assigned to them pause until you
+                confirm.
+              </p>
+              {riskyClis.map((cli) => (
+                <AuthRiskNotice key={cli} cli={cli} />
+              ))}
             </div>
           )}
 

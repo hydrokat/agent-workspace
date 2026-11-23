@@ -13,7 +13,6 @@ import {
   type FactorySettings,
   type FactorySettingsPayload,
   type ProviderModelTiers,
-  type ProviderStatusItem,
 } from "@/domain/models/factory";
 
 interface FactorySettingsCardProps {
@@ -163,7 +162,6 @@ export function FactorySettingsCard({
   const [draft, setDraft] = useState<DraftState | null>(
     initialData?.settings ? settingsToDraft(initialData.settings) : null
   );
-  const [providers, setProviders] = useState<ProviderStatusItem[]>(initialData?.providers ?? []);
   const [workflows, setWorkflows] = useState<FactorySettingsPayload["workflows"]>(
     initialData?.workflows ?? []
   );
@@ -188,7 +186,6 @@ export function FactorySettingsCard({
         if (cancelled) return;
         setSaved(data.settings);
         setDraft(settingsToDraft(data.settings));
-        setProviders(data.providers);
         setWorkflows(data.workflows);
         setSaveError(null);
       })
@@ -525,27 +522,6 @@ export function FactorySettingsCard({
           workspaceId={workspaceId}
           onLoginPaneOpened={(res) => onOpenTerminal?.(res.pane_id)}
         />
-      </div>
-
-      <div className="flex flex-col gap-2 border-t pt-4">
-        <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
-          Providers (reference terms)
-        </span>
-        <div className="flex flex-col gap-1.5">
-          {providers.map((p) => (
-            <div key={p.provider} className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="font-mono font-medium text-foreground">{p.provider}</span>
-              <span className="text-muted-foreground">
-                {p.gate === "open"
-                  ? "Open"
-                  : `Closed${p.reason ? ` — ${p.reason}` : ""}`}
-              </span>
-            </div>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          Consent is given in tandem on the host.
-        </p>
       </div>
 
       <div className="flex flex-col gap-1 border-t pt-3 text-xs text-muted-foreground">

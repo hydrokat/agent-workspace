@@ -186,8 +186,8 @@ fn shipped_binary_exposes_no_gate_bypass_or_clock_override() {
 
     for args in [
         &["factory", "--help"][..],
-        &["factory", "provider", "--help"][..],
-        &["factory", "provider", "consent", "--help"][..],
+        &["factory", "login", "--help"][..],
+        &["factory", "login", "acknowledge-risk", "--help"][..],
         &["factory", "run", "--help"][..],
     ] {
         let out = StdCommand::new(bin).args(args).output().unwrap();
@@ -209,10 +209,10 @@ fn shipped_binary_exposes_no_gate_bypass_or_clock_override() {
     let rejected = StdCommand::new(bin)
         .args([
             "factory",
-            "provider",
-            "consent",
+            "login",
+            "acknowledge-risk",
             "claude",
-            "--auth",
+            "--method",
             "api-key",
             "--confirm",
             "claude",
@@ -626,15 +626,20 @@ fn stub_scenario_crash_mid_stage_pauses_run() {
     assert_eq!(final_state, RunState::Paused);
 }
 
-#[test]
-fn stub_scenario_hang_times_out_and_pauses_run() {
-    use std::collections::BTreeMap;
-    use tandem::factory::broker::gate::check_with_terms;
-    use tandem::factory::broker::spawn::{ProviderCommand, SpawnError, spawn_provider};
-    use tandem::factory::workspace::prepare_worktree;
+const RISKY_TERMS: &[tandem::factory::broker::terms::ProviderTermsRow] =
+    &[tandem::factory::broker::terms::ProviderTermsRow {
+        verdict: tandem::factory::broker::terms::TermsVerdict::NotAllowed,
+        ..common::factory_fixture::TEST_TERMS[0]
+    }];
 
-    let fixture = FactoryFixture::new("hang");
-    let idea_id = setup_ready_idea(&fixture, "Export hanging stage");
+#[test]
+fn risky_auth_pauses_the_run_until_the_user_acknowledges_then_the_worker_launches() {
+    use tandem::factory::auth_risk::acknowledge_with_terms;
+    use tandem::factory::broker::terms::AuthType;
+    use tandem::factory::runner::drive_run_step_with_gh;
+
+    let fixture = FactoryFixture::new("risk-pause");
+    let idea_id = setup_ready_idea(&fixture, "Risky sign-in");
     let run = create_run(
         &fixture.store,
         &fixture.workspace,
@@ -643,56 +648,72 @@ fn stub_scenario_hang_times_out_and_pauses_run() {
         &sys_actor(),
     )
     .unwrap();
-    let ws = prepare_worktree(&fixture.store, &fixture.workspace, &run.id).unwrap();
 
-    let settings = fixture.store.settings().unwrap();
-    let pass = check_with_terms(
+    let mut exec = fixture.executor();
+    exec.terms = RISKY_TERMS;
+
+    drive_run_step_with_gh(
+        &fixture.store,
+        &fixture.workspace,
+        &run.id,
+        &mut exec,
+        &fixture.gh_bin,
+    )
+    .unwrap();
+    let paused = get_run(&fixture.store, &run.id).unwrap().unwrap();
+    assert_eq!(paused.state, RunState::Paused);
+    let reason = paused.pause_reason.clone().unwrap_or_default();
+    assert!(
+        reason.contains("auth risk not acknowledged for claude (api-key)"),
+        "{reason}"
+    );
+    let log = read_all(&fixture.store.root.join("events.jsonl")).unwrap();
+    assert!(
+        log.events.iter().any(|e| e.r#type == "run.paused"
+            && e.data.to_string().contains(
+                "tandem factory login acknowledge-risk claude --method api-key --confirm claude"
+            )),
+        "pause must carry the acknowledge command"
+    );
+    assert!(
+        !log.events.iter().any(|e| e.r#type == "job.started"),
+        "no worker may launch before the user acknowledges"
+    );
+
+    acknowledge_with_terms(
+        &fixture.store,
         "claude",
-        &settings,
-        common::factory_fixture::FIXED_TODAY,
-        common::factory_fixture::TEST_TERMS,
+        Some(AuthType::ApiKey),
+        "api-key",
+        "claude",
+        "user",
+        &user_caller(),
+        RISKY_TERMS,
+    )
+    .unwrap();
+    fixture.resume_run(&run.id).unwrap();
+    drive_run_step_with_gh(
+        &fixture.store,
+        &fixture.workspace,
+        &run.id,
+        &mut exec,
+        &fixture.gh_bin,
     )
     .unwrap();
 
-    let mut parent_env: BTreeMap<String, String> = std::env::vars().collect();
-    let orig_path = parent_env.get("PATH").cloned().unwrap_or_default();
-    parent_env.insert(
-        "PATH".to_string(),
-        format!("{}:{orig_path}", fixture.stub_dir.display()),
+    let after = get_run(&fixture.store, &run.id).unwrap().unwrap();
+    assert_ne!(
+        after
+            .pause_reason
+            .as_deref()
+            .map(|r| r.contains("auth risk")),
+        Some(true),
+        "{:?}",
+        after.pause_reason
     );
-    parent_env.insert(
-        "CLAUDE_CONFIG_DIR".to_string(),
-        fixture.claude_config_dir.display().to_string(),
+    let log = read_all(&fixture.store.root.join("events.jsonl")).unwrap();
+    assert!(
+        log.events.iter().any(|e| e.r#type == "job.started"),
+        "worker should launch after acknowledgement"
     );
-
-    let job_dir = fixture.store.run_dir(&run.id).join("jobs/hang-check");
-    fs::create_dir_all(&job_dir).unwrap();
-
-    let mut factory_env = BTreeMap::new();
-    factory_env.insert("TANDEM_RUN_ID".to_string(), run.id);
-    factory_env.insert("TANDEM_STAGE".to_string(), "plan".to_string());
-    factory_env.insert("TANDEM_ATTEMPT".to_string(), "1".to_string());
-    factory_env.insert(
-        "TANDEM_JOB_DIR".to_string(),
-        job_dir.to_string_lossy().to_string(),
-    );
-
-    let mut running = spawn_provider(
-        pass,
-        ProviderCommand {
-            program: "claude".to_string(),
-            args: vec![],
-            workspace_root: fixture.workspace.clone(),
-            cwd: ws.worktree_path,
-            log_path: job_dir.join("log.txt"),
-            stdin_prompt: Some("hang test".to_string()),
-            factory_env,
-            parent_env,
-        },
-    )
-    .unwrap();
-
-    let err = running.wait(Duration::from_millis(150)).unwrap_err();
-    assert!(matches!(err, SpawnError::TimedOut { .. }), "got: {err:?}");
-    let _ = running.stop(Duration::from_millis(50));
 }

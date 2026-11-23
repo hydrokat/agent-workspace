@@ -13,6 +13,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::adapters::base::Model;
 use crate::coordination::schema::Query;
+use crate::factory::auth_risk::RiskItem;
 use crate::factory::model::{IdeaState, Risk, validate_text, validate_title};
 use crate::factory::questions;
 use crate::sanitize::clean;
@@ -142,6 +143,9 @@ pub enum FactoryAction {
     OpenLoginPane {
         cli: String,
     },
+    ReviewRisk {
+        cli: String,
+    },
     Refresh,
 }
 
@@ -163,6 +167,7 @@ pub struct NewIdeaModal {
     pub message: String,
     pub hits: HitMap,
     pub list_rect: Rect,
+    pub risks: Vec<RiskItem>,
 }
 
 impl std::fmt::Debug for NewIdeaModal {
@@ -212,7 +217,36 @@ impl NewIdeaModal {
             message: String::new(),
             hits: HitMap::default(),
             list_rect: Rect::default(),
+            risks: Vec::new(),
         }
+    }
+
+    pub fn set_risks(&mut self, risks: Vec<RiskItem>) {
+        self.risks = risks;
+        for item in &mut self.cli_items {
+            if item.disabled {
+                continue;
+            }
+            item.label = match self
+                .risks
+                .iter()
+                .find(|r| r.cli == item.id && r.risk.as_deref() == Some("risky"))
+            {
+                Some(r) => format!(
+                    "{}  ⚠ risky: {} ({})",
+                    item.id,
+                    r.method,
+                    r.verdict.as_deref().unwrap_or("no verified terms")
+                ),
+                None => item.id.clone(),
+            };
+        }
+    }
+
+    fn risky_cli(&self, cli: &str) -> Option<&RiskItem> {
+        self.risks
+            .iter()
+            .find(|r| r.cli == cli && r.risk.as_deref() == Some("risky"))
     }
 
     pub fn poll_background(&mut self) -> bool {
@@ -327,6 +361,17 @@ impl NewIdeaModal {
                     self.cli_state.select_next(&self.cli_items);
                     ModalKeyOutcome::Consumed
                 }
+                KeyCode::Char('r') => {
+                    let Some(idx) = self.cli_state.selected else {
+                        return ModalKeyOutcome::Consumed;
+                    };
+                    let cli = self.cli_items[idx].id.clone();
+                    if self.risky_cli(&cli).is_some() {
+                        return ModalKeyOutcome::ReviewRisk { cli };
+                    }
+                    self.message = format!("{cli}: no risk confirmation needed.");
+                    ModalKeyOutcome::Consumed
+                }
                 KeyCode::Enter => {
                     let Some(idx) = self.cli_state.selected else {
                         self.message =
@@ -339,6 +384,14 @@ impl NewIdeaModal {
                         return ModalKeyOutcome::Consumed;
                     }
                     let cli = item.id.clone();
+                    if let Some(risk) = self.risky_cli(&cli) {
+                        self.message = format!(
+                            "{cli} uses a risky sign-in ({}, {}). Press r to review and confirm it first.",
+                            risk.method,
+                            risk.verdict.as_deref().unwrap_or("no verified terms")
+                        );
+                        return ModalKeyOutcome::Consumed;
+                    }
                     self.chosen_cli = Some(cli.clone());
                     self.step = NewIdeaStep::Model;
                     self.start_model_load(&cli);
@@ -595,7 +648,7 @@ impl NewIdeaModal {
                 NewIdeaStep::Description => {
                     "type a description   Enter new line   Ctrl+Enter done   Esc back"
                 }
-                NewIdeaStep::Cli => "↑/↓ choose CLI   Enter next   Esc back",
+                NewIdeaStep::Cli => "↑/↓ choose CLI   r review risk   Enter next   Esc back",
                 NewIdeaStep::Model => "↑/↓ choose model   type to filter   Enter start   Esc back",
             };
             write_clipped(
@@ -630,6 +683,7 @@ impl NewIdeaModal {
                     hint,
                     &[
                         ("↑/↓ choose CLI", Hit::key(KeyCode::Down)),
+                        ("r review risk", Hit::ch('r')),
                         ("Enter next", enter),
                         ("Esc back", esc),
                     ],
@@ -651,6 +705,9 @@ impl NewIdeaModal {
 enum ModalKeyOutcome {
     Consumed,
     Cancel,
+    ReviewRisk {
+        cli: String,
+    },
     Confirm {
         cli: String,
         model: String,
@@ -679,6 +736,7 @@ pub struct FactoryTab {
     pub agents: Option<FactoryAgents>,
     pub return_to_agents: bool,
     pub new_idea: Option<NewIdeaModal>,
+    pub risks: Vec<RiskItem>,
     pub notice: String,
     pub platform: String,
     pub workspace: Option<PathBuf>,
@@ -730,6 +788,7 @@ impl FactoryTab {
             agents: None,
             return_to_agents: false,
             new_idea: None,
+            risks: Vec::new(),
             notice: String::new(),
             platform: std::env::consts::OS.to_string(),
             workspace,
@@ -767,11 +826,26 @@ impl FactoryTab {
 
     pub fn open_new_idea(&mut self) {
         self.notice.clear();
-        self.new_idea = Some(NewIdeaModal::new(
-            self.installed.clone(),
-            self.model_loader.clone(),
-        ));
+        let mut modal = NewIdeaModal::new(self.installed.clone(), self.model_loader.clone());
+        modal.set_risks(self.risks.clone());
+        self.new_idea = Some(modal);
         self.view = FactoryView::NewIdea;
+    }
+
+    pub fn set_risks(&mut self, risks: Vec<RiskItem>) {
+        if let Some(ref mut modal) = self.new_idea {
+            modal.set_risks(risks.clone());
+        }
+        if let Some(ref mut detail) = self.detail {
+            detail.risks = risks.clone();
+        }
+        if let Some(ref mut monitor) = self.run_monitor {
+            monitor.risks = risks.clone();
+        }
+        if let Some(ref mut agents) = self.agents {
+            agents.risks = risks.clone();
+        }
+        self.risks = risks;
     }
 
     pub fn focus_idea(&mut self, idea_id: &str) {
@@ -872,6 +946,7 @@ impl FactoryTab {
             return false;
         };
         let mut detail = FactoryDetail::load(ws, idea_id, &snapshot.queries, false);
+        detail.risks = self.risks.clone();
         detail.platform = self.platform.clone();
         self.detail = Some(detail);
         self.view = FactoryView::Detail;
@@ -1113,6 +1188,7 @@ impl FactoryTab {
                         self.view = FactoryView::Board;
                         None
                     }
+                    ModalKeyOutcome::ReviewRisk { cli } => Some(FactoryAction::ReviewRisk { cli }),
                     ModalKeyOutcome::Confirm {
                         cli,
                         model,
@@ -1146,8 +1222,9 @@ impl FactoryTab {
                     }) => Some(FactoryAction::OpenOrResumeOrchestrator { idea_id }),
                     DetailKeyOutcome::Action(DetailAction::OpenRunMonitor { run_id }) => {
                         if let Some(ref ws) = self.workspace {
-                            let monitor =
+                            let mut monitor =
                                 FactoryRun::load(ws, &detail.idea_id, &run_id, &self.platform);
+                            monitor.risks = self.risks.clone();
                             self.run_monitor = Some(monitor);
                             self.view = FactoryView::RunMonitor;
                         }
@@ -1158,6 +1235,7 @@ impl FactoryTab {
                             let mut monitor =
                                 FactoryRun::load(ws, &detail.idea_id, &run_id, &self.platform);
                             monitor.open_evidence_view();
+                            monitor.risks = self.risks.clone();
                             self.run_monitor = Some(monitor);
                             self.view = FactoryView::RunMonitor;
                         }
@@ -1238,8 +1316,10 @@ impl FactoryTab {
                     }
                     AgentsKeyOutcome::OpenRun { idea_id, run_id } => {
                         if let Some(ref ws) = self.workspace {
-                            self.run_monitor =
-                                Some(FactoryRun::load(ws, &idea_id, &run_id, &self.platform));
+                            let mut monitor =
+                                FactoryRun::load(ws, &idea_id, &run_id, &self.platform);
+                            monitor.risks = self.risks.clone();
+                            self.run_monitor = Some(monitor);
                             self.return_to_agents = true;
                             self.view = FactoryView::RunMonitor;
                         }
@@ -1293,7 +1373,9 @@ impl FactoryTab {
                         match self.workspace {
                             Some(ref ws) => {
                                 self.notice.clear();
-                                self.agents = Some(FactoryAgents::load(ws));
+                                let mut agents = FactoryAgents::load(ws);
+                                agents.risks = self.risks.clone();
+                                self.agents = Some(agents);
                                 self.view = FactoryView::Agents;
                             }
                             None => {

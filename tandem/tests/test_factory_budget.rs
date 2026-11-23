@@ -8,7 +8,6 @@ use tandem::cli::Cli;
 use tandem::config::Config;
 use tandem::factory::approval::{ApprovalError, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::budget::{
     BudgetCheck, EstimateHistory, EstimateRange, HistoricalRun, RunBudget, Spent,
     StageTokenEstimate, check, cost_cap_label, effective_stage_budget, estimate,
@@ -173,15 +172,6 @@ fn setup_queued_run_with_budget(
     settings.approval_grace_secs = 0;
     save_settings(&store, &settings).unwrap();
     let caller = tandem::factory::approval::Caller::cli(true, &no_env, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
 
     let ready = mark_ready_with_options(
         &store,
@@ -207,6 +197,13 @@ struct SequenceExecutor {
 }
 
 impl Executor for SequenceExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls.push(format!("{}:{}", job.stage, job.attempt));
         if let Some(cb) = self.on_call.as_mut() {
@@ -744,4 +741,33 @@ fn honest_limits_labels_cost_cap_unenforceable_for_provider_without_usage() {
         true,
     );
     assert_eq!(res, BudgetCheck::Ok);
+}
+
+#[test]
+fn estimate_routes_cover_every_stage_without_any_provider_consent() {
+    use tandem::factory::budget::{provider_reports_usage, routes_for_workflow};
+    use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
+    use tandem::factory::workflow::parse::parse_workflow_str;
+    use tandem::factory::workflow::validate::validate;
+
+    let settings = tandem::factory::model::FactorySettings::default();
+    let raw = parse_workflow_str(DEFAULT_WORKFLOW_YAML).unwrap();
+    let wf = validate(&raw, &settings).unwrap();
+
+    let (routes, primary) = routes_for_workflow(
+        &wf,
+        &settings,
+        &["claude", "agy", "opencode"],
+        Some("claude".into()),
+    );
+    assert_eq!(primary.as_deref(), Some("claude"));
+    for stage in ["plan", "develop", "review"] {
+        assert!(
+            routes.contains_key(stage),
+            "no route for {stage}: {routes:?}"
+        );
+    }
+    assert!(provider_reports_usage("claude"));
+    assert!(!provider_reports_usage("agy"));
+    assert!(!provider_reports_usage("opencode"));
 }

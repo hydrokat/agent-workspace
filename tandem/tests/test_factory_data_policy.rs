@@ -8,9 +8,9 @@ use tandem::factory::data_policy::{
     DataClass, PROVIDER_LIMITATION_SENTENCE, build_run_data, check_slices_against_exclusions,
     classify_path,
 };
-use tandem::factory::model::{Actor, ActorKind, FactorySettings, ProviderGateState};
+use tandem::factory::model::{Actor, ActorKind, FactorySettings};
 use tandem::factory::permissions::ToolGrant;
-use tandem::factory::routing::{RoutingContext, Unroutable, route};
+use tandem::factory::routing::{RoutingContext, Unroutable, route_interactive as route};
 use tandem::factory::settings::{save as save_settings, validate as validate_settings};
 use tandem::factory::store::FactoryStore;
 use tandem::factory::workflow::DEFAULT_WORKFLOW_YAML;
@@ -338,11 +338,6 @@ fn test_routing_filters_allowed_models_and_blocks_when_none_left() {
     );
 
     let mut settings = FactorySettings::default();
-    for g in &mut settings.provider_gates {
-        if g.provider == "claude" {
-            g.state = ProviderGateState::Open;
-        }
-    }
     settings
         .allowed_models
         .insert("claude".to_string(), vec!["claude-opus-4-7".to_string()]);

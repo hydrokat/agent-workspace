@@ -175,6 +175,7 @@ pub struct FactoryRun {
     pub loaded_updated: Option<f64>,
     pub hits: HitMap,
     pub login_probe: Arc<dyn LoginProbe + Send + Sync>,
+    pub risks: Vec<crate::factory::auth_risk::RiskItem>,
 }
 
 impl std::fmt::Debug for FactoryRun {
@@ -220,6 +221,7 @@ impl FactoryRun {
             loaded_updated: None,
             hits: HitMap::default(),
             login_probe: Arc::new(HostLoginProbe),
+            risks: Vec::new(),
         };
         view.reload();
         if let Some(ref run) = view.run
@@ -686,6 +688,16 @@ impl FactoryRun {
                                 "Assigned {} -> {}/{} (you).",
                                 assigned.stage, assigned.cli, assigned.model
                             );
+                            if let Some(risk) = self.risks.iter().find(|r| {
+                                r.cli == assigned.cli && r.risk.as_deref() == Some("risky")
+                            }) {
+                                self.notice.push_str(&format!(
+                                    " ⚠ {} uses a risky sign-in ({}, {}); the stage pauses until you confirm it in Settings → Agents & sign-in.",
+                                    risk.cli,
+                                    risk.method,
+                                    risk.verdict.as_deref().unwrap_or("no verified terms")
+                                ));
+                            }
                             self.reload();
                             RunKeyOutcome::Refresh
                         }
@@ -1072,6 +1084,17 @@ impl FactoryRun {
                     KeyCode::Char('x') | KeyCode::Char('R') => {
                         if let Some(agent) = self.team.get(self.selected_agent).cloned() {
                             let store = FactoryStore::new(&self.workspace);
+                            if let Ok(target) = crate::factory::team::relaunch_target_cli(
+                                &store,
+                                &self.run_id,
+                                &agent.job_id,
+                            ) && let Some(msg) = crate::status::risk_confirm::risk_block_message(
+                                &self.risks,
+                                &target,
+                            ) {
+                                self.notice = msg;
+                                return RunKeyOutcome::Consumed;
+                            }
                             let tmux = TmuxClient::new(socket_for(&self.workspace), None);
                             match relaunch_agent(&store, &tmux, &self.run_id, &agent.job_id) {
                                 Ok(launched) => {

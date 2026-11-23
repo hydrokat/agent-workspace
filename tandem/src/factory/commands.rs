@@ -48,9 +48,6 @@ pub enum FactoryCommand {
     #[command(about = "manage workflow runs")]
     Run(FactoryRunArgs),
 
-    #[command(about = "manage headless provider gates and consent")]
-    Provider(FactoryProviderArgs),
-
     #[command(about = "discover, confirm, and inspect project test and lint commands")]
     Checks(FactoryChecksArgs),
 
@@ -205,6 +202,28 @@ pub enum FactoryLoginCommand {
     Status(FactoryLoginStatusArgs),
     #[command(about = "open a CLI's own sign-in flow in a login pane")]
     Open(FactoryLoginOpenArgs),
+    #[command(about = "show whether each CLI's sign-in method is risky for orchestrated use")]
+    Risk(FactoryLoginStatusArgs),
+    #[command(about = "confirm you accept the risk of a CLI's current sign-in method (user only)")]
+    AcknowledgeRisk(FactoryLoginAcknowledgeRiskArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryLoginAcknowledgeRiskArgs {
+    #[arg(help = "CLI name (claude, agy, or opencode)")]
+    pub cli: String,
+
+    #[arg(
+        long,
+        help = "sign-in method being acknowledged (as shown by `login risk`)"
+    )]
+    pub method: String,
+
+    #[arg(long, help = "type the CLI name to confirm")]
+    pub confirm: String,
+
+    #[arg(long, help = "output JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -794,46 +813,6 @@ pub struct FactoryRunUsageArgs {
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderArgs {
-    #[command(subcommand)]
-    pub command: FactoryProviderCommand,
-}
-
-#[derive(Subcommand, Debug, PartialEq, Eq)]
-pub enum FactoryProviderCommand {
-    #[command(about = "show provider terms verdicts and gate state")]
-    Status(FactoryProviderStatusArgs),
-    #[command(about = "record user consent to open a provider gate")]
-    Consent(FactoryProviderConsentArgs),
-    #[command(about = "close a provider gate")]
-    Revoke(FactoryProviderRevokeArgs),
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderStatusArgs {
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderConsentArgs {
-    pub provider: String,
-    #[arg(long)]
-    pub auth: String,
-    #[arg(long)]
-    pub confirm: String,
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
-pub struct FactoryProviderRevokeArgs {
-    pub provider: String,
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Args, Debug, PartialEq, Eq)]
 pub struct FactoryChecksArgs {
     #[command(subcommand)]
     pub command: FactoryChecksCommand,
@@ -1235,11 +1214,6 @@ fn json_flag(args: &FactoryArgs) -> bool {
             FactoryRunCommand::Data(a) => a.json,
             FactoryRunCommand::Approve(a) => a.json,
         },
-        FactoryCommand::Provider(p_args) => match &p_args.command {
-            FactoryProviderCommand::Status(a) => a.json,
-            FactoryProviderCommand::Consent(a) => a.json,
-            FactoryProviderCommand::Revoke(a) => a.json,
-        },
         FactoryCommand::Checks(c_args) => match &c_args.command {
             FactoryChecksCommand::Discover(a) => a.json,
             FactoryChecksCommand::Set(a) => a.json,
@@ -1272,6 +1246,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Login(l_args) => match &l_args.command {
             FactoryLoginCommand::Status(a) => a.json,
             FactoryLoginCommand::Open(a) => a.json,
+            FactoryLoginCommand::Risk(a) => a.json,
+            FactoryLoginCommand::AcknowledgeRisk(a) => a.json,
         },
         FactoryCommand::Agent(a_args) => match &a_args.command {
             FactoryAgentCommand::Assign(a) => a.json,
@@ -1854,6 +1830,7 @@ fn execute_with_probe(
                     Some(source) => read_text_input(None, Some(source), stdin)?,
                     None => String::new(),
                 };
+                ensure_cli_risk_acknowledged(&store, &a.cli, probe)?;
                 let bound = start_idea_cmd(
                     workspace,
                     config,
@@ -1867,6 +1844,13 @@ fn execute_with_probe(
             FactoryIdeaCommand::Resume(a) => {
                 if !enabled {
                     return Err(CmdError::factory_disabled());
+                }
+                if let Some(orch) = store
+                    .get_idea(&a.id)
+                    .map_err(map_factory_error)?
+                    .and_then(|i| i.orchestrator)
+                {
+                    ensure_cli_risk_acknowledged(&store, &orch.cli, probe)?;
                 }
                 let idea = resume_idea_cmd(workspace, config, &a.id)?;
                 serialize_compact(&idea)
@@ -2601,61 +2585,6 @@ fn execute_with_probe(
                 }
             }
         },
-        FactoryCommand::Provider(p_args) => {
-            if !enabled {
-                return Err(CmdError::factory_disabled());
-            }
-            match &p_args.command {
-                FactoryProviderCommand::Status(_) => {
-                    let settings = if store.exists() {
-                        store.settings().map_err(map_factory_error)?
-                    } else {
-                        FactorySettings::default()
-                    };
-                    let today = super::broker::gate::today_iso_date();
-                    let items = super::broker::gate::provider_statuses(&settings, &today);
-                    serialize_compact(&items)
-                }
-                FactoryProviderCommand::Consent(a) => {
-                    let auth_type = super::broker::gate::AuthType::parse(&a.auth).ok_or_else(|| {
-                        CmdError::invalid_input(format!(
-                            "invalid --auth value: {} (expected subscription, api-key, or cloud)",
-                            a.auth
-                        ))
-                    })?;
-                    let consented_by = resolve_owner(None)?;
-                    let gate = super::broker::gate::consent_provider(
-                        &store,
-                        &a.provider,
-                        auth_type,
-                        &a.confirm,
-                        &consented_by,
-                        caller,
-                    )
-                    .map_err(|e| CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    })?;
-                    serialize_compact(&gate)
-                }
-                FactoryProviderCommand::Revoke(a) => {
-                    let revoked_by = resolve_owner(None)?;
-                    let gate = super::broker::gate::revoke_provider(
-                        &store,
-                        &a.provider,
-                        &revoked_by,
-                        caller,
-                    )
-                    .map_err(|e| CmdError {
-                        exit_code: e.exit_code(),
-                        code: e.code(),
-                        message: e.to_string(),
-                    })?;
-                    serialize_compact(&gate)
-                }
-            }
-        }
         FactoryCommand::Checks(c_args) => {
             if !enabled {
                 return Err(CmdError::factory_disabled());
@@ -2825,13 +2754,38 @@ fn execute_with_probe(
         }
         FactoryCommand::Login(l_args) => match &l_args.command {
             FactoryLoginCommand::Status(a) => {
-                let items = super::login::all_statuses(&super::login::HostLoginProbe);
+                let items = super::login::all_statuses(probe);
+                let today = super::dates::today_iso_date();
+                let risks = super::auth_risk::risk_report(
+                    &store,
+                    &items,
+                    &today,
+                    super::broker::terms::PROVIDER_TERMS,
+                );
                 if a.json {
                     #[derive(Serialize)]
-                    struct LoginStatusEnvelope {
-                        clis: Vec<super::login::LoginStatusItem>,
+                    struct LoginStatusRow {
+                        #[serde(flatten)]
+                        item: super::login::LoginStatusItem,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        risk: Option<String>,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        verdict: Option<String>,
                     }
-                    serialize_compact(&LoginStatusEnvelope { clis: items })
+                    #[derive(Serialize)]
+                    struct LoginStatusEnvelope {
+                        clis: Vec<LoginStatusRow>,
+                    }
+                    let clis = items
+                        .into_iter()
+                        .zip(risks)
+                        .map(|(item, r)| LoginStatusRow {
+                            item,
+                            risk: r.risk,
+                            verdict: r.verdict,
+                        })
+                        .collect();
+                    serialize_compact(&LoginStatusEnvelope { clis })
                 } else {
                     Ok(items
                         .iter()
@@ -2859,6 +2813,79 @@ fn execute_with_probe(
                         })
                         .collect::<Vec<_>>()
                         .join("\n"))
+                }
+            }
+            FactoryLoginCommand::Risk(a) => {
+                let items = super::login::all_statuses(probe);
+                let today = super::dates::today_iso_date();
+                let risks = super::auth_risk::risk_report(
+                    &store,
+                    &items,
+                    &today,
+                    super::broker::terms::PROVIDER_TERMS,
+                );
+                if a.json {
+                    serialize_compact(&risks)
+                } else {
+                    Ok(risks
+                        .iter()
+                        .map(|r| {
+                            let state = match r.risk.as_deref() {
+                                None => "not signed in".to_string(),
+                                Some("ok") => "ok".to_string(),
+                                Some("acknowledged") => "acknowledged".to_string(),
+                                Some(_) => "RISKY".to_string(),
+                            };
+                            let verdict = r.verdict.as_deref().unwrap_or("no verified terms");
+                            let mut line =
+                                format!("{}\t{}\t{}\t{}", r.cli, r.method, verdict, state);
+                            if let Some(cmd) = &r.acknowledge_command {
+                                line.push_str(&format!("\t{cmd}"));
+                            }
+                            line
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+            FactoryLoginCommand::AcknowledgeRisk(a) => {
+                if !enabled {
+                    return Err(CmdError::factory_disabled());
+                }
+                super::approval::require_user(caller).map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                let detected = if super::auth_risk::KNOWN_CLIS.contains(&a.cli.as_str()) {
+                    let item = super::login::check_status(&a.cli, probe);
+                    if item.installed && item.signed_in {
+                        super::auth_risk::detected_method(&item)
+                    } else {
+                        return Err(CmdError::invalid_input(format!(
+                            "{} is not signed in; sign in first with `tandem factory login open {}`",
+                            a.cli, a.cli
+                        )));
+                    }
+                } else {
+                    None
+                };
+                let by = resolve_owner(None)?;
+                let ack = super::auth_risk::acknowledge(
+                    &store, &a.cli, detected, &a.method, &a.confirm, &by, caller,
+                )
+                .map_err(|e| CmdError {
+                    exit_code: e.exit_code(),
+                    code: e.code(),
+                    message: e.to_string(),
+                })?;
+                if a.json {
+                    serialize_compact(&ack)
+                } else {
+                    Ok(format!(
+                        "Acknowledged: {} sign-in via {} (terms verdict {}). Asked again if the terms are re-verified, expire, or the sign-in method changes.",
+                        ack.cli, ack.method, ack.verdict
+                    ))
                 }
             }
             FactoryLoginCommand::Open(a) => {
@@ -2903,8 +2930,38 @@ fn execute_with_probe(
             if !enabled {
                 return Err(CmdError::factory_disabled());
             }
-            handle_agent_command(&a_args.command, &store, workspace, caller)
+            handle_agent_command(&a_args.command, &store, workspace, caller, probe)
         }
+    }
+}
+
+fn ensure_cli_risk_acknowledged(
+    store: &FactoryStore,
+    cli: &str,
+    probe: &dyn super::login::LoginProbe,
+) -> Result<(), CmdError> {
+    let item = super::login::check_status(cli, probe);
+    if !(item.installed && item.signed_in) {
+        return Ok(());
+    }
+    let method = super::auth_risk::detected_method(&item);
+    let method_label = super::auth_risk::method_name(method);
+    match super::auth_risk::assess(
+        cli,
+        method,
+        &super::dates::today_iso_date(),
+        super::broker::terms::PROVIDER_TERMS,
+        &super::auth_risk::read_acks(store),
+    ) {
+        super::auth_risk::AuthRisk::Risky { reason, .. } => Err(CmdError {
+            exit_code: 3,
+            code: "auth_risk_not_acknowledged",
+            message: format!(
+                "auth risk not acknowledged for {cli} ({method_label}): {reason}. Run: {}",
+                super::auth_risk::acknowledge_command(cli, method_label)
+            ),
+        }),
+        _ => Ok(()),
     }
 }
 
@@ -2926,6 +2983,7 @@ fn handle_agent_command(
     store: &FactoryStore,
     workspace: &Path,
     caller: &super::approval::Caller<'_>,
+    probe: &dyn super::login::LoginProbe,
 ) -> Result<String, CmdError> {
     let socket = crate::tmux::socket_for(workspace);
     let tmux = crate::tmux::TmuxClient::new(socket, None);
@@ -3094,6 +3152,9 @@ fn handle_agent_command(
             }
         }
         FactoryAgentCommand::Relaunch(a) => {
+            let target_cli =
+                super::team::relaunch_target_cli(store, &a.run, &a.job).map_err(map_team_error)?;
+            ensure_cli_risk_acknowledged(store, &target_cli, probe)?;
             let launched = super::team::relaunch_agent(store, &tmux, &a.run, &a.job)
                 .map_err(map_team_error)?;
             if a.json {
@@ -3142,7 +3203,7 @@ fn run_models_recommend(
     let ready: Vec<&str> = super::login::LOGIN_SPECS
         .iter()
         .map(|spec| spec.cli)
-        .filter(|cli| super::broker::gate::interactive_ready(cli, &probe).ready)
+        .filter(|cli| super::login::interactive_ready(cli, &probe).ready)
         .collect();
     if ready.is_empty() {
         return Err(CmdError {

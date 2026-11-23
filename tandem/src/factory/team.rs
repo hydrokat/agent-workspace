@@ -344,7 +344,7 @@ pub fn resolve_stage_assignment(
         };
     if fallback_clis.is_empty() {
         return Err(TeamError::InvalidInput(format!(
-            "gate closed: configured default_worker_cli '{}' is not installed and signed in",
+            "configured default_worker_cli '{}' is not installed and signed in",
             settings.default_worker_cli
         )));
     }
@@ -1007,6 +1007,34 @@ pub fn terminate_agent(
     Ok(())
 }
 
+pub fn relaunch_target_cli(
+    store: &FactoryStore,
+    run_id: &str,
+    job_id: &str,
+) -> Result<String, TeamError> {
+    if !is_valid_run_id(run_id) {
+        return Err(TeamError::InvalidInput(format!("invalid run id: {run_id}")));
+    }
+    let (stage, attempt) = parse_job_id(run_id, job_id)?;
+    let input_path = job_dir(store, run_id, &stage, attempt).join("input.json");
+    reject_if_symlink(&input_path)?;
+    let input_raw = fs::read_to_string(&input_path)
+        .map_err(|_| TeamError::NotFound(format!("job input.json not found for '{job_id}'")))?;
+    let input: JobInput = serde_json::from_str(&input_raw)?;
+    let settings = store.settings()?;
+    let assignments = load_assignments(store, run_id)?;
+    Ok(match assignments.stages.get(&stage) {
+        Some(a)
+            if a.source == AssignmentSource::User
+                || (a.source == AssignmentSource::Orchestrator
+                    && settings.orchestrator_may_choose) =>
+        {
+            a.cli.clone()
+        }
+        _ => input.provider,
+    })
+}
+
 pub fn relaunch_agent(
     store: &FactoryStore,
     tmux: &TmuxClient,
@@ -1064,7 +1092,7 @@ pub fn relaunch_agent_with_runner(
     let canon_ws = ws_root.canonicalize()?;
     let canon_cwd = cwd_path.canonicalize()?;
     if run.worktree_path.is_some() || canon_cwd != canon_ws {
-        super::broker::spawn::validate_worktree(ws_root, &cwd_path)
+        super::worker::env::validate_worktree(ws_root, &cwd_path)
             .map_err(|e| TeamError::InvalidInput(e.to_string()))?;
     }
 

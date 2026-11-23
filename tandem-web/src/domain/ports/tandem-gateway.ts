@@ -9,6 +9,8 @@ import type {
   FactorySettingsChangeResult,
   Idea,
   IdeaDetail,
+  AuthRiskAcknowledgement,
+  AuthRiskItem,
   LoginPaneResult,
   LoginStatusItem,
   AgentSummary,
@@ -18,7 +20,6 @@ import type {
   RelaunchAgentResult,
   StageAssignment,
   PrLink,
-  ProviderStatusItem,
   ReadyResult,
   RunControlAction,
   RunControlOptions,
@@ -104,7 +105,6 @@ export interface ITandemGateway {
     action: RunControlAction,
     options?: RunControlOptions
   ): Promise<RunSummary>;
-  factoryProviderStatus(workspacePath: string): Promise<ProviderStatusItem[]>;
   factoryRunEvidence(workspacePath: string, runId: string): Promise<RunEvidenceBundle>;
   factoryRunData(workspacePath: string, runId: string): Promise<RunDataView>;
   factoryEvidenceItem(
@@ -131,6 +131,12 @@ export interface ITandemGateway {
   ): Promise<FactorySettingsChangeResult>;
   factoryLoginStatus(workspacePath: string): Promise<LoginStatusItem[]>;
   factoryLoginOpen(workspacePath: string, cli: FactoryCli): Promise<LoginPaneResult>;
+  factoryLoginRisk(workspacePath: string): Promise<AuthRiskItem[]>;
+  factoryAcknowledgeRisk(
+    workspacePath: string,
+    cli: FactoryCli,
+    method: string
+  ): Promise<AuthRiskAcknowledgement>;
   factoryListAgents?(workspacePath: string, runId: string): Promise<AgentSummary[]>;
   factoryListAllAgents?(
     workspacePath: string,

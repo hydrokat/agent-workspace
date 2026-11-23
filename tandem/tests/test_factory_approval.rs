@@ -501,11 +501,11 @@ fn test_cli_binary_refuses_non_tty_across_user_only_actions() {
         vec!["factory", "idea", "revoke-ready", "i-1111aaaa"],
         vec![
             "factory",
-            "provider",
-            "consent",
+            "login",
+            "acknowledge-risk",
             "claude",
-            "--auth",
-            "api-key",
+            "--method",
+            "subscription",
             "--confirm",
             "claude",
         ],
@@ -587,6 +587,13 @@ fn test_grace_period_holds_runner_and_undo_leaves_no_run() {
 
     struct NoopExec;
     impl Executor for NoopExec {
+        fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+            vec![tandem::factory::executor::ReadyCli::new(
+                "claude",
+                Some(tandem::factory::broker::terms::AuthType::ApiKey),
+            )]
+        }
+
         fn run(&mut self, _job: &StageJob) -> StageOutcome {
             StageOutcome::Succeeded
         }

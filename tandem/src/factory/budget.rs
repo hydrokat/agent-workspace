@@ -5,11 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::FactoryError;
 use super::events::Event;
 use super::model::{Budget, FactorySettings, ModelPrice, Run, StageState};
-use super::routing::{RoutingContext, route};
+use super::routing::{RoutingContext, route_interactive};
 use super::workflow::schema::{StageBudget as WorkflowStageBudget, Workflow};
-use crate::adapters::agy::AgyAdapter;
-use crate::adapters::base::HeadlessAdapter;
-use crate::adapters::claude::ClaudeAdapter;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunBudget {
@@ -563,7 +560,7 @@ pub fn estimate(
 pub fn routes_for_workflow(
     workflow: &Workflow,
     settings: &FactorySettings,
-    open_providers: &[&str],
+    ready_clis: &[&str],
     preferred_provider: Option<String>,
 ) -> (BTreeMap<String, String>, Option<String>) {
     let mut routes = BTreeMap::new();
@@ -586,7 +583,7 @@ pub fn routes_for_workflow(
                         stage.tools.clone(),
                     )
                 });
-        if let Ok(r) = route(stage, &grant, workflow, settings, open_providers, 1, &ctx) {
+        if let Ok(r) = route_interactive(stage, &grant, workflow, settings, ready_clis, 1, &ctx) {
             if primary_provider.is_none() {
                 primary_provider = Some(r.provider.clone());
             }
@@ -597,11 +594,7 @@ pub fn routes_for_workflow(
 }
 
 pub fn provider_reports_usage(provider: &str) -> bool {
-    match provider {
-        "claude" => ClaudeAdapter::default().capabilities().usage_reporting,
-        "agy" => AgyAdapter::default().capabilities().usage_reporting,
-        _ => false,
-    }
+    crate::adapters::reports_usage(provider)
 }
 
 pub fn cost_cap_label(budget: &RunBudget, provider: Option<&str>) -> String {

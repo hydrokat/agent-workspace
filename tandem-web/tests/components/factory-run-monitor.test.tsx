@@ -3,7 +3,7 @@ import React from "react";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { useDom } from "../helpers/dom";
 import { RunMonitor } from "../../src/components/factory/run-monitor";
-import type { ProviderStatusItem, RunControlAction, RunControlOptions, RunSummary } from "../../src/domain/models/factory";
+import type { RunControlAction, RunControlOptions, RunSummary } from "../../src/domain/models/factory";
 
 useDom();
 
@@ -38,25 +38,12 @@ const PAUSED_RUN: RunSummary = {
   ],
 };
 
-const PROVIDERS_CLOSED: ProviderStatusItem[] = [
-  {
-    provider: "claude",
-    auth_type: "subscription",
-    verdict: "allowed",
-    verified_on: "2026-11-01",
-    reverify_by: "2027-02-01",
-    gate: "closed",
-    reason: "the claude gate is closed (no consent)",
-  },
-];
-
 describe("RunMonitor", () => {
   it("shows paused reason in an alert with sign-in prompt and cost: not tracked", async () => {
     const signIns: string[] = [];
     const { getByRole, getByText } = render(
       <RunMonitor
         run={{ ...PAUSED_RUN, pause_reason: "claude is not signed in" }}
-        providers={PROVIDERS_CLOSED}
         logText={null}
         logLoading={false}
         logError={null}
@@ -86,7 +73,6 @@ describe("RunMonitor", () => {
     const { getByRole } = render(
       <RunMonitor
         run={{ ...PAUSED_RUN, state: "running", pause_reason: null }}
-        providers={[]}
         logText={payload}
         logLoading={false}
         logError={null}
@@ -107,7 +93,6 @@ describe("RunMonitor", () => {
     const { getByRole, getByLabelText, rerender } = render(
       <RunMonitor
         run={PAUSED_RUN}
-        providers={[]}
         logText=""
         logLoading={false}
         logError={null}
@@ -127,7 +112,6 @@ describe("RunMonitor", () => {
     rerender(
       <RunMonitor
         run={PAUSED_RUN}
-        providers={[]}
         logText=""
         logLoading={false}
         logError={null}

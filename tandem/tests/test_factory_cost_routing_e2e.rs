@@ -191,6 +191,7 @@ impl Team {
     }
 
     fn drive(&self, run_id: &str) -> Run {
+        self.fixture.acknowledge_risky_clis(&self.probe());
         let mut exec = FixtureExecutor {
             broker: BrokerExecutor::new(&self.fixture.workspace)
                 .with_tmux(self.tmux())

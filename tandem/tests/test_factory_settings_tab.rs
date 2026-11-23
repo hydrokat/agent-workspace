@@ -6,7 +6,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use tandem::factory::checks::{set_checks, set_deploy_command};
 use tandem::factory::events;
-use tandem::factory::model::ProviderGateState;
 use tandem::factory::routing::ProviderModelTiers;
 use tandem::factory::settings;
 use tandem::factory::store::FactoryStore;
@@ -85,8 +84,7 @@ fn factory_session_renders_plain_settings_providers_and_checks_wide_and_narrow()
     assert!(wide.contains("Run budget"));
     assert!(wide.contains("Approval grace period"));
     assert!(wide.contains("(0-600 s)"));
-    assert!(wide.contains("Providers"));
-    assert!(wide.contains("claude"));
+    assert!(!wide.contains("Providers"));
     assert!(wide.contains("Model tiers"));
     assert!(wide.contains("Check commands"));
     assert!(wide.contains("Deploy command"));
@@ -157,47 +155,6 @@ fn factory_in_place_edit_validates_saves_and_records_audit_event() {
     assert_eq!(changed.data["key"], "max_parallel_agents");
     assert_eq!(changed.data["old_value"], 3);
     assert_eq!(changed.data["new_value"], 5);
-
-    let _ = fs::remove_dir_all(ws);
-}
-
-#[test]
-fn factory_provider_consent_and_revoke_flow() {
-    let ws = temp_workspace("provider");
-    let store = FactoryStore::new(&ws);
-    store.ensure().unwrap();
-
-    let mut tab = SettingsTab::default();
-    tab.configure_factory(true, Some(ws.clone()));
-
-    tab.focus_factory_provider("claude");
-    tab.handle_key(&key(KeyCode::Enter));
-    assert!(tab.is_editing_or_modal());
-
-    tab.handle_key(&key(KeyCode::Right));
-    type_str(&mut tab, "claude");
-    tab.handle_key(&key(KeyCode::Enter));
-
-    let loaded = settings::load(&store).unwrap();
-    let claude_gate = loaded
-        .provider_gates
-        .iter()
-        .find(|g| g.provider == "claude")
-        .expect("claude gate present");
-    assert_eq!(claude_gate.state, ProviderGateState::Open);
-
-    tab.focus_factory_provider("claude");
-    tab.handle_key(&key(KeyCode::Enter));
-    assert!(tab.is_editing_or_modal());
-    tab.handle_key(&key(KeyCode::Char('y')));
-
-    let loaded_after = settings::load(&store).unwrap();
-    let claude_after = loaded_after
-        .provider_gates
-        .iter()
-        .find(|g| g.provider == "claude")
-        .expect("claude gate present");
-    assert_eq!(claude_after.state, ProviderGateState::Closed);
 
     let _ = fs::remove_dir_all(ws);
 }
@@ -426,43 +383,6 @@ fn factory_all_rows_editing_tab_guard_modals_and_narrow_scroll() {
     tab.handle_key(&key(KeyCode::Enter));
     assert_eq!(settings::load(&store).unwrap().approval_grace_secs, 90);
 
-    // Consent modal: wrong input error, Left/Right auth cycle, Backspace, Esc cancel
-    tab.focus_factory_provider("claude");
-    tab.handle_key(&key(KeyCode::Enter));
-    assert!(tab.is_editing_or_modal());
-    let consent_render = render_text(&tab, 80, 30);
-    assert!(consent_render.contains("Provider Consent: claude"));
-    type_str(&mut tab, "wrong");
-    tab.handle_key(&key(KeyCode::Enter));
-    let err_render = render_text(&tab, 80, 30);
-    assert!(err_render.contains("Type claude to confirm"));
-    for _ in 0..5 {
-        tab.handle_key(&key(KeyCode::Backspace));
-    }
-    tab.handle_key(&key(KeyCode::Left));
-    tab.handle_key(&key(KeyCode::Right));
-    tab.handle_key(&key(KeyCode::Esc));
-    assert!(!tab.is_editing_or_modal());
-
-    // Consent then Revoke via Tab + Enter on Yes, and also test No cancel
-    tab.handle_key(&key(KeyCode::Enter));
-    tab.handle_key(&key(KeyCode::Right));
-    type_str(&mut tab, "claude");
-    tab.handle_key(&key(KeyCode::Enter));
-    assert!(!tab.is_editing_or_modal());
-
-    tab.focus_factory_provider("claude");
-    tab.handle_key(&key(KeyCode::Enter));
-    let revoke_render = render_text(&tab, 80, 30);
-    assert!(revoke_render.contains("Revoke Provider: claude"));
-    tab.handle_key(&key(KeyCode::Enter)); // confirm_yes is false -> cancels
-    assert!(!tab.is_editing_or_modal());
-
-    tab.handle_key(&key(KeyCode::Enter));
-    tab.handle_key(&key(KeyCode::Tab)); // confirm_yes -> true
-    tab.handle_key(&key(KeyCode::Enter));
-    assert!(!tab.is_editing_or_modal());
-
     // Navigate down through ModelTier, CheckCommands, DeployCommand and render narrow + scrolled
     while !matches!(tab.focused_row, r if r >= QUIT_ROW + 7) {
         tab.handle_key(&key(KeyCode::Down));
@@ -472,7 +392,7 @@ fn factory_all_rows_editing_tab_guard_modals_and_narrow_scroll() {
     assert!(!narrow_scrolled.is_empty());
 
     // Activate CheckCommands and DeployCommand to trigger read-only flashes
-    tab.focused_row = QUIT_ROW + 6 + tab.factory_providers.len() + 2;
+    tab.focused_row = QUIT_ROW + 6 + 2;
     tab.handle_key(&key(KeyCode::Enter));
     tab.handle_key(&key(KeyCode::Down));
     tab.handle_key(&key(KeyCode::Enter));

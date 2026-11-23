@@ -351,14 +351,15 @@ Repetitive steps run as small Python 3 scripts (standard library only) that prin
 
 Factory Mode is an opt-in operating mode that takes a feature or fix **from idea to pull request, with a human at the right gate**. An Orchestrator works with you to scope the idea, check feasibility, and draft a plan before any code is written. Once you approve the plan and open the required gates, tandem runs the delivery stages in an isolated git worktree and hands back a GitHub pull request with test and review evidence.
 
-#### Login choice & provider terms
+#### Sign-in method & risk
 
-Factory Mode workers run interactively in tmux panes (`claude`, `agy`, `opencode`) using **whatever login each CLI already holds on your machine** (`tandem` reads no secrets and handles no credentials). Before choosing how to sign in:
+Every Factory Mode worker, and the Orchestrator, runs as an **interactive CLI in its own tmux pane** (`claude`, `agy`, `opencode`), using **whatever login each CLI already holds on your machine** (`tandem` reads no secrets and handles no credentials). tandem never runs an AI CLI headless or non-interactively; without a tandem tmux session a run pauses instead. Before choosing how to sign in:
 
 - **Subscription vs. API key**: Using a consumer subscription in an orchestrator-driven workflow may conflict with provider terms of service. Review the 2026-11-20 terms verdicts in [`factory-provider-terms.md`](../../knowledgebase/architecture-decisions/factory-provider-terms.md):
   - `claude`: API key / Claude Console commercial terms are `allowed-with-conditions`; consumer subscription automation is `not-allowed` (gray area for local end-user workflows).
-  - `agy`: Google AI Studio API key / Vertex AI / Gemini Enterprise are `allowed-with-conditions`; consumer OAuth wrapping is `unclear` and excluded from headless automation.
-  - `opencode`: uses whichever provider/API-key configuration you set inside opencode.
+  - `agy`: Google AI Studio API key / Vertex AI / Gemini Enterprise are `allowed-with-conditions`; consumer OAuth wrapping is `unclear`. agy does not report how it is signed in, so tandem treats it as an unknown (risky) method.
+  - `opencode`: uses whichever provider/API-key configuration you set inside opencode; no terms row is verified for it yet, so tandem treats it as risky until you confirm.
+- **Risky sign-ins are your decision, with a warning**: tandem checks each signed-in CLI's method against the terms table (`tandem factory login risk [--json]`). A method is *risky* when its verdict is `not-allowed` or `unclear`, there is no verified terms row, the method cannot be detected, or the terms are past their re-verify date. Selecting a risky CLI shows a warning with the verdict and consequences (your account may be limited or suspended; an API key is safer). You confirm by typing the CLI name in the TUI or web dialog, or run `tandem factory login acknowledge-risk <cli> --method <method> --confirm <cli>`. Only you can confirm (agents are refused, exit `3`). The confirmation is recorded once per CLI and method, and asked again if the terms are re-verified or expire or the method changes. Until you confirm, a run pauses at the stage that would use that CLI and `idea start` / `agent relaunch` refuse.
 - **API-key sign-in**: To sign in with an API key instead, open **Settings → Agents & sign-in** (in TUI or `tandem-web`) or run `tandem factory login open <cli>`, which opens the CLI's own sign-in screen in an isolated tmux pane.
 
 #### Before you start
@@ -366,7 +367,7 @@ Factory Mode workers run interactively in tmux panes (`claude`, `agy`, `opencode
 Make sure these four prerequisites are in place before starting a run:
 
 1. **A Factory Mode session**: Launch with `./run.sh --factory` (or `tandem --factory`). Normal and Factory Mode sessions cannot share the same workspace at the same time; if the other mode is active on an interactive terminal, tandem asks whether to save and terminate it before switching modes or attach to it so you can terminate it manually (non-TTY invocations exit `2`).
-2. **At least one signed-in AI CLI**: Verify `claude`, `agy`, or `opencode` is installed and signed in via **Settings → Agents & sign-in** or `tandem factory login status --json` (and `tandem factory login open <cli>`).
+2. **At least one signed-in AI CLI**: Verify `claude`, `agy`, or `opencode` is installed and signed in via **Settings → Agents & sign-in** or `tandem factory login status --json` (and `tandem factory login open <cli>`). If its sign-in method is risky, confirm it there or with `tandem factory login acknowledge-risk` (see above).
 3. **`gh` authenticated by you**: Run `gh auth login` on your machine so tandem can open a pull request on GitHub using your existing CLI session.
 4. **Confirmed check commands**: Inspect proposed `test` and `lint` commands with `tandem factory checks discover` and confirm them as the user with `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`.
 
@@ -426,6 +427,8 @@ Below 110 columns the board shows one column at a time as a list with a `Plannin
 |---|---|
 | Multiple target repositories found | `tandem factory run target <run-id> <repo>` (then `tandem factory run resume <run-id>`) |
 | CLI not signed in or missing | Open **Settings → Agents & sign-in** (or run `tandem factory login open <cli>`), sign in, then `tandem factory run resume <run-id>` |
+| `auth risk not acknowledged for <cli> (<method>)` | Review the warning in **Settings → Agents & sign-in**, or run the shown `tandem factory login acknowledge-risk <cli> --method <method> --confirm <cli>`, or switch the stage to another CLI (`tandem factory agent assign ...`), then `tandem factory run resume <run-id>` |
+| `tmux is required for Factory workers` | Start Factory Mode with `./run.sh --factory` (a tandem tmux session must be running), then `tandem factory run resume <run-id>` |
 | Test and lint commands not confirmed | `tandem factory checks set --target <name> --test "<cmd>" --lint "<cmd>" --confirm <name>`, then `tandem factory run resume <run-id>` |
 | Checks fail on the base branch | Fix the base branch checks outside the run (or update check commands), then `tandem factory run resume <run-id>` |
 | Stage failed without a new hypothesis, or retries exhausted | `tandem factory run retry <run-id> <stage> --hypothesis "<what changed>"` (or `tandem factory run cancel <run-id> --confirm <run-id>`) |
@@ -437,7 +440,7 @@ Below 110 columns the board shows one column at a time as a list with a `Plannin
 
 #### Settings and workflows
 
-- **Where they live**: Workspace settings live in `.agent-workspace/factory/settings.json` (managed via `tandem factory settings get|set`, `provider`, `checks`, and `permissions`). Workflows live in `<workspace>/workflows/*.yaml` (`init` installs `default-delivery.yaml`, which is user-owned; if deleted, tandem falls back to the embedded default).
+- **Where they live**: Workspace settings live in `.agent-workspace/factory/settings.json` (managed via `tandem factory settings get|set`, `checks`, and `permissions`). Workflows live in `<workspace>/workflows/*.yaml` (`init` installs `default-delivery.yaml`, which is user-owned; if deleted, tandem falls back to the embedded default).
 - **What you can change**: Non-protected settings (`max_parallel_agents`, `default_temperature`, `max_review_rounds`, `approval_grace_secs`, `default_workflow`, `default_budget`, `model_tiers`, `price_table`) can be changed by the user via `tandem factory settings set <KEY> <VALUE>`. Protected keys (`provider_gates`, `providers`, `checks`, `deploy`, `deploy_command`, `allowed_tools`, `denied_tools`) require their dedicated user-only commands.
 - **Workflows can only tighten**: A workflow's `policy` and stage budgets cannot relax `settings.json` bounds—tandem enforces the stricter (`min`) of workflow policy and workspace settings.
 
@@ -467,7 +470,7 @@ Review, merge, deployment, and compliance remain yours: tandem never approves or
 The six non-goals from the Factory Mode proposal:
 
 1. **No autonomous production deployment by default** (`deploy` is gated behind `--deploy`, a PR, a confirmed deploy command, and Gate 3 `run approve`).
-2. **No unrestricted provider execution** (headless stages require an open, consented provider gate and tool allowlists).
+2. **No unrestricted provider execution** (every worker is an interactive CLI in a tmux pane, never headless, with tool allowlists; risky sign-in methods need your explicit confirmation).
 3. **No cross-project portfolio optimization** (each Factory Mode run is scoped to one workspace and one target repository).
 4. **No self-modifying workflows** (agents cannot edit `workflows/*.yaml`, `.github/workflows/`, `.agent-workspace/`, or `settings.json`).
 5. **No fully automatic merge** (tandem opens a PR and hands it off; humans review and merge).

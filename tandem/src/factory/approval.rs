@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::FactoryError;
-use super::broker::gate::{check as check_provider_gate, today_iso_date};
 use super::budget::{
     Estimate, EstimateHistory, RunBudget, cost_cap_label, estimate, provider_reports_usage,
     routes_for_workflow,
@@ -460,15 +459,10 @@ pub fn mark_ready_with_options(
 
     let log = read_all(&store.root.join("events.jsonl"))?;
     let history = EstimateHistory::from_events(&log.events);
-    let today = today_iso_date();
-    let open_providers: Vec<&str> = KNOWN_PROVIDERS
-        .iter()
-        .copied()
-        .filter(|p| check_provider_gate(p, &settings, &today).is_ok())
-        .collect();
+    let estimate_clis: Vec<&str> = KNOWN_PROVIDERS.to_vec();
     let preferred = idea.orchestrator.as_ref().map(|o| o.cli.clone());
     let (routes, primary_provider) =
-        routes_for_workflow(&resolved_wf, &settings, &open_providers, preferred);
+        routes_for_workflow(&resolved_wf, &settings, &estimate_clis, preferred);
     let est = estimate(&resolved_wf, &routes, &settings.price_table, &history);
 
     if let Some(reason) = est.exceeds_cap(&run_budget)

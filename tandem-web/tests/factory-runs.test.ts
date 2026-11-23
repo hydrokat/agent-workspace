@@ -7,7 +7,6 @@ import {
   isValidLogTailBytes,
   isValidRunControlAction,
   isValidRunId,
-  type ProviderStatusItem,
   type RunControlAction,
   type RunControlOptions,
   type RunSummary,
@@ -17,7 +16,6 @@ import type { IWorkspaceRegistry } from "../src/domain/ports/workspace-registry"
 import {
   ControlFactoryRunUseCase,
   GetFactoryRunLogUseCase,
-  ListFactoryProvidersUseCase,
   ShowFactoryRunUseCase,
 } from "../src/application/use-cases/factory-runs";
 
@@ -32,18 +30,6 @@ const SAMPLE_RUN: RunSummary = {
   updated: 1700000100,
   stages: [{ name: "develop", agent: "implementer", state: "running", attempts: 1 }],
 };
-
-const SAMPLE_PROVIDERS: ProviderStatusItem[] = [
-  {
-    provider: "claude",
-    auth_type: "subscription",
-    verdict: "allowed",
-    verified_on: "2026-11-01",
-    reverify_by: "2027-02-01",
-    gate: "closed",
-    reason: "the claude gate is closed (no consent)",
-  },
-];
 
 function makeRegistry(): IWorkspaceRegistry {
   return {
@@ -85,7 +71,6 @@ function makeGateway(overrides?: Partial<ITandemGateway>): ITandemGateway {
     factoryShowRun: async () => SAMPLE_RUN,
     factoryRunLog: async () => "line 1\nline 2\n",
     factoryRunControl: async () => SAMPLE_RUN,
-    factoryProviderStatus: async () => SAMPLE_PROVIDERS,
     factoryRunEvidence: async () => ({
       run: SAMPLE_RUN.id,
       items: [],
@@ -198,12 +183,5 @@ describe("factory run use cases", () => {
     await expect(
       uc.execute("tandem-1111111111", "r-4h8k2m1x", "unknown")
     ).rejects.toBeInstanceOf(FactoryGatewayError);
-  });
-
-  it("lists provider status read-only", async () => {
-    const uc = new ListFactoryProvidersUseCase(makeRegistry(), makeGateway());
-    const items = await uc.execute("tandem-1111111111");
-    expect(items).toHaveLength(1);
-    expect(items[0].gate).toBe("closed");
   });
 });

@@ -10,6 +10,7 @@ pub mod notify;
 pub mod qr;
 pub mod queries_tab;
 pub mod render;
+pub mod risk_confirm;
 pub mod settings_tab;
 pub mod spec_tab;
 pub mod sprint_tab;

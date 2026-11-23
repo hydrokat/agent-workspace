@@ -15,8 +15,8 @@ pub enum TermsVerdict {
 }
 
 impl TermsVerdict {
-    pub fn allows_headless(self) -> bool {
-        matches!(self, Self::Allowed | Self::AllowedWithConditions)
+    pub fn needs_acknowledgement(self) -> bool {
+        matches!(self, Self::NotAllowed | Self::Unclear)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -125,7 +125,7 @@ pub const PROVIDER_TERMS: &[ProviderTermsRow] = &[
         provider: "opencode",
         auth_type: AuthType::Subscription,
         verdict: TermsVerdict::Unclear,
-        conditions: "No verified headless terms row recorded yet.",
+        conditions: "No verified terms row recorded yet.",
         verified_on: "2026-11-16",
         reverify_by: "2027-02-14",
         record_ref: TERMS_RECORD_PATH,

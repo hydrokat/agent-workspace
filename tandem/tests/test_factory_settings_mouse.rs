@@ -4,9 +4,7 @@ use common::TempDir;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use tandem::status::settings_tab::{
-    FactoryConsentState, FactoryRevokeState, QUIT_ROW, SettingsAction, SettingsTab,
-};
+use tandem::status::settings_tab::{QUIT_ROW, SettingsAction, SettingsTab};
 
 fn mouse(kind: MouseEventKind, x: u16, y: u16) -> MouseEvent {
     MouseEvent {
@@ -108,65 +106,6 @@ fn test_click_outside_modal_does_not_leak_to_rows_underneath() {
     assert!(tab.factory_edit.is_some());
     assert_eq!(tab.prefs.cols, cols_before);
     assert_eq!(tab.focused_row, focus_before);
-}
-
-#[test]
-fn test_provider_row_click_opens_consent_and_auth_and_cancel_buttons() {
-    let ws = TempDir::new();
-    let mut tab = factory_tab(&ws);
-    let provider = tab.factory_providers[0].provider.clone();
-
-    click_text(&mut tab, TALL, &provider);
-    assert!(tab.factory_consent.is_some() || tab.factory_revoke.is_some());
-    if tab.factory_consent.is_none() {
-        return;
-    }
-
-    let before = tab.factory_consent.as_ref().unwrap().auth_idx;
-    click_text(&mut tab, TALL, ">");
-    assert_ne!(tab.factory_consent.as_ref().unwrap().auth_idx, before);
-
-    click_text(&mut tab, TALL, "Enter consent");
-    assert!(
-        tab.factory_consent.as_ref().unwrap().error.is_some(),
-        "wrong confirm text keeps the dialog open"
-    );
-
-    click_text(&mut tab, TALL, "Esc cancel");
-    assert!(tab.factory_consent.is_none());
-}
-
-#[test]
-fn test_revoke_modal_yes_no_buttons() {
-    let ws = TempDir::new();
-    let mut tab = factory_tab(&ws);
-    tab.factory_revoke = Some(FactoryRevokeState {
-        provider: "claude".to_string(),
-        confirm_yes: false,
-    });
-    click_text(&mut tab, TALL, "[ No ]");
-    assert!(tab.factory_revoke.is_none());
-
-    tab.factory_revoke = Some(FactoryRevokeState {
-        provider: "claude".to_string(),
-        confirm_yes: false,
-    });
-    click_text(&mut tab, TALL, "[ Yes ]");
-    assert!(tab.factory_revoke.is_none());
-}
-
-#[test]
-fn test_consent_state_built_directly_renders_clickable_hint() {
-    let ws = TempDir::new();
-    let mut tab = factory_tab(&ws);
-    tab.factory_consent = Some(FactoryConsentState {
-        provider: "claude".to_string(),
-        auth_idx: 0,
-        input: String::new(),
-        error: None,
-    });
-    click_text(&mut tab, TALL, "Left/Right auth");
-    assert_eq!(tab.factory_consent.as_ref().unwrap().auth_idx, 1);
 }
 
 #[test]

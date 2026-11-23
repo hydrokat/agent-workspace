@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use super::executor::{Executor, StageJob, StageOutcome};
+use super::broker::terms::AuthType;
+use super::executor::{Executor, ReadyCli, StageJob, StageOutcome};
 use super::model::{
     Actor, ActorKind, Approval, ApprovalGate, FactorySettings, RunState, Stage, StageState,
 };
@@ -29,6 +30,13 @@ impl FakeExecutor {
 }
 
 impl Executor for FakeExecutor {
+    fn ready_clis(&self) -> Vec<ReadyCli> {
+        crate::factory::model::KNOWN_PROVIDERS
+            .iter()
+            .map(|cli| ReadyCli::new(cli, Some(AuthType::ApiKey)))
+            .collect()
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         let limit = self.fail_counts.get(&job.stage).copied().unwrap_or(0);
         if job.attempt <= limit {

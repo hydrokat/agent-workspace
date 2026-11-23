@@ -1,8 +1,8 @@
 use tandem::factory::ids::{is_valid_idea_id, is_valid_run_id, new_idea_id, new_run_id};
 use tandem::factory::model::{
     Actor, ActorKind, Approval, ApprovalGate, ArtifactRef, Budget, FactorySettings, Idea,
-    IdeaState, KNOWN_PROVIDERS, OrchestratorRef, Plan, PrLink, ProviderGate, ProviderGateState,
-    Risk, Run, RunState, Stage, StageState, validate_owner, validate_text, validate_title,
+    IdeaState, OrchestratorRef, Plan, PrLink, Risk, Run, RunState, Stage, StageState,
+    validate_owner, validate_text, validate_title,
 };
 
 #[test]
@@ -171,19 +171,9 @@ fn test_all_model_types_round_trip_json() {
         prs: vec![pr.clone()],
         cancelled_from: None,
     };
-    let gate = ProviderGate {
-        provider: "claude".to_string(),
-        state: ProviderGateState::Closed,
-        auth_type: None,
-        verified_on: Some("2026-11-16".to_string()),
-        terms_record: Some("factory-provider-terms.md".to_string()),
-        consented_at: None,
-        consented_by: None,
-    };
     let settings = FactorySettings {
         max_parallel_agents: 2,
         default_temperature: 0.2,
-        provider_gates: vec![gate.clone()],
         default_budget: budget.clone(),
         ..FactorySettings::default()
     };
@@ -206,7 +196,6 @@ fn test_all_model_types_round_trip_json() {
     assert_round_trip!(run, Run);
     assert_round_trip!(pr, PrLink);
     assert_round_trip!(idea, Idea);
-    assert_round_trip!(gate, ProviderGate);
     assert_round_trip!(settings, FactorySettings);
 }
 
@@ -255,15 +244,6 @@ fn test_factory_settings_default() {
     let settings = FactorySettings::default();
     assert_eq!(settings.max_parallel_agents, 3);
     assert!((settings.default_temperature - 0.4).abs() < f64::EPSILON);
-    assert_eq!(settings.provider_gates.len(), KNOWN_PROVIDERS.len());
-    for provider in KNOWN_PROVIDERS {
-        let gate = settings
-            .provider_gates
-            .iter()
-            .find(|g| g.provider == *provider)
-            .expect("known provider must be present");
-        assert_eq!(gate.state, ProviderGateState::Closed);
-    }
 }
 
 #[test]

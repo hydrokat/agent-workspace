@@ -426,23 +426,6 @@ fn factory_detail_mark_ready_text_states_full_authorization() {
     let mut settings = store.settings().unwrap();
     settings.approval_grace_secs = 0;
     tandem::factory::settings::save(&store, &settings).unwrap();
-    let env_fn = |k: &str| {
-        if k == "TANDEM_ROLE" {
-            None
-        } else {
-            std::env::var(k).ok()
-        }
-    };
-    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
-    tandem::factory::broker::gate::consent_provider(
-        &store,
-        "claude",
-        tandem::factory::broker::gate::AuthType::ApiKey,
-        "claude",
-        "argie",
-        &caller,
-    )
-    .unwrap();
     let user = user_actor();
     let orch = orch_actor();
 
@@ -608,23 +591,6 @@ fn factory_run_confirm_unconfirmed_checks_requires_target_name() {
     let mut settings = store.settings().unwrap();
     settings.approval_grace_secs = 0;
     tandem::factory::settings::save(&store, &settings).unwrap();
-    let env_fn = |k: &str| {
-        if k == "TANDEM_ROLE" {
-            None
-        } else {
-            std::env::var(k).ok()
-        }
-    };
-    let caller = tandem::factory::approval::Caller::tui(&env_fn, &|_| None);
-    tandem::factory::broker::gate::consent_provider(
-        &store,
-        "claude",
-        tandem::factory::broker::gate::AuthType::ApiKey,
-        "claude",
-        "argie",
-        &caller,
-    )
-    .unwrap();
     let user = user_actor();
     let orch = orch_actor();
     let sys = sys_actor();

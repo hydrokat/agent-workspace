@@ -8,7 +8,6 @@ use std::time::Duration;
 use tandem::coordination::store::CoordStore;
 use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::{JobState, job_dir, set_job_state};
 use tandem::factory::checks::ChecksConfig;
 use tandem::factory::events::Event;
@@ -142,16 +141,6 @@ fn setup_workspace(name: &str, max_parallel_agents: usize) -> (PathBuf, FactoryS
     settings.max_parallel_agents = max_parallel_agents;
     settings.approval_grace_secs = 0;
     save_settings(&store, &settings).unwrap();
-    let caller = Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     (ws, store)
 }
 
@@ -216,6 +205,13 @@ impl RecordingExecutor {
 }
 
 impl Executor for RecordingExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         self.calls.push((job.run.clone(), job.stage.clone()));
         StageOutcome::Succeeded

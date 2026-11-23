@@ -243,6 +243,8 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory checks show [--target NAME] [--json]` | Show confirmed check commands |
 | `tandem factory login status [--json]` | Check installed/signed-in status for `claude`, `agy`, and `opencode` |
 | `tandem factory login open <CLI> [--json]` | Open an isolated tmux login pane (`@tandem_role=login`) using the CLI's own login command |
+| `tandem factory login risk [--json]` | Show each signed-in CLI's sign-in method, terms verdict, and whether it is `ok`, `risky`, or `acknowledged` |
+| `tandem factory login acknowledge-risk <CLI> --method <METHOD> --confirm <CLI> [--json]` | Confirm you accept a risky sign-in method (user-only; once per CLI and method, re-asked when terms change) |
 | `tandem factory models --cli <CLI> [--refresh] [--json]` | List the models a CLI offers with `tier` (economy/standard/premium), `cost_rank`, `cost_basis` (`price_table`, `free_tier`, `heuristic`), `allowed`, and `source` (`live`, `cache`, `fallback`); cached 10 minutes in `.agent-workspace/factory/model-cache-<cli>.json` |
 | `tandem factory models recommend --run <RUN> --stage <STAGE> [--complexity low\|medium\|high] [--required-tier economy\|standard\|premium] [--json]` | Recommend the cheapest capable CLI and model for a stage from signed-in CLIs (stage floor, slice complexity, and `required_tier`; review avoids the develop model) |
 | `tandem factory agent assign --run <RUN> --stage <STAGE> --cli <CLI> --model <MODEL> [--by user\|orchestrator] [--json]` | Assign or override the interactive CLI/model for a stage (`user` always overrides `orchestrator`) |
@@ -251,7 +253,6 @@ Start Factory Mode with `./run.sh --factory` (or `tandem --factory`). Normal and
 | `tandem factory agent capture --run <RUN> --job <JOB> [--lines N] [--json]` | Capture output from an owned worker pane (fails closed on login/non-worker panes) |
 | `tandem factory agent terminate --run <RUN> --job <JOB> --confirm <JOB> [--json]` | Stop an owned worker pane and mark its job interrupted |
 | `tandem factory agent relaunch --run <RUN> --job <JOB> [--json]` | Relaunch a worker pane using the active `assignments.json` entry |
-| `tandem factory provider status [--json]` | Show legacy headless terms verdicts and gate state |
 | `tandem factory settings get [--json]` | Show current factory settings |
 | `tandem factory settings set <KEY> <VALUE> [--json]` | Update a non-protected factory setting within valid bounds (user-only) |
 | `tandem factory run budget <RUN> [--max-cost USD] [--max-duration SECS] [--max-retries N] [--json]` | View or update budget caps for a run (mutating is user-only) |
@@ -309,7 +310,7 @@ Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or 
 .agent-workspace/factory/
 ├── .gitignore            # "*"
 ├── events.jsonl          # append-only event log (0600)
-├── settings.json         # factory settings and provider gates (all closed by default)
+├── settings.json         # factory settings (a legacy provider_gates key is ignored and dropped on save)
 ├── ideas/<idea-id>.json  # materialized idea state (0600)
 └── runs/<run-id>/
     ├── workflow.yaml     # byte-identical copy of the resolved workflow
@@ -326,7 +327,7 @@ Exit codes: `0` success, `1` not found, invalid input, audit chain mismatch, or 
 
 > **Governance stance:** Factory Mode accelerates execution; it does not transfer accountability. Teams keep approval, merge, deployment, and compliance responsibility.
 
-- **Worker logins & terms notice**: Interactive worker panes (`claude`, `agy`, `opencode`) use whatever login each CLI already holds on the host (`tandem` handles no credentials and reads no OAuth tokens or API keys). Subscription logins may conflict with provider terms of service — see the 2026-11-20 summary in `knowledgebase/architecture-decisions/factory-provider-terms.md` (`claude`: API key/Console `allowed-with-conditions`, consumer subscription `not-allowed` / gray; `agy`: Gemini Enterprise / AI Studio API key / Vertex AI `allowed-with-conditions`, consumer OAuth `unclear`; `opencode`: configured provider auth). You can sign in with an API key through **Settings → Agents & sign-in** (`tandem factory login open <cli>`).
+- **Interactive-only workers & sign-in risk**: Every worker and Orchestrator is an interactive CLI in a tmux pane; tandem never runs an AI CLI with `-p`/`--print`/`run` or any other non-interactive mode (enforced by source guards), and a run pauses with `tmux is required for Factory workers` when no tandem tmux session exists. Panes (`claude`, `agy`, `opencode`) use whatever login each CLI already holds on the host (`tandem` handles no credentials and reads no OAuth tokens or API keys). tandem warns when the sign-in method is risky for orchestrated use and records your typed confirmation (`login risk`, `login acknowledge-risk`; the Orchestrator and workers can never confirm it). Subscription logins may conflict with provider terms of service — see the 2026-11-20 summary in `knowledgebase/architecture-decisions/factory-provider-terms.md` (`claude`: API key/Console `allowed-with-conditions`, consumer subscription `not-allowed` / gray; `agy`: Gemini Enterprise / AI Studio API key / Vertex AI `allowed-with-conditions`, consumer OAuth `unclear`; `opencode`: configured provider auth). You can sign in with an API key through **Settings → Agents & sign-in** (`tandem factory login open <cli>`).
 - **Guarded tmux ownership**: Worker panes (`@tandem_role=worker`, `@tandem_run_id=<run>`) are launched interactively inside tmux (`TmuxClient::launch_worker`). `send_worker` / `paste_worker` / `capture_worker` fail closed on non-worker panes, including `@tandem_role=login` panes opened for sign-in.
 - **Assignment precedence (`assignments.json`)**: `user` > `orchestrator` > workflow `default`. Agents cannot pass `--by user` and cannot overwrite an existing user override.
 - **Activity signals & hooks**: When a worker uses `claude`, tandem installs an isolated worktree `Stop` hook (`.claude/settings.local.json`, excluded via git `info/exclude`) updating `<job_dir>/activity.json`; `team_watch.py` polls files first before `agent capture`.

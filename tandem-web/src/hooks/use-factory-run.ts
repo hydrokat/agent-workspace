@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  ProviderStatusItem,
   RunControlAction,
   RunControlOptions,
   RunSummary,
@@ -22,7 +21,6 @@ export function useFactoryRun({
   streamKey,
 }: UseFactoryRunOptions) {
   const [run, setRun] = useState<RunSummary | null>(initialRun);
-  const [providers, setProviders] = useState<ProviderStatusItem[]>([]);
   const [logText, setLogText] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -43,17 +41,12 @@ export function useFactoryRun({
   const refreshRun = useCallback(async () => {
     if (!workspaceId || !runId) return;
     try {
-      const [runRes, provRes] = await Promise.all([
-        fetch(`/api/workspaces/${workspaceId}/factory/runs/${runId}`, { cache: "no-store" }),
-        fetch(`/api/workspaces/${workspaceId}/factory/providers`, { cache: "no-store" }),
-      ]);
+      const runRes = await fetch(`/api/workspaces/${workspaceId}/factory/runs/${runId}`, {
+        cache: "no-store",
+      });
       if (runRes.ok) {
         const body = (await runRes.json()) as { run?: RunSummary };
         if (body.run) setRun(body.run);
-      }
-      if (provRes.ok) {
-        const body = (await provRes.json()) as { providers?: ProviderStatusItem[] };
-        if (Array.isArray(body.providers)) setProviders(body.providers);
       }
     } catch {
       // Transient poll/refresh errors are non-fatal; snapshot stream retries on next tick.
@@ -130,7 +123,6 @@ export function useFactoryRun({
 
   return {
     run,
-    providers,
     logText,
     logLoading,
     logError,

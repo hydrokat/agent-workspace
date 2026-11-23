@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, LogIn, CheckCircle2, AlertCircle, XCircle } from "lucide-react";
 import type { LoginPaneResult, LoginStatusItem } from "@/domain/models/factory";
+import { useAuthRisk } from "@/hooks/use-auth-risk";
+import { AuthRiskBadge, AuthRiskDialog } from "./auth-risk-dialog";
 
 interface ProviderLoginCardProps {
   workspaceId: string;
@@ -35,6 +37,8 @@ export function ProviderLoginCard({
   const [openingCli, setOpeningCli] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<LoginPaneResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { riskFor, acknowledge, refresh: refreshRisk } = useAuthRisk();
+  const [reviewCli, setReviewCli] = useState<string | null>(null);
 
   const loadStatuses = useCallback(async () => {
     setLoading(true);
@@ -50,12 +54,13 @@ export function ProviderLoginCard({
         throw new Error(body?.error?.message || "Failed to check CLI sign-in status");
       }
       setStatuses(body.clis);
+      void refreshRisk();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to check CLI sign-in status");
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, refreshRisk]);
 
   useEffect(() => {
     if (initialStatuses) return;
@@ -136,12 +141,29 @@ export function ProviderLoginCard({
                     )}
                   </div>
                   <span className="text-muted-foreground pl-6">{statusSummary(item)}</span>
+                  {item.signed_in && riskFor(item.cli) && (
+                    <span className="pl-6">
+                      <AuthRiskBadge item={riskFor(item.cli)!} />
+                    </span>
+                  )}
                   {item.error && (
                     <span className="text-destructive pl-6">{item.error}</span>
                   )}
                 </div>
 
                 <div className="flex items-center gap-2 pl-6 sm:pl-0">
+                  {item.signed_in && riskFor(item.cli)?.risk === "risky" && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setReviewCli(item.cli)}
+                      aria-label={`Review sign-in risk for ${item.cli}`}
+                      className="w-full sm:w-auto min-h-11 sm:min-h-8 text-xs"
+                    >
+                      Review risk…
+                    </Button>
+                  )}
                   {item.installed && item.has_login_command ? (
                     <Button
                       type="button"
@@ -201,6 +223,15 @@ export function ProviderLoginCard({
           {error}
         </p>
       )}
+
+      <AuthRiskDialog
+        item={reviewCli ? riskFor(reviewCli) : null}
+        open={reviewCli !== null}
+        onOpenChange={(next) => {
+          if (!next) setReviewCli(null);
+        }}
+        onAcknowledge={acknowledge}
+      />
 
       <p className="text-[11px] text-muted-foreground">
         Workers use each CLI&apos;s current login. Subscription use may conflict with provider terms

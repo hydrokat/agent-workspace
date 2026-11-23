@@ -28,14 +28,6 @@ const sampleSettings: FactorySettings = {
   model_tiers: {
     claude: { economy: "haiku", standard: "sonnet", premium: "opus" },
   },
-  provider_gates: [
-    {
-      provider: "claude",
-      state: "open",
-      auth_type: "subscription",
-      consented_at: 1700000000,
-    },
-  ],
   checks: {},
   deploy_commands: {},
 };
@@ -64,19 +56,9 @@ describe("Factory Settings (t-010)", () => {
     expect(res?.status).toBe(401);
   });
 
-  it("loads settings, providers, and workflows via GetFactorySettingsUseCase", async () => {
+  it("loads settings and workflows via GetFactorySettingsUseCase", async () => {
     const fakeGateway = {
       factoryGetSettings: async () => sampleSettings,
-      factoryProviderStatus: async () => [
-        {
-          provider: "claude",
-          auth_type: "subscription",
-          verdict: "allowed",
-          verified_on: "2026-11-01",
-          reverify_by: "2027-01-01",
-          gate: "open" as const,
-        },
-      ],
       factoryListWorkflows: async () => [
         {
           name: "default-delivery",
@@ -90,7 +72,6 @@ describe("Factory Settings (t-010)", () => {
     const uc = new GetFactorySettingsUseCase(fakeRegistry, fakeGateway);
     const result = await uc.execute("tandem-1111111111");
     expect(result.settings.max_parallel_agents).toBe(3);
-    expect(result.providers).toHaveLength(1);
     expect(result.workflows).toHaveLength(1);
   });
 
@@ -140,9 +121,8 @@ describe("Factory Settings (t-010)", () => {
     ).rejects.toMatchObject({ code: "invalid_input" });
   });
 
-  it("rejects attempts to change provider gates, check commands, or deploy command with 403", async () => {
+  it("rejects attempts to change provider settings, check commands, or deploy command with 403", async () => {
     const protectedPayloads = [
-      { provider_gates: [] },
       { providers: {} },
       { checks: {} },
       { deploy: {} },
@@ -165,7 +145,7 @@ describe("Factory Settings (t-010)", () => {
     }
   });
 
-  it("renders Factory card only in factory workspaces with read-only providers and disabled Save", () => {
+  it("renders Factory card only in factory workspaces with disabled Save and no provider consent section", () => {
     const webSettings: WebSettings = {
       enabled: true,
       first_time_acknowledged: true,
@@ -200,25 +180,6 @@ describe("Factory Settings (t-010)", () => {
         workspaceId: "tandem-1111111111",
         initialData: {
           settings: sampleSettings,
-          providers: [
-            {
-              provider: "claude",
-              auth_type: "subscription",
-              verdict: "allowed",
-              verified_on: "2026-11-01",
-              reverify_by: "2027-01-01",
-              gate: "open",
-            },
-            {
-              provider: "agy",
-              auth_type: "subscription",
-              verdict: "unclear",
-              verified_on: "2026-11-01",
-              reverify_by: "2027-01-01",
-              gate: "closed",
-              reason: "terms verdict: unclear",
-            },
-          ],
           workflows: [
             {
               name: "default-delivery",
@@ -235,8 +196,8 @@ describe("Factory Settings (t-010)", () => {
     expect(factoryCardHtml).toContain("Default workflow");
     expect(factoryCardHtml).toContain("Default worker CLI");
     expect(factoryCardHtml).toContain("Orchestrator may choose worker");
-    expect(factoryCardHtml).toContain("Consent is given in tandem on the host.");
-    expect(factoryCardHtml).toContain("terms verdict: unclear");
+    expect(factoryCardHtml).not.toContain("Providers (reference terms)");
+    expect(factoryCardHtml).not.toContain("Consent is given in tandem on the host");
     expect(factoryCardHtml).toContain("disabled");
   });
 

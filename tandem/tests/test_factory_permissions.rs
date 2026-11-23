@@ -8,7 +8,6 @@ use serde_json::Value;
 use tandem::factory::approval::{Caller, mark_ready_with_workflow};
 use tandem::factory::artifacts;
 use tandem::factory::broker::context::{ContextInputs, assemble_context};
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::{JobSpec, prepare_job};
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
@@ -16,7 +15,7 @@ use tandem::factory::login::LoginProbe;
 use tandem::factory::machine::{Command as MachineCommand, EventData};
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, RunState};
 use tandem::factory::permissions::{DeniedReason, ToolGrant, grant};
-use tandem::factory::routing::{RoutingContext, route};
+use tandem::factory::routing::{RoutingContext, route_interactive as route};
 use tandem::factory::run::get_run;
 use tandem::factory::runner::{drive_run_step, resume_paused_run_with_probe};
 
@@ -141,6 +140,13 @@ fn git_init_repo(dir: &Path) {
 struct NoopExecutor;
 
 impl Executor for NoopExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, _job: &StageJob) -> StageOutcome {
         StageOutcome::Succeeded
     }
@@ -162,15 +168,6 @@ fn setup_queued_run(ws: &Path) -> (FactoryStore, String, String) {
         id: "orch".to_string(),
     };
     let caller = Caller::cli(true, &|_| None, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
     let idea = store
         .create_idea("Perm test", "Testing permissions", "alice", &user)
         .unwrap();

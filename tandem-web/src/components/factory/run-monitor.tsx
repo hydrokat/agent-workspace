@@ -18,7 +18,6 @@ import {
   HYPOTHESIS_MAX_LEN,
   isValidHypothesis,
   type AgentSummary,
-  type ProviderStatusItem,
   type RunControlAction,
   type RunControlOptions,
   type RunDataView,
@@ -34,7 +33,6 @@ import { TeamPanel } from "./team-panel";
 
 interface RunMonitorProps {
   run: RunSummary;
-  providers: ProviderStatusItem[];
   logText: string | null;
   logLoading: boolean;
   logError: string | null;
@@ -95,7 +93,6 @@ function formatDuration(created: number, updated: number): string {
 
 export function RunMonitor({
   run,
-  providers: _providers,
   logText,
   logLoading,
   logError,

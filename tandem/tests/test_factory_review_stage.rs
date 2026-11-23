@@ -8,14 +8,13 @@ use tandem::factory::artifacts;
 use tandem::factory::broker::context::{
     ContextInputs, ReviewContextExtras, assemble_review_context,
 };
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::result::{JobResult, JobResultStatus};
 use tandem::factory::checks::set_checks;
 use tandem::factory::events::read_all;
 use tandem::factory::executor::{Executor, StageJob, StageOutcome};
 use tandem::factory::machine::Command;
 use tandem::factory::model::{Actor, ActorKind, FactorySettings, IdeaState, RunState, StageState};
-use tandem::factory::routing::{ModelTier, RoutingContext, route};
+use tandem::factory::routing::{ModelTier, RoutingContext, route_interactive};
 use tandem::factory::run::get_run;
 use tandem::factory::runner::drive_run_step;
 use tandem::factory::stages::review::{
@@ -175,15 +174,6 @@ stages:
         Some(30),
         vec![],
         "workspace",
-        "alice",
-        &caller,
-    )
-    .unwrap();
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
         "alice",
         &caller,
     )
@@ -371,7 +361,7 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         "workspace",
         stage.tools.clone(),
     );
-    let routed = route(
+    let routed = route_interactive(
         stage,
         &stage_grant,
         &wf,
@@ -391,7 +381,7 @@ fn test_routing_prefers_different_provider_or_model_for_reviewer() {
         avoid_model: Some("claude-haiku-4-5".into()),
         ..RoutingContext::default()
     };
-    let routed_single = route(
+    let routed_single = route_interactive(
         stage,
         &stage_grant,
         &wf,
@@ -414,6 +404,13 @@ struct ScriptedReviewExecutor {
 }
 
 impl Executor for ScriptedReviewExecutor {
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        vec![tandem::factory::executor::ReadyCli::new(
+            "claude",
+            Some(tandem::factory::broker::terms::AuthType::ApiKey),
+        )]
+    }
+
     fn run(&mut self, job: &StageJob) -> StageOutcome {
         let run = get_run(&self.store, &job.run).unwrap().unwrap();
         let artifact_dir = self

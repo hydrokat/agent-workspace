@@ -62,6 +62,7 @@ pub(crate) fn save_unlocked(
     if normalized.version == 0 {
         normalized.version = SETTINGS_VERSION;
     }
+    normalized.extra.remove("provider_gates");
     let bytes = serde_json::to_vec_pretty(&normalized)?;
     write_atomic(&path, &bytes)?;
     set_private_file_mode(&path)?;
@@ -251,8 +252,7 @@ fn is_protected_key(key: &str) -> bool {
     let root = key.split('.').next().unwrap_or(key);
     matches!(
         root,
-        "provider_gates"
-            | "providers"
+        "providers"
             | "checks"
             | "deploy"
             | "deploy_command"

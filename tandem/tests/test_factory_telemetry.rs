@@ -10,7 +10,6 @@ use tandem::config::Config;
 use tandem::coordination::store::CoordStore;
 use tandem::factory::approval::{Caller, MarkReadyOptions, mark_ready_with_options};
 use tandem::factory::artifacts;
-use tandem::factory::broker::gate::{AuthType, consent_provider};
 use tandem::factory::broker::job::job_dir;
 use tandem::factory::broker::result::JobUsage;
 use tandem::factory::budget::{
@@ -117,15 +116,6 @@ fn setup_queued_run(ws: &Path, budget: Budget) -> (FactoryStore, String, String)
     };
     save_settings(&store, &settings).unwrap();
     let caller = Caller::cli(true, &no_agent_env, &|_| None);
-    consent_provider(
-        &store,
-        "claude",
-        AuthType::ApiKey,
-        "claude",
-        "alice",
-        &caller,
-    )
-    .unwrap();
 
     let orch = Actor {
         kind: ActorKind::Orchestrator,
@@ -302,6 +292,13 @@ fn runner_records_job_usage_event_after_each_job() {
         store: FactoryStore,
     }
     impl Executor for UsageExecutor {
+        fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+            vec![tandem::factory::executor::ReadyCli::new(
+                "claude",
+                Some(tandem::factory::broker::terms::AuthType::ApiKey),
+            )]
+        }
+
         fn run(&mut self, job: &StageJob) -> StageOutcome {
             let dir = job_dir(&self.store, &job.run, &job.stage, job.attempt);
             fs::create_dir_all(&dir).unwrap();
@@ -339,8 +336,7 @@ fn runner_records_job_usage_event_after_each_job() {
     assert!(usage_ev.data["duration_secs"].as_f64().is_some());
     assert_eq!(usage_ev.data["input_tokens"], 1200);
     assert_eq!(usage_ev.data["output_tokens"], 300);
-    assert_eq!(usage_ev.data["cost"]["basis"], "actual");
-    assert!((usage_ev.data["cost"]["value"].as_f64().unwrap() - 0.42).abs() < 1e-6);
+    assert_eq!(usage_ev.data["cost"]["basis"], "unknown");
 
     let _ = fs::remove_dir_all(ws);
 }

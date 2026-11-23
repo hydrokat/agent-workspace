@@ -10,7 +10,9 @@ use tandem::factory::approval::ApprovalError;
 use tandem::factory::events::read_all;
 use tandem::factory::machine::EventData;
 use tandem::factory::model::{Budget, FactorySettings, ModelPrice, Stage, StageState};
-use tandem::factory::routing::{ProviderModelTiers, RoutingContext, TemperatureSupport, route};
+use tandem::factory::routing::{
+    ProviderModelTiers, RoutingContext, TemperatureSupport, route_interactive as route,
+};
 use tandem::factory::settings::{
     SETTINGS_VERSION, effective, load as load_settings, save as save_settings, set as set_setting,
     validate as validate_settings,
@@ -367,13 +369,7 @@ fn settings_set_is_user_only_blocks_protected_keys_and_emits_event() {
     assert!(matches!(err, ApprovalError::AgentCaller));
 
     let user_caller = tandem::factory::approval::Caller::cli(true, &no_env, &no_pane);
-    for protected in [
-        "provider_gates",
-        "providers",
-        "checks",
-        "deploy",
-        "deploy_command",
-    ] {
+    for protected in ["providers", "checks", "deploy", "deploy_command"] {
         let err = set_setting(&store, protected, "{}", "alice", &user_caller).unwrap_err();
         assert!(
             matches!(err, ApprovalError::InvalidInput(_)),
@@ -852,4 +848,35 @@ fn settings_set_covers_all_keys_errors_and_validate_edges() {
         },
     );
     assert_eq!(eff_nan_settings.default_temperature, 0.5);
+}
+
+#[test]
+fn a_legacy_provider_gates_key_still_loads_and_is_dropped_on_the_next_save() {
+    let ws = TestWorkspace::new("legacy-gates");
+    let store = FactoryStore::new(&ws.root);
+    store.ensure().unwrap();
+    let settings_path = ws.root.join(".agent-workspace/factory/settings.json");
+    let legacy = json!({
+        "version": 1,
+        "max_parallel_agents": 4,
+        "provider_gates": [{
+            "provider": "claude",
+            "state": "open",
+            "auth_type": "api-key",
+            "verified_on": "2026-11-16",
+            "terms_record": "factory-provider-terms.md",
+            "consented_at": 1795000000.0,
+            "consented_by": "alice"
+        }]
+    });
+    fs::write(&settings_path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
+
+    let mut loaded = load_settings(&store).unwrap();
+    assert_eq!(loaded.max_parallel_agents, 4);
+    loaded.max_review_rounds = 3;
+    save_settings(&store, &loaded).unwrap();
+
+    let raw: Value = serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
+    assert!(raw.get("provider_gates").is_none(), "{raw}");
+    assert_eq!(raw["max_review_rounds"], json!(3));
 }

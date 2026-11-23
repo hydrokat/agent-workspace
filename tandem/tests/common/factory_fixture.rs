@@ -8,12 +8,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tandem::factory::approval::Caller;
-use tandem::factory::broker::gate::{AuthType, ProviderTermsRow, consent_provider_with_terms};
-use tandem::factory::broker::terms::{TERMS_RECORD_PATH, TermsVerdict};
+use tandem::factory::approval::mark_ready;
+use tandem::factory::artifacts;
+use tandem::factory::broker::terms::{AuthType, ProviderTermsRow, TERMS_RECORD_PATH, TermsVerdict};
 use tandem::factory::checks::set_checks;
 use tandem::factory::executor::{BrokerExecutor, Executor, StageJob, StageOutcome};
 use tandem::factory::login::LoginProbe;
+use tandem::factory::machine::Command;
 use tandem::factory::model::{Actor, ActorKind, Run};
+use tandem::factory::model::{FeasibilityVerdict, Risk};
 use tandem::factory::runner::{RunnerError, drive_run_step_with_gh, resume_paused_run_with_probe};
 use tandem::factory::settings;
 use tandem::factory::store::FactoryStore;
@@ -385,6 +388,11 @@ impl TmuxRunner for StubWorkerTmuxRunner {
                     err: String::new(),
                 }
             }
+            "has-session" => TmuxCmdResult {
+                code: 0,
+                out: String::new(),
+                err: String::new(),
+            },
             other => TmuxCmdResult {
                 code: 1,
                 out: String::new(),
@@ -407,12 +415,8 @@ impl Executor for FixtureExecutor {
             .run_with_env_and_gate(job, self.parent_env.clone(), self.terms, &self.today)
     }
 
-    fn is_interactive(&self) -> bool {
-        self.broker.is_interactive()
-    }
-
-    fn ready_providers(&self) -> Option<Vec<&'static str>> {
-        self.broker.ready_providers()
+    fn ready_clis(&self) -> Vec<tandem::factory::executor::ReadyCli> {
+        self.broker.ready_clis()
     }
 }
 
@@ -485,18 +489,6 @@ impl FactoryFixture {
         )
         .unwrap();
 
-        consent_provider_with_terms(
-            &store,
-            "claude",
-            AuthType::ApiKey,
-            "claude",
-            "user",
-            &caller,
-            FIXED_TODAY,
-            TEST_TERMS,
-        )
-        .unwrap();
-
         Self {
             _root: root,
             workspace,
@@ -506,6 +498,37 @@ impl FactoryFixture {
             gh_log_path,
             gh_bin,
             store,
+        }
+    }
+
+    pub fn acknowledge_risky_clis(&self, probe: &dyn LoginProbe) {
+        use tandem::factory::auth_risk::{
+            AuthRisk, acknowledge_with_terms, assess, detected_method, method_name,
+        };
+        use tandem::factory::login::check_status;
+        let caller = user_caller();
+        for cli in ["claude", "agy", "opencode"] {
+            let item = check_status(cli, probe);
+            if !(item.installed && item.signed_in) {
+                continue;
+            }
+            let detected = detected_method(&item);
+            if matches!(
+                assess(cli, detected, FIXED_TODAY, TEST_TERMS, &[]),
+                AuthRisk::Risky { .. }
+            ) {
+                acknowledge_with_terms(
+                    &self.store,
+                    cli,
+                    detected,
+                    method_name(detected),
+                    cli,
+                    "user",
+                    &caller,
+                    TEST_TERMS,
+                )
+                .unwrap();
+            }
         }
     }
 
@@ -635,4 +658,121 @@ fn init_target_repo(dir: &Path, bare_remote: &Path) {
         ],
     );
     run_git_cmd(dir, &["push", "-u", "origin", "main"]);
+}
+
+pub struct TmuxSessionGuard {
+    socket: String,
+}
+
+impl TmuxSessionGuard {
+    pub fn start(socket: String) -> Self {
+        let status = StdCommand::new("tmux")
+            .args([
+                "-L",
+                &socket,
+                "new-session",
+                "-d",
+                "-s",
+                SESSION,
+                "-n",
+                "status",
+                "sleep",
+                "120",
+            ])
+            .status()
+            .expect("spawn real tmux session");
+        assert!(status.success(), "tmux new-session failed: {status}");
+        Self { socket }
+    }
+}
+
+impl Drop for TmuxSessionGuard {
+    fn drop(&mut self) {
+        let _ = StdCommand::new("tmux")
+            .args(["-L", &self.socket, "kill-server"])
+            .status();
+    }
+}
+
+pub fn prepare_ready_idea(fixture: &FactoryFixture, title: &str) -> String {
+    let user = user_actor();
+    let orch = orch_actor();
+
+    let idea = fixture
+        .store
+        .create_idea(title, "Export team activity as CSV", "user", &user)
+        .unwrap();
+
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            Command::BindOrchestrator {
+                cli: "claude".to_string(),
+                model: "opus".to_string(),
+                conversation: Some("conv-iteam-1".to_string()),
+            },
+            &user,
+        )
+        .unwrap();
+
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            Command::Describe {
+                title: title.to_string(),
+                text: "Export team activity CSV via interactive CLI team.".to_string(),
+            },
+            &orch,
+        )
+        .unwrap();
+
+    let feas_src = fixture.workspace.join(".agent-workspace/feas.md");
+    fs::write(&feas_src, "# Feasibility\n\nFeasible.\n").unwrap();
+    let feas_ref = artifacts::put(&fixture.store, &idea.id, "feasibility", &feas_src).unwrap();
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            Command::StoreArtifact {
+                kind: "feasibility".to_string(),
+                artifact: feas_ref,
+                verdict: Some(FeasibilityVerdict::Feasible),
+                risk: Some(Risk::Low),
+                workflow: None,
+                missing_sections: Vec::new(),
+            },
+            &orch,
+        )
+        .unwrap();
+
+    fixture
+        .store
+        .execute(&idea.id, Command::SelectDirection, &orch)
+        .unwrap();
+
+    let plan_src = fixture.workspace.join(".agent-workspace/plan.md");
+    let plan_body = "## Scope\nExport CSV.\n\n## Acceptance criteria\n- Export team activity to CSV\n\n## Risks\nLow.\n\n## Estimates\n1 day.\n\n## Workflow recommendation\ndefault-delivery\n";
+    fs::write(&plan_src, plan_body).unwrap();
+    let plan_ref = artifacts::put(&fixture.store, &idea.id, "plan", &plan_src).unwrap();
+    let missing = artifacts::missing_plan_sections(plan_body);
+    fixture
+        .store
+        .execute(
+            &idea.id,
+            Command::StoreArtifact {
+                kind: "plan".to_string(),
+                artifact: plan_ref,
+                verdict: None,
+                risk: None,
+                workflow: Some("default-delivery".to_string()),
+                missing_sections: missing,
+            },
+            &orch,
+        )
+        .unwrap();
+
+    mark_ready(&fixture.store, &idea.id, &idea.id, "user", &user_caller()).unwrap();
+    idea.id
 }

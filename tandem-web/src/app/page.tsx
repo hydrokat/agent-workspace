@@ -32,6 +32,7 @@ import type { IpCandidate } from "@/domain/models/network";
 import type { PaneInfo } from "@/domain/models/snapshot";
 import type { AgentChip } from "@/domain/models/terminal";
 import type { AllowedTandemAction } from "@/domain/ports/tandem-gateway";
+import { AuthRiskProvider } from "@/hooks/use-auth-risk";
 
 export default function DashboardPage() {
   const [isDesktop, setIsDesktop] = useState(false);
@@ -405,6 +406,7 @@ export default function DashboardPage() {
   const shouldKeepTerminalMounted = terminalMode === "mirror";
 
   return (
+    <AuthRiskProvider workspaceId={activeWorkspace?.id ?? null} enabled={factoryEnabled}>
     <ResponsiveAppShell
       workspaces={workspaces}
       activeWorkspace={activeWorkspace}
@@ -723,5 +725,6 @@ export default function DashboardPage() {
         }}
       />
     </ResponsiveAppShell>
+    </AuthRiskProvider>
   );
 }

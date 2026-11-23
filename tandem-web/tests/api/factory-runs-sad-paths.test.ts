@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import * as runRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/route";
 import * as runControlRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/control/route";
 import * as runLogRoute from "../../src/app/api/workspaces/[workspaceId]/factory/runs/[runId]/jobs/[jobId]/log/route";
-import * as providersRoute from "../../src/app/api/workspaces/[workspaceId]/factory/providers/route";
+import * as riskAckRoute from "../../src/app/api/workspaces/[workspaceId]/factory/login/risk/acknowledge/route";
 import { middleware } from "../../src/middleware";
 
 describe("Factory Run API Sad Paths & Security", () => {
@@ -48,7 +48,7 @@ describe("Factory Run API Sad Paths & Security", () => {
     await rm(stateDir, { recursive: true, force: true });
   });
 
-  it("rejects missing or invalid auth token on all run and provider routes", () => {
+  it("rejects missing or invalid auth token on all run routes", () => {
     const requests = [
       new NextRequest(`http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x`),
       new NextRequest(
@@ -58,7 +58,11 @@ describe("Factory Run API Sad Paths & Security", () => {
       new NextRequest(
         `http://localhost/api/workspaces/${workspaceId}/factory/runs/r-4h8k2m1x/jobs/r-4h8k2m1x.develop.1/log`
       ),
-      new NextRequest(`http://localhost/api/workspaces/${workspaceId}/factory/providers`),
+      new NextRequest(`http://localhost/api/workspaces/${workspaceId}/factory/login/risk`),
+      new NextRequest(
+        `http://localhost/api/workspaces/${workspaceId}/factory/login/risk/acknowledge`,
+        { method: "POST" }
+      ),
     ];
 
     for (const req of requests) {
@@ -132,17 +136,40 @@ describe("Factory Run API Sad Paths & Security", () => {
     }
   });
 
-  it("keeps providers route strictly read-only and has no consent route", () => {
-    expect("POST" in providersRoute).toBe(false);
-    expect("PUT" in providersRoute).toBe(false);
-    expect("DELETE" in providersRoute).toBe(false);
-    expect(
-      existsSync(
-        join(
-          import.meta.dir,
-          "../../src/app/api/workspaces/[workspaceId]/factory/providers/consent/route.ts"
+  it("rejects malformed risk acknowledgements with 400 before running anything", async () => {
+    for (const body of [{}, { cli: "claude" }, { cli: "claude", method: "subscription" }]) {
+      const res = await riskAckRoute.POST(
+        new Request(
+          `http://localhost/api/workspaces/${workspaceId}/factory/login/risk/acknowledge`,
+          { method: "POST", body: JSON.stringify(body) }
+        ),
+        { params: Promise.resolve({ workspaceId }) }
+      );
+      expect(res.status).toBe(400);
+    }
+    const mismatch = await riskAckRoute.POST(
+      new Request(
+        `http://localhost/api/workspaces/${workspaceId}/factory/login/risk/acknowledge`,
+        {
+          method: "POST",
+          body: JSON.stringify({ cli: "claude", method: "subscription", confirm: "agy" }),
+        }
+      ),
+      { params: Promise.resolve({ workspaceId }) }
+    );
+    expect(mismatch.status).toBe(400);
+  });
+
+  it("has no providers or consent route", () => {
+    for (const dir of ["providers", "providers/consent"]) {
+      expect(
+        existsSync(
+          join(
+            import.meta.dir,
+            `../../src/app/api/workspaces/[workspaceId]/factory/${dir}/route.ts`
+          )
         )
-      )
-    ).toBe(false);
+      ).toBe(false);
+    }
   });
 });

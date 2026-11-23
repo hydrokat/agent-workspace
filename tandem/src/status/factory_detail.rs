@@ -105,6 +105,7 @@ pub struct FactoryDetail {
     pub loaded_blockers: Option<usize>,
     pub loaded_open_questions: Option<usize>,
     pub hits: HitMap,
+    pub risks: Vec<crate::factory::auth_risk::RiskItem>,
 }
 
 impl FactoryDetail {
@@ -136,6 +137,7 @@ impl FactoryDetail {
             loaded_blockers: None,
             loaded_open_questions: None,
             hits: HitMap::default(),
+            risks: Vec::new(),
         };
         detail.reload(queries, pane_open);
         detail
@@ -904,6 +906,35 @@ impl FactoryDetail {
                     y += 1;
                 }
                 if y < bottom {
+                    for risk in self
+                        .risks
+                        .iter()
+                        .filter(|r| r.risk.as_deref() == Some("risky"))
+                    {
+                        if y >= bottom.saturating_sub(2) {
+                            break;
+                        }
+                        let line = format!(
+                            "⚠ {} uses a risky sign-in ({}, {}). Stages that use it pause until you confirm it in Settings → Agents & sign-in.",
+                            risk.cli,
+                            risk.method,
+                            risk.verdict.as_deref().unwrap_or("no verified terms")
+                        );
+                        for wrapped in wrap_text(&line, max_w.max(1)) {
+                            if y >= bottom.saturating_sub(2) {
+                                break;
+                            }
+                            write_clipped(
+                                buf,
+                                area.x,
+                                y,
+                                max_w,
+                                &wrapped,
+                                Style::default().fg(Color::Yellow),
+                            );
+                            y += 1;
+                        }
+                    }
                     let prompt = format!("Type the idea id to confirm: {}_", clean(&input.value));
                     write_clipped(buf, area.x, y, max_w, &prompt, text_style);
                     y += 1;
