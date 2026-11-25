@@ -549,3 +549,234 @@ fn test_factory_agent_list_requires_a_run_unless_all() {
         assert_eq!(out.status.code(), Some(2), "{args:?} must be a usage error");
     }
 }
+
+fn tmux_installed() -> bool {
+    std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[test]
+fn test_resume_idea_uses_resume_flag_and_rotates_on_rebound_live_pane_collision() {
+    if !tmux_installed() {
+        return;
+    }
+    use tandem::adapters::AgentSpec;
+    use tandem::commands::{make_layout, placeholder_launch};
+    use tandem::config::Config;
+    use tandem::factory::commands::resume_idea;
+    use tandem::factory::machine::Command as FactoryCommand;
+    use tandem::factory::model::{Actor, ActorKind};
+    use tandem::factory::store::FactoryStore;
+    use tandem::tmux::layout::Launch;
+
+    const CONV: &str = "46f2fc12-7f1f-4ca2-b714-06cbbfd669e9";
+    let ws = TestWorkspace::new("resume-idea-conv");
+    let claude_dir = ws.state_dir.join("claude");
+    let proj = claude_dir.join("projects").join("p");
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(proj.join(format!("{CONV}.jsonl")), "{}\n").unwrap();
+
+    struct ServerGuard(String);
+    impl Drop for ServerGuard {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("tmux")
+                .args(["-L", &self.0, "kill-server"])
+                .output();
+        }
+    }
+    let _guard = ServerGuard(tandem::tmux::client::socket_for(&ws.root));
+
+    let cfg = Config {
+        coord_dir: None,
+        color: false,
+        tmux_pane: String::new(),
+        workspace: Some(ws.root.clone()),
+        state_dir: ws.state_dir.clone(),
+        update_spec: "hydrokat/agent-workspace".to_string(),
+        session_id: String::new(),
+        claude_dir,
+        update_interval: 14400,
+        update_check: false,
+        factory: true,
+    };
+
+    let layout = make_layout(&ws.root, &cfg);
+    let ph_main = placeholder_launch("orchestrator", None, Some(&ws.root));
+    let ph_sb = Launch::new(
+        vec!["sleep".to_string(), "60".to_string()],
+        "sidebar",
+        0,
+        "sidebar",
+    );
+    let ph_st = Launch::new(
+        vec!["sleep".to_string(), "60".to_string()],
+        "status",
+        0,
+        "status",
+    );
+    layout.build(160, 45, &ph_sb, &ph_main, &ph_st).unwrap();
+
+    let store = FactoryStore::new(&ws.root);
+    let actor = Actor {
+        kind: ActorKind::User,
+        id: "alice".to_string(),
+    };
+    let idea_a = store
+        .create_idea("First Idea", "Build feature A", "alice", &actor)
+        .unwrap();
+    store
+        .execute(
+            &idea_a.id,
+            FactoryCommand::BindOrchestrator {
+                cli: "claude".to_string(),
+                model: "opus".to_string(),
+                conversation: Some(CONV.to_string()),
+            },
+            &actor,
+        )
+        .unwrap();
+
+    let resumed_a = resume_idea(&ws.root, &cfg, &idea_a.id).expect("resume closed idea A");
+    assert_eq!(
+        resumed_a
+            .orchestrator
+            .as_ref()
+            .and_then(|o| o.conversation.as_deref()),
+        Some(CONV)
+    );
+    let panes = layout.panes().unwrap();
+    let pane_a = panes
+        .iter()
+        .find(|p| p.kind == "agent" && p.idea == idea_a.id)
+        .expect("pane A launched");
+    let argv_a_raw = layout
+        .client
+        .run_checked(&["display-message", "-p", "-t", &pane_a.id, "#{@tandem_argv}"])
+        .unwrap();
+    let argv_a: Vec<String> = serde_json::from_str(argv_a_raw.trim()).unwrap();
+    assert_eq!(&argv_a[argv_a.len() - 2..], &["--resume", CONV]);
+
+    let idea_b = store
+        .create_idea("Second Idea", "Rebound pane idea B", "alice", &actor)
+        .unwrap();
+    store
+        .execute(
+            &idea_b.id,
+            FactoryCommand::BindOrchestrator {
+                cli: "claude".to_string(),
+                model: "opus".to_string(),
+                conversation: Some(CONV.to_string()),
+            },
+            &actor,
+        )
+        .unwrap();
+    let mut spec_b = AgentSpec::new("claude", "orchestrator", "opus");
+    spec_b.idea = Some(idea_b.id.clone());
+    let rebound_spec_json = serde_json::json!({
+        "cli": "claude",
+        "model": "opus",
+        "skip_permissions": false,
+        "cwd": null,
+        "conversation": CONV,
+        "idea": idea_b.id,
+    })
+    .to_string();
+    layout
+        .client
+        .run_batch_checked(&[
+            vec![
+                "set-option".to_string(),
+                "-p".to_string(),
+                "-t".to_string(),
+                pane_a.id.clone(),
+                "@tandem_idea".to_string(),
+                idea_b.id.clone(),
+            ],
+            vec![
+                "set-option".to_string(),
+                "-p".to_string(),
+                "-t".to_string(),
+                pane_a.id.clone(),
+                "@tandem_spec".to_string(),
+                rebound_spec_json,
+            ],
+        ])
+        .unwrap();
+
+    let reopened_a = resume_idea(&ws.root, &cfg, &idea_a.id)
+        .expect("reopen idea A after its pane was rebound to idea B");
+    let new_conv = reopened_a
+        .orchestrator
+        .as_ref()
+        .and_then(|o| o.conversation.as_deref())
+        .expect("idea A must record rotated conversation");
+    assert_ne!(
+        new_conv, CONV,
+        "resume_idea must sync the rotated conversation UUID onto idea A when another live pane holds {CONV}"
+    );
+    let stored_a = store.get_idea(&idea_a.id).unwrap().unwrap();
+    assert_eq!(
+        stored_a
+            .orchestrator
+            .as_ref()
+            .and_then(|o| o.conversation.as_deref()),
+        Some(new_conv)
+    );
+    let panes_after = layout.panes().unwrap();
+    let new_pane_a = panes_after
+        .iter()
+        .find(|p| p.kind == "agent" && p.idea == idea_a.id)
+        .expect("new pane A launched");
+    let argv_new_a_raw = layout
+        .client
+        .run_checked(&[
+            "display-message",
+            "-p",
+            "-t",
+            &new_pane_a.id,
+            "#{@tandem_argv}",
+        ])
+        .unwrap();
+    let argv_new_a: Vec<String> = serde_json::from_str(argv_new_a_raw.trim()).unwrap();
+    assert_eq!(
+        &argv_new_a[argv_new_a.len() - 2..],
+        &["--session-id", new_conv]
+    );
+
+    layout
+        .client
+        .run_checked(&[
+            "respawn-pane",
+            "-k",
+            "-t",
+            &new_pane_a.id,
+            "sh",
+            "-c",
+            "exit 1",
+        ])
+        .unwrap();
+    for _ in 0..40 {
+        if layout
+            .panes()
+            .unwrap()
+            .iter()
+            .any(|p| p.id == new_pane_a.id && p.dead)
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let revived_a = resume_idea(&ws.root, &cfg, &idea_a.id).expect("revive dead idea A pane");
+    let revived_conv = revived_a
+        .orchestrator
+        .as_ref()
+        .and_then(|o| o.conversation.as_deref())
+        .expect("revived dead pane stores rotated conversation");
+    assert_ne!(
+        revived_conv, new_conv,
+        "reviving a dead unresumable pane must rotate to a fresh --session-id instead of reusing {new_conv}"
+    );
+}

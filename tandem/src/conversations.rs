@@ -197,21 +197,33 @@ pub fn forget(coord_dir: &Path, session_id: &str) {
     }
 }
 
+fn contains_transcript_file(dir: &Path, filename: &str, depth: usize) -> bool {
+    if depth == 0 {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir()
+            && (path.join(filename).is_file()
+                || contains_transcript_file(&path, filename, depth - 1))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn claude_transcript_exists(claude_dir: &Path, conversation: &str) -> bool {
     let checked = match valid_id(conversation) {
         Some(id) => id,
         None => return false,
     };
     let projects_dir = claude_dir.join("projects");
-    if let Ok(entries) = fs::read_dir(projects_dir) {
-        let filename = format!("{checked}.jsonl");
-        for entry in entries.flatten() {
-            if entry.path().is_dir() && entry.path().join(&filename).is_file() {
-                return true;
-            }
-        }
-    }
-    false
+    let filename = format!("{checked}.jsonl");
+    contains_transcript_file(&projects_dir, &filename, 3)
 }
 
 pub fn can_resume(cli: &str, conversation: Option<&str>, claude_dir: &Path) -> bool {

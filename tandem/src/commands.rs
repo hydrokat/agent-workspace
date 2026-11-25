@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -192,6 +192,35 @@ fn platform_name() -> &'static str {
     }
 }
 
+fn normalized_conversation(spec: &AgentSpec) -> Option<String> {
+    spec.conversation
+        .as_deref()
+        .and_then(conversations::valid_id)
+}
+
+fn pane_conversations(
+    panes: &[PaneInfo],
+    coord_dir: &Path,
+    exclude_pane: Option<&str>,
+) -> HashSet<String> {
+    panes
+        .iter()
+        .filter(|p| p.kind == "agent" && exclude_pane != Some(p.id.as_str()))
+        .filter_map(|p| pane_spec(p, Some(coord_dir)))
+        .filter_map(|s| normalized_conversation(&s))
+        .collect()
+}
+
+fn launch_conversation(launch: &Launch) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(&launch.spec)
+        .ok()
+        .and_then(|v| {
+            v.get("conversation")
+                .and_then(|c| c.as_str())
+                .map(str::to_string)
+        })
+}
+
 pub fn agent_launch(
     spec: &AgentSpec,
     coord_dir: &str,
@@ -199,19 +228,19 @@ pub fn agent_launch(
     resume: bool,
     claude_dir: Option<&Path>,
 ) -> Launch {
-    let mut spec = spec.clone();
-    if spec.cli == "claude" && spec.conversation.is_none() {
-        spec.conversation = Some(conversations::new_id());
-    }
-
     let default_claude = home_dir().join(".claude");
     let claude_path = claude_dir.unwrap_or(&default_claude);
 
+    let mut spec = spec.clone();
     let reopen =
         resume && conversations::can_resume(&spec.cli, spec.conversation.as_deref(), claude_path);
 
-    if matches!(spec.cli.as_str(), "agy" | "opencode") && !reopen {
-        spec.conversation = None;
+    if !reopen {
+        spec.conversation = if spec.cli == "claude" {
+            Some(conversations::new_id())
+        } else {
+            None
+        };
     }
 
     let coord = Path::new(coord_dir);
@@ -456,11 +485,27 @@ pub fn start(
             .then(a.index.cmp(&b.index))
     });
 
+    let mut seen_convs: HashSet<String> = HashSet::new();
+    let dedup_spec = |orig: &AgentSpec, seen: &mut HashSet<String>| -> AgentSpec {
+        let mut s = orig.clone();
+        if let Some(norm) = normalized_conversation(&s)
+            && !seen.insert(norm)
+        {
+            s.conversation = None;
+        }
+        s
+    };
+
     let main_l = if let Some(first) = ordered_specs.first() {
-        with_factory_env(
-            agent_launch(first, &coord_str, workspace, resume, claude_dir),
+        let spec = dedup_spec(first, &mut seen_convs);
+        let l = with_factory_env(
+            agent_launch(&spec, &coord_str, workspace, resume, claude_dir),
             config.factory,
-        )
+        );
+        if let Some(conv) = launch_conversation(&l).and_then(|c| conversations::valid_id(&c)) {
+            seen_convs.insert(conv);
+        }
+        l
     } else if config.factory {
         with_factory_env(
             placeholder_launch("orchestrator", None, Some(workspace)),
@@ -484,10 +529,14 @@ pub fn start(
     }
 
     for spec in ordered_specs.iter().skip(1) {
+        let spec = dedup_spec(spec, &mut seen_convs);
         let l = with_factory_env(
-            agent_launch(spec, &coord_str, workspace, resume, claude_dir),
+            agent_launch(&spec, &coord_str, workspace, resume, claude_dir),
             config.factory,
         );
+        if let Some(conv) = launch_conversation(&l).and_then(|c| conversations::valid_id(&c)) {
+            seen_convs.insert(conv);
+        }
         let _ = layout.add_agent(&l, false);
     }
 
@@ -547,7 +596,11 @@ pub fn attach(workspace: &Path) {
     }
 }
 
-pub fn add_agent(spec: &AgentSpec, workspace: &Path, config: &Config) -> Result<(), anyhow::Error> {
+pub fn add_agent(
+    spec: &AgentSpec,
+    workspace: &Path,
+    config: &Config,
+) -> Result<AgentSpec, anyhow::Error> {
     let layout = make_layout(workspace, config);
     let panes = layout.panes()?;
     let same_role: Vec<usize> = panes
@@ -561,19 +614,26 @@ pub fn add_agent(spec: &AgentSpec, workspace: &Path, config: &Config) -> Result<
 
     let coord_dir = coord_dir_for(workspace, config);
     let _ = conversations::prepare(&coord_dir);
+    let active_convs = pane_conversations(&panes, &coord_dir, None);
+    if normalized_conversation(&indexed).is_some_and(|norm| active_convs.contains(&norm)) {
+        indexed.conversation = None;
+    }
+    let resume = indexed.conversation.is_some();
+
     let launch = with_factory_env(
         agent_launch(
             &indexed,
             &coord_dir.to_string_lossy(),
             workspace,
-            false,
+            resume,
             Some(config.claude_dir.as_path()),
         ),
         config.factory,
     );
+    indexed.conversation = launch_conversation(&launch);
     layout.add_agent(&launch, true)?;
     autosave_for(&layout, workspace, config.factory);
-    Ok(())
+    Ok(indexed)
 }
 
 fn own_role(layout: &Layout, config: &Config) -> String {
@@ -966,7 +1026,11 @@ pub fn restart(layout: &mut Layout, pane_id: &str, workspace: &Path, config: &Co
     let coord_dir = coord_dir_for(workspace, config);
     let spec = pane.and_then(|p| pane_spec(p, Some(&coord_dir)));
     let coord_str = coord_dir.to_string_lossy();
-    if let Some(s) = spec {
+    if let Some(mut s) = spec {
+        let active_convs = pane_conversations(&panes, &coord_dir, Some(pane_id));
+        if normalized_conversation(&s).is_some_and(|norm| active_convs.contains(&norm)) {
+            s.conversation = None;
+        }
         let _ = conversations::prepare(&coord_dir);
         let launch = with_factory_env(
             agent_launch(
@@ -1006,6 +1070,7 @@ where
 {
     let mut specs = Vec::new();
     let mut notes = Vec::new();
+    let mut seen_convs: HashSet<String> = HashSet::new();
     for a in &saved.agents {
         if factory && a.role != "orchestrator" {
             notes.push(format!(
@@ -1033,6 +1098,15 @@ where
             if agent.cli == "claude" {
                 agent.conversation = None;
             }
+        }
+        if let Some(norm) = normalized_conversation(&agent)
+            && !seen_convs.insert(norm)
+        {
+            notes.push(format!(
+                "Cleared duplicate conversation for {} {}: already assigned to another agent.",
+                a.role, a.index
+            ));
+            agent.conversation = None;
         }
         specs.push(agent);
     }
@@ -1317,13 +1391,20 @@ pub fn restart_stale(
         Err(_) => return Vec::new(),
     };
     let pane_map: HashMap<String, &PaneInfo> = panes.iter().map(|p| (p.id.clone(), p)).collect();
+    let chosen_ids: HashSet<&str> = chosen.iter().map(|a| a.pane_id.as_str()).collect();
+    let mut claimed_convs: HashSet<String> = panes
+        .iter()
+        .filter(|p| p.kind == "agent" && !chosen_ids.contains(p.id.as_str()))
+        .filter_map(|p| pane_spec(p, Some(&coord_dir)))
+        .filter_map(|s| normalized_conversation(&s))
+        .collect();
     let mut messages = Vec::new();
 
     for agent in chosen {
         let name = format!("{} {}", agent.role, agent.index);
         let pane = pane_map.get(&agent.pane_id);
         let spec = pane.and_then(|p| pane_spec(p, Some(&coord_dir)));
-        let spec = match spec {
+        let mut spec = match spec {
             Some(s) => s,
             None => {
                 messages.push(format!(
@@ -1332,7 +1413,11 @@ pub fn restart_stale(
                 continue;
             }
         };
-
+        if let Some(norm) = normalized_conversation(&spec)
+            && !claimed_convs.insert(norm)
+        {
+            spec.conversation = None;
+        }
         let coord_str = coord_dir.to_string_lossy();
         let launch = with_factory_env(
             agent_launch(
@@ -1344,6 +1429,9 @@ pub fn restart_stale(
             ),
             config.factory,
         );
+        if let Some(conv) = launch_conversation(&launch).and_then(|c| conversations::valid_id(&c)) {
+            claimed_convs.insert(conv);
+        }
 
         match layout.restart_live(&agent.pane_id, &launch) {
             Ok(_) => messages.push(format!("{name}: restarted on {}", agent.installed)),
