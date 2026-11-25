@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.27.1] — 2026-11-25
+
+### Fixed
+- **Claude `'Session ID is already in use'` on resume, restart, and idea reopen (`p-032`, Version impact: Patch)**: `agent_launch` now rotates `spec.conversation` to a fresh UUID whenever `!reopen` for `claude`, preventing `--session-id` from reusing an unresumable or stale UUID across `tandem restart` (`Ctrl+Alt+r`), `tandem start --resume`, `restart_stale`, and blank relaunches. `add_agent` checks live tmux agent panes for conversation UUID collisions, clears colliding IDs so a fresh UUID is generated, passes `resume = indexed.conversation.is_some()` instead of hardcoding `false`, and returns the launched `AgentSpec`. `resume_specs_for`, `start`, `restart`, and `restart_stale` deduplicate conversation UUIDs across panes; `claude_transcript_exists` adds bounded stat-only nested lookup inside `~/.claude/projects`; and Factory Mode `resume_idea_cmd` revives dead panes and syncs any rotated conversation UUID back to the idea via `Command::BindOrchestrator`.
+
 ## [1.27.0] — 2026-11-23
 
 ### Added
