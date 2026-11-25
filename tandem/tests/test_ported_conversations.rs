@@ -161,3 +161,31 @@ fn test_agy_resumes_any_known_conversation() {
     assert!(!can_resume("agy", None, tmp.path()));
     assert!(!can_resume("agy", Some("bad"), tmp.path()));
 }
+
+#[test]
+fn test_claude_transcript_exists_finds_nested_project_transcripts() {
+    let tmp = TempDir::new();
+    let nested = tmp
+        .path()
+        .join("projects")
+        .join("-Users-me-ws")
+        .join("subsessions");
+    std::fs::create_dir_all(&nested).unwrap();
+    let file_path = nested.join(format!("{ID}.jsonl"));
+    std::fs::write(&file_path, "{}\n").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+
+    assert!(claude_transcript_exists(tmp.path(), ID));
+    assert!(!claude_transcript_exists(tmp.path(), OTHER));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}

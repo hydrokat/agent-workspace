@@ -3783,19 +3783,57 @@ fn start_idea_cmd(
     let mut spec =
         crate::adapters::base::AgentSpec::new(cli.to_string(), "orchestrator", validated_model);
     spec.idea = Some(bound.id.clone());
-    if let Err(err) = crate::commands::add_agent(&spec, workspace, config) {
-        let _ = store.execute(
-            &bound.id,
-            super::machine::Command::Cancel {
-                reason: "orchestrator failed to start".to_string(),
-            },
-            &actor,
-        );
-        return Err(CmdError::invalid_input(format!(
-            "orchestrator failed to start: {err}"
-        )));
+    let launched = match crate::commands::add_agent(&spec, workspace, config) {
+        Ok(launched) => launched,
+        Err(err) => {
+            let _ = store.execute(
+                &bound.id,
+                super::machine::Command::Cancel {
+                    reason: "orchestrator failed to start".to_string(),
+                },
+                &actor,
+            );
+            return Err(CmdError::invalid_input(format!(
+                "orchestrator failed to start: {err}"
+            )));
+        }
+    };
+    if let Some(orch) = bound.orchestrator.clone() {
+        return sync_orchestrator_conversation(&store, config, bound, &orch, launched.conversation);
     }
     Ok(bound)
+}
+
+fn sync_orchestrator_conversation(
+    store: &FactoryStore,
+    config: &Config,
+    idea: Idea,
+    orch: &super::model::OrchestratorRef,
+    conversation: Option<String>,
+) -> Result<Idea, CmdError> {
+    let latest = store
+        .get_idea(&idea.id)
+        .map_err(map_factory_error)?
+        .unwrap_or(idea);
+    let current_conv = latest
+        .orchestrator
+        .as_ref()
+        .and_then(|o| o.conversation.as_ref());
+    if current_conv != conversation.as_ref() {
+        let actor = resolve_actor(config);
+        return store
+            .execute(
+                &latest.id,
+                super::machine::Command::BindOrchestrator {
+                    cli: orch.cli.clone(),
+                    model: orch.model.clone(),
+                    conversation,
+                },
+                &actor,
+            )
+            .map_err(map_factory_error);
+    }
+    Ok(latest)
 }
 
 fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<Idea, CmdError> {
@@ -3818,12 +3856,30 @@ fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<I
     }
     let orch = idea
         .orchestrator
-        .as_ref()
+        .clone()
         .ok_or_else(|| CmdError::invalid_input(format!("idea {} has no orchestrator", idea.id)))?;
-    let layout = crate::commands::make_layout(workspace, config);
+    let mut layout = crate::commands::make_layout(workspace, config);
     if let Ok(panes) = layout.panes()
         && let Some(existing) = panes.iter().find(|p| p.idea == idea.id)
     {
+        if existing.dead {
+            crate::commands::restart(&mut layout, &existing.id, workspace, config);
+            let _ = layout.show_pane(&existing.id);
+            let coord_dir = crate::commands::coord_dir_for(workspace, config);
+            if let Ok(refreshed_panes) = layout.panes()
+                && let Some(restarted) = refreshed_panes.iter().find(|p| p.id == existing.id)
+                && let Some(restarted_spec) =
+                    crate::commands::pane_spec(restarted, Some(&coord_dir))
+            {
+                return sync_orchestrator_conversation(
+                    &store,
+                    config,
+                    idea,
+                    &orch,
+                    restarted_spec.conversation,
+                );
+            }
+        }
         let _ = layout.show_pane(&existing.id);
         return Ok(idea);
     }
@@ -3831,9 +3887,9 @@ fn resume_idea_cmd(workspace: &Path, config: &Config, idea_id: &str) -> Result<I
         crate::adapters::base::AgentSpec::new(orch.cli.clone(), "orchestrator", orch.model.clone());
     spec.idea = Some(idea.id.clone());
     spec.conversation = orch.conversation.clone();
-    crate::commands::add_agent(&spec, workspace, config)
+    let launched = crate::commands::add_agent(&spec, workspace, config)
         .map_err(|e| CmdError::invalid_input(format!("resume failed: {e}")))?;
-    Ok(idea)
+    sync_orchestrator_conversation(&store, config, idea, &orch, launched.conversation)
 }
 
 fn format_ready_text(res: &super::approval::ReadyResult) -> String {
