@@ -993,7 +993,14 @@ pub fn terminate_agent(
     let (stage, attempt) = parse_job_id(run_id, job_id)?;
     let pane_id = resolve_job_pane_id(store, tmux, run_id, job_id, &stage, attempt)?;
     tmux.capture_worker(run_id, &pane_id, 1)?;
-    tmux.kill_pane(&pane_id)?;
+    let layout = crate::tmux::Layout::new(tmux);
+    let placeholder = crate::commands::placeholder_launch("orchestrator", None, None);
+    if !layout
+        .prepare_pane_removal(&pane_id, &placeholder)
+        .unwrap_or(false)
+    {
+        tmux.kill_pane(&pane_id)?;
+    }
     let jdir = job_dir(store, run_id, &stage, attempt);
     if jdir.is_dir()
         && matches!(

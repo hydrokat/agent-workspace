@@ -29,10 +29,20 @@ pub struct SidebarApp {
     pub dirty: bool,
     pub last_refresh: f64,
     pub editing_agent: Option<(String, String)>,
+    pub factory: Option<bool>,
 }
 
 impl SidebarApp {
     pub fn new(workspace: PathBuf, store: CoordStore, tmux: Option<TmuxClient>) -> Self {
+        Self::new_with_factory(workspace, store, tmux, None)
+    }
+
+    pub fn new_with_factory(
+        workspace: PathBuf,
+        store: CoordStore,
+        tmux: Option<TmuxClient>,
+        factory: Option<bool>,
+    ) -> Self {
         let store_arc = Arc::new(store);
         let mut app = Self {
             workspace,
@@ -45,6 +55,7 @@ impl SidebarApp {
             dirty: true,
             last_refresh: 0.0,
             editing_agent: None,
+            factory,
         };
         app.refresh();
         app
@@ -63,7 +74,7 @@ impl SidebarApp {
         let queries = self.store.queries();
         let active = panes
             .iter()
-            .find(|p| p.window == "main" && p.kind == "agent")
+            .find(|p| p.window == "main" && crate::tmux::tabs::is_manageable_pane_kind(&p.kind))
             .map(|p| p.id.as_str());
 
         let selected_str = if let Some(ref tmux) = self.tmux {
@@ -89,7 +100,10 @@ impl SidebarApp {
                 .collect()
         };
 
-        let factory_summary = if crate::commands::is_factory_session(&self.workspace) {
+        let in_factory = self
+            .factory
+            .unwrap_or_else(|| crate::commands::is_factory_session(&self.workspace));
+        let factory_summary = if in_factory {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs_f64())
@@ -217,22 +231,41 @@ impl SidebarApp {
                 self.return_focus_to_agent();
             }
             KeyCode::Char('r') => {
-                if let Some(SidebarRow::Agent { pane_id, name, .. }) = self.rows.get(self.selected)
+                if let Some(SidebarRow::Agent {
+                    pane_id,
+                    name,
+                    is_worker,
+                    ..
+                }) = self.rows.get(self.selected)
                 {
-                    self.editing_agent = Some((pane_id.clone(), name.clone()));
-                    self.dirty = true;
+                    if *is_worker {
+                        self.status_msg =
+                            Some("Factory workers cannot be renamed here.".to_string());
+                        self.dirty = true;
+                    } else {
+                        self.editing_agent = Some((pane_id.clone(), name.clone()));
+                        self.dirty = true;
+                    }
                 }
             }
             KeyCode::Char('x') | KeyCode::Delete => {
                 if !self.brand_focused
-                    && let Some(SidebarRow::Agent { pane_id, .. }) = self.rows.get(self.selected)
-                    && let Some(ref tmux) = self.tmux
+                    && let Some(SidebarRow::Agent {
+                        pane_id, is_worker, ..
+                    }) = self.rows.get(self.selected)
                 {
-                    let pane_id = pane_id.clone();
-                    let mut layout = crate::tmux::layout::Layout::new(tmux);
-                    layout.workspace = Some(self.workspace.to_string_lossy().into_owned());
-                    crate::commands::close_agent_target(&mut layout, &pane_id);
-                    self.refresh();
+                    if *is_worker {
+                        self.status_msg = Some(
+                            "Stop workers in Factory Agents (`s` stop) to confirm.".to_string(),
+                        );
+                        self.dirty = true;
+                    } else if let Some(ref tmux) = self.tmux {
+                        let pane_id = pane_id.clone();
+                        let mut layout = crate::tmux::layout::Layout::new(tmux);
+                        layout.workspace = Some(self.workspace.to_string_lossy().into_owned());
+                        crate::commands::close_agent_target(&mut layout, &pane_id);
+                        self.refresh();
+                    }
                 }
             }
             _ => {}

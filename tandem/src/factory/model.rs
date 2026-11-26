@@ -318,6 +318,21 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDecisionAction {
+    Updated,
+    Kept,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelDecision {
+    pub chosen: String,
+    pub available_signature: String,
+    pub decided_at: f64,
+    pub action: ModelDecisionAction,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FactorySettings {
     #[serde(default = "default_settings_version")]
@@ -338,6 +353,8 @@ pub struct FactorySettings {
     pub deploy_commands: BTreeMap<String, super::checks::DeployConfig>,
     #[serde(default = "super::routing::default_model_tiers")]
     pub model_tiers: BTreeMap<String, super::routing::ProviderModelTiers>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_decisions: BTreeMap<String, BTreeMap<String, ModelDecision>>,
     #[serde(default)]
     pub price_table: BTreeMap<String, ModelPrice>,
     #[serde(default = "default_approval_grace_secs")]
@@ -372,6 +389,7 @@ impl Default for FactorySettings {
             checks: BTreeMap::new(),
             deploy_commands: BTreeMap::new(),
             model_tiers: super::routing::default_model_tiers(),
+            model_decisions: BTreeMap::new(),
             price_table: BTreeMap::new(),
             approval_grace_secs: default_approval_grace_secs(),
             default_worker_cli: default_worker_cli(),

@@ -12,6 +12,8 @@ use crate::factory::login::{
     HostLoginProbe, LoginProbe, LoginStatusItem, all_statuses, default_login_items, open_login_pane,
 };
 use crate::factory::model::FactorySettings;
+use crate::factory::model_catalog::{ModelFreshnessStatus, ModelVerificationReport};
+use crate::factory::routing::ModelTier;
 use crate::factory::settings as factory_settings;
 use crate::factory::store::FactoryStore;
 use crate::factory::workflow::{parse as wf_parse, validate as wf_validate};
@@ -58,6 +60,8 @@ pub enum SettingsAction {
     QuitMenu,
     RenameWorkspace(String),
     ReviewRisk(String),
+    CheckModels,
+    OpenModelTierPicker(String, ModelTier),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +122,7 @@ pub struct SettingsTab {
     pub factory_edit: Option<FactoryEditState>,
     pub factory_login_pane: Option<FactoryLoginPaneState>,
     pub logins_probed: bool,
+    pub model_report: Option<ModelVerificationReport>,
     pub scroll_offset: usize,
     pub render_scroll: Cell<usize>,
 }
@@ -145,6 +150,7 @@ impl Default for SettingsTab {
             factory_edit: None,
             factory_login_pane: None,
             logins_probed: false,
+            model_report: None,
             scroll_offset: 0,
             render_scroll: Cell::new(0),
         }
@@ -410,6 +416,7 @@ impl SettingsTab {
                 KeyCode::Left | KeyCode::Char('h') => self.handle_horizontal(false),
                 KeyCode::Right | KeyCode::Char('l') => self.handle_horizontal(true),
                 KeyCode::Char('a') => self.review_risk_for_focused_login(),
+                KeyCode::Char('u') if self.factory_enabled => Some(SettingsAction::CheckModels),
                 KeyCode::Char('r')
                     if matches!(self.focused_factory_row(), Some(FactoryRow::AgentLogin(_))) =>
                 {
@@ -428,6 +435,29 @@ impl SettingsTab {
                         self.editing_workspace_name = Some(self.workspace_name.clone());
                         None
                     } else if self.focused_row > QUIT_ROW {
+                        if let Some(FactoryRow::ModelTier(idx)) = self.focused_factory_row()
+                            && let Some((provider, _)) =
+                                self.factory_settings.model_tiers.iter().nth(idx)
+                        {
+                            let tier = match self.tier_sub_field {
+                                0 => ModelTier::Economy,
+                                1 => ModelTier::Standard,
+                                _ => ModelTier::Premium,
+                            };
+                            let has_catalog = self.model_report.as_ref().is_some_and(|r| {
+                                r.items.iter().any(|i| {
+                                    i.cli == *provider
+                                        && i.tier == tier
+                                        && !i.available_models.is_empty()
+                                })
+                            });
+                            if has_catalog {
+                                return Some(SettingsAction::OpenModelTierPicker(
+                                    provider.clone(),
+                                    tier,
+                                ));
+                            }
+                        }
                         self.activate_factory_row();
                         None
                     } else {
@@ -1339,8 +1369,29 @@ impl SettingsTab {
                         .nth(t_idx)
                         .map(|(k, v)| (k.as_str(), v))
                         .unwrap();
+                    let badge = self
+                        .model_report
+                        .as_ref()
+                        .and_then(|r| {
+                            let items: Vec<_> = r
+                                .items
+                                .iter()
+                                .filter(|i| i.cli == provider && i.needs_attention)
+                                .collect();
+                            if items.iter().any(|i| {
+                                matches!(i.status, ModelFreshnessStatus::MissingFromCatalog)
+                            }) {
+                                Some(" [missing]")
+                            } else if !items.is_empty() {
+                                Some(" [outdated]")
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or("");
+                    let hint = if t_idx == 0 { "  [u check models]" } else { "" };
                     let tiers_str = format!(
-                        "{provider}: economy {} · standard {} · premium {}",
+                        "{provider}{badge}: economy {} · standard {} · premium {}{hint}",
                         tiers.economy, tiers.standard, tiers.premium
                     );
                     (

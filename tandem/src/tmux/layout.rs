@@ -7,7 +7,9 @@ use crate::tmux::keys::{
     bind_commands, default_keymap, launcher_for, mouse_commands_for, resize_commands, run_shell,
     status_left,
 };
-use crate::tmux::tabs::{FORMAT, PaneInfo, agents_in, parse_panes, render_title};
+use crate::tmux::tabs::{
+    FORMAT, PaneInfo, agents_in, is_manageable_pane_kind, parse_panes, render_title,
+};
 
 pub const SESSION: &str = "tandem";
 pub const STATUS_ROWS: usize = 10;
@@ -479,7 +481,7 @@ impl Layout {
                             env!("CARGO_PKG_VERSION")
                         ),
                     ]);
-                } else if pane.kind == "agent" {
+                } else if is_manageable_pane_kind(&pane.kind) {
                     let title = crate::tmux::tabs::render_agent_title(pane);
                     batch.push(vec![
                         "set-option".to_string(),
@@ -539,7 +541,7 @@ impl Layout {
             .iter()
             .find(|p| p.window == "main" && p.role != "sidebar" && p.role != "status");
         if let Some(shown) = main_slot
-            && (activate || shown.kind != "agent")
+            && (activate || !is_manageable_pane_kind(&shown.kind))
         {
             self.client.run_checked(&[
                 "swap-pane",
@@ -549,7 +551,7 @@ impl Layout {
                 "-t",
                 shown.id.as_str(),
             ])?;
-            if shown.kind != "agent" {
+            if !is_manageable_pane_kind(&shown.kind) {
                 let _ = self
                     .client
                     .run_checked(&["kill-pane", "-t", shown.id.as_str()]);
@@ -576,7 +578,10 @@ impl Layout {
         let mut agents: Vec<&PaneInfo> = if !role_agents.is_empty() {
             role_agents
         } else {
-            panes.iter().filter(|p| p.kind == "agent").collect()
+            panes
+                .iter()
+                .filter(|p| is_manageable_pane_kind(&p.kind))
+                .collect()
         };
         if agents.is_empty() {
             return Ok(());
@@ -593,7 +598,7 @@ impl Layout {
         });
         let current_vis = panes
             .iter()
-            .find(|p| p.window == "main" && p.kind == "agent");
+            .find(|p| p.window == "main" && is_manageable_pane_kind(&p.kind));
         let current_idx = current_vis
             .and_then(|c| agents.iter().position(|a| a.id == c.id))
             .unwrap_or(0);
@@ -620,7 +625,7 @@ impl Layout {
             Some(t) => t,
             None => return Ok(()),
         };
-        if target.kind == "factory-worker" || target.kind == "login" {
+        if target.kind == "login" {
             let batch = vec![
                 vec![
                     "select-window".to_string(),
@@ -708,9 +713,14 @@ impl Layout {
         let selected = if selected_raw.is_empty() {
             if let Some(vis) = panes
                 .iter()
-                .find(|p| p.window == "main" && p.kind == "agent" && !p.session.is_empty())
+                .find(|p| p.window == "main" && is_manageable_pane_kind(&p.kind))
             {
-                vec![vis.session.clone()]
+                let key = if !vis.session.is_empty() {
+                    vis.session.clone()
+                } else {
+                    vis.id.clone()
+                };
+                vec![key]
             } else {
                 Vec::new()
             }
@@ -762,7 +772,7 @@ impl Layout {
         let panes = self.panes()?;
         let target_pane = match panes
             .iter()
-            .find(|p| (p.id == target || p.session == target) && p.kind == "agent")
+            .find(|p| (p.id == target || p.session == target) && is_manageable_pane_kind(&p.kind))
         {
             Some(p) => p,
             None => return Ok(()),
@@ -856,10 +866,9 @@ impl Layout {
                 if target.window != "main" {
                     self.show_pane_with(panes, &target.id)?;
                 }
-                for p in panes
-                    .iter()
-                    .filter(|p| p.window == "main" && p.kind == "agent" && p.id != target.id)
-                {
+                for p in panes.iter().filter(|p| {
+                    p.window == "main" && is_manageable_pane_kind(&p.kind) && p.id != target.id
+                }) {
                     let _ = self.client.run_checked(&[
                         "break-pane",
                         "-d",
@@ -887,10 +896,9 @@ impl Layout {
             .map(|p| p.id.clone());
 
         for sess in &visible_sessions {
-            if let Some(p) = panes
-                .iter()
-                .find(|p| (p.session == **sess || p.id == **sess) && p.kind == "agent")
-            {
+            if let Some(p) = panes.iter().find(|p| {
+                (p.session == **sess || p.id == **sess) && is_manageable_pane_kind(&p.kind)
+            }) {
                 if p.window != "main" {
                     if let Some(ref anchor) = main_anchor {
                         let _ = self.client.run_checked(&[
@@ -911,7 +919,7 @@ impl Layout {
         let updated_panes = self.panes()?;
         for p in updated_panes
             .iter()
-            .filter(|p| p.window == "main" && p.kind == "agent")
+            .filter(|p| p.window == "main" && is_manageable_pane_kind(&p.kind))
         {
             let matches_visible = visible_sessions
                 .iter()
@@ -935,7 +943,7 @@ impl Layout {
             if !has_gb
                 && let Some(anchor) = updated_panes
                     .iter()
-                    .find(|p| p.window == "main" && p.kind == "agent")
+                    .find(|p| p.window == "main" && is_manageable_pane_kind(&p.kind))
             {
                 let self_cmd_slices: Option<Vec<&str>> = self
                     .self_cmd
@@ -989,7 +997,7 @@ impl Layout {
             .collect();
         let other_role: Vec<&PaneInfo> = panes
             .iter()
-            .filter(|p| p.id != pane.id && p.kind == "agent" && p.role != pane.role)
+            .filter(|p| p.id != pane.id && is_manageable_pane_kind(&p.kind) && p.role != pane.role)
             .collect();
         same_role.extend(other_role);
 
@@ -1075,6 +1083,73 @@ impl Layout {
             coord.remove_session(&pane.session);
         }
         self.refresh()
+    }
+
+    /// Prepares `tandem:main` before a caller kills `pane_id`.
+    /// Returns `Ok(true)` if the pane was respawned in place as a placeholder so the caller
+    /// must skip `kill-pane`, or `Ok(false)` when it is safe to proceed with `kill-pane`.
+    pub fn prepare_pane_removal(
+        &self,
+        pane_id: &str,
+        placeholder: &Launch,
+    ) -> Result<bool, TmuxError> {
+        let panes = self.panes()?;
+        let Some(target) = panes.iter().find(|p| p.id == pane_id) else {
+            return Ok(false);
+        };
+
+        let fallback_candidates: Vec<&PaneInfo> = panes
+            .iter()
+            .filter(|p| p.id != target.id && is_manageable_pane_kind(&p.kind))
+            .collect();
+
+        let mut selected = self.get_selected_from(&panes);
+        let before_len = selected.len();
+        selected.retain(|s| s != &target.id && (target.session.is_empty() || s != &target.session));
+        let removed_from_selected = selected.len() != before_len;
+        if removed_from_selected && selected.is_empty() && !fallback_candidates.is_empty() {
+            let next_key = if !fallback_candidates[0].session.is_empty() {
+                fallback_candidates[0].session.clone()
+            } else {
+                fallback_candidates[0].id.clone()
+            };
+            selected.push(next_key);
+        }
+        if removed_from_selected {
+            let _ = self.set_selected(&selected);
+        }
+
+        if target.window != "main" {
+            return Ok(false);
+        }
+
+        if fallback_candidates.iter().any(|p| p.window == "main") {
+            return Ok(false);
+        }
+
+        if let Some(stashed) = fallback_candidates.iter().find(|p| p.window != "main") {
+            let batch = vec![
+                vec![
+                    "swap-pane".to_string(),
+                    "-d".to_string(),
+                    "-s".to_string(),
+                    stashed.id.clone(),
+                    "-t".to_string(),
+                    target.id.clone(),
+                ],
+                vec![
+                    "select-pane".to_string(),
+                    "-t".to_string(),
+                    stashed.id.clone(),
+                ],
+            ];
+            self.client.run_batch_checked(&batch)?;
+            let _ = self.refresh();
+            return Ok(false);
+        }
+
+        self.respawn(&target.id, placeholder)?;
+        Ok(true)
     }
 
     pub fn restart(
@@ -1577,7 +1652,7 @@ impl Layout {
         let panes = self.panes()?;
         let active_agent = panes
             .iter()
-            .find(|p| p.window == "main" && p.kind == "agent")
+            .find(|p| p.window == "main" && is_manageable_pane_kind(&p.kind))
             .map(|p| {
                 if !p.session.is_empty() {
                     p.session.clone()

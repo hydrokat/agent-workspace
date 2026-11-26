@@ -8,9 +8,12 @@ use super::FactoryError;
 use super::approval::{ApprovalError, Caller, require_user};
 use super::events::{Event, append_locked, redact_event, reject_if_symlink, set_private_file_mode};
 use super::machine::EventData;
-use super::model::{Actor, ActorKind, Budget, FactorySettings, ModelPrice};
+use super::model::{
+    Actor, ActorKind, Budget, FactorySettings, KNOWN_PROVIDERS, ModelDecision, ModelDecisionAction,
+    ModelPrice,
+};
 use super::redact::RedactContext;
-use super::routing::ProviderModelTiers;
+use super::routing::{ModelTier, ProviderModelTiers, default_model_tiers};
 use super::store::{FactoryStore, current_time, write_atomic};
 use super::workflow::schema::Policy;
 use super::workflow::validate::is_valid_workflow_identifier;
@@ -177,6 +180,26 @@ pub fn validate(settings: &FactorySettings) -> Result<(), FactoryError> {
             return Err(FactoryError::InvalidInput(
                 "denied_path_patterns entries must not be empty".to_string(),
             ));
+        }
+    }
+    for (provider, tiers_map) in &settings.model_decisions {
+        if !KNOWN_PROVIDERS.contains(&provider.as_str()) {
+            return Err(FactoryError::InvalidInput(format!(
+                "model_decisions unknown provider \"{provider}\""
+            )));
+        }
+        for (tier_name, dec) in tiers_map {
+            if !matches!(tier_name.as_str(), "economy" | "standard" | "premium") {
+                return Err(FactoryError::InvalidInput(format!(
+                    "model_decisions.{provider} unknown tier \"{tier_name}\""
+                )));
+            }
+            validate_provider_model_id(provider, &dec.chosen).map_err(|reason| {
+                FactoryError::InvalidInput(format!(
+                    "model_decisions.{provider}.{tier_name} \"{}\" invalid: {reason}",
+                    dec.chosen
+                ))
+            })?;
         }
     }
     Ok(())
@@ -519,21 +542,16 @@ fn apply_setting_change(
     }
 }
 
-pub fn set(
+fn commit_settings_mutation<F>(
     store: &FactoryStore,
-    key: &str,
-    value: &str,
     actor_id: &str,
     caller: &Caller<'_>,
-) -> Result<SettingsChangeResult, ApprovalError> {
+    mutate: F,
+) -> Result<SettingsChangeResult, ApprovalError>
+where
+    F: FnOnce(&mut FactorySettings) -> Result<(String, Value, Value), FactoryError>,
+{
     require_user(caller)?;
-
-    if is_protected_key(key) {
-        return Err(ApprovalError::InvalidInput(format!(
-            "setting \"{key}\" cannot be changed with `settings set`; use its dedicated user-only command"
-        )));
-    }
-
     store.ensure()?;
     let lock_path = store.lock_path();
     let lock_file = OpenOptions::new()
@@ -546,7 +564,7 @@ pub fn set(
     let _guard = exclusive_lock(&lock_file).map_err(FactoryError::Io)?;
 
     let mut settings = load(store)?;
-    let (old_value, new_value) = apply_setting_change(&mut settings, key, value)?;
+    let (key, old_value, new_value) = mutate(&mut settings)?;
     validate(&settings)?;
 
     let ts = current_time();
@@ -560,7 +578,7 @@ pub fn set(
         "settings".to_string(),
         None,
         &EventData::SettingsChanged {
-            key: key.to_string(),
+            key: key.clone(),
             old_value: old_value.clone(),
             new_value: new_value.clone(),
             actor: actor_id.to_string(),
@@ -573,10 +591,124 @@ pub fn set(
     save_unlocked(store, &settings)?;
 
     Ok(SettingsChangeResult {
-        key: key.to_string(),
+        key,
         old_value,
         new_value,
         actor: actor_id.to_string(),
         settings,
+    })
+}
+
+pub fn set(
+    store: &FactoryStore,
+    key: &str,
+    value: &str,
+    actor_id: &str,
+    caller: &Caller<'_>,
+) -> Result<SettingsChangeResult, ApprovalError> {
+    if is_protected_key(key) {
+        require_user(caller)?;
+        return Err(ApprovalError::InvalidInput(format!(
+            "setting \"{key}\" cannot be changed with `settings set`; use its dedicated user-only command"
+        )));
+    }
+
+    commit_settings_mutation(store, actor_id, caller, |settings| {
+        let (old_value, new_value) = apply_setting_change(settings, key, value)?;
+        Ok((key.to_string(), old_value, new_value))
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn apply_model_decision(
+    store: &FactoryStore,
+    cli: &str,
+    tier: ModelTier,
+    chosen_model: &str,
+    action: ModelDecisionAction,
+    available_signature: &str,
+    actor_id: &str,
+    caller: &Caller<'_>,
+) -> Result<SettingsChangeResult, ApprovalError> {
+    if !KNOWN_PROVIDERS.contains(&cli) {
+        require_user(caller)?;
+        return Err(ApprovalError::InvalidInput(format!(
+            "unsupported CLI \"{cli}\" (expected claude, agy, or opencode)"
+        )));
+    }
+    validate_provider_model_id(cli, chosen_model).map_err(|reason| {
+        ApprovalError::InvalidInput(format!(
+            "invalid model \"{chosen_model}\" for {cli}: {reason}"
+        ))
+    })?;
+
+    let tier_name = match tier {
+        ModelTier::Economy => "economy",
+        ModelTier::Standard => "standard",
+        ModelTier::Premium => "premium",
+    };
+
+    commit_settings_mutation(store, actor_id, caller, |settings| {
+        let defaults = default_model_tiers();
+        let entry = settings
+            .model_tiers
+            .entry(cli.to_string())
+            .or_insert_with(|| {
+                defaults.get(cli).cloned().unwrap_or(ProviderModelTiers {
+                    economy: chosen_model.to_string(),
+                    standard: chosen_model.to_string(),
+                    premium: chosen_model.to_string(),
+                })
+            });
+
+        let old_model = match tier {
+            ModelTier::Economy => {
+                let prev = entry.economy.clone();
+                if action == ModelDecisionAction::Updated {
+                    entry.economy = chosen_model.to_string();
+                }
+                prev
+            }
+            ModelTier::Standard => {
+                let prev = entry.standard.clone();
+                if action == ModelDecisionAction::Updated {
+                    entry.standard = chosen_model.to_string();
+                }
+                prev
+            }
+            ModelTier::Premium => {
+                let prev = entry.premium.clone();
+                if action == ModelDecisionAction::Updated {
+                    entry.premium = chosen_model.to_string();
+                }
+                prev
+            }
+        };
+
+        let persisted_model = match action {
+            ModelDecisionAction::Updated => chosen_model.to_string(),
+            ModelDecisionAction::Kept => old_model.clone(),
+        };
+
+        settings
+            .model_decisions
+            .entry(cli.to_string())
+            .or_default()
+            .insert(
+                tier_name.to_string(),
+                ModelDecision {
+                    chosen: persisted_model.clone(),
+                    available_signature: available_signature.to_string(),
+                    decided_at: current_time(),
+                    action,
+                },
+            );
+
+        let key = format!("model_tiers.{cli}.{tier_name}");
+        Ok((
+            key,
+            Value::String(old_model),
+            Value::String(persisted_model),
+        ))
     })
 }

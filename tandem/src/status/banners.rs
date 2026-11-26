@@ -18,6 +18,64 @@ pub enum BannerAction {
     Later,
     SkipVersion(String),
     UndoReady(String),
+    ReviewModels,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelOutdatedBanner {
+    pub count: usize,
+    pub labels: Vec<String>,
+}
+
+impl ModelOutdatedBanner {
+    pub fn format_text(&self, width: u16) -> String {
+        let noun = if self.count == 1 { "model" } else { "models" };
+        let joined = self
+            .labels
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let suffix = if self.labels.len() > 3 { ", …" } else { "" };
+        let full = if joined.is_empty() {
+            format!(
+                " ! {} configured {noun} outdated  [M review & update] ",
+                self.count
+            )
+        } else {
+            format!(
+                " ! {} configured {noun} outdated ({joined}{suffix})  [M review & update] ",
+                self.count
+            )
+        };
+        if full.chars().count() as u16 <= width {
+            return full;
+        }
+        format!(" ! {} {noun} outdated  [M update] ", self.count)
+    }
+
+    pub fn click_at(&self, col: u16, row: u16, area: Rect) -> BannerAction {
+        if row != area.y || col < area.x || col >= area.x + area.width {
+            return BannerAction::None;
+        }
+        BannerAction::ReviewModels
+    }
+
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        if area.height == 0 || area.width == 0 {
+            return;
+        }
+        let text = self.format_text(area.width);
+        let style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+        for x in area.x..area.x + area.width {
+            buf[(x, area.y)].set_style(style).set_symbol(" ");
+        }
+        buf.set_stringn(area.x, area.y, &text, area.width as usize, style);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

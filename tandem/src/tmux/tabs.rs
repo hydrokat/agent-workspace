@@ -91,6 +91,106 @@ pub fn parse_panes(text: &str) -> Vec<PaneInfo> {
     panes
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum AgentCategory {
+    Orchestrators,
+    Planners,
+    Testers,
+    Implementers,
+    Reviewers,
+    Ops,
+}
+
+impl AgentCategory {
+    pub const fn all() -> [Self; 6] {
+        [
+            Self::Orchestrators,
+            Self::Planners,
+            Self::Testers,
+            Self::Implementers,
+            Self::Reviewers,
+            Self::Ops,
+        ]
+    }
+
+    pub const fn order(self) -> usize {
+        match self {
+            Self::Orchestrators => 0,
+            Self::Planners => 1,
+            Self::Testers => 2,
+            Self::Implementers => 3,
+            Self::Reviewers => 4,
+            Self::Ops => 5,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Orchestrators => "Orchestrators",
+            Self::Planners => "Planners",
+            Self::Testers => "Testers",
+            Self::Implementers => "Implementers",
+            Self::Reviewers => "Reviewers",
+            Self::Ops => "Ops",
+        }
+    }
+
+    pub const fn sidebar_header(self) -> &'static str {
+        match self {
+            Self::Orchestrators => "ORCHESTRATORS",
+            Self::Planners => "PLANNERS",
+            Self::Testers => "TESTERS",
+            Self::Implementers => "IMPLEMENTERS",
+            Self::Reviewers => "REVIEWERS",
+            Self::Ops => "OPS",
+        }
+    }
+}
+
+pub fn categorize_agent(role: &str, stage: &str) -> AgentCategory {
+    let r = role.trim().to_ascii_lowercase();
+    let s = stage.trim().to_ascii_lowercase();
+    if r == "orchestrator" {
+        return AgentCategory::Orchestrators;
+    }
+    // Check ops/specialty stages & roles before generic `engineer` matches so devops/release stay under Ops.
+    if matches!(s.as_str(), "demo" | "pr" | "deploy")
+        || r.contains("devops")
+        || r.contains("release")
+        || r.contains("demo")
+    {
+        return AgentCategory::Ops;
+    }
+    if s == "plan" || r.contains("planner") || r.contains("architect") || r.contains("analyst") {
+        return AgentCategory::Planners;
+    }
+    if matches!(s.as_str(), "create-tests" | "test")
+        || r.contains("test")
+        || r.contains("qa")
+        || r.contains("verifier")
+    {
+        return AgentCategory::Testers;
+    }
+    if s == "review" || r.contains("review") || r.contains("security") || r.contains("audit") {
+        return AgentCategory::Reviewers;
+    }
+    if s == "develop"
+        || r.contains("implement")
+        || r.contains("backend")
+        || r.contains("frontend")
+        || r.contains("engineer")
+    {
+        return AgentCategory::Implementers;
+    }
+    AgentCategory::Ops
+}
+
+pub fn is_manageable_pane_kind(kind: &str) -> bool {
+    matches!(kind, "agent" | "factory-worker")
+}
+
 pub fn visible_pane<'a>(panes: &'a [PaneInfo], role: &str) -> Option<&'a PaneInfo> {
     panes
         .iter()
@@ -100,7 +200,7 @@ pub fn visible_pane<'a>(panes: &'a [PaneInfo], role: &str) -> Option<&'a PaneInf
 pub fn agents_in<'a>(panes: &'a [PaneInfo], role: &str) -> Vec<&'a PaneInfo> {
     let mut agents: Vec<&'a PaneInfo> = panes
         .iter()
-        .filter(|p| p.role == role && p.kind == "agent")
+        .filter(|p| p.role == role && is_manageable_pane_kind(&p.kind))
         .collect();
     agents.sort_by_key(|p| p.index);
     agents
@@ -163,7 +263,9 @@ pub fn tab_text(pane: &PaneInfo) -> String {
 
 pub fn render_agent_title(pane: &PaneInfo) -> String {
     let active_marker = "#{?pane_active,▶ ,}";
-    let cli = if !pane.spec.is_empty() {
+    let cli = if !pane.cli.is_empty() {
+        Some(pane.cli.clone())
+    } else if !pane.spec.is_empty() {
         serde_json::from_str::<serde_json::Value>(&pane.spec)
             .ok()
             .and_then(|v| v.get("cli").and_then(|c| c.as_str()).map(|s| s.to_string()))
@@ -190,6 +292,28 @@ pub fn render_agent_title(pane: &PaneInfo) -> String {
     } else {
         String::new()
     };
+    if pane.kind == "factory-worker" {
+        let mut parts: Vec<String> = Vec::new();
+        let role_str = if pane.role.is_empty() {
+            "worker".to_string()
+        } else {
+            safe_label(&pane.role)
+        };
+        parts.push(role_str);
+        if !pane.stage.is_empty() {
+            let st = safe_label(&pane.stage);
+            if !parts.contains(&st) {
+                parts.push(st);
+            }
+        }
+        if !pane.run.is_empty() {
+            parts.push(safe_label(&pane.run));
+        }
+        if !safe_cli.is_empty() {
+            parts.push(safe_cli);
+        }
+        return format!("─ {active_marker}{}{dead_suffix} ─", parts.join(" · "));
+    }
     let name_prefix = if !pane.name.is_empty() {
         format!("{} ({}-{})", safe_label(&pane.name), pane.role, pane.index)
     } else {
@@ -207,11 +331,11 @@ pub fn render_title(panes: &[PaneInfo], role: &str) -> String {
         return format!("─ {active_marker}STATUS ─");
     }
     let shown = visible_pane(panes, role)
-        .filter(|p| p.kind == "agent")
+        .filter(|p| is_manageable_pane_kind(&p.kind))
         .or_else(|| {
             panes
                 .iter()
-                .find(|p| p.window == "main" && p.kind == "agent")
+                .find(|p| p.window == "main" && is_manageable_pane_kind(&p.kind))
         });
     match shown {
         Some(pane) => render_agent_title(pane),

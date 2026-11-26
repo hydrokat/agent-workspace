@@ -390,3 +390,133 @@ fn test_factory_right_click_menu_says_orchestrator_and_factory() {
     assert!(!factory.contains("New agent"));
     assert!(factory.contains("\\\"Factory\\\"") || factory.contains("\"Factory\""));
 }
+
+fn worker_pane(id: &str, role: &str, stage: &str, run_id: &str, cli: &str, dead: bool) -> PaneInfo {
+    let mut p = PaneInfo::new(
+        id,
+        if dead { "main" } else { "fw-run" },
+        "factory-worker",
+        role,
+        1,
+        &format!("{stage}·1"),
+        dead,
+        dead.then_some(1),
+    );
+    p.run = run_id.to_string();
+    p.job = format!("{run_id}.{stage}.1");
+    p.stage = stage.to_string();
+    p.cli = cli.to_string();
+    p.model = "claude-sonnet-4-6".to_string();
+    p
+}
+
+#[test]
+fn test_factory_sidebar_categorizes_spawned_workers_by_role_and_task() {
+    let panes = vec![
+        orch_pane("%1", 1, "i-7k2m9q4d"),
+        worker_pane(
+            "%11",
+            "business-analyst",
+            "plan",
+            "r-9x3a1c2b",
+            "claude",
+            false,
+        ),
+        worker_pane(
+            "%12",
+            "qa-engineer",
+            "create-tests",
+            "r-9x3a1c2b",
+            "opencode",
+            false,
+        ),
+        worker_pane(
+            "%13",
+            "senior-backend-dev",
+            "develop",
+            "r-9x3a1c2b",
+            "claude",
+            true,
+        ),
+        worker_pane(
+            "%14",
+            "code-reviewer",
+            "review",
+            "r-9x3a1c2b",
+            "claude",
+            false,
+        ),
+    ];
+    let selected = vec!["%1".to_string(), "%13".to_string()];
+    let rows = rows_from_for(&panes, &[], &[], Some("%13"), &selected, Some(&summary()));
+    let t = titles(&rows);
+    assert_eq!(t[0], "H:FACTORY:0");
+    assert_eq!(t[1], "NEW");
+    assert_eq!(t[2], "H:ORCHESTRATORS:1");
+    assert_eq!(t[4], "H:PLANNERS:1");
+    assert_eq!(t[6], "H:TESTERS:1");
+    assert_eq!(t[8], "H:IMPLEMENTERS:1");
+    assert_eq!(t[10], "H:REVIEWERS:1");
+    assert_eq!(t[12], "H:ACTIVE RUNS:1");
+    assert!(
+        !t.iter().any(|x| x.starts_with("H:OPS:")),
+        "empty worker categories must stay hidden: {t:?}"
+    );
+    match &rows[9] {
+        SidebarRow::Agent {
+            pane_id,
+            glyph,
+            is_active,
+            is_in_grid,
+            cli,
+            label,
+            ..
+        } => {
+            assert_eq!(pane_id, "%13");
+            assert_eq!(*glyph, '✕');
+            assert!(*is_active);
+            assert!(*is_in_grid);
+            assert_eq!(cli, "claude");
+            assert!(
+                label.contains("develop") && label.contains("r-9x3a"),
+                "{label}"
+            );
+        }
+        other => panic!("expected implementer worker row, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_factory_sidebar_guards_rename_and_close_on_worker_rows() {
+    let ws = workspace();
+    let store = CoordStore::new(ws.path().join(".agent-workspace/coordination"));
+    let mut app = SidebarApp::new(ws.path().to_path_buf(), store, None);
+    let panes = vec![
+        orch_pane("%1", 1, "i-7k2m9q4d"),
+        worker_pane(
+            "%13",
+            "senior-backend-dev",
+            "develop",
+            "r-9x3a1c2b",
+            "claude",
+            false,
+        ),
+    ];
+    app.rows = rows_from_for(&panes, &[], &[], Some("%1"), &[], Some(&summary()));
+    let worker_idx = app
+        .rows
+        .iter()
+        .position(|r| r.pane_id() == Some("%13"))
+        .expect("worker row present");
+    app.selected = worker_idx;
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(
+        app.editing_agent.is_none(),
+        "factory workers must not enter rename mode"
+    );
+    assert!(app.status_msg.as_deref().unwrap_or("").contains("worker"));
+
+    app.handle_key(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    assert!(app.status_msg.as_deref().unwrap_or("").contains("Agents"));
+}

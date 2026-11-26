@@ -15,7 +15,9 @@ use crate::config::Config;
 use crate::coordination::store::CoordStore;
 use crate::notice::read_notice;
 use crate::snapshot::{StatusSnapshot, collect_with_factory};
-use crate::status::banners::{BannerAction, OfferBanner, ReadyGraceBanner, UpdateBanner};
+use crate::status::banners::{
+    BannerAction, ModelOutdatedBanner, OfferBanner, ReadyGraceBanner, UpdateBanner,
+};
 use crate::status::notify::Notifier;
 use crate::status::queries_tab::QueriesTab;
 use crate::status::render;
@@ -41,6 +43,12 @@ pub const COMPACT_BELOW_ROWS: u16 = 8;
 pub const AUTOSAVE_SECONDS: f64 = 15.0;
 pub const CHECK_INTERVAL_SECONDS: f64 = 600.0;
 pub const UPDATE_NOW_KEY: &str = "Alt+u";
+
+pub type ModelProbeRunner = Arc<
+    dyn Fn(&str) -> Result<Vec<crate::adapters::base::Model>, crate::adapters::base::AdapterError>
+        + Send
+        + Sync,
+>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusTab {
@@ -205,6 +213,7 @@ pub struct StatusApp {
     pub update_banner: Option<UpdateBanner>,
     pub offer_banner: Option<OfferBanner>,
     pub ready_grace_banner: Option<ReadyGraceBanner>,
+    pub model_banner: Option<ModelOutdatedBanner>,
 
     pub tab: StatusTab,
     pub tab_bar: TabBar,
@@ -225,6 +234,9 @@ pub struct StatusApp {
     pub risks: Vec<crate::factory::auth_risk::RiskItem>,
     pub risk_confirm: Option<crate::status::risk_confirm::RiskConfirm>,
     risk_rx: Option<Receiver<Vec<crate::factory::auth_risk::RiskItem>>>,
+    pub model_report: Option<crate::factory::model_catalog::ModelVerificationReport>,
+    pub model_picker: Option<crate::status::model_picker::ModelUpdatePicker>,
+    model_rx: Option<Receiver<crate::factory::model_catalog::ModelVerificationReport>>,
     pub web_daemon: Arc<dyn crate::web_manager::DaemonRunner + Send + Sync>,
     pub web_state_dir: Option<PathBuf>,
     pub deps: Arc<dyn crate::web_deps::DepsRuntime>,
@@ -289,6 +301,7 @@ impl StatusApp {
             update_banner,
             offer_banner: None,
             ready_grace_banner: None,
+            model_banner: None,
 
             tab: initial_tab,
             tab_bar,
@@ -310,6 +323,9 @@ impl StatusApp {
             risks: Vec::new(),
             risk_confirm: None,
             risk_rx: None,
+            model_report: None,
+            model_picker: None,
+            model_rx: None,
             web_tab: crate::status::web_tab::WebTab::default(),
             factory_tab: crate::status::factory_tab::FactoryTab::new(
                 Some(factory_ws),
@@ -336,6 +352,9 @@ impl StatusApp {
             conflicts_header_y: 0,
         };
         app.action_refresh_now();
+        if factory {
+            app.refresh_model_check();
+        }
         app
     }
 
@@ -765,6 +784,198 @@ impl StatusApp {
         });
     }
 
+    pub fn set_model_report(
+        &mut self,
+        report: crate::factory::model_catalog::ModelVerificationReport,
+    ) {
+        let attention: Vec<String> = report
+            .items
+            .iter()
+            .filter(|i| i.needs_attention)
+            .map(|i| {
+                let tier = match i.tier {
+                    crate::factory::routing::ModelTier::Economy => "economy",
+                    crate::factory::routing::ModelTier::Standard => "standard",
+                    crate::factory::routing::ModelTier::Premium => "premium",
+                };
+                format!("{}.{tier}", i.cli)
+            })
+            .collect();
+        self.model_banner = (!attention.is_empty()).then_some(ModelOutdatedBanner {
+            count: attention.len(),
+            labels: attention,
+        });
+        self.model_rx = None;
+        self.settings_tab.model_report = Some(report.clone());
+        self.model_report = Some(report);
+        self.dirty = true;
+    }
+
+    pub fn refresh_model_check(&mut self) {
+        self.trigger_model_check_with(Arc::new(|cli| {
+            let adapter = crate::adapters::adapter_for(cli)
+                .map_err(|e| crate::adapters::base::AdapterError::UnknownCli(e.to_string()))?;
+            adapter.list_models()
+        }));
+    }
+
+    pub fn trigger_model_check_with(&mut self, runner: ModelProbeRunner) {
+        if !self.is_factory() || self.model_rx.is_some() {
+            return;
+        }
+        let workspace = self.workspace.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.model_rx = Some(rx);
+        std::thread::spawn(move || {
+            let store = crate::factory::store::FactoryStore::new(&workspace);
+            let settings = crate::factory::settings::load(&store).unwrap_or_default();
+            let report = crate::factory::model_catalog::verify_configured_models(
+                &crate::state::CLIS,
+                &settings,
+                &workspace.join(".agent-workspace/factory"),
+                false,
+                &|cli| runner(cli),
+            );
+            let _ = tx.send(report);
+        });
+    }
+
+    fn poll_model_check(&mut self) {
+        let Some(ref rx) = self.model_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(report) => {
+                self.model_rx = None;
+                self.set_model_report(report);
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.model_rx = None;
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+    }
+
+    pub fn open_model_picker(&mut self) {
+        let Some(ref report) = self.model_report else {
+            self.settings_tab
+                .flash("Model catalog check still running...");
+            self.refresh_model_check();
+            return;
+        };
+        if let Some(picker) = crate::status::model_picker::ModelUpdatePicker::from_report(
+            self.workspace.clone(),
+            report,
+        ) {
+            self.model_picker = Some(picker);
+            self.dirty = true;
+        } else {
+            self.settings_tab
+                .flash("All configured models are up to date");
+        }
+    }
+
+    fn open_model_picker_for_tier(&mut self, cli: &str, tier: crate::factory::routing::ModelTier) {
+        let Some(ref report) = self.model_report else {
+            return;
+        };
+        if let Some(item) = report
+            .items
+            .iter()
+            .find(|i| i.cli == cli && i.tier == tier && !i.available_models.is_empty())
+            .cloned()
+        {
+            self.model_picker = Some(crate::status::model_picker::ModelUpdatePicker::new(
+                self.workspace.clone(),
+                vec![item],
+            ));
+            self.dirty = true;
+        }
+    }
+
+    fn finish_model_picker_outcome(
+        &mut self,
+        outcome: crate::status::model_picker::ModelPickerOutcome,
+    ) {
+        use crate::status::model_picker::ModelPickerOutcome;
+        match outcome {
+            ModelPickerOutcome::Pending => {}
+            ModelPickerOutcome::Cancelled => {
+                self.model_picker = None;
+            }
+            ModelPickerOutcome::Completed { saved: _, summary } => {
+                let decided_items: Vec<_> = self
+                    .model_picker
+                    .take()
+                    .map(|p| p.items)
+                    .unwrap_or_default();
+                let store = crate::factory::store::FactoryStore::new(&self.workspace);
+                let new_settings = crate::factory::settings::load(&store).unwrap_or_default();
+                self.settings_tab.factory_settings = new_settings.clone();
+                self.settings_tab.flash(&summary);
+                self.factory_tab.notice = summary;
+
+                if let Some(mut report) = self.model_report.clone() {
+                    for resolved in &decided_items {
+                        if let Some(entry) = report
+                            .items
+                            .iter_mut()
+                            .find(|i| i.cli == resolved.cli && i.tier == resolved.tier)
+                        {
+                            if let Some(tiers) = new_settings.model_tiers.get(&resolved.cli) {
+                                entry.configured = tiers.for_tier(resolved.tier).to_string();
+                            }
+                            entry.needs_attention = false;
+                        }
+                    }
+                    self.set_model_report(report);
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
+    fn handle_model_picker_key(&mut self, event: &KeyEvent) {
+        let Some(ref mut picker) = self.model_picker else {
+            return;
+        };
+        let outcome = picker.handle_key(event);
+        self.finish_model_picker_outcome(outcome);
+    }
+
+    fn handle_settings_action(&mut self, action: crate::status::settings_tab::SettingsAction) {
+        use crate::status::settings_tab::SettingsAction;
+        match action {
+            SettingsAction::Changed => self.apply_settings_changed(),
+            SettingsAction::ResetUi => self.action_reset_ui(),
+            SettingsAction::QuitMenu => {
+                if let Some(ref quit_menu) = self.quit_menu {
+                    quit_menu();
+                }
+            }
+            SettingsAction::RenameWorkspace(ref new_name) => {
+                crate::commands::rename_workspace_cmd(&self.workspace, Some(new_name));
+            }
+            SettingsAction::ReviewRisk(ref cli) => self.open_risk_confirm(cli),
+            SettingsAction::CheckModels => {
+                if self
+                    .model_report
+                    .as_ref()
+                    .is_some_and(|r| r.needs_attention_count() > 0)
+                {
+                    self.open_model_picker();
+                } else {
+                    self.refresh_model_check();
+                    self.settings_tab
+                        .flash("Checking latest CLI model catalogs...");
+                }
+            }
+            SettingsAction::OpenModelTierPicker(ref cli, tier) => {
+                self.open_model_picker_for_tier(cli, tier);
+            }
+        }
+    }
+
     fn poll_risks(&mut self) {
         let Some(ref rx) = self.risk_rx else {
             return;
@@ -943,20 +1154,21 @@ impl StatusApp {
                 }
             }
             FactoryAction::OpenWorkerPane { pane_id } => {
-                if let Some(ref tmux) = self.tmux {
-                    if let Err(err) = tmux.run_batch_checked(&[
-                        vec![
-                            "select-window".to_string(),
-                            "-t".to_string(),
-                            pane_id.clone(),
-                        ],
-                        vec!["select-pane".to_string(), "-t".to_string(), pane_id.clone()],
-                    ]) && let Some(ref mut mon) = self.factory_tab.run_monitor
-                    {
-                        mon.notice = format!("Could not focus worker pane {pane_id}: {err}");
+                let err_msg = match self.tmux {
+                    Some(ref tmux) => crate::tmux::layout::Layout::new(tmux)
+                        .select_agent(&pane_id, false)
+                        .err()
+                        .map(|err| format!("Could not focus worker pane {pane_id}: {err}")),
+                    None => Some(format!("Tmux client unavailable for pane {pane_id}.")),
+                };
+                if let Some(msg) = err_msg {
+                    if let Some(ref mut mon) = self.factory_tab.run_monitor {
+                        mon.notice = msg;
+                    } else if let Some(ref mut agents) = self.factory_tab.agents {
+                        agents.notice = msg;
+                    } else {
+                        self.factory_tab.notice = msg;
                     }
-                } else if let Some(ref mut mon) = self.factory_tab.run_monitor {
-                    mon.notice = format!("Tmux client unavailable for pane {pane_id}.");
                 }
             }
             FactoryAction::ReviewRisk { cli } => {
@@ -1193,6 +1405,7 @@ impl StatusApp {
 
     pub fn tick_timers(&mut self) {
         self.poll_risks();
+        self.poll_model_check();
         self.poll_deps_install();
         self.poll_factory_intent();
         if self.factory_tab.poll_background() {
@@ -1214,8 +1427,20 @@ impl StatusApp {
     }
 
     pub fn handle_key(&mut self, event: &KeyEvent) {
+        if self.model_picker.is_some() {
+            self.handle_model_picker_key(event);
+            return;
+        }
         if self.risk_confirm.is_some() {
             self.handle_risk_confirm_key(event);
+            return;
+        }
+        if event.code == KeyCode::Char('M')
+            && !self.settings_tab.is_editing_or_modal()
+            && !self.factory_tab.captures_input()
+            && (self.model_banner.is_some() || self.model_report.is_some())
+        {
+            self.open_model_picker();
             return;
         }
         if let Some(ref banner) = self.ready_grace_banner
@@ -1331,25 +1556,7 @@ impl StatusApp {
                 return;
             }
             if let Some(action) = self.settings_tab.handle_key(event) {
-                match action {
-                    crate::status::settings_tab::SettingsAction::Changed => {
-                        self.apply_settings_changed();
-                    }
-                    crate::status::settings_tab::SettingsAction::ResetUi => {
-                        self.action_reset_ui();
-                    }
-                    crate::status::settings_tab::SettingsAction::QuitMenu => {
-                        if let Some(ref quit_menu) = self.quit_menu {
-                            quit_menu();
-                        }
-                    }
-                    crate::status::settings_tab::SettingsAction::RenameWorkspace(ref new_name) => {
-                        crate::commands::rename_workspace_cmd(&self.workspace, Some(new_name));
-                    }
-                    crate::status::settings_tab::SettingsAction::ReviewRisk(ref cli) => {
-                        self.open_risk_confirm(cli);
-                    }
-                }
+                self.handle_settings_action(action);
             }
             self.dirty = true;
             return;
@@ -1411,6 +1618,14 @@ impl StatusApp {
     }
 
     pub fn handle_mouse(&mut self, event: &MouseEvent) {
+        if self.model_picker.is_some() {
+            let key = self.model_picker.as_mut().and_then(|p| p.mouse_key(event));
+            if let Some(key) = key {
+                self.handle_model_picker_key(&key);
+            }
+            self.dirty = true;
+            return;
+        }
         if self.risk_confirm.is_some() {
             let full = self.last_area;
             if let Some(key) = self
@@ -1431,6 +1646,14 @@ impl StatusApp {
                     let action = banner.click_at(col, row, self.banner_area);
                     if let BannerAction::UndoReady(idea_id) = action {
                         self.undo_ready_from_banner(&idea_id);
+                        return;
+                    }
+                }
+
+                if let Some(ref banner) = self.model_banner {
+                    let action = banner.click_at(col, row, self.banner_area);
+                    if action == BannerAction::ReviewModels {
+                        self.open_model_picker();
                         return;
                     }
                 }
@@ -1508,32 +1731,7 @@ impl StatusApp {
                     StatusTab::Settings => {
                         if let Some(action) = self.settings_tab.handle_mouse(event, self.body_area)
                         {
-                            match action {
-                                crate::status::settings_tab::SettingsAction::Changed => {
-                                    self.apply_settings_changed();
-                                }
-                                crate::status::settings_tab::SettingsAction::ResetUi => {
-                                    self.action_reset_ui();
-                                }
-                                crate::status::settings_tab::SettingsAction::QuitMenu => {
-                                    if let Some(ref quit_menu) = self.quit_menu {
-                                        quit_menu();
-                                    }
-                                }
-                                crate::status::settings_tab::SettingsAction::RenameWorkspace(
-                                    ref new_name,
-                                ) => {
-                                    crate::commands::rename_workspace_cmd(
-                                        &self.workspace,
-                                        Some(new_name),
-                                    );
-                                }
-                                crate::status::settings_tab::SettingsAction::ReviewRisk(
-                                    ref cli,
-                                ) => {
-                                    self.open_risk_confirm(cli);
-                                }
-                            }
+                            self.handle_settings_action(action);
                             self.dirty = true;
                         }
                     }
@@ -1590,6 +1788,9 @@ impl StatusApp {
         if let Some(ref confirm) = self.risk_confirm {
             confirm.render(area, buf);
         }
+        if let Some(ref mut picker) = self.model_picker {
+            picker.render(area, buf);
+        }
     }
 
     fn render_base(&mut self, area: Rect, buf: &mut Buffer) {
@@ -1600,13 +1801,15 @@ impl StatusApp {
         let compact = area.height < COMPACT_BELOW_ROWS;
 
         let has_ready_banner = !compact && self.ready_grace_banner.is_some();
+        let has_model_banner = !compact && self.model_banner.is_some();
         let has_update_banner = !compact && self.update_banner.is_some();
         let has_offer_banner = !compact && self.offer_banner.is_some();
-        let banner_height = if has_ready_banner || has_update_banner || has_offer_banner {
-            1
-        } else {
-            0
-        };
+        let banner_height =
+            if has_ready_banner || has_model_banner || has_update_banner || has_offer_banner {
+                1
+            } else {
+                0
+            };
 
         let chunks = RLayout::default()
             .direction(Direction::Vertical)
@@ -1622,6 +1825,10 @@ impl StatusApp {
         self.banner_area = chunks[0];
         if has_ready_banner {
             if let Some(ref banner) = self.ready_grace_banner {
+                banner.render(chunks[0], buf);
+            }
+        } else if has_model_banner {
+            if let Some(ref banner) = self.model_banner {
                 banner.render(chunks[0], buf);
             }
         } else if has_update_banner {

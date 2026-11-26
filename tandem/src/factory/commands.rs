@@ -265,6 +265,43 @@ pub struct FactoryModelsArgs {
 pub enum FactoryModelsCommand {
     #[command(about = "recommend the least-cost capable CLI and model for a run stage")]
     Recommend(FactoryModelsRecommendArgs),
+    #[command(about = "verify configured Factory models against live CLI catalogs")]
+    Check(FactoryModelsCheckArgs),
+    #[command(about = "persist a model selection or keep decision in factory settings")]
+    Choose(FactoryModelsChooseArgs),
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryModelsCheckArgs {
+    #[arg(long, help = "CLI provider filter (claude, agy, or opencode)")]
+    pub cli: Option<String>,
+
+    #[arg(long, help = "bypass cache and re-discover models from installed CLIs")]
+    pub refresh: bool,
+
+    #[arg(long, help = "output JSON (skip interactive prompts)")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, PartialEq, Eq)]
+pub struct FactoryModelsChooseArgs {
+    #[arg(long, help = "CLI provider (claude, agy, or opencode)")]
+    pub cli: String,
+
+    #[arg(long, help = "model tier: economy, standard, or premium")]
+    pub tier: String,
+
+    #[arg(long, help = "model ID to persist")]
+    pub model: String,
+
+    #[arg(long, help = "mark current/selected choice as explicitly kept")]
+    pub keep: bool,
+
+    #[arg(long, default_value = "", help = "catalog signature for suppression")]
+    pub signature: String,
+
+    #[arg(long, help = "output JSON (including structured errors)")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, PartialEq, Eq)]
@@ -1280,6 +1317,8 @@ fn json_flag(args: &FactoryArgs) -> bool {
         FactoryCommand::Report(a) => a.json,
         FactoryCommand::Models(a) => match &a.command {
             Some(FactoryModelsCommand::Recommend(r)) => r.json,
+            Some(FactoryModelsCommand::Check(c)) => c.json,
+            Some(FactoryModelsCommand::Choose(c)) => c.json,
             None => a.json,
         },
         FactoryCommand::Login(l_args) => match &l_args.command {
@@ -1694,6 +1733,11 @@ pub fn run_with_caller_io_and_probe(
     }
     if let FactoryCommand::Doctor(doc_args) = &args.command {
         return run_doctor_command(doc_args, workspace, caller, stdin, stdout, stderr);
+    }
+    if let FactoryCommand::Models(m_args) = &args.command
+        && let Some(FactoryModelsCommand::Check(check_args)) = &m_args.command
+    {
+        return run_models_check_cli(check_args, workspace, caller, stdin, stdout, stderr);
     }
     match execute_with_probe(args, workspace, config, caller, probe, stdin) {
         Ok(json_line) => {
@@ -2814,6 +2858,9 @@ fn execute_with_probe(
             if let Some(FactoryModelsCommand::Recommend(r)) = &a.command {
                 return run_models_recommend(r, &store);
             }
+            if let Some(FactoryModelsCommand::Choose(c)) = &a.command {
+                return run_models_choose(c, &store, caller);
+            }
             let cli = a.cli.clone().unwrap_or_default();
             if !crate::state::CLIS.contains(&cli.as_str()) {
                 return Err(CmdError::invalid_input(format!(
@@ -3358,6 +3405,352 @@ fn run_models_recommend(
         "{}\t{}/{}\t{:?}\t{}",
         recommendation.stage, recommendation.cli, recommendation.model, recommendation.tier, detail
     ))
+}
+
+fn map_approval_error(e: super::approval::ApprovalError) -> CmdError {
+    CmdError {
+        exit_code: e.exit_code(),
+        code: e.code(),
+        message: e.to_string(),
+    }
+}
+
+fn parse_model_tier(raw: &str) -> Result<super::routing::ModelTier, CmdError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "economy" => Ok(super::routing::ModelTier::Economy),
+        "standard" => Ok(super::routing::ModelTier::Standard),
+        "premium" => Ok(super::routing::ModelTier::Premium),
+        other => Err(CmdError::invalid_input(format!(
+            "invalid tier '{other}' (expected economy, standard, or premium)"
+        ))),
+    }
+}
+
+fn actor_name_for_cli() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| "you".to_string())
+}
+
+fn run_models_choose(
+    args: &FactoryModelsChooseArgs,
+    store: &FactoryStore,
+    caller: &super::approval::Caller<'_>,
+) -> Result<String, CmdError> {
+    let tier = parse_model_tier(&args.tier)?;
+    let action = if args.keep {
+        super::model::ModelDecisionAction::Kept
+    } else {
+        super::model::ModelDecisionAction::Updated
+    };
+    let sig = if args.signature.is_empty() {
+        let settings = store.settings().map_err(map_factory_error)?;
+        let runner = |cli: &str| -> Result<
+            Vec<crate::adapters::base::Model>,
+            crate::adapters::base::AdapterError,
+        > {
+            let adapter = crate::adapters::adapter_for(cli)
+                .map_err(|e| crate::adapters::base::AdapterError::UnknownCli(e.to_string()))?;
+            adapter.list_models()
+        };
+        let cat = super::model_catalog::discover(&args.cli, &settings, &store.root, false, &runner);
+        super::model_catalog::catalog_signature(&cat)
+    } else {
+        args.signature.clone()
+    };
+    let actor = actor_name_for_cli();
+    let res = super::settings::apply_model_decision(
+        store,
+        &args.cli,
+        tier,
+        &args.model,
+        action,
+        &sig,
+        &actor,
+        caller,
+    )
+    .map_err(map_approval_error)?;
+    if args.json {
+        serialize_compact(&res.settings)
+    } else {
+        Ok(format!(
+            "{} = {} ({})",
+            res.key,
+            res.new_value.as_str().unwrap_or(&args.model),
+            if args.keep { "kept" } else { "updated" }
+        ))
+    }
+}
+
+pub fn format_model_verification_report(
+    report: &super::model_catalog::ModelVerificationReport,
+) -> String {
+    if report.items.is_empty() {
+        return "No configured Factory models found.".to_string();
+    }
+    let mut lines = Vec::new();
+    for item in &report.items {
+        let tier = match item.tier {
+            super::routing::ModelTier::Economy => "economy",
+            super::routing::ModelTier::Standard => "standard",
+            super::routing::ModelTier::Premium => "premium",
+        };
+        let status = match &item.status {
+            super::model_catalog::ModelFreshnessStatus::Current => match item.source {
+                super::model_catalog::ModelSource::Fallback => "offline (fallback)".to_string(),
+                _ => "current".to_string(),
+            },
+            super::model_catalog::ModelFreshnessStatus::MissingFromCatalog => {
+                if item.needs_attention {
+                    format!(
+                        "missing from CLI (recommended: {})",
+                        item.recommended_model().unwrap_or("-")
+                    )
+                } else {
+                    "missing (kept by user)".to_string()
+                }
+            }
+            super::model_catalog::ModelFreshnessStatus::NewerAvailable { recommended } => {
+                if item.needs_attention {
+                    format!("newer available: {recommended}")
+                } else {
+                    format!("kept (newer available: {recommended})")
+                }
+            }
+        };
+        lines.push(format!(
+            "{}.{tier}\t{}\t{status}",
+            item.cli, item.configured
+        ));
+    }
+    lines.join("\n")
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_models_check_with_runner(
+    store: &FactoryStore,
+    cli_filter: Option<&str>,
+    refresh: bool,
+    json_mode: bool,
+    caller: &super::approval::Caller<'_>,
+    stdin: &mut dyn Read,
+    prompt_out: &mut dyn Write,
+    runner: &dyn Fn(
+        &str,
+    ) -> Result<
+        Vec<crate::adapters::base::Model>,
+        crate::adapters::base::AdapterError,
+    >,
+) -> Result<super::model_catalog::ModelVerificationReport, String> {
+    run_models_check_inner(
+        store, cli_filter, refresh, json_mode, caller, stdin, prompt_out, runner,
+    )
+    .map_err(|e| e.message)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_models_check_inner(
+    store: &FactoryStore,
+    cli_filter: Option<&str>,
+    refresh: bool,
+    json_mode: bool,
+    caller: &super::approval::Caller<'_>,
+    stdin: &mut dyn Read,
+    prompt_out: &mut dyn Write,
+    runner: &dyn Fn(
+        &str,
+    ) -> Result<
+        Vec<crate::adapters::base::Model>,
+        crate::adapters::base::AdapterError,
+    >,
+) -> Result<super::model_catalog::ModelVerificationReport, CmdError> {
+    let clis: Vec<&str> = match cli_filter {
+        Some(cli) => {
+            if !crate::state::CLIS.contains(&cli) {
+                return Err(CmdError::invalid_input(format!(
+                    "unsupported orchestrator cli: {cli} (expected claude, agy, or opencode)"
+                )));
+            }
+            vec![cli]
+        }
+        None => crate::state::CLIS.to_vec(),
+    };
+
+    let settings = if store.exists() {
+        store.settings().map_err(map_factory_error)?
+    } else {
+        FactorySettings::default()
+    };
+    let report = super::model_catalog::verify_configured_models(
+        &clis,
+        &settings,
+        &store.root,
+        refresh,
+        runner,
+    );
+
+    let attention: Vec<super::model_catalog::ModelDriftItem> = report
+        .items
+        .iter()
+        .filter(|i| i.needs_attention)
+        .cloned()
+        .collect();
+    if json_mode || !caller.is_terminal || attention.is_empty() {
+        return Ok(report);
+    }
+    if super::approval::require_user(caller).is_err() {
+        return Ok(report);
+    }
+
+    let actor = actor_name_for_cli();
+    let mut reader = io::BufReader::new(stdin);
+    for item in &attention {
+        let tier_label = match item.tier {
+            super::routing::ModelTier::Economy => "economy",
+            super::routing::ModelTier::Standard => "standard",
+            super::routing::ModelTier::Premium => "premium",
+        };
+        let reason = match &item.status {
+            super::model_catalog::ModelFreshnessStatus::MissingFromCatalog => {
+                "missing from live CLI catalog".to_string()
+            }
+            super::model_catalog::ModelFreshnessStatus::NewerAvailable { recommended } => {
+                format!("newer available: {recommended}")
+            }
+            super::model_catalog::ModelFreshnessStatus::Current => "current".to_string(),
+        };
+        let _ = writeln!(
+            prompt_out,
+            "\n{}.{tier_label}: current '{}' ({reason})",
+            item.cli, item.configured
+        );
+        for (idx, m) in item.available_models.iter().enumerate() {
+            let tag = if idx == 0 { " (recommended)" } else { "" };
+            let _ = writeln!(prompt_out, "  {}) {}{tag}", idx + 1, m.id);
+        }
+        let _ = writeln!(prompt_out, "  k) Keep current ({})", item.configured);
+        let _ = write!(prompt_out, "Choice [1]: ");
+        let _ = prompt_out.flush();
+
+        let mut line = String::new();
+        if std::io::BufRead::read_line(&mut reader, &mut line).unwrap_or(0) == 0 {
+            break;
+        }
+        let trimmed = line.trim();
+        let selection = if trimmed.eq_ignore_ascii_case("k") || trimmed.eq_ignore_ascii_case("keep")
+        {
+            Some((
+                item.configured.clone(),
+                super::model::ModelDecisionAction::Kept,
+            ))
+        } else if trimmed.is_empty() {
+            item.available_models
+                .first()
+                .map(|m| (m.id.clone(), super::model::ModelDecisionAction::Updated))
+        } else if let Ok(n) = trimmed.parse::<usize>()
+            && n >= 1
+            && n <= item.available_models.len()
+        {
+            Some((
+                item.available_models[n - 1].id.clone(),
+                super::model::ModelDecisionAction::Updated,
+            ))
+        } else {
+            None
+        };
+
+        if let Some((chosen, action)) = selection {
+            super::settings::apply_model_decision(
+                store,
+                &item.cli,
+                item.tier,
+                &chosen,
+                action,
+                &item.available_signature,
+                &actor,
+                caller,
+            )
+            .map_err(map_approval_error)?;
+        }
+    }
+
+    let updated_settings = store.settings().map_err(map_factory_error)?;
+    Ok(super::model_catalog::verify_configured_models(
+        &clis,
+        &updated_settings,
+        &store.root,
+        false,
+        runner,
+    ))
+}
+
+fn run_models_check_cli(
+    args: &FactoryModelsCheckArgs,
+    workspace: &Path,
+    caller: &super::approval::Caller<'_>,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let store = FactoryStore::new(workspace);
+    let runner = |cli: &str| -> Result<
+        Vec<crate::adapters::base::Model>,
+        crate::adapters::base::AdapterError,
+    > {
+        let adapter = crate::adapters::adapter_for(cli)
+            .map_err(|e| crate::adapters::base::AdapterError::UnknownCli(e.to_string()))?;
+        adapter.list_models()
+    };
+    let mut sink = io::sink();
+    let prompt_out: &mut dyn Write = if args.json { &mut sink } else { stdout };
+    match run_models_check_inner(
+        &store,
+        args.cli.as_deref(),
+        args.refresh,
+        args.json,
+        caller,
+        stdin,
+        prompt_out,
+        &runner,
+    ) {
+        Ok(report) => {
+            let output = if args.json {
+                match serialize_compact(&report) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        let _ = writeln!(stderr, "{}", err.message);
+                        let _ = stderr.flush();
+                        return err.exit_code;
+                    }
+                }
+            } else {
+                format_model_verification_report(&report)
+            };
+            if !output.is_empty() {
+                let _ = writeln!(stdout, "{output}");
+            }
+            let _ = stdout.flush();
+            0
+        }
+        Err(err) => {
+            let clean_msg = sanitize::clean(&err.message).replace('\n', " ");
+            let _ = writeln!(stderr, "{clean_msg}");
+            let _ = stderr.flush();
+            if args.json {
+                let envelope = ErrorEnvelope {
+                    error: ErrorBody {
+                        code: err.code,
+                        message: &clean_msg,
+                    },
+                };
+                if let Ok(line) = serde_json::to_string(&envelope) {
+                    let _ = writeln!(stdout, "{line}");
+                    let _ = stdout.flush();
+                }
+            }
+            err.exit_code
+        }
+    }
 }
 
 fn run_doctor_command(
