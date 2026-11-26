@@ -2,8 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::adapters::base::{AdapterError, Model, validate_model_for_cli};
+use crate::adapters::claude::CLAUDE_ALIASES;
 use crate::factory::events::{reject_if_symlink, set_private_file_mode};
 use crate::factory::model::FactorySettings;
 use crate::factory::routing::{ModelTier, default_model_tiers};
@@ -164,6 +166,14 @@ fn fallback(cli: &str, settings: &FactorySettings) -> Vec<CatalogModel> {
     result
 }
 
+fn source_rank(source: ModelSource) -> u8 {
+    match source {
+        ModelSource::Live => 0,
+        ModelSource::Cache => 1,
+        ModelSource::Fallback => 2,
+    }
+}
+
 pub fn with_pinned(
     cli: &str,
     mut models: Vec<CatalogModel>,
@@ -174,8 +184,250 @@ pub fn with_pinned(
             models.push(pinned);
         }
     }
-    sort_by_cost(&mut models);
+    models.sort_by(|a, b| {
+        a.cost_rank
+            .total_cmp(&b.cost_rank)
+            .then_with(|| source_rank(a.source).cmp(&source_rank(b.source)))
+    });
     models
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ModelFreshnessStatus {
+    Current,
+    MissingFromCatalog,
+    NewerAvailable { recommended: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelDriftItem {
+    pub cli: String,
+    pub tier: ModelTier,
+    pub configured: String,
+    pub status: ModelFreshnessStatus,
+    pub available_models: Vec<CatalogModel>,
+    pub available_signature: String,
+    pub source: ModelSource,
+    pub needs_attention: bool,
+}
+
+impl ModelDriftItem {
+    pub fn recommended_model(&self) -> Option<&str> {
+        match &self.status {
+            ModelFreshnessStatus::NewerAvailable { recommended } => Some(recommended.as_str()),
+            ModelFreshnessStatus::MissingFromCatalog => self
+                .available_models
+                .iter()
+                .find(|m| m.allowed)
+                .map(|m| m.id.as_str()),
+            ModelFreshnessStatus::Current => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModelVerificationReport {
+    pub items: Vec<ModelDriftItem>,
+}
+
+impl ModelVerificationReport {
+    pub fn needs_attention_items(&self) -> Vec<&ModelDriftItem> {
+        self.items.iter().filter(|i| i.needs_attention).collect()
+    }
+
+    pub fn needs_attention_count(&self) -> usize {
+        self.items.iter().filter(|i| i.needs_attention).count()
+    }
+}
+
+pub fn catalog_signature(models: &[CatalogModel]) -> String {
+    let mut ids: Vec<&str> = models
+        .iter()
+        .filter(|m| m.source != ModelSource::Fallback)
+        .map(|m| m.id.as_str())
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return String::new();
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(ids.join("\n").as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+fn extract_version_tuple(id: &str) -> Vec<u64> {
+    let part = name_part(id);
+    let mut nums = Vec::new();
+    let mut cur: Option<u64> = None;
+    for ch in part.chars() {
+        if let Some(d) = ch.to_digit(10) {
+            cur = Some(cur.unwrap_or(0).saturating_mul(10).saturating_add(d as u64));
+        } else if let Some(n) = cur.take() {
+            nums.push(n);
+        }
+    }
+    if let Some(n) = cur {
+        nums.push(n);
+    }
+    nums
+}
+
+fn is_claude_alias_only(catalog: &[CatalogModel]) -> bool {
+    !catalog.is_empty()
+        && catalog
+            .iter()
+            .all(|m| CLAUDE_ALIASES.contains(&m.id.as_str()))
+}
+
+fn claude_alias_covers(configured: &str, catalog: &[CatalogModel]) -> bool {
+    let lower = name_part(configured).to_ascii_lowercase();
+    if catalog.iter().any(|m| m.id == configured) {
+        return true;
+    }
+    if lower.contains("sonnet") {
+        return catalog.iter().any(|m| m.id == "sonnet");
+    }
+    if lower.contains("opus") {
+        return catalog.iter().any(|m| m.id == "opus");
+    }
+    if lower.contains("haiku") || lower.contains("fable") {
+        return catalog
+            .iter()
+            .any(|m| matches!(m.id.as_str(), "fable" | "sonnet" | "opus"));
+    }
+    false
+}
+
+fn ordered_candidates_for_tier(catalog: &[CatalogModel], tier: ModelTier) -> Vec<CatalogModel> {
+    let mut exact_tier: Vec<CatalogModel> = catalog
+        .iter()
+        .filter(|m| m.allowed && classify_tier(&m.id, None).0 == tier)
+        .cloned()
+        .collect();
+    let mut rest: Vec<CatalogModel> = catalog
+        .iter()
+        .filter(|m| m.allowed && classify_tier(&m.id, None).0 != tier)
+        .cloned()
+        .collect();
+
+    let cmp_desc = |a: &CatalogModel, b: &CatalogModel| {
+        extract_version_tuple(&b.id)
+            .cmp(&extract_version_tuple(&a.id))
+            .then_with(|| a.cost_rank.total_cmp(&b.cost_rank))
+            .then_with(|| a.id.cmp(&b.id))
+    };
+    exact_tier.sort_by(cmp_desc);
+    rest.sort_by(cmp_desc);
+    exact_tier.extend(rest);
+    exact_tier
+}
+
+pub fn verify_configured_models(
+    clis: &[&str],
+    settings: &FactorySettings,
+    cache_dir: &Path,
+    refresh: bool,
+    runner: &dyn Fn(&str) -> Result<Vec<Model>, AdapterError>,
+) -> ModelVerificationReport {
+    let default_tiers = default_model_tiers();
+    let mut items = Vec::new();
+
+    for &cli in clis {
+        let Some(tiers) = settings
+            .model_tiers
+            .get(cli)
+            .or_else(|| default_tiers.get(cli))
+        else {
+            continue;
+        };
+
+        let catalog = discover(cli, settings, cache_dir, refresh, runner);
+        let source = catalog
+            .first()
+            .map(|m| m.source)
+            .unwrap_or(ModelSource::Fallback);
+        let has_live_catalog =
+            !catalog.is_empty() && catalog.iter().any(|m| m.source != ModelSource::Fallback);
+        let signature = if has_live_catalog {
+            catalog_signature(&catalog)
+        } else {
+            String::new()
+        };
+        let alias_only = cli == "claude" && is_claude_alias_only(&catalog);
+
+        for (tier, tier_name, configured) in [
+            (ModelTier::Economy, "economy", tiers.economy.as_str()),
+            (ModelTier::Standard, "standard", tiers.standard.as_str()),
+            (ModelTier::Premium, "premium", tiers.premium.as_str()),
+        ] {
+            if !has_live_catalog {
+                items.push(ModelDriftItem {
+                    cli: cli.to_string(),
+                    tier,
+                    configured: configured.to_string(),
+                    status: ModelFreshnessStatus::Current,
+                    available_models: Vec::new(),
+                    available_signature: String::new(),
+                    source: ModelSource::Fallback,
+                    needs_attention: false,
+                });
+                continue;
+            }
+
+            let candidates = ordered_candidates_for_tier(&catalog, tier);
+            let status = if alias_only {
+                if claude_alias_covers(configured, &catalog) {
+                    ModelFreshnessStatus::Current
+                } else {
+                    ModelFreshnessStatus::MissingFromCatalog
+                }
+            } else {
+                let in_catalog = catalog.iter().any(|m| m.id == configured);
+                if !in_catalog {
+                    ModelFreshnessStatus::MissingFromCatalog
+                } else {
+                    let configured_ver = extract_version_tuple(configured);
+                    let newer = candidates.iter().find(|c| {
+                        c.id != configured
+                            && classify_tier(&c.id, None).0 == tier
+                            && extract_version_tuple(&c.id) > configured_ver
+                    });
+                    if let Some(best) = newer {
+                        ModelFreshnessStatus::NewerAvailable {
+                            recommended: best.id.clone(),
+                        }
+                    } else {
+                        ModelFreshnessStatus::Current
+                    }
+                }
+            };
+
+            let actionable = !matches!(status, ModelFreshnessStatus::Current);
+            let suppressed = settings
+                .model_decisions
+                .get(cli)
+                .and_then(|tiers_map| tiers_map.get(tier_name))
+                .is_some_and(|dec| {
+                    dec.chosen == configured && dec.available_signature == signature
+                });
+
+            items.push(ModelDriftItem {
+                cli: cli.to_string(),
+                tier,
+                configured: configured.to_string(),
+                status,
+                available_models: candidates,
+                available_signature: signature.clone(),
+                source,
+                needs_attention: actionable && !suppressed,
+            });
+        }
+    }
+
+    ModelVerificationReport { items }
 }
 
 fn sort_by_cost(models: &mut [CatalogModel]) {

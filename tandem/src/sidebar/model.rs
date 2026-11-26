@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::coordination::schema::{Query, Session};
 use crate::factory::model::RunState;
 use crate::snapshot::FactorySummary;
-use crate::tmux::tabs::PaneInfo;
+use crate::tmux::tabs::{AgentCategory, PaneInfo, categorize_agent, is_manageable_pane_kind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarRow {
@@ -24,6 +24,7 @@ pub enum SidebarRow {
         is_active: bool,
         is_in_grid: bool,
         has_query: bool,
+        is_worker: bool,
     },
     NewIdea,
     Run {
@@ -104,7 +105,10 @@ fn factory_rows(
 ) -> Vec<SidebarRow> {
     let mut orchestrators: Vec<&PaneInfo> = panes
         .iter()
-        .filter(|p| p.kind == "agent" && p.role == "orchestrator")
+        .filter(|p| {
+            is_manageable_pane_kind(&p.kind)
+                && categorize_agent(&p.role, &p.stage) == AgentCategory::Orchestrators
+        })
         .collect();
     orchestrators.sort_by_key(|p| p.index);
 
@@ -136,6 +140,47 @@ fn factory_rows(
             *label = format!("{} · {}", short_id(&card.id), card.state.label());
         }
         rows.push(row);
+    }
+
+    let workers: Vec<&PaneInfo> = panes
+        .iter()
+        .filter(|p| {
+            p.kind == "factory-worker"
+                && categorize_agent(&p.role, &p.stage) != AgentCategory::Orchestrators
+        })
+        .collect();
+    for category in AgentCategory::all() {
+        if category == AgentCategory::Orchestrators {
+            continue;
+        }
+        let mut group: Vec<&PaneInfo> = workers
+            .iter()
+            .copied()
+            .filter(|p| categorize_agent(&p.role, &p.stage) == category)
+            .collect();
+        if group.is_empty() {
+            continue;
+        }
+        group.sort_by(|a, b| {
+            a.stage
+                .cmp(&b.stage)
+                .then_with(|| a.run.cmp(&b.run))
+                .then_with(|| a.index.cmp(&b.index))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        rows.push(SidebarRow::Header {
+            title: category.sidebar_header().to_string(),
+            count: group.len(),
+        });
+        for p in group {
+            rows.push(build_agent_row(
+                p,
+                sessions,
+                &open_query_sessions,
+                active_pane,
+                selected,
+            ));
+        }
     }
 
     let runs: Vec<(&str, &str, &RunState)> = summary
@@ -278,21 +323,29 @@ fn build_agent_row(
         .map(|s| s.id.clone())
         .unwrap_or_else(|| p.session.clone());
 
-    let cli = sess.map(|s| s.cli.clone()).unwrap_or_else(|| {
-        if let Some((first, _)) = p.label.split_once('·') {
-            first.to_string()
-        } else {
-            String::new()
-        }
-    });
+    let cli = if !p.cli.is_empty() {
+        p.cli.clone()
+    } else {
+        sess.map(|s| s.cli.clone()).unwrap_or_else(|| {
+            if let Some((first, _)) = p.label.split_once('·') {
+                first.to_string()
+            } else {
+                String::new()
+            }
+        })
+    };
 
-    let model = sess.map(|s| s.model.clone()).unwrap_or_else(|| {
-        if let Some((_, second)) = p.label.split_once('·') {
-            second.to_string()
-        } else {
-            String::new()
-        }
-    });
+    let model = if !p.model.is_empty() {
+        p.model.clone()
+    } else {
+        sess.map(|s| s.model.clone()).unwrap_or_else(|| {
+            if let Some((_, second)) = p.label.split_once('·') {
+                second.to_string()
+            } else {
+                String::new()
+            }
+        })
+    };
 
     let has_query = !session_id.is_empty() && open_query_sessions.contains(session_id.as_str());
     let is_active = match active_pane {
@@ -315,7 +368,15 @@ fn build_agent_row(
         '○'
     };
 
-    let display_label = if !p.label.is_empty() {
+    let is_worker = p.kind == "factory-worker";
+    let display_label = if is_worker && !p.stage.is_empty() {
+        let run_short = short_id(&p.run);
+        if run_short.is_empty() {
+            p.stage.clone()
+        } else {
+            format!("{}·{run_short}", p.stage)
+        }
+    } else if !p.label.is_empty() {
         p.label.clone()
     } else {
         format!("{}-{}", p.role, p.index)
@@ -344,6 +405,7 @@ fn build_agent_row(
         is_active,
         is_in_grid,
         has_query,
+        is_worker,
     }
 }
 

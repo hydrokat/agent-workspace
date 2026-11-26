@@ -6,6 +6,7 @@ pub mod factory_board;
 pub mod factory_detail;
 pub mod factory_run;
 pub mod factory_tab;
+pub mod model_picker;
 pub mod notify;
 pub mod qr;
 pub mod queries_tab;

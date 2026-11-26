@@ -114,6 +114,7 @@
   ".agent-workspace/tandem/src/status/factory_run.rs",
   ".agent-workspace/tandem/src/status/factory_tab.rs",
   ".agent-workspace/tandem/src/status/mod.rs",
+  ".agent-workspace/tandem/src/status/model_picker.rs",
   ".agent-workspace/tandem/src/status/notify.rs",
   ".agent-workspace/tandem/src/status/qr.rs",
   ".agent-workspace/tandem/src/status/queries_tab.rs",

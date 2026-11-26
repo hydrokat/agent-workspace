@@ -364,6 +364,7 @@
   "tandem/src/status/factory_run.rs",
   "tandem/src/status/factory_tab.rs",
   "tandem/src/status/mod.rs",
+  "tandem/src/status/model_picker.rs",
   "tandem/src/status/notify.rs",
   "tandem/src/status/qr.rs",
   "tandem/src/status/queries_tab.rs",

@@ -196,7 +196,7 @@ impl TmuxRunner for StubWorkerTmuxRunner {
                 let mut i = 0;
                 while i < rest.len() {
                     match rest[i].as_str() {
-                        "-P" => i += 1,
+                        "-P" | "-d" => i += 1,
                         "-F" | "-t" => i += 2,
                         "-n" => {
                             window = rest.get(i + 1).cloned().unwrap_or_default();

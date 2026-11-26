@@ -12,7 +12,7 @@ use tandem::factory::broker::job::job_dir;
 use tandem::factory::routing::ModelTier;
 use tandem::factory::team::{AgentSummary, AssignmentSource, GlobalAgentSummary};
 use tandem::snapshot::{FactorySummary, StatusSnapshot};
-use tandem::status::factory_agents::{AgentFilter, AgentsKeyOutcome, FactoryAgents};
+use tandem::status::factory_agents::{AgentFilter, AgentsKeyOutcome, FactoryAgents, RoleFilter};
 use tandem::status::factory_tab::{FactoryAction, FactoryTab, FactoryView};
 use tandem::status::{StatusApp, StatusTab};
 
@@ -396,4 +396,79 @@ fn the_factory_tab_title_shows_how_many_agents_run() {
         .position(|t| *t == StatusTab::Factory)
         .unwrap();
     assert_eq!(titles[factory], "Factory (1)", "{titles:?}");
+}
+
+#[test]
+fn categorizes_and_filters_agents_by_role_and_task() {
+    let mut tester = agent("i-1", "Alpha", "r-1", "create-tests", "running", true);
+    tester.agent.role = "qa-engineer".to_string();
+    let mut ops = agent("i-2", "Beta", "r-2", "pr", "running", true);
+    ops.agent.role = "devops-engineer".to_string();
+    let mut impl_a = agent("i-3", "Gamma", "r-3", "develop", "running", true);
+    impl_a.agent.role = "senior-backend-dev".to_string();
+
+    let mut v = view(vec![ops, impl_a, tester]);
+    let out = render(&mut v, 130, 14);
+    assert!(out.contains("IMPLEMENTERS"), "{out}");
+    assert!(out.contains("TESTERS"), "{out}");
+    assert!(out.contains("OPS"), "{out}");
+    assert!(out.contains("create-tests · qa"), "{out}");
+    assert!(out.contains("c role: All ▾"), "{out}");
+
+    let vis = v.visible();
+    assert_eq!(vis[0].agent.stage, "create-tests");
+    assert_eq!(vis[1].agent.stage, "develop");
+    assert_eq!(vis[2].agent.stage, "pr");
+
+    // Cycle role filter with `c`
+    v.handle_key(&ch('c'));
+    assert_eq!(v.role_filter, RoleFilter::Orchestrators);
+    let empty_filtered = render(&mut v, 130, 10);
+    assert!(
+        empty_filtered.contains("No matching agents for this filter."),
+        "{empty_filtered}"
+    );
+    v.handle_key(&ch('c'));
+    assert_eq!(v.role_filter, RoleFilter::Planners);
+    v.handle_key(&ch('c'));
+    assert_eq!(v.role_filter, RoleFilter::Testers);
+    assert_eq!(v.visible().len(), 1);
+    assert_eq!(v.visible()[0].agent.stage, "create-tests");
+    let testers_out = render(&mut v, 130, 10);
+    assert!(testers_out.contains("c role: Testers ▾"), "{testers_out}");
+    assert!(!testers_out.contains("IMPLEMENTERS"), "{testers_out}");
+}
+
+#[test]
+fn role_filter_mouse_chip_and_divider_hit_alignment() {
+    let mut v = view(agents());
+    let out = render(&mut v, 130, 12);
+
+    // Clicking a category divider header must NOT select/open a row
+    let header_y = out
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| line.contains("REVIEWERS").then_some(y as u16))
+        .expect("REVIEWERS divider present");
+    assert_eq!(v.mouse_key(&click(4, header_y)), None);
+    assert_eq!(v.selected, 0);
+
+    // Clicking `c role: All ▾` synthesizes `'c'`
+    let (chip_col, chip_y) = out
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| line.find("c role: All ▾").map(|x| (x as u16 + 2, y as u16)))
+        .expect("role chip present");
+    assert_eq!(v.mouse_key(&click(chip_col, chip_y)), Some(ch('c')));
+}
+
+#[test]
+fn narrow_width_renders_category_headers_and_stage_role_cleanly() {
+    let mut v = view(agents());
+    let out = render(&mut v, 72, 10);
+    assert!(out.contains("STAGE"), "{out}");
+    assert!(out.contains("IMPLEMENTERS"), "{out}");
+    assert!(out.contains("REVIEWERS"), "{out}");
+    assert!(!out.contains(" TIER"), "{out}");
+    assert!(!out.contains(" AGE"), "{out}");
 }

@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use tandem::tmux::client::{Result as TmuxResult, TmuxClient, TmuxRunner};
 use tandem::tmux::layout::{Launch, Layout};
 use tandem::tmux::tabs::{
-    FORMAT, PaneInfo, agents_in, neighbor, parse_panes, render_agent_title, render_title, tab_text,
-    visible_pane,
+    AgentCategory, FORMAT, PaneInfo, agents_in, categorize_agent, is_manageable_pane_kind,
+    neighbor, parse_panes, render_agent_title, render_title, tab_text, visible_pane,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -390,5 +390,322 @@ fn test_render_agent_title_with_spaced_label_and_safe_label() {
     assert!(
         !bad_without_marker.contains('#') && !bad_without_marker.contains('{'),
         "safe_label must strip tmux format characters: {bad_title}"
+    );
+}
+
+#[test]
+fn test_agent_category_classifies_roles_and_stages() {
+    assert_eq!(
+        categorize_agent("orchestrator", ""),
+        AgentCategory::Orchestrators
+    );
+    assert_eq!(categorize_agent("", "plan"), AgentCategory::Planners);
+    assert_eq!(
+        categorize_agent("business-analyst", ""),
+        AgentCategory::Planners
+    );
+    assert_eq!(categorize_agent("", "create-tests"), AgentCategory::Testers);
+    assert_eq!(
+        categorize_agent("qa-engineer", "test"),
+        AgentCategory::Testers
+    );
+    assert_eq!(
+        categorize_agent("senior-backend-dev", "develop"),
+        AgentCategory::Implementers
+    );
+    assert_eq!(
+        categorize_agent("code-reviewer", "review"),
+        AgentCategory::Reviewers
+    );
+    assert_eq!(
+        categorize_agent("security-auditor", ""),
+        AgentCategory::Reviewers
+    );
+    assert_eq!(
+        categorize_agent("devops-engineer", "pr"),
+        AgentCategory::Ops
+    );
+    assert_eq!(categorize_agent("demo-maker", "demo"), AgentCategory::Ops);
+    assert_eq!(
+        AgentCategory::all(),
+        [
+            AgentCategory::Orchestrators,
+            AgentCategory::Planners,
+            AgentCategory::Testers,
+            AgentCategory::Implementers,
+            AgentCategory::Reviewers,
+            AgentCategory::Ops,
+        ]
+    );
+}
+
+#[test]
+fn test_is_manageable_pane_kind_and_worker_title() {
+    assert!(is_manageable_pane_kind("agent"));
+    assert!(is_manageable_pane_kind("factory-worker"));
+    assert!(!is_manageable_pane_kind("login"));
+    assert!(!is_manageable_pane_kind("own"));
+    assert!(!is_manageable_pane_kind("placeholder"));
+
+    let mut worker = pane(
+        "%77",
+        "main",
+        "backend",
+        1,
+        "develop·1",
+        "factory-worker",
+        false,
+        None,
+    );
+    worker.run = "r-4h8k".to_string();
+    worker.stage = "develop".to_string();
+    worker.cli = "claude".to_string();
+    let title = render_agent_title(&worker);
+    assert!(title.contains("backend"), "missing role: {title}");
+    assert!(title.contains("develop"), "missing stage: {title}");
+    assert!(title.contains("r-4h8k"), "missing run: {title}");
+    assert!(title.contains("claude"), "missing cli: {title}");
+
+    let bar_title = render_title(&[worker.clone()], "main");
+    assert_eq!(bar_title, title);
+    assert_eq!(
+        agents_in(&[worker], "backend")
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["%77"]
+    );
+}
+
+#[test]
+fn test_layout_show_pane_swaps_factory_worker_into_main_and_keeps_login_window() {
+    let mut worker = pane(
+        "%77",
+        "fw-r-1-develop",
+        "backend",
+        1,
+        "develop·1",
+        "factory-worker",
+        false,
+        None,
+    );
+    worker.run = "r-1".to_string();
+    worker.stage = "develop".to_string();
+    worker.cli = "claude".to_string();
+
+    let panes = vec![
+        pane("%1", "main", "sidebar", 0, "", "own", false, None),
+        pane(
+            "%2",
+            "main",
+            "orchestrator",
+            1,
+            "claude",
+            "agent",
+            false,
+            None,
+        ),
+        pane("%3", "main", "status", 0, "", "own", false, None),
+        worker,
+        pane(
+            "%88",
+            "login-claude",
+            "login",
+            0,
+            "claude",
+            "login",
+            false,
+            None,
+        ),
+    ];
+
+    let list_out = panes
+        .iter()
+        .map(|p| {
+            format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t0\t\t{}\t\t\t\t\t{}\t\t{}\t{}\t",
+                p.id, p.window, p.kind, p.role, p.index, p.label, p.session, p.run, p.stage, p.cli
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut responses = HashMap::new();
+    responses.insert(
+        "list-panes",
+        TmuxResult {
+            code: 0,
+            out: list_out,
+            err: String::new(),
+        },
+    );
+    responses.insert(
+        "display-message",
+        TmuxResult {
+            code: 0,
+            out: "%2\t160\t40\n".to_string(),
+            err: String::new(),
+        },
+    );
+
+    let runner = Arc::new(MockRunner::new(responses));
+    let client = TmuxClient::with_runner("test-sock", Some(PathBuf::from("/conf")), runner.clone());
+    let layout = Layout::new(&client);
+
+    layout.select_agent("%77", false).unwrap();
+    let worker_calls = runner.calls();
+    assert!(
+        worker_calls.iter().any(|c| {
+            c.windows(5)
+                .any(|w| w == ["swap-pane", "-d", "-s", "%77", "-t"])
+        }),
+        "factory-worker must swap-pane into main: {worker_calls:?}"
+    );
+    assert!(
+        !worker_calls
+            .iter()
+            .any(|c| c.contains(&"select-window".to_string())),
+        "factory-worker must never select-window: {worker_calls:?}"
+    );
+
+    layout.select_agent("%77", true).unwrap();
+    let toggle_calls = runner.calls();
+    assert!(
+        toggle_calls
+            .iter()
+            .any(|c| c.contains(&"join-pane".to_string())),
+        "grid toggle on factory-worker must join-pane inside main: {toggle_calls:?}"
+    );
+
+    layout.show_pane_with(&panes, "%88").unwrap();
+    let login_calls = runner.calls();
+    assert!(
+        login_calls
+            .iter()
+            .any(|c| c.contains(&"select-window".to_string()) && c.contains(&"%88".to_string())),
+        "login pane must still switch windows"
+    );
+}
+
+#[test]
+fn test_layout_prepare_pane_removal_swaps_fallback_or_respawns_placeholder() {
+    let worker_in_main = pane(
+        "%77",
+        "main",
+        "backend",
+        1,
+        "develop·1",
+        "factory-worker",
+        false,
+        None,
+    );
+    let stashed_orch = pane(
+        "%2",
+        "stash-orchestrator-1",
+        "orchestrator",
+        1,
+        "claude",
+        "agent",
+        false,
+        None,
+    );
+
+    let with_fallback = [
+        "%1\tmain\town\tsidebar\t0\t\t0\t\t",
+        &format!(
+            "{}\t{}\t{}\t{}\t1\t{}\t0\t\t",
+            worker_in_main.id,
+            worker_in_main.window,
+            worker_in_main.kind,
+            worker_in_main.role,
+            worker_in_main.label
+        ),
+        "%3\tmain\town\tstatus\t0\t\t0\t\t",
+        &format!(
+            "{}\t{}\t{}\t{}\t1\t{}\t0\t\tsess-orch",
+            stashed_orch.id,
+            stashed_orch.window,
+            stashed_orch.kind,
+            stashed_orch.role,
+            stashed_orch.label
+        ),
+    ]
+    .join("\n");
+
+    let mut responses = HashMap::new();
+    responses.insert(
+        "list-panes",
+        TmuxResult {
+            code: 0,
+            out: with_fallback,
+            err: String::new(),
+        },
+    );
+    responses.insert(
+        "display-message",
+        TmuxResult {
+            code: 0,
+            out: "%77\t160\t40\n".to_string(),
+            err: String::new(),
+        },
+    );
+    let runner = Arc::new(MockRunner::new(responses));
+    let client = TmuxClient::with_runner("test-sock", Some(PathBuf::from("/conf")), runner.clone());
+    let layout = Layout::new(&client);
+    let ph = Launch::new(
+        vec!["sleep".to_string(), "1".to_string()],
+        "orchestrator",
+        0,
+        "placeholder",
+    );
+
+    let replaced_in_place = layout.prepare_pane_removal("%77", &ph).unwrap();
+    assert!(!replaced_in_place);
+    let calls = runner.calls();
+    assert!(
+        calls.iter().any(|c| c
+            .windows(5)
+            .any(|w| w == ["swap-pane", "-d", "-s", "%2", "-t"])),
+        "expected stashed agent %2 swapped into main before kill-pane: {calls:?}"
+    );
+
+    let solo_in_main = [
+        "%1\tmain\town\tsidebar\t0\t\t0\t\t",
+        "%77\tmain\tfactory-worker\tbackend\t1\tdevelop·1\t0\t\t",
+        "%3\tmain\town\tstatus\t0\t\t0\t\t",
+    ]
+    .join("\n");
+    let mut solo_resp = HashMap::new();
+    solo_resp.insert(
+        "list-panes",
+        TmuxResult {
+            code: 0,
+            out: solo_in_main,
+            err: String::new(),
+        },
+    );
+    solo_resp.insert(
+        "display-message",
+        TmuxResult {
+            code: 0,
+            out: "%77\t160\t40\n".to_string(),
+            err: String::new(),
+        },
+    );
+    let solo_runner = Arc::new(MockRunner::new(solo_resp));
+    let solo_client = TmuxClient::with_runner(
+        "test-sock",
+        Some(PathBuf::from("/conf")),
+        solo_runner.clone(),
+    );
+    let solo_layout = Layout::new(&solo_client);
+    let solo_replaced = solo_layout.prepare_pane_removal("%77", &ph).unwrap();
+    assert!(solo_replaced);
+    assert!(
+        solo_runner
+            .calls()
+            .iter()
+            .any(|c| c.contains(&"respawn-pane".to_string())),
+        "expected respawn-pane placeholder when solo worker closes in main"
     );
 }

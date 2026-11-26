@@ -237,3 +237,104 @@ fn gate_full_mouse_journey_board_detail_run_audit_settings() {
     click_on(&mut app, "Esc cancel");
     assert!(app.settings_tab.factory_edit.is_none());
 }
+
+#[test]
+fn gate_sidebar_focuses_and_grids_factory_workers_inside_main() {
+    use std::sync::{Arc, Mutex};
+    use tandem::sidebar::app::SidebarApp;
+    use tandem::tmux::client::{Result as TmuxCmdResult, TmuxClient, TmuxRunner};
+
+    #[derive(Default)]
+    struct SbRunner {
+        calls: Mutex<Vec<Vec<String>>>,
+        panes_out: String,
+    }
+    impl TmuxRunner for SbRunner {
+        fn run(&self, argv: &[String]) -> TmuxCmdResult {
+            self.calls.lock().unwrap().push(argv.to_vec());
+            let rest = if argv.len() >= 3 && argv[0] == "tmux" && argv[1] == "-L" {
+                &argv[3..]
+            } else {
+                argv
+            };
+            match rest.first().map(String::as_str) {
+                Some("list-panes") => TmuxCmdResult {
+                    code: 0,
+                    out: self.panes_out.clone(),
+                    err: String::new(),
+                },
+                Some("display-message") => TmuxCmdResult {
+                    code: 0,
+                    out: "%1\t160\t40\n".to_string(),
+                    err: String::new(),
+                },
+                _ => TmuxCmdResult {
+                    code: 0,
+                    out: String::new(),
+                    err: String::new(),
+                },
+            }
+        }
+    }
+
+    let ws = TempDir::new();
+    std::fs::create_dir_all(ws.path().join(".agent-workspace/factory")).unwrap();
+    let panes_out = [
+        "%1\tmain\tagent\torchestrator\t1\tclaude\t0\t\tsess-orch\t\t\ti-1\tr-1\t\t\t\t",
+        "%77\tfw-r-1-develop\tfactory-worker\tbackend\t1\tdevelop·1\t0\t\t\t\t\t\t\tr-1\tr-1.develop.1\tdevelop\tclaude\tclaude-sonnet-4-6",
+    ]
+    .join("\n");
+    let runner = Arc::new(SbRunner {
+        calls: Mutex::new(Vec::new()),
+        panes_out,
+    });
+    let tmux = TmuxClient::with_runner("tandem-sb-test", None, runner.clone());
+    let store = CoordStore::new(ws.path().join(".agent-workspace/coordination"));
+    let mut app =
+        SidebarApp::new_with_factory(ws.path().to_path_buf(), store, Some(tmux), Some(true));
+
+    let worker_idx = app
+        .rows
+        .iter()
+        .position(|r| r.pane_id() == Some("%77"))
+        .expect("worker %77 should appear in factory sidebar");
+
+    // Left-click worker row focuses it inside main via swap-pane (never select-window)
+    app.handle_mouse(
+        &MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 1 + worker_idx as u16,
+            modifiers: KeyModifiers::NONE,
+        },
+        Rect::new(0, 0, 26, 20),
+    );
+    // Shift+Click toggles grid view (join-pane)
+    app.handle_mouse(
+        &MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 1 + worker_idx as u16,
+            modifiers: KeyModifiers::SHIFT,
+        },
+        Rect::new(0, 0, 26, 20),
+    );
+
+    let calls = runner.calls.lock().unwrap().clone();
+    assert!(
+        calls.iter().any(|c| c
+            .windows(5)
+            .any(|w| w == ["swap-pane", "-d", "-s", "%77", "-t"])),
+        "sidebar click must swap worker into main: {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|c| c.contains(&"join-pane".to_string())),
+        "sidebar Shift+Click must tile worker in grid: {calls:?}"
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c.contains(&"select-window".to_string())),
+        "sidebar worker focus must never select-window full screen: {calls:?}"
+    );
+}

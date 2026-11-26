@@ -12,6 +12,7 @@ use crate::factory::team::{
 };
 use crate::sanitize::clean;
 use crate::status::factory_run::{agent_age_text, agent_state_text};
+use crate::tmux::tabs::{AgentCategory, categorize_agent};
 use crate::tmux::{TmuxClient, socket_for};
 use crate::ui::hits::{Hit, HitMap, Resolved};
 use crate::ui::input::TextInput;
@@ -29,6 +30,56 @@ impl AgentFilter {
         match self {
             Self::Running => "Running",
             Self::All => "All",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RoleFilter {
+    #[default]
+    All,
+    Orchestrators,
+    Planners,
+    Testers,
+    Implementers,
+    Reviewers,
+    Ops,
+}
+
+impl RoleFilter {
+    pub fn next(self) -> Self {
+        match self {
+            Self::All => Self::Orchestrators,
+            Self::Orchestrators => Self::Planners,
+            Self::Planners => Self::Testers,
+            Self::Testers => Self::Implementers,
+            Self::Implementers => Self::Reviewers,
+            Self::Reviewers => Self::Ops,
+            Self::Ops => Self::All,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Orchestrators => "Orchestrators",
+            Self::Planners => "Planners",
+            Self::Testers => "Testers",
+            Self::Implementers => "Implementers",
+            Self::Reviewers => "Reviewers",
+            Self::Ops => "Ops",
+        }
+    }
+
+    pub fn matches(self, category: AgentCategory) -> bool {
+        match self {
+            Self::All => true,
+            Self::Orchestrators => category == AgentCategory::Orchestrators,
+            Self::Planners => category == AgentCategory::Planners,
+            Self::Testers => category == AgentCategory::Testers,
+            Self::Implementers => category == AgentCategory::Implementers,
+            Self::Reviewers => category == AgentCategory::Reviewers,
+            Self::Ops => category == AgentCategory::Ops,
         }
     }
 }
@@ -63,6 +114,7 @@ pub struct FactoryAgents {
     pub workspace: PathBuf,
     pub agents: Vec<GlobalAgentSummary>,
     pub filter: AgentFilter,
+    pub role_filter: RoleFilter,
     pub selected: usize,
     pub notice: String,
     pub error: Option<String>,
@@ -76,6 +128,7 @@ impl std::fmt::Debug for FactoryAgents {
         f.debug_struct("FactoryAgents")
             .field("agents", &self.agents.len())
             .field("filter", &self.filter)
+            .field("role_filter", &self.role_filter)
             .field("selected", &self.selected)
             .finish()
     }
@@ -85,12 +138,17 @@ fn is_running(agent: &GlobalAgentSummary) -> bool {
     agent.agent.job_state == "running"
 }
 
+fn agent_category(agent: &GlobalAgentSummary) -> AgentCategory {
+    categorize_agent(&agent.agent.role, &agent.agent.stage)
+}
+
 impl FactoryAgents {
     pub fn with_agents(workspace: PathBuf, agents: Vec<GlobalAgentSummary>) -> Self {
         Self {
             workspace,
             agents,
             filter: AgentFilter::default(),
+            role_filter: RoleFilter::default(),
             selected: 0,
             notice: String::new(),
             error: None,
@@ -134,18 +192,24 @@ impl FactoryAgents {
             .agents
             .iter()
             .filter(|a| self.filter == AgentFilter::All || is_running(a))
+            .filter(|a| self.role_filter.matches(agent_category(a)))
             .collect();
         rows.sort_by(|a, b| {
-            is_running(b).cmp(&is_running(a)).then_with(|| {
-                let at = |x: &GlobalAgentSummary| {
-                    x.agent
-                        .activity
-                        .as_ref()
-                        .and_then(|act| act.last_stop_at)
-                        .unwrap_or(0.0)
-                };
-                at(b).total_cmp(&at(a))
-            })
+            is_running(b)
+                .cmp(&is_running(a))
+                .then_with(|| agent_category(a).order().cmp(&agent_category(b).order()))
+                .then_with(|| {
+                    let at = |x: &GlobalAgentSummary| {
+                        x.agent
+                            .activity
+                            .as_ref()
+                            .and_then(|act| act.last_stop_at)
+                            .unwrap_or(0.0)
+                    };
+                    at(b).total_cmp(&at(a))
+                })
+                .then_with(|| a.agent.run_id.cmp(&b.agent.run_id))
+                .then_with(|| a.agent.job_id.cmp(&b.agent.job_id))
         });
         rows
     }
@@ -254,6 +318,11 @@ impl FactoryAgents {
                     AgentFilter::Running => AgentFilter::All,
                     AgentFilter::All => AgentFilter::Running,
                 };
+                self.selected = 0;
+                AgentsKeyOutcome::Consumed
+            }
+            KeyCode::Char('c') => {
+                self.role_filter = self.role_filter.next();
                 self.selected = 0;
                 AgentsKeyOutcome::Consumed
             }
@@ -368,19 +437,18 @@ impl FactoryAgents {
         let warn = Style::default().fg(Color::Yellow);
 
         let running = self.running_count();
+        let filter_tag = format!("f filter: {} ▾", self.filter.label());
+        let role_tag = format!("c role: {} ▾", self.role_filter.label());
         let header = format!(
-            "Agents  {running} running   f filter: {} ▾   Enter idea   v view  m msg  s stop  r relaunch   Esc back",
-            self.filter.label()
+            "Agents  {running} running   {filter_tag}   {role_tag}   Enter idea   v view  m msg  s stop  r relaunch   Esc back",
         );
         write_clipped(buf, area.x, area.y, max_w, &header, header_style);
         self.hits.tags(
             Rect::new(area.x, area.y, area.width, 1),
             &header,
             &[
-                (
-                    &format!("f filter: {} ▾", self.filter.label()),
-                    Hit::ch('f'),
-                ),
+                (filter_tag.as_str(), Hit::ch('f')),
+                (role_tag.as_str(), Hit::ch('c')),
                 ("Enter idea", Hit::key(KeyCode::Enter)),
                 ("v view", Hit::ch('v')),
                 ("m msg", Hit::ch('m')),
@@ -412,17 +480,24 @@ impl FactoryAgents {
 
         let rows: Vec<GlobalAgentSummary> = self.visible().into_iter().cloned().collect();
         if rows.is_empty() {
-            let msg = match self.filter {
-                AgentFilter::Running => {
-                    "No agents running. Agents appear when a run starts a stage."
+            let msg = if self.role_filter != RoleFilter::All {
+                "No matching agents for this filter."
+            } else {
+                match self.filter {
+                    AgentFilter::Running => {
+                        "No agents running. Agents appear when a run starts a stage."
+                    }
+                    AgentFilter::All => "No agents recorded.",
                 }
-                AgentFilter::All => "No agents recorded.",
             };
             write_clipped(buf, area.x, y, max_w, msg, dim);
         } else {
             let show_tier = area.width >= 80;
             let show_age = area.width >= 100;
-            let mut head = format!("  {:<18} {:<12} {:<22}", "IDEA", "STAGE", "CLI/MODEL");
+            let mut head = format!(
+                "  {:<18} {:<18} {:<22}",
+                "IDEA", "STAGE / ROLE", "CLI/MODEL"
+            );
             if show_tier {
                 head.push_str(&format!(" {:<9}", "TIER"));
             }
@@ -433,56 +508,97 @@ impl FactoryAgents {
             write_clipped(buf, area.x, y, max_w, &head, dim);
             y += 1;
 
+            enum RenderLine {
+                Divider(AgentCategory),
+                AgentRow(usize),
+            }
+            let mut lines: Vec<RenderLine> = Vec::with_capacity(rows.len() * 2);
+            let mut last_cat: Option<AgentCategory> = None;
+            let mut selected_visual_line = 0usize;
+            for (idx, a) in rows.iter().enumerate() {
+                let cat = agent_category(a);
+                if last_cat != Some(cat) {
+                    lines.push(RenderLine::Divider(cat));
+                    last_cat = Some(cat);
+                }
+                if idx == self.selected {
+                    selected_visual_line = lines.len();
+                }
+                lines.push(RenderLine::AgentRow(idx));
+            }
+
             let capacity = body_bottom.saturating_sub(y) as usize;
-            let start = if capacity > 0 && self.selected >= capacity {
-                self.selected + 1 - capacity
+            let start = if capacity > 0 && selected_visual_line >= capacity {
+                selected_visual_line + 1 - capacity
             } else {
                 0
             };
-            for (idx, a) in rows.iter().enumerate().skip(start) {
+            let cat_style = Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD);
+            for line_item in lines.iter().skip(start) {
                 if y >= body_bottom {
                     break;
                 }
-                let is_sel = idx == self.selected;
-                let marker = if is_sel { "▶ " } else { "  " };
-                let state = if a.agent.job_state == "running" && !a.agent.pane_alive {
-                    "pane gone".to_string()
-                } else {
-                    agent_state_text(&a.agent)
-                };
-                let tier = a
-                    .tier
-                    .map(|t| format!("{t:?}").to_lowercase())
-                    .unwrap_or_else(|| "-".to_string());
-                let mut line = format!(
-                    "{marker}{:<18} {:<12} {:<22}",
-                    truncate_to_width(&clean(a.idea_title.trim()), 18),
-                    truncate_to_width(&clean(&a.agent.stage), 12),
-                    truncate_to_width(
-                        &format!("{}/{}", clean(&a.agent.cli), clean(&a.agent.model)),
-                        22
-                    ),
-                );
-                if show_tier {
-                    line.push_str(&format!(" {:<9}", truncate_to_width(&tier, 9)));
+                match line_item {
+                    RenderLine::Divider(cat) => {
+                        let header_label = cat.sidebar_header();
+                        let fill_len = max_w.saturating_sub(header_label.chars().count() + 4);
+                        let divider = format!("── {header_label} {}", "─".repeat(fill_len));
+                        write_clipped(buf, area.x, y, max_w, &divider, cat_style);
+                    }
+                    RenderLine::AgentRow(idx) => {
+                        let a = &rows[*idx];
+                        let is_sel = *idx == self.selected;
+                        let marker = if is_sel { "▶ " } else { "  " };
+                        let state = if a.agent.job_state == "running" && !a.agent.pane_alive {
+                            "pane gone".to_string()
+                        } else {
+                            agent_state_text(&a.agent)
+                        };
+                        let tier = a
+                            .tier
+                            .map(|t| format!("{t:?}").to_lowercase())
+                            .unwrap_or_else(|| "-".to_string());
+                        let role_clean = clean(&a.agent.role);
+                        let stage_clean = clean(&a.agent.stage);
+                        let stage_role = if role_clean.is_empty() || role_clean == "factory-worker"
+                        {
+                            stage_clean
+                        } else {
+                            format!("{stage_clean} · {role_clean}")
+                        };
+                        let mut line = format!(
+                            "{marker}{:<18} {:<18} {:<22}",
+                            truncate_to_width(&clean(a.idea_title.trim()), 18),
+                            truncate_to_width(&stage_role, 18),
+                            truncate_to_width(
+                                &format!("{}/{}", clean(&a.agent.cli), clean(&a.agent.model)),
+                                22
+                            ),
+                        );
+                        if show_tier {
+                            line.push_str(&format!(" {:<9}", truncate_to_width(&tier, 9)));
+                        }
+                        line.push_str(&format!(" {:<10}", truncate_to_width(&clean(&state), 10)));
+                        if show_age {
+                            line.push_str(&format!(
+                                " {:<8}",
+                                truncate_to_width(&agent_age_text(&a.agent, now), 8)
+                            ));
+                        }
+                        let style = if is_sel {
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                        } else {
+                            Style::default().fg(Color::White)
+                        };
+                        write_clipped(buf, area.x, y, max_w, &line, style);
+                        self.hits
+                            .push(Rect::new(area.x, y, area.width, 1), Hit::Row(*idx));
+                    }
                 }
-                line.push_str(&format!(" {:<10}", truncate_to_width(&clean(&state), 10)));
-                if show_age {
-                    line.push_str(&format!(
-                        " {:<8}",
-                        truncate_to_width(&agent_age_text(&a.agent, now), 8)
-                    ));
-                }
-                let style = if is_sel {
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-                } else {
-                    Style::default().fg(Color::White)
-                };
-                write_clipped(buf, area.x, y, max_w, &line, style);
-                self.hits
-                    .push(Rect::new(area.x, y, area.width, 1), Hit::Row(idx));
                 y += 1;
             }
         }

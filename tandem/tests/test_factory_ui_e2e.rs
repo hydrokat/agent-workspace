@@ -1,5 +1,6 @@
 mod common;
 
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -14,8 +15,12 @@ use tandem::factory::machine::Command as FactoryCommand;
 use tandem::factory::model::{FeasibilityVerdict, IdeaState, Risk};
 use tandem::factory::runner::cancel_idea;
 use tandem::factory::store::FactoryStore;
+use tandem::factory::worker::{
+    WorkerAssignment, WorkerLaunchSpec, WorkerWatchOutcome, finish, launch,
+};
+use tandem::sidebar::model::{SidebarRow, rows_from_for};
 use tandem::snapshot::{IdeaCard, collect_factory_summary};
-use tandem::tmux::{SESSION, socket_for};
+use tandem::tmux::{Launch, Layout, SESSION, TmuxClient, socket_for};
 
 struct TmuxSession {
     socket: String,
@@ -370,4 +375,196 @@ fn an_idea_can_carry_a_description_from_creation_to_the_snapshot() {
     assert_eq!(card(&summary.ideas, &id).state, IdeaState::Inbox);
     assert_eq!(vias(card(&summary.ideas, &id)), vec!["cancel"]);
     assert_eq!(summary.agents_active, 0);
+}
+
+#[test]
+fn factory_worker_launches_detached_swaps_and_grids_in_main_with_safe_teardown() {
+    if !common::require_tool("tmux") {
+        return;
+    }
+
+    struct TmuxServerGuard(String);
+    impl Drop for TmuxServerGuard {
+        fn drop(&mut self) {
+            let _ = Command::new("tmux")
+                .args(["-L", &self.0, "kill-server"])
+                .status();
+        }
+    }
+
+    let tmp = TempDir::new();
+    let ws = tmp.path();
+    let (_store, _idea_id, run_id) = setup_run(ws);
+
+    let bin_dir = ws.join("bin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let stub_claude = bin_dir.join("claude");
+    fs::write(&stub_claude, "#!/bin/sh\nexec sleep 120\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&stub_claude).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&stub_claude, perms).unwrap();
+    }
+
+    let socket = socket_for(ws);
+    let _guard = TmuxServerGuard(socket.clone());
+    let base_client = TmuxClient::new(&socket, None);
+    let mut base_layout = Layout::new(&base_client);
+    base_layout.factory = true;
+    let conf = base_layout.write_conf(&ws.join("tandem.conf")).unwrap();
+    let client = TmuxClient::new(&socket, Some(conf));
+    let mut layout = Layout::new(&client);
+    layout.factory = true;
+
+    let sleep_cmd = || vec!["sleep".to_string(), "120".to_string()];
+    let mut sb = Launch::new(sleep_cmd(), "sidebar", 0, "sidebar");
+    sb.kind = "own".to_string();
+    let mut orch = Launch::new(sleep_cmd(), "orchestrator", 1, "claude·opus");
+    orch.session_id = "orch-1".to_string();
+    let mut st = Launch::new(sleep_cmd(), "status", 0, "status");
+    st.kind = "own".to_string();
+
+    let built = layout.build(160, 45, &sb, &orch, &st).unwrap();
+    let sb_pane = built["sidebar"].clone();
+    let orch_pane = built["main"].clone();
+    let st_pane = built["status"].clone();
+
+    let worktree = ws.join("wt");
+    let jdir = ws.join("job");
+    fs::create_dir_all(&worktree).unwrap();
+    fs::create_dir_all(&jdir).unwrap();
+    let prompt_file = jdir.join("prompt.md");
+    fs::write(&prompt_file, "Implement change cleanly.\n").unwrap();
+
+    let mut env = BTreeMap::new();
+    let path_env = match std::env::var("PATH") {
+        Ok(p) if !p.is_empty() => format!("{}:{p}", bin_dir.display()),
+        _ => bin_dir.display().to_string(),
+    };
+    env.insert("PATH".to_string(), path_env);
+
+    let launched = launch(
+        &client,
+        &WorkerLaunchSpec {
+            run_id: run_id.clone(),
+            stage: "develop".to_string(),
+            attempt: 1,
+            job_dir: jdir.clone(),
+            prompt_file,
+            result_path: jdir.join("result.json"),
+            worktree_path: worktree,
+            assignment: WorkerAssignment {
+                cli: "claude".to_string(),
+                model: "sonnet".to_string(),
+                read_only: false,
+                tools: Vec::new(),
+                agent: "senior-backend-dev".to_string(),
+                role: "senior-backend-dev".to_string(),
+            },
+            env,
+            time_limit_secs: 60,
+        },
+    )
+    .unwrap();
+
+    // Active window stays `main` immediately after launch; chrome panes remain intact.
+    let active_win = client
+        .run_checked(&["display-message", "-p", "-t", SESSION, "#{window_name}"])
+        .unwrap();
+    assert_eq!(active_win.trim(), "main");
+
+    let panes = layout.panes().unwrap();
+    let main_panes: Vec<&str> = panes
+        .iter()
+        .filter(|p| p.window == "main")
+        .map(|p| p.id.as_str())
+        .collect();
+    assert!(main_panes.contains(&sb_pane.as_str()));
+    assert!(main_panes.contains(&orch_pane.as_str()));
+    assert!(main_panes.contains(&st_pane.as_str()));
+    assert!(!main_panes.contains(&launched.pane_id.as_str()));
+
+    let summary = collect_factory_summary(ws, &[], 1_800_000_000.0);
+    let rows = rows_from_for(&panes, &[], &[], Some(&orch_pane), &[], Some(&summary));
+    let orch_hdr = rows
+        .iter()
+        .position(|r| matches!(r, SidebarRow::Header { title, .. } if title == "ORCHESTRATORS"));
+    let impl_hdr = rows
+        .iter()
+        .position(|r| matches!(r, SidebarRow::Header { title, .. } if title == "IMPLEMENTERS"));
+    let worker_pos = rows.iter().position(|r| {
+        matches!(
+            r,
+            SidebarRow::Agent {
+                pane_id,
+                is_worker: true,
+                ..
+            } if pane_id == &launched.pane_id
+        )
+    });
+    assert!(orch_hdr.is_some(), "missing ORCHESTRATORS header: {rows:?}");
+    assert!(impl_hdr.is_some(), "missing IMPLEMENTERS header: {rows:?}");
+    assert!(
+        worker_pos > impl_hdr,
+        "worker must appear under IMPLEMENTERS: {rows:?}"
+    );
+
+    // Clicking/selecting worker swaps it into `main` without leaving `main` full-screen.
+    layout.select_agent(&launched.pane_id, false).unwrap();
+    let active_win = client
+        .run_checked(&["display-message", "-p", "-t", SESSION, "#{window_name}"])
+        .unwrap();
+    assert_eq!(active_win.trim(), "main");
+    let panes = layout.panes().unwrap();
+    let main_panes: Vec<&str> = panes
+        .iter()
+        .filter(|p| p.window == "main")
+        .map(|p| p.id.as_str())
+        .collect();
+    assert!(main_panes.contains(&sb_pane.as_str()));
+    assert!(main_panes.contains(&launched.pane_id.as_str()));
+    assert!(main_panes.contains(&st_pane.as_str()));
+    assert!(!main_panes.contains(&orch_pane.as_str()));
+
+    // Multi-pane grid toggle places both orchestrator and worker inside `main`.
+    layout.select_agent(&orch_pane, true).unwrap();
+    let active_win = client
+        .run_checked(&["display-message", "-p", "-t", SESSION, "#{window_name}"])
+        .unwrap();
+    assert_eq!(active_win.trim(), "main");
+    let panes = layout.panes().unwrap();
+    let main_panes: Vec<&str> = panes
+        .iter()
+        .filter(|p| p.window == "main")
+        .map(|p| p.id.as_str())
+        .collect();
+    assert!(main_panes.contains(&sb_pane.as_str()));
+    assert!(main_panes.contains(&st_pane.as_str()));
+    assert!(main_panes.contains(&orch_pane.as_str()));
+    assert!(main_panes.contains(&launched.pane_id.as_str()));
+
+    // Swap back to worker-only in `main`, then finish -> `main` swaps orchestrator back cleanly.
+    layout.select_agent(&launched.pane_id, false).unwrap();
+    let _ = finish(&client, &launched, WorkerWatchOutcome::Interrupted);
+
+    let active_win = client
+        .run_checked(&["display-message", "-p", "-t", SESSION, "#{window_name}"])
+        .unwrap();
+    assert_eq!(active_win.trim(), "main");
+    let panes = layout.panes().unwrap();
+    assert!(!panes.iter().any(|p| p.id == launched.pane_id));
+    let main_panes: Vec<&str> = panes
+        .iter()
+        .filter(|p| p.window == "main")
+        .map(|p| p.id.as_str())
+        .collect();
+    assert!(main_panes.contains(&sb_pane.as_str()));
+    assert!(main_panes.contains(&st_pane.as_str()));
+    assert!(
+        main_panes.len() >= 3,
+        "workspace pane in `main` must be preserved after finish: {main_panes:?}"
+    );
+    let _: HashMap<String, String> = built;
 }

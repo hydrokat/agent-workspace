@@ -372,8 +372,8 @@ fn worker_launch_watch_and_finish_tag_pane_detect_result_and_kill_pane() {
     assert!(
         calls
             .iter()
-            .any(|c| c.iter().any(|arg| arg == "new-window")),
-        "expected new-window in tmux calls: {calls:?}"
+            .any(|c| { c.windows(2).any(|w| w == ["new-window", "-d"]) }),
+        "worker launch must pass -d to new-window so it stays detached: {calls:?}"
     );
     for (opt, val) in [
         ("@tandem_kind", "factory-worker"),
@@ -415,6 +415,101 @@ fn worker_launch_watch_and_finish_tag_pane_detect_result_and_kill_pane() {
             "%42".to_string()
         ])),
         "finish must kill worker pane"
+    );
+}
+
+#[test]
+fn worker_finish_prepares_main_slot_when_visible_worker_closes() {
+    #[derive(Default)]
+    struct FinishSwapState {
+        calls: Vec<Vec<String>>,
+    }
+    #[derive(Clone, Default)]
+    struct FinishSwapRunner {
+        state: Arc<Mutex<FinishSwapState>>,
+    }
+    impl TmuxRunner for FinishSwapRunner {
+        fn run(&self, args: &[String]) -> TmuxCmdResult {
+            self.state.lock().unwrap().calls.push(args.to_vec());
+            let rest = if args.len() >= 3 && args[0] == "tmux" && args[1] == "-L" {
+                if args.get(3).map(String::as_str) == Some("-f") {
+                    &args[5..]
+                } else {
+                    &args[3..]
+                }
+            } else {
+                args
+            };
+            match rest.first().map(String::as_str) {
+                Some("list-panes") => TmuxCmdResult {
+                    code: 0,
+                    out: [
+                        "%1\tmain\town\tsidebar\t0\t\t0\t\t",
+                        "%42\tmain\tfactory-worker\tbackend\t1\tdevelop·1\t0\t\t\t\t\t\t\trun-1\trun-1.develop.1\tdevelop\tclaude\tclaude-sonnet-4-6",
+                        "%3\tmain\town\tstatus\t0\t\t0\t\t",
+                        "%2\tstash-orchestrator-1\tagent\torchestrator\t1\tclaude\t0\t\tsess-orch",
+                    ]
+                    .join("\n"),
+                    err: String::new(),
+                },
+                Some("display-message") => TmuxCmdResult {
+                    code: 0,
+                    out: "%42\t160\t40\n".to_string(),
+                    err: String::new(),
+                },
+                _ => TmuxCmdResult {
+                    code: 0,
+                    out: String::new(),
+                    err: String::new(),
+                },
+            }
+        }
+    }
+
+    let tmp = TempDir::new("finish-swap");
+    let job_dir = tmp.path.join("run-1.develop.1");
+    fs::create_dir_all(&job_dir).unwrap();
+    let result_path = job_dir.join("result.json");
+    let worker = tandem::factory::worker::LaunchedWorker {
+        pane_id: "%42".to_string(),
+        run_id: "run-1".to_string(),
+        stage: "develop".to_string(),
+        attempt: 1,
+        cli: "claude".to_string(),
+        model: "claude-sonnet-4-6".to_string(),
+        job_dir,
+        result_path,
+        time_limit_secs: 10,
+    };
+    let runner = FinishSwapRunner::default();
+    let tmux = TmuxClient::with_runner("tandem", None, Arc::new(runner.clone()));
+    let result = tandem::factory::broker::result::JobResult {
+        status: JobResultStatus::Succeeded,
+        summary: "done".to_string(),
+        files_changed: Vec::new(),
+        artifacts: Vec::new(),
+        rationale: None,
+        hypothesis: None,
+        usage: None,
+        no_behaviour_change: false,
+    };
+
+    let _ = finish(&tmux, &worker, WorkerWatchOutcome::Completed(result)).unwrap();
+    let calls = runner.state.lock().unwrap().calls.clone();
+    let swap_idx = calls
+        .iter()
+        .position(|c| {
+            c.windows(5)
+                .any(|w| w == ["swap-pane", "-d", "-s", "%2", "-t"])
+        })
+        .expect("finish must swap fallback %2 into main before killing visible %42");
+    let kill_idx = calls
+        .iter()
+        .position(|c| c.ends_with(&["kill-pane".to_string(), "-t".to_string(), "%42".to_string()]))
+        .expect("finish must still kill %42");
+    assert!(
+        swap_idx < kill_idx,
+        "swap must precede kill-pane: {calls:?}"
     );
 }
 

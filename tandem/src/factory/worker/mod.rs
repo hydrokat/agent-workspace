@@ -273,6 +273,7 @@ pub fn launch(tmux: &TmuxClient, spec: &WorkerLaunchSpec) -> Result<LaunchedWork
     let cwd = spec.worktree_path.to_string_lossy().into_owned();
     let mut launch_argv: Vec<String> = vec![
         "new-window".to_string(),
+        "-d".to_string(),
         "-P".to_string(),
         "-F".to_string(),
         "#{pane_id}".to_string(),
@@ -360,8 +361,19 @@ pub fn finish(
 ) -> Result<JobResult, WorkerError> {
     let latest_pane =
         watch::read_pane_id_file(&worker.job_dir).unwrap_or_else(|| worker.pane_id.clone());
-    let _ = tmux.kill_pane(&latest_pane);
-    if latest_pane != worker.pane_id {
+    let layout = crate::tmux::Layout::new(tmux);
+    let placeholder = crate::commands::placeholder_launch("orchestrator", None, None);
+    if !layout
+        .prepare_pane_removal(&latest_pane, &placeholder)
+        .unwrap_or(false)
+    {
+        let _ = tmux.kill_pane(&latest_pane);
+    }
+    if latest_pane != worker.pane_id
+        && !layout
+            .prepare_pane_removal(&worker.pane_id, &placeholder)
+            .unwrap_or(false)
+    {
         let _ = tmux.kill_pane(&worker.pane_id);
     }
     match outcome {

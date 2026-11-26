@@ -1228,41 +1228,167 @@ fn remediation_regression_checks_cover_socket_env_i_hooks_auth_watch_layout_and_
         );
     }
 
-    // #8: Layout::show_pane_with switches window+pane for factory-worker and login panes
-    let layout_runner = TeamTmuxRunner::default();
-    let layout_tmux = TmuxClient::with_runner(SESSION, None, Arc::new(layout_runner.clone()));
+    // #8: Layout::show_pane_with swaps factory-worker into main (no select-window),
+    // keeps login panes on select-window, and StatusApp::OpenWorkerPane routes via select_agent
+    #[derive(Default)]
+    struct LayoutShowRunner {
+        panes_out: String,
+        calls: Mutex<Vec<Vec<String>>>,
+    }
+    impl TmuxRunner for LayoutShowRunner {
+        fn run(&self, argv: &[String]) -> TmuxCmdResult {
+            self.calls.lock().unwrap().push(argv.to_vec());
+            let rest = if argv.len() >= 3 && argv[0] == "tmux" && argv[1] == "-L" {
+                if argv.get(3).map(String::as_str) == Some("-f") {
+                    &argv[5..]
+                } else {
+                    &argv[3..]
+                }
+            } else {
+                argv
+            };
+            match rest.first().map(String::as_str) {
+                Some("list-panes") => TmuxCmdResult {
+                    code: 0,
+                    out: self.panes_out.clone(),
+                    err: String::new(),
+                },
+                Some("display-message") => TmuxCmdResult {
+                    code: 0,
+                    out: "sess-orch\t160\t40\n".to_string(),
+                    err: String::new(),
+                },
+                _ => TmuxCmdResult {
+                    code: 0,
+                    out: String::new(),
+                    err: String::new(),
+                },
+            }
+        }
+    }
+    let show_panes = vec![
+        PaneInfo {
+            id: "%1".to_string(),
+            window: "main".to_string(),
+            index: 0,
+            role: "sidebar".to_string(),
+            kind: "own".to_string(),
+            ..PaneInfo::default()
+        },
+        PaneInfo {
+            id: "%2".to_string(),
+            window: "main".to_string(),
+            index: 1,
+            role: "orchestrator".to_string(),
+            kind: "agent".to_string(),
+            session: "sess-orch".to_string(),
+            ..PaneInfo::default()
+        },
+        PaneInfo {
+            id: "%3".to_string(),
+            window: "main".to_string(),
+            index: 0,
+            role: "status".to_string(),
+            kind: "own".to_string(),
+            ..PaneInfo::default()
+        },
+        PaneInfo {
+            id: "%77".to_string(),
+            window: "fw-r-1-develop".to_string(),
+            index: 1,
+            role: "backend".to_string(),
+            kind: "factory-worker".to_string(),
+            label: "develop·1".to_string(),
+            run: run_id.clone(),
+            job: format!("{run_id}.develop.1"),
+            stage: "develop".to_string(),
+            cli: "claude".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            ..PaneInfo::default()
+        },
+        PaneInfo {
+            id: "%88".to_string(),
+            window: "login-claude".to_string(),
+            index: 0,
+            role: "login".to_string(),
+            kind: "login".to_string(),
+            ..PaneInfo::default()
+        },
+    ];
+    let panes_out = show_panes
+        .iter()
+        .map(|p| {
+            format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t0\t\t{}\t\t\t\t\t{}\t{}\t{}\t{}\t{}",
+                p.id,
+                p.window,
+                p.kind,
+                p.role,
+                p.index,
+                p.label,
+                p.session,
+                p.run,
+                p.job,
+                p.stage,
+                p.cli,
+                p.model
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let layout_runner = LayoutShowRunner {
+        panes_out,
+        calls: Mutex::new(Vec::new()),
+    };
+    let layout_runner = Arc::new(layout_runner);
+    let layout_tmux = TmuxClient::with_runner(SESSION, None, layout_runner.clone());
     let layout = Layout::new(&layout_tmux);
-    layout
-        .show_pane_with(
-            &[PaneInfo {
-                id: "%77".to_string(),
-                window: "fw-r-1-develop".to_string(),
-                index: 1,
-                role: "factory-worker".to_string(),
-                kind: "factory-worker".to_string(),
-                label: "develop".to_string(),
-                run: run_id.clone(),
-                job: format!("{run_id}.develop.1"),
-                stage: "develop".to_string(),
-                cli: "claude".to_string(),
-                model: "claude-sonnet-4-6".to_string(),
-                ..PaneInfo::default()
-            }],
-            "%77",
-        )
-        .unwrap();
-    let layout_calls = layout_runner.calls();
+    layout.show_pane_with(&show_panes, "%77").unwrap();
+    let worker_calls = layout_runner.calls.lock().unwrap().clone();
     assert!(
-        layout_calls
-            .iter()
-            .any(|(argv, _)| argv.contains(&"select-window".to_string())
-                && argv.contains(&"%77".to_string()))
+        worker_calls.iter().any(|argv| {
+            argv.windows(5)
+                .any(|w| w == ["swap-pane", "-d", "-s", "%77", "-t"])
+        }),
+        "factory-worker must swap into main instead of opening full screen: {worker_calls:?}"
     );
     assert!(
-        layout_calls
+        !worker_calls
             .iter()
-            .any(|(argv, _)| argv.contains(&"select-pane".to_string())
-                && argv.contains(&"%77".to_string()))
+            .any(|argv| argv.contains(&"select-window".to_string())),
+        "factory-worker must never call select-window: {worker_calls:?}"
+    );
+    layout.show_pane_with(&show_panes, "%88").unwrap();
+    let login_calls = layout_runner.calls.lock().unwrap().clone();
+    assert!(login_calls.iter().any(
+        |argv| argv.contains(&"select-window".to_string()) && argv.contains(&"%88".to_string())
+    ));
+
+    let mut status_app = tandem::status::app::StatusApp::new(
+        tmp.path.clone(),
+        tandem::coordination::store::CoordStore::new(tmp.path.clone()),
+        Some(layout_tmux.clone()),
+        None,
+    );
+    let before_open = layout_runner.calls.lock().unwrap().len();
+    status_app.handle_factory_action(Some(
+        tandem::status::factory_tab::FactoryAction::OpenWorkerPane {
+            pane_id: "%77".to_string(),
+        },
+    ));
+    let after_open = layout_runner.calls.lock().unwrap()[before_open..].to_vec();
+    assert!(
+        after_open.iter().any(|argv| {
+            argv.windows(5)
+                .any(|w| w == ["swap-pane", "-d", "-s", "%77", "-t"])
+        }),
+        "StatusApp OpenWorkerPane must route through Layout::select_agent / swap-pane: {after_open:?}"
+    );
+    assert!(
+        !after_open
+            .iter()
+            .any(|argv| argv.contains(&"select-window".to_string())),
+        "StatusApp OpenWorkerPane must never call select-window: {after_open:?}"
     );
 
     // #9: SettingsTab probes logins once lazily
