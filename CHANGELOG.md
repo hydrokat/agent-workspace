@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.28.0] — 2026-11-26
+
+### Fixed
+- **Detached Factory worker launch & TUI-managed panes (`p-033`)**: `worker::launch` now passes `-d` to `tmux new-window` so spawning a worker no longer steals active focus out of `tandem:main` into a full-screen window. `Layout` (`refresh`, `add_agent`, `step`, `show_pane_with`, `selected_and_size`, `select_agent`, `apply_grid_selection`, `close_agent`, `reset_ui`) and `SidebarApp` treat `factory-worker` panes (`@tandem_kind = "factory-worker"`) as first-class manageable panes swapped/gridded inside `tandem:main` (keeping only `login` panes on `select-window`), and `prepare_pane_removal` swaps in another hidden agent or respawns a placeholder before `worker::finish` or `team::terminate_agent` tears down a visible worker pane. Guarded `r`/`x`/`Delete` shortcuts in `SidebarApp` ignore `is_worker` rows to preserve Team Guardrails.
+
+### Added
+- **Role/Task categorization in Sidebar and Factory Agents (`p-033`)**: Added `AgentCategory` and `categorize_agent` (`Planning & Research`, `Implementers`, `Review & QA`, `Ops & Other`) in `tmux::tabs`, grouping `factory-worker` panes under their role/stage heading in Factory Sidebar (`stage·attempt(run)`) and adding sortable category dividers plus a `RoleFilter` cycle (`c` / `c role: ... ▾`) inside the `FactoryAgents` view.
+- **Configured model freshness verification, interactive picker & persisted decisions (`p-033`)**: Added `verify_configured_models` (checking live CLI catalogs with alias-aware handling for Claude and SHA-256 `available_signature` suppression), `ModelDecision` (`updated`/`kept`) in `FactorySettings` (`settings.json`), `apply_model_decision` (user-only, audited), and `tandem factory models check|choose`. Factory TUI (`StatusApp`) runs a non-blocking startup model check, displays a clickable yellow `ModelOutdatedBanner` (`M`), opens the interactive `ModelUpdatePicker` modal, and surfaces `[missing]`/`[outdated]` badges and `u check models` in `SettingsTab`.
+
 ## [1.27.1] — 2026-11-25
 
 ### Fixed
